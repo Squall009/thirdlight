@@ -773,7 +773,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     meter: () => true,
   });
-  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws) };
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws), skyHeight: (world: string, x: number, z: number) => draws.sky(world)?.heightAt(x, z) ?? null, skyColumns: (world: string) => draws.sky(world)?.count ?? 0 };
   return {
     draws,
     kitMeshes,

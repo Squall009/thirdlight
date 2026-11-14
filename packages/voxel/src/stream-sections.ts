@@ -258,6 +258,8 @@ export class SectionDerives {
   readonly evaluateUs = { all: new SampleRing(), pieces: new SampleRing() };
   /** Worker µs a level-0 section building its relief mesh (when the streamer asks for one). */
   readonly reliefUs = new SampleRing();
+  /** Per level-0 section derived (worker µs): its open regions, its mesh producers, and its whole derive. */
+  readonly regionsUs = { regions: new SampleRing(), mesh: new SampleRing(), derive: new SampleRing() };
 
   constructor(
     private readonly host: SectionHost,
@@ -1062,6 +1064,12 @@ export class SectionDerives {
         this.evaluateUs.all.add(r.times.evaluateUs);
         if (r.assembly.instances.count > 0) this.evaluateUs.pieces.add(r.times.evaluateUs);
         if (r.times.reliefUs !== undefined) this.reliefUs.add(r.times.reliefUs);
+        if (r.times.regionsUs !== undefined) {
+          const t = r.times;
+          this.regionsUs.regions.add(t.regionsUs!);
+          this.regionsUs.mesh.add(t.meshUs);
+          this.regionsUs.derive.add(t.evaluateUs + t.meshUs + t.consumersUs + t.regionsUs!);
+        }
       }
       this.deliver(s, { solid: 0, exposed: 0, mask: null, hash: r.hash, assembly: r.assembly, shader: r.shader }, r.times);
     });

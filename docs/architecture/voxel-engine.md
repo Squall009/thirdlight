@@ -26,8 +26,8 @@ page in the same commit.
   roof, foundation, stair, pillar, opening), shape 4 bits (the fill for terrain, the fill level for liquid, the
   integrity for construction roles), wetness 3 bits, 9 reserved bits (two are held, unspent, for a vegetation
   density value).
-- **Derived data is never stored**: meshes, collision, navigation, light coverage, occupancy, detail pieces are
-  rebuilt in workers from voxels. The one stored derivative is the **far cache** (levels 2 and up of the mips,
+- **Derived data is never stored**: meshes, collision, navigation, light coverage, occupancy, detail pieces and
+  open regions (region labels, chunk face connectivity, sky columns) are rebuilt in workers from voxels. The one stored derivative is the **far cache** (levels 2 and up of the mips,
   and baked bricks down to the world's bake level).
 - **Edits** go through `editVoxels` strokes (set, dig, add, brush, fill, stamp). The project's one `undo` /
   `redo` steps scene edits and strokes on one line in the order they were made (workspace `undo-timeline.ts`,
@@ -98,7 +98,7 @@ page in the same commit.
 | # | Foundation | Used by | State |
 |---|---|---|---|
 | 1 | Fields derived from voxels (height, slope, material, role, sky, water, fog, spline distance), one arithmetic for worker, shader and tests | vegetation rules, water, fog, `ctx.voxels`, far placement | 47b |
-| 2 | Open-region labelling (a walk through connected non-solid cells) | rooms, cut-away, audio room size, stream priority, the water and fog fill, water bodies | 46e |
+| 2 | Open-region labelling (a walk through connected non-solid cells) | rooms, cut-away, audio room size, stream priority, the water and fog fill, water bodies | exists: `@thirdlight/voxel` `open-regions.ts` (per level-0 unit in the derive job: open cells, i.e. not drawn as a body, labelled 6-connected, `opening` cells as portals apart, faces reached, face connectivity, the highest solid cell a column) and `open-region-stitch.ts` (`OpenRegionStitch`: chunks' components joined across faces into regions and portals as chunks arrive, change and leave; enclosed, complete, sky, volume, portals; sky heights a column, sent to the page with the draw batches, `sky-columns.ts`); `ctx.voxels.regionAt`; the voxel world page's tint overlay (`?regions=1`) |
 | 3 | Far-node side channels and one bake runner | far water, far fog, forest canopy, baked occlusion | 49; the runner exists (far cache) |
 | 4 | Camera-following window helper | wind, interaction field, ripples, water info, fog density and simulation | exists: `three-adapter` `camera-window.ts` (`CameraWindow`, `WindowTargets`); the wind map (`wind-field.ts`, its sample public as `MaterialLibrary.windSample`) and the interaction field (`interaction-field.ts`: 256² × 0.25 m, every `interactor` stamped by one compute pass, read by foliage; WebGPU only) sit on it |
 | 5 | Regenerated structures (a definition → voxels + overrides) | buildings, road and river splines, water bodies | 47a; `structure-overrides.ts` is a draft |

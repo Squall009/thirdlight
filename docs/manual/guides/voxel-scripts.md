@@ -154,6 +154,30 @@ const down = ctx.voxels.raycast([x, y + 10, z], [0, -1, 0], 50);
 if (down !== null) ctx.voxels.dig({ center: down.at, radius: 1 });
 ```
 
+## Regions: `regionAt`
+
+`regionAt(x, y, z)` names the open region the voxel at a point is in: the
+open voxels (air, water, rails and posts: anything not drawn as a body) joined
+face to face, never through an edge alone. The answer has the region's `id`
+(the same while the region does not change), `enclosed` (nothing of it under
+open sky and nothing of it reaching ground that is not loaded yet: a room whose
+doors and windows are its only ways out), `complete` (false while it reaches
+space not loaded, so it may go on there), `volume` in m³, `sky` (this voxel is
+under open sky: nothing solid above it), `seesSky` (some voxel of the region
+is) and `portals`. Door and window openings (the `opening` role) are
+**portals**: they separate the regions either side, so a house's room is its
+own region joined to the street by its doors and windows; `portals` counts
+them (in an opening, `portal` is true and `portals` counts the regions it
+joins). A hole dug through a wall is not an opening: it joins the room to what
+is behind it. Null where the voxel is solid, or the world is not loaded there,
+or the regions are not stitched yet: just after a chunk arrives or an edit
+lands, read again on a later step.
+
+```ts
+const r = ctx.voxels.regionAt(x, y, z);
+if (r !== null && r.enclosed) ctx.game.add('indoors', 1);
+```
+
 ## Materials: `materialAt`, `materialOf`
 
 `materialAt(x, y, z)` gives the material record of the voxel at a point,

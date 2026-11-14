@@ -334,6 +334,8 @@ export interface StreamMetrics {
   readonly evaluateUs: { readonly all: SampleSummary; readonly pieces: SampleSummary } | null;
   /** Worker µs a level-0 section building its relief mesh (null: none asked for, or nothing derived). */
   readonly reliefUs: SampleSummary | null;
+  /** Worker µs a level-0 section's open regions took, beside its mesh producers and its whole derive (null: none yet). */
+  readonly regionsUs: { readonly regions: SampleSummary; readonly mesh: SampleSummary; readonly derive: SampleSummary } | null;
   /** The relief ring (cells; null: the streamer derives no sections with rules). */
   readonly relief: ReturnType<ReliefRing['state']> | null;
   /** Updates counted, those where the ground under the focus or its lead point was not resident and derived, and those with no ground within the ring's height (stream-coverage.ts). */
@@ -779,6 +781,7 @@ export class VoxelStreamer {
       counters: { ...this.counters, ground: copyCoverage(this.counters.ground) },
       evaluateUs: this.derives === null ? null : { all: summarize(this.derives.evaluateUs.all), pieces: summarize(this.derives.evaluateUs.pieces) },
       reliefUs: this.derives === null || this.derives.reliefUs.count === 0 ? null : summarize(this.derives.reliefUs),
+      regionsUs: this.derives === null || this.derives.regionsUs.regions.count === 0 ? null : { regions: summarize(this.derives.regionsUs.regions), mesh: summarize(this.derives.regionsUs.mesh), derive: summarize(this.derives.regionsUs.derive) },
       relief: this.relief?.ring.state() ?? null,
       coverage: copyCoverage(this.counters.ground),
     };

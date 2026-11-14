@@ -672,10 +672,61 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
     expect(await hook<number | null>(page, 'levelAt', ...pit!)).toBe(1);
     expect(changedPixels(levelBefore, await shot(page)), 'a dig at level 1').toBeGreaterThan(300);
     await hook(page, 'reread');
+    await regionOverlay(page, ox, oy, oz);
     await fineBricks(page, yaw, ox, oy, oz, skyBelow);
     // The assembly proof's refused command and stale undo (their HTTP 409s) are the only console errors.
     expect(errors).toHaveLength(2);
   });
+}
+
+type RegionInfo = { id: number; portal: boolean; enclosed: boolean; complete: boolean; cells: number; sky: boolean; portals: number };
+type RegionDrawn = { on: boolean; faces: number; enclosed: number; unknown: number; portal: number; regions: number; buildMs: number };
+
+/**
+ * The open regions on the voxel page (stitched there, where its streamer runs) and their tint overlay: a hut of two
+ * rooms built as runtime edits beside the pad (a wall shell, a partition with a door of opening cells, a door and a
+ * window to outside), seen from inside the first room through the door. The two rooms are enclosed regions apart,
+ * joined by a portal; with the overlay on, the room's walls take one hue, the far room's another and the doorway is
+ * marked, so the picture differs from the overlay off. The local edits go again after.
+ */
+async function regionOverlay(page: Page, ox: number, oy: number, oz: number): Promise<void> {
+  const wall = { material: MAT.stone, role: VOXEL_ROLE.wall, wetness: 0 };
+  const opening = { material: MAT.stone, role: VOXEL_ROLE.opening, wetness: 0 };
+  const fill = (min: Cell, max: Cell, voxel: typeof wall | null): unknown => ({ v: 2, grid: 0, kind: 'fill', min: [ox + min[0], oy + min[1], oz + min[2]], max: [ox + max[0], oy + max[1], oz + max[2]], mode: voxel === null ? 'dig' : 'place', ...(voxel === null ? {} : { voxel }) });
+  for (const c of [
+    fill([-40, 0, -8], [-22, 10, 8], wall),
+    fill([-39, 1, -7], [-23, 9, 7], null),
+    fill([-31, 1, -7], [-31, 9, 7], wall),
+    fill([-31, 1, -1], [-31, 5, 0], opening),
+    fill([-36, 1, 8], [-35, 5, 8], opening),
+    fill([-27, 5, 8], [-25, 6, 8], opening),
+  ]) expect((await hook<{ ok: boolean; code?: string }>(page, 'localEdit', c)).ok).toBe(true);
+  await hook(page, 'settle');
+  const at = (c: Cell): Promise<RegionInfo | null> => page.evaluate((p) => (window as unknown as { __tlVoxelWorld: { regions: { at(x: number, y: number, z: number): RegionInfo | null } } }).__tlVoxelWorld.regions.at(...(p as [number, number, number])), [ox + c[0], oy + c[1], oz + c[2]]);
+  const regions = (): Promise<{ drawn: RegionDrawn; stats: { regions: number; enclosed: number; portals: number } }> => page.evaluate(() => { const r = (window as unknown as { __tlVoxelWorld: { regions: { drawn(): RegionDrawn; stats(): { regions: number; enclosed: number; portals: number } } } }).__tlVoxelWorld.regions; return { drawn: r.drawn(), stats: r.stats() }; });
+  await expect.poll(async () => { const a = await at([-35, 3, 0]); const b = await at([-27, 3, 0]); return a !== null && b !== null && a.enclosed && b.enclosed && a.id !== b.id; }, { timeout: 20_000, message: 'the two rooms are enclosed regions apart' }).toBe(true);
+  const a = (await at([-35, 3, 0]))!;
+  expect(a.cells).toBe(8 * 9 * 15);
+  expect(a.portals, 'the partition door and the outer door').toBe(2);
+  expect((await at([-31, 2, 0]))!.portal).toBe(true);
+  // From inside the first room, looking through its door in the partition (+x) at the second room.
+  await hook(page, 'look', ox - 34, oy + 3, oz, -Math.PI / 2, 0.05, 1.2);
+  await hook(page, 'settle');
+  const snap = async (name: string): Promise<ReturnType<typeof decodePng>> => {
+    await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    return decodePng(await page.screenshot({ path: test.info().outputPath(name) }));
+  };
+  const off = await snap('regions-off.png');
+  await page.evaluate(() => (window as unknown as { __tlVoxelWorld: { regions: { overlay(on: boolean): void } } }).__tlVoxelWorld.regions.overlay(true));
+  await expect.poll(async () => { const d = (await regions()).drawn; return d.enclosed > 0 && d.portal > 0 && d.regions >= 3; }, { timeout: 10_000, message: 'the overlay drew both rooms and the portals' }).toBe(true);
+  const on = await snap('regions-on.png');
+  const r = await regions();
+  console.log(`[voxel-world] open regions: ${JSON.stringify(r.stats)}; overlay ${JSON.stringify(r.drawn)}; room ${JSON.stringify(a)}`);
+  expect(r.stats.enclosed).toBeGreaterThanOrEqual(2);
+  expect(r.stats.portals).toBeGreaterThanOrEqual(3);
+  expect(changedPixels(off, on), 'the overlay tints the rooms').toBeGreaterThan(20_000);
+  await page.evaluate(() => (window as unknown as { __tlVoxelWorld: { regions: { overlay(on: boolean): void } } }).__tlVoxelWorld.regions.overlay(false));
+  await hook(page, 'reread');
 }
 
 /** Mean colour step between neighbouring pixels (x and y) where `mask` holds: how much detail a surface shows. */
@@ -953,6 +1004,24 @@ async function playProject(): Promise<[number, number, number]> {
     "      ctx.game.add(ground ? 'rayGround' : 'rayGroundMissed', 1);",
     "      ctx.game.add(v.raycast(eye, [0, 1, 0], 500) === null ? 'raySky' : 'raySkyHit', 1);",
     "      ctx.game.add(v.raycast(eye, [0, -1, 0], 20, { stop: 'light' }) !== null ? 'rayLight' : 'rayLightMissed', 1);",
+    '    }',
+    // Open regions: two rooms dug under the ground behind the camera (a shell of wall voxels round them, a partition
+    // with a door of opening cells), read each step once built; a shaft dug up from the first room opens it to the sky.
+    `    const A = [${at[0]}, ${at[1]}, ${at[2]}];`,
+    "    const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => ({ min: [A[0] + x0, A[1] + y0, A[2] + z0], max: [A[0] + x1, A[1] + y1, A[2] + z1] });",
+    "    for (const _ of ctx.debug.command('rooms')) {",
+    "      const r = [v.set(box(-3, -7, 9, 3, -1.5, 16), { material: 5, role: 3 }), v.dig(box(-2, -6, 10, 2, -2.5, 15)), v.set(box(-2, -6, 12.5, 2, -2.5, 12.75), { material: 5, role: 3 }), v.set(box(-0.5, -6, 12.5, 0.5, -4, 12.75), { material: 5, role: 9 })];",
+    "      state.rooms = r.every((e: any) => e.ok); ctx.game.add(state.rooms ? 'roomsBuilt' : 'roomsRefused', 1);",
+    '    }',
+    "    for (const _ of ctx.debug.command('shaft')) { const r = v.dig(box(-0.5, -3, 10.5, 0.5, 14, 11.5)); ctx.game.add(r.ok ? 'shaftDug' : 'shaftRefused', 1); }",
+    '    if (state.rooms) {',
+    "      const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));",
+    '      const a = v.regionAt(A[0], A[1] - 4.5, A[2] + 11);',
+    '      const b = v.regionAt(A[0], A[1] - 4.5, A[2] + 14);',
+    '      const o = v.regionAt(A[0], A[1] + 3, A[2]);',
+    "      put('roomKnown', a !== null ? 1 : 0); put('roomEnclosed', a?.enclosed ? 1 : 0); put('roomVolume', a !== null ? Math.round(a.volume) : 0);",
+    "      put('roomPortals', a?.portals ?? 0); put('roomSky', a?.seesSky ? 1 : 0); put('roomsApart', a !== null && b !== null && a.id !== b.id ? 1 : 0);",
+    "      put('otherEnclosed', b?.enclosed ? 1 : 0); put('outSky', o !== null && o.sky && !o.enclosed ? 1 : 0); put('outVolume', o !== null ? Math.round(o.volume) : 0);",
     '    }',
     `    const wetAt = ${wetAt};`,
     "    for (const _ of ctx.debug.command('wet')) { const r = v.paint({ center: wetAt, radius: 1.5 }, { wetness: 7 }); ctx.game.add(r.ok ? 'wet' : 'refused', 1); ctx.game.add('wetness', v.get(...wetAt)?.wetness ?? -1); }",
@@ -1416,6 +1485,28 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     await expect.poll(async () => again.y - ((await observe()).player?.y ?? again.y), { timeout: 10_000, message: 'the character falls into the restored pit' }).toBeGreaterThan(1);
     const restored = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('restored.png') }));
     expect(changedPixels(restarted, restored)).toBeGreaterThan(500);
+    // Open regions in the simulation (ctx.voxels.regionAt, stitched as chunks arrive and edits land): two rooms dug
+    // under the ground behind the camera, apart by a partition whose door is opening cells, are two enclosed regions
+    // joined by a portal; the air over the pad is under the sky. A shaft dug up from the first room opens it: it is the
+    // outdoors' region now, under the sky. With nothing labelled the room stays unknown (`roomKnown` 0); with every
+    // cell one region the rooms are not apart; with stitching skipped the room never becomes complete (not enclosed).
+    await control({ command: 'debugCommand', name: 'rooms' });
+    await expect.poll(() => counter('roomsBuilt'), { timeout: 10_000 }).toBe(1);
+    // One observation a poll (observations asked at once do not all carry the counters).
+    const roomGauges = async (): Promise<string> => { const c = (await observe()).counters ?? {}; return ['roomKnown', 'roomEnclosed', 'roomsApart', 'otherEnclosed', 'roomSky', 'outSky'].map((k) => c[k] ?? 0).join(','); };
+    const roomsAt = Date.now();
+    await expect.poll(roomGauges, { timeout: 30_000, message: 'two enclosed rooms, apart, under ground; the pad under the sky' }).toBe('1,1,1,1,0,1');
+    const roomVolume = await counter('roomVolume');
+    console.log(`[voxel-play] ${renderer} open regions: rooms' edits to their answers ${Date.now() - roomsAt} ms; room ${roomVolume} m³ (dug 4.5 × 3.5 × 2.5), portals ${await counter('roomPortals')}, outdoors ${await counter('outVolume')} m³ loaded`);
+    expect(roomVolume).toBeGreaterThan(20);
+    expect(roomVolume).toBeLessThan(60);
+    expect(await counter('roomPortals')).toBe(1);
+    const shaftAt = Date.now();
+    await control({ command: 'debugCommand', name: 'shaft' });
+    await expect.poll(() => counter('shaftDug'), { timeout: 10_000 }).toBe(1);
+    await expect.poll(async () => { const c = (await observe()).counters ?? {}; return `${c['roomEnclosed'] ?? 0},${c['roomSky'] ?? 0}`; }, { timeout: 20_000, intervals: [50], message: 'the shaft opens the room to the sky' }).toBe('0,1');
+    console.log(`[voxel-play] ${renderer} open regions: the shaft's dig to the room's answer changed ${Date.now() - shaftAt} ms (command round trip and polls included)`);
+    expect(await counter('otherEnclosed'), 'the room behind the door stays enclosed').toBe(1);
     // The relief ring of the high tier is read in the export below (it plays the same way).
     // The far field at the low tier (the world's own short load ring there): ray-marched bricks draw the ground past
     // the near field.

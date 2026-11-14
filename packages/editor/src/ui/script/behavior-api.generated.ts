@@ -3194,6 +3194,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "The first voxel a ray meets from `origin` along `direction` (metres; any length) within `maxDistance` metres, or null. The ray steps from cell face to cell face (never between two cells that touch only by an edge); past the full-detail ring"
     },
     {
+      "name": "regionAt",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number): VoxelRegionInfo | null",
+      "returns": "VoxelRegionInfo",
+      "doc": "The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the cell is under open sky, and its portals (door and window openings). Null where the cell is solid, or the world is not loaded th"
+    },
+    {
       "name": "materialAt",
       "kind": "method",
       "detail": "(x: number, y: number, z: number): VoxelMaterialInfo | null",
@@ -3326,6 +3333,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "(origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions | undefined): VoxelRayHit | null",
       "returns": "VoxelRayHit",
       "doc": "The first voxel a ray meets from `origin` along `direction` (metres; any length) within `maxDistance` metres, or null. The ray steps from cell face to cell face (never between two cells that touch only by an edge); past the full-detail ring"
+    },
+    {
+      "name": "regionAt",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number): VoxelRegionInfo | null",
+      "returns": "VoxelRegionInfo",
+      "doc": "The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the cell is under open sky, and its portals (door and window openings). Null where the cell is solid, or the world is not loaded th"
     },
     {
       "name": "materialAt",
@@ -5110,6 +5124,56 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "boolean",
       "doc": "Met in the far field or a coarser level than full detail."
+    }
+  ],
+  "VoxelRegionInfo": [
+    {
+      "name": "id",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The region's id: the same while the region does not change (it is joined or split by an edit, or grows as chunks load)."
+    },
+    {
+      "name": "portal",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "The cell is in an opening (a portal between regions), not in a region."
+    },
+    {
+      "name": "enclosed",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "Nothing of the region is under open sky, it reaches no space that is not loaded yet, and not the world's edge: a room whose openings are its only ways out. A region reaching a chunk not loaded is never enclosed."
+    },
+    {
+      "name": "complete",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "The region reaches no space that is not loaded yet (false: it may continue there)."
+    },
+    {
+      "name": "volume",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The region's volume in m³ (the loaded part of it while not complete)."
+    },
+    {
+      "name": "sky",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "This cell is under open sky: no solid voxel above it in its column (as far as the world is loaded)."
+    },
+    {
+      "name": "seesSky",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "Some cell of the region is under open sky."
+    },
+    {
+      "name": "portals",
+      "kind": "property",
+      "detail": "number",
+      "doc": "A region: the portals (openings) on its boundary; a portal: the regions it joins."
     }
   ],
   "VoxelRings": [

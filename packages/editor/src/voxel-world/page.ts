@@ -119,6 +119,7 @@ import { PendingEdits, type SwapSeen } from './pending-edits';
 import { EDIT_VISIBLE_TIMEOUT_MS, LevelDrawLog, localEditHooks } from './local-edits';
 import { rangeReadStats } from './range-reads';
 import { RangeWorld } from './range-world';
+import { pageRegions } from './region-overlay';
 
 const params = new URLSearchParams(location.search);
 const projectId = params.get('project') ?? '';
@@ -596,7 +597,7 @@ async function main(): Promise<void> {
     clearKitScene: kitScene.clear,
     ...localEditHooks({ streamer, grid, pending, derivedLogs, bodySetAt, chunkSetAt, levelLog, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
     /** The last swaps seen (frame, report, page build ms). */
-    swaps: () => swaps.slice(),
+    swaps: () => swaps.slice(), ...pageRegions({ streamer, grid, origin, scene, target, on: params.get('regions') === '1' }).hooks(),
     ...assemblyProbes({ streamer, grid, origin, collision, scene, files, kitPiece: (material, piece, variant) => meshes.kits?.describe(material, piece, variant) ?? null }),
     /** A dab at the cell under a screen point. */
     pickAndEdit,

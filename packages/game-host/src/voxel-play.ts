@@ -71,10 +71,11 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             return fine;
           },
           pieces: (table ??= worldPieceTable(kits, seed)),
-          present: (stream, sectionEdge) => {
-            conn.present?.(stream, sectionEdge);
-            // The batches carry the walk's blocks for the page's GPU walk (levels 0 and up; the far field stays the CPU's).
-            mine = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: streamerWalkSource(stream) });
+          present: (stream, sectionEdge, regions) => {
+            conn.present?.(stream, sectionEdge, regions);
+            // The batches carry the walk's blocks for the page's GPU walk (levels 0 and up; the far field stays the CPU's)
+            // and the sky heights the open regions found, for lighting on the page.
+            mine = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: streamerWalkSource(stream), ...(regions !== undefined ? { sky: regions } : {}) });
             batchers.set(world, mine);
             streams.set(world, stream);
           },

@@ -50,6 +50,7 @@ import {
   SaveFileError,
   setFineBricks,
   FarWalkNodes,
+  OpenRegionStitch,
   streamerWalkSource,
   walkRay,
   walkVoxels,
@@ -76,7 +77,7 @@ import {
   type WorkerPool,
   type PieceTable,
 } from '@thirdlight/voxel';
-import { residentBytes, threadProfiler } from '@thirdlight/shared';
+import { frameSliceMs, residentBytes, threadProfiler } from '@thirdlight/shared';
 
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
 import { floorColumns, VoxelFloors } from './voxel-floor';
@@ -89,6 +90,7 @@ import {
   type BehaviorVoxelWorld,
   type VoxelRayHit,
   type VoxelRayOptions,
+  type VoxelRegionInfo,
   type RegionCells,
   type VoxelBox,
   type VoxelChange,
@@ -111,6 +113,8 @@ import {
 
 /** A script's ray walks, as a span of the simulation's frame (what its rays cost). */
 const RAYCAST_SPAN = threadProfiler.span('voxel rays', 'scripts');
+/** Stitching the chunks' open regions into the world's (open-region-stitch.ts), as streaming work of this thread. */
+const REGIONS_SPAN = threadProfiler.span('open regions stitched', 'voxelStream');
 
 /** A world's chunk source and the workers its jobs run on, as the host (Play, an export, a test) provides them. */
 export interface VoxelWorldConnection {
@@ -137,9 +141,11 @@ export interface VoxelWorldConnection {
   /**
    * The world's streamer once it is made (before it streams anything), for
    * what draws the world: it listens to the streamer's events and joins the
-   * chunks it announces. `sectionEdge`: the world's derive section edge.
+   * chunks it announces. `sectionEdge`: the world's derive section edge;
+   * `regions`: the world's open regions as stitched here (their sky heights
+   * travel with the draws).
    */
-  present?(stream: VoxelStreamer, sectionEdge: number): void;
+  present?(stream: VoxelStreamer, sectionEdge: number, regions?: OpenRegionStitch): void;
 }
 
 /** How the runtime reaches a project's voxel worlds (absent: a game's voxel worlds stream nothing and read null). */
@@ -250,6 +256,8 @@ export interface VoxelHostStats {
   readonly floors?: { readonly count: number; readonly added: number; readonly removed: number; readonly handedOver: number; readonly lifted: number };
   readonly propChannelBytes: number;
   readonly pool?: { readonly workers: number; readonly queued: number; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly cancelledQueued: number; readonly cancelledSent: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
+  /** The open regions stitched (counts, bytes held) and the derive µs of a section's regions beside its mesh and its whole derive. */
+  readonly regions?: Readonly<Record<string, unknown>> & { readonly regions: number; readonly enclosed: number; readonly portals: number; readonly bytes: number };
   readonly far?: Readonly<Record<string, unknown>> & { readonly selected: number; readonly drawn: number; readonly pending: number };
   /** Streamer updates, those where the ground under the focus or a second ahead of it was not resident and derived, and those with no ground within the ring's height under the focus. */
   readonly coverage?: Readonly<GroundCoverage>;
@@ -280,6 +288,9 @@ export class VoxelWorldHost {
   private farWalk: FarWalkNodes | null = null;
   private walkSource: WalkSource | null = null;
   private unresidentWalk: (() => void) | null = null;
+  /** The world's open regions, stitched as chunks' results arrive (null: no world open). */
+  private regions: OpenRegionStitch | null = null;
+  private unresidentRegions: (() => void) | null = null;
   /** The props stamped into the world, by object: kept while the world opens, placed into the channel when it is. */
   private readonly props = new Map<string, PropShape>();
   private disposed = false;
@@ -322,6 +333,7 @@ export class VoxelWorldHost {
       get: (x: number, y: number, z: number) => this.get(x, y, z),
       coverageAt: (x: number, y: number, z: number) => this.coverageAt(x, y, z),
       raycast: (origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions) => this.raycast(origin, direction, maxDistance, options),
+      regionAt: (x: number, y: number, z: number) => this.regionAt(x, y, z),
       materialAt: (x: number, y: number, z: number) => {
         const v = this.get(x, y, z);
         return v === null ? null : (this.materials.get(v.material) ?? null);
@@ -384,8 +396,12 @@ export class VoxelWorldHost {
     this.walkSource = streamerWalkSource(streamer, farWalk);
     this.unresidentWalk?.();
     this.unresidentWalk = farWalk === null ? null : residentBytes.register('voxelStream', () => farWalk.bytes);
+    const regions = new OpenRegionStitch(streamer);
+    this.regions = regions;
+    this.unresidentRegions?.();
+    this.unresidentRegions = residentBytes.register('voxelStream', () => regions.bytes);
     streamer.on((e) => this.onStream(e));
-    conn.present?.(streamer, s.sectionEdge);
+    conn.present?.(streamer, s.sectionEdge, regions);
   }
 
   /**
@@ -469,6 +485,7 @@ export class VoxelWorldHost {
     if (this.disposed) return;
     if (e.type === 'loaded') this.channel?.loaded(e.cx, e.cy, e.cz);
     else if (e.type === 'unloaded') {
+      this.regions?.touch(e.cx, e.cy, e.cz);
       this.channel?.unloaded(e.cx, e.cy, e.cz);
       this.derived.delete(chunkKey(this.conn!.grid, e.cx, e.cy, e.cz));
       this.ring?.unloaded(e.cx, e.cy, e.cz);
@@ -476,7 +493,10 @@ export class VoxelWorldHost {
       this.derived.add(chunkKey(this.conn!.grid, e.cx, e.cy, e.cz));
       // The body follows the chunk's new join in this task, so it swaps with the draw and the shader data; a change of
       // the relief meshes alone (the relief ring moved) leaves what collides as it was.
-      if (!e.shaderOnly && !e.reliefOnly) this.ring?.changed(e.cx, e.cy, e.cz);
+      if (!e.shaderOnly && !e.reliefOnly) {
+        this.ring?.changed(e.cx, e.cy, e.cz);
+        this.regions?.touch(e.cx, e.cy, e.cz);
+      }
       const id = `${e.cx},${e.cy},${e.cz}`;
       this.shaderOnlyChunks.set(id, (this.shaderOnlyChunks.get(id) ?? true) && e.shaderOnly);
     } else if (e.type === 'collision') {
@@ -534,6 +554,15 @@ export class VoxelWorldHost {
     const collide = [...(s.detail.fast ? [] : [f]), ...bodies, ...ahead];
     s.collision?.setFoci(collide);
     s.update();
+    if (this.regions?.pending === true) {
+      // The derive slice: stitching follows the chunks the derives let through, a share of the same streaming work.
+      threadProfiler.begin(REGIONS_SPAN);
+      try {
+        this.regions.update(frameSliceMs('voxelDerive'));
+      } finally {
+        threadProfiler.end(REGIONS_SPAN);
+      }
+    }
     if (this.ring !== null) {
       this.ring.setFoci(collide);
       this.ring.update();
@@ -607,6 +636,10 @@ export class VoxelWorldHost {
     this.channel = null;
     this.unresidentWalk?.();
     this.unresidentWalk = null;
+    this.unresidentRegions?.();
+    this.unresidentRegions = null;
+    this.regions?.clear();
+    this.regions = null;
     this.farWalk?.clear();
     this.farWalk = null;
     this.walkSource = null;
@@ -650,6 +683,7 @@ export class VoxelWorldHost {
       ...(m !== undefined ? { coverage: m.coverage } : {}),
       ...(this.streamer !== null ? { readRing: { setM: this.streamer.readReach.sceneRing.loadRadius * VOXEL_SIZE_M, nowM: this.streamer.ring.loadRadius * VOXEL_SIZE_M, reachM: this.streamer.readReach.cells === null ? null : this.streamer.readReach.cells * VOXEL_SIZE_M } } : {}),
       ...(m !== undefined ? { stream: { reading: m.reading, decoding: m.decoding, deriving: m.deriving, damaged: m.damaged, derivedBytes: m.bytes.derived, counters: m.counters, lod: this.streamer?.mips?.lod.counters ?? null } } : {}),
+      ...(this.regions !== null ? { regions: { ...this.regions.stats(), bytes: this.regions.bytes, deriveUs: m?.regionsUs ?? null } } : {}),
       ...(far !== undefined ? { far: { selected: far.nodes, drawn: far.drawn, pending: far.pending, jobs: far.jobs, selectMs: far.selectMs, meshUs: far.meshUs, queueMs: far.queueMs, readMs: far.readMs, pumpMs: far.pumpMs, commitMs: far.commitMs, firsts: far.firsts, counters: far.counters, gpu: far.gpu, standIns: far.standIns, seen: far.seen, fine: far.fine } } : {}),
     };
   }
@@ -715,6 +749,24 @@ export class VoxelWorldHost {
     } finally {
       threadProfiler.end(RAYCAST_SPAN);
     }
+  }
+
+  /** The open region of the cell at a world position (open-region-stitch.ts), or null. */
+  regionAt(x: number, y: number, z: number): VoxelRegionInfo | null {
+    const r = this.regions;
+    if (r === null || ![x, y, z].every(Number.isFinite)) return null;
+    const s = VOXEL_SIZE_M;
+    const cx = Math.floor(x / s);
+    const cy = Math.floor(y / s);
+    const cz = Math.floor(z / s);
+    const info = r.regionAt(cx, cy, cz);
+    if (info === null) return null;
+    return Object.freeze({ id: info.id, portal: info.portal, enclosed: info.enclosed, complete: info.complete, volume: info.cells * s * s * s, sky: r.skyAt(cx, cy, cz) ?? true, seesSky: info.sky, portals: info.portals });
+  }
+
+  /** The world's open regions as stitched (null: no world open): what lighting and benches read beside `regionAt`. */
+  get openRegions(): OpenRegionStitch | null {
+    return this.regions;
   }
 
   private resident(r: RegionCells): boolean {

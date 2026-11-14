@@ -1309,7 +1309,8 @@ describe('mip nodes through the same derive', () => {
       expect(node.level, at).toBe(n.level);
       expect(chunk.level, at).toBe(0);
       expect(node.ground.indices.length, at).toBeGreaterThan(0);
-      expect(encodeDerived(node), at).toEqual(encodeDerived({ ...chunk, level: n.level }));
+      // Open regions are a level-0 part: a node has none, so the chunk's are left out of the comparison.
+      expect(encodeDerived(node), at).toEqual(encodeDerived({ ...chunk, level: n.level, regions: null }));
       // The canonical bytes carry the level: a node is never taken for a chunk of the same cells.
       expect(crc32(encodeDerived(node)), at).not.toBe(crc32(encodeDerived(chunk)));
       // Crease placement and splits run at coarse levels too (the rules' thresholds are in cells).

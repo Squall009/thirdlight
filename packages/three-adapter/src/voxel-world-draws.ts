@@ -74,7 +74,7 @@
  */
 import * as THREE from 'three';
 import { residentBytes, threadProfiler, wallClock } from '@thirdlight/shared';
-import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
+import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SkyColumns, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
 import { isStreamedTexture } from './texture-streaming';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { VoxelBatchStage, voxelBatchFrameMs } from './voxel-batch-stage';
@@ -277,6 +277,8 @@ export class VoxelWorldDraws {
   private readonly unregister: (() => void)[] = [];
   /** Each world's occupancy walk blocks on the GPU (WebGPU only; voxel-walk-gpu.ts). */
   private readonly walks = new Map<string, VoxelWalkGpu>();
+  /** Each world's sky heights by chunk column, as the batches bring them (every renderer: plain arrays). */
+  private readonly skies = new Map<string, SkyColumns>();
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.unregister.push(
@@ -286,6 +288,7 @@ export class VoxelWorldDraws {
       residentBytes.register('voxelStream', () => {
         let n = 0;
         for (const g of this.walks.values()) n += g.table.bytes + g.gpuBytes;
+        for (const k of this.skies.values()) n += k.bytes;
         return n;
       }),
     );
@@ -530,6 +533,11 @@ export class VoxelWorldDraws {
     return w;
   }
 
+  /** A world's sky heights (null: none arrived yet). */
+  sky(world: string): SkyColumns | null {
+    return this.skies.get(world) ?? null;
+  }
+
   /** A world's occupancy walk on the GPU (null: none yet, or not WebGPU). */
   walk(world: string): VoxelWalkGpu | null {
     return this.walks.get(world) ?? null;
@@ -552,6 +560,7 @@ export class VoxelWorldDraws {
   private close(name: string): void {
     this.walks.get(name)?.dispose();
     this.walks.delete(name);
+    this.skies.delete(name);
     const w = this.worlds.get(name);
     if (w === undefined) return;
     for (const q of this.waiting) if (q.stage?.view === w.view) q.stage.discard();
@@ -586,6 +595,11 @@ export class VoxelWorldDraws {
     const w = this.worlds.get(b.world)!;
     if (b.relief !== undefined) this.giveRelief(w, b.relief);
     this.applyWalk(b.world, b.walk);
+    if (b.sky !== undefined) {
+      let k = this.skies.get(b.world);
+      if (k === undefined) this.skies.set(b.world, (k = new SkyColumns(b.edge)));
+      k.apply(b.sky);
+    }
     const t1 = performance.now();
     const done = q.stage.commit();
     this.staging.commitMsMax = Math.max(this.staging.commitMsMax, performance.now() - t1);

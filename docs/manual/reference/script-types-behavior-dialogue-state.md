@@ -461,6 +461,38 @@ export interface VoxelRayHit {
 }
 ```
 
+<a id="script-type-voxel-region-info"></a>
+## `VoxelRegionInfo`
+
+```ts
+/**
+ * The open region a cell is in (`regionAt`): connected open cells (not drawn as a body: air, liquid, rails and
+ * posts; joined across cell faces, never by an edge alone), or a portal (the cells of a door or window opening,
+ * which separate the regions either side of it).
+ */
+export interface VoxelRegionInfo {
+  /** The region's id: the same while the region does not change (it is joined or split by an edit, or grows as chunks load). */
+  readonly id: number;
+  /** The cell is in an opening (a portal between regions), not in a region. */
+  readonly portal: boolean;
+  /**
+   * Nothing of the region is under open sky, it reaches no space that is not loaded yet, and not the world's
+   * edge: a room whose openings are its only ways out. A region reaching a chunk not loaded is never enclosed.
+   */
+  readonly enclosed: boolean;
+  /** The region reaches no space that is not loaded yet (false: it may continue there). */
+  readonly complete: boolean;
+  /** The region's volume in m³ (the loaded part of it while not complete). */
+  readonly volume: number;
+  /** This cell is under open sky: no solid voxel above it in its column (as far as the world is loaded). */
+  readonly sky: boolean;
+  /** Some cell of the region is under open sky. */
+  readonly seesSky: boolean;
+  /** A region: the portals (openings) on its boundary; a portal: the regions it joins. */
+  readonly portals: number;
+}
+```
+
 <a id="script-type-voxel-material-info"></a>
 ## `VoxelMaterialInfo`
 

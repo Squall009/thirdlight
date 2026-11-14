@@ -65,7 +65,11 @@ import { appendSurface, roofSurface } from './roof-mesher';
 import { classifyRoofs } from './roof-words';
 import { terrainSurface, type TerrainCreases } from './terrain-mesher';
 import { appendRelief, checkReliefOptions, groundCreaseRule, markGroundNearBodies, reliefBytes, reliefTransfer, roofCreaseRule, subdivideSurface, type ReliefOptions, type ReliefPart } from './relief-mesh';
-import { utf8Encode } from '@thirdlight/shared';
+import { threadProfiler, utf8Encode } from '@thirdlight/shared';
+import { openRegionsArrays, openRegionsBytes, openRegionsOf, solidRegions, type OpenRegionsOut } from './open-regions';
+
+/** The open-region labelling of a derive (open-regions.ts), as a span of the thread it runs on (a job worker's). */
+const REGIONS_SPAN = threadProfiler.span('open regions', 'voxelMesh');
 
 /**
  * Version of the derived-data layout and meaning. 4: the ground surface is
@@ -321,6 +325,24 @@ export interface DerivedData {
    * is the same with or without it.
    */
   readonly relief?: ReliefPart;
+  /**
+   * The unit's open regions (open-regions.ts): level 0 only (null, or
+   * absent in a result made by hand, above it).
+   */
+  readonly regions?: OpenRegionsOut | null;
+}
+
+/** A level-0 unit's open regions from its occupancy, timed into `times` and the thread's span. */
+function regionsOf(n: Neighbourhood, occ: OccupancyOut, level: number, times: DeriveTimes | undefined): OpenRegionsOut | null {
+  if (level !== 0) return null;
+  const t = performance.now();
+  threadProfiler.begin(REGIONS_SPAN);
+  try {
+    return occ.flag === OCCUPANCY.solid ? solidRegions(n.edge) : openRegionsOf(n, occ);
+  } finally {
+    threadProfiler.end(REGIONS_SPAN);
+    if (times !== undefined) times.regionsUs = (times.regionsUs ?? 0) + (performance.now() - t) * 1000;
+  }
 }
 
 /** Ground filled to the surface: solid for every consumer. */
@@ -599,7 +621,7 @@ function uniformCollision(e: number, u: UniformRegion): CollisionOut {
   return { boxes, fullBoxes: boxes.length / 6, ramps: emptySurface() };
 }
 
-function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, u: UniformRegion, level: number): DerivedData {
+function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, u: UniformRegion, level: number, times?: DeriveTimes): DerivedData {
   const e = n.edge;
   const { k0, k, s0 } = u;
   const cells = e * e * e;
@@ -613,12 +635,13 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, u: UniformRegi
   const bricks = new Uint8Array(Math.ceil((nb * nb * nb) / 4)).fill(flag * 0x55);
   const empty: SurfaceBuffer = { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) };
   const count = (c: number): number => (k === c ? cells : 0);
+  const occupancy: OccupancyOut = { flag, bricks, mask: null };
   return {
     v: DERIVED_FORMAT_VERSION,
     rules: rulesRef(rules),
     edge: e,
     level,
-    occupancy: { flag, bricks, mask: null },
+    occupancy,
     light: { uniform: k === ASSEMBLY_CLASS.ground ? s0 : formCoverage(form), full: null, partialCells: new Uint16Array(0), partialCover: new Uint8Array(0) },
     collision: uniformCollision(e, u),
     nav: { blocking: blocks ? OCCUPANCY.solid : OCCUPANCY.empty, blocks: null, standable: new Uint16Array(0), clearance: new Uint8Array(0) },
@@ -627,6 +650,7 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, u: UniformRegi
     instances: { count: 0, data: new Uint8Array(0) },
     shader: shaderOfNeighbourhood(n),
     counts: { wall: count(ASSEMBLY_CLASS.wall), ground: count(ASSEMBLY_CLASS.ground), groundPartial: k === ASSEMBLY_CLASS.ground && s0 < 255 ? cells : 0, beam: 0, rail: 0, liquid: count(ASSEMBLY_CLASS.liquid) },
+    regions: regionsOf(n, occupancy, level, times),
   };
 }
 
@@ -671,6 +695,8 @@ export interface DeriveTimes {
   meshUs: number;
   /** The relief mesh, when one was asked for. */
   reliefUs?: number;
+  /** The open regions (level 0). */
+  regionsUs?: number;
 }
 
 /** The one assembly evaluation of a unit: its classes (in `classes`), then its cases and forms, or the uniform region it is. */
@@ -759,7 +785,7 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   const ev = evaluateUnit(n, rules, classes, level, table);
   if (ev.uniform !== null) {
     if (times !== undefined) times.evaluateUs += (performance.now() - t0) * 1000;
-    return uniformDerived(n, rules, ev.uniform, level);
+    return uniformDerived(n, rules, ev.uniform, level, times);
   }
   const { cases, forms } = ev;
   const t1 = performance.now();
@@ -776,12 +802,13 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   const reliefPart = creases === undefined ? undefined : reliefOf(n, classes, forms, roofs, crackOf, ground, creases.flags!, ramps, relief!);
   const t3 = performance.now();
   const collision = collisionOf(n, forms, roofs, ramps);
+  const occupancy = occupancyOf(n, classes, forms);
   const out: DerivedData = {
     v: DERIVED_FORMAT_VERSION,
     rules: rulesRef(rules),
     edge: n.edge,
     level,
-    occupancy: occupancyOf(n, classes, forms),
+    occupancy,
     light: lightOf(n, classes, forms),
     collision,
     nav: navOf(n, classes, forms),
@@ -792,10 +819,13 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     counts: countsOf(n, classes),
     ...(reliefPart === undefined ? {} : { relief: reliefPart }),
   };
+  const t4 = performance.now();
+  // Timed apart from the consumers above: the regions read the occupancy they made.
+  (out as { regions?: OpenRegionsOut | null }).regions = regionsOf(n, occupancy, level, times);
   if (times !== undefined) {
     times.evaluateUs += (t1 - t0) * 1000;
     times.meshUs += (t2 - t1) * 1000;
-    times.consumersUs += (performance.now() - t3) * 1000;
+    times.consumersUs += (t4 - t3) * 1000;
     if (reliefPart !== undefined) times.reliefUs = (times.reliefUs ?? 0) + (t3 - t2) * 1000;
   }
   return out;
@@ -831,6 +861,7 @@ function arraysOf(d: DerivedData): ArrayBufferView[] {
   out.push(d.light.partialCells, d.light.partialCover, d.collision.boxes, d.collision.ramps.vertices, d.collision.ramps.indices);
   if (d.nav.blocks !== null) out.push(d.nav.blocks);
   out.push(d.nav.standable, d.nav.clearance, d.ground.vertices, d.ground.indices, d.base.vertices, d.base.indices, d.instances.data, d.shader.palette, d.shader.ids);
+  if (d.regions != null) out.push(...openRegionsArrays(d.regions));
   return out;
 }
 
@@ -842,7 +873,7 @@ export function derivedBytes(d: DerivedData): number {
 }
 
 /** Bytes per consumer (for reports). */
-export function derivedPartBytes(d: DerivedData): { occupancy: number; light: number; collision: number; nav: number; ground: number; base: number; instances: number; shader: number } {
+export function derivedPartBytes(d: DerivedData): { occupancy: number; light: number; collision: number; nav: number; ground: number; base: number; instances: number; shader: number; regions: number } {
   const b = (a: ArrayBufferView | null): number => a?.byteLength ?? 0;
   return {
     occupancy: b(d.occupancy.bricks) + b(d.occupancy.mask),
@@ -853,6 +884,7 @@ export function derivedPartBytes(d: DerivedData): { occupancy: number; light: nu
     base: b(d.base.vertices) + b(d.base.indices),
     instances: b(d.instances.data),
     shader: shaderBytes(d.shader),
+    regions: d.regions == null ? 0 : openRegionsBytes(d.regions),
   };
 }
 
@@ -861,6 +893,12 @@ export function derivedTransfer(d: DerivedData, out: ArrayBuffer[] = []): ArrayB
   for (const a of arraysOf(d)) if (a.buffer instanceof ArrayBuffer && !out.includes(a.buffer)) out.push(a.buffer);
   if (d.relief !== undefined) reliefTransfer(d.relief, out);
   return out;
+}
+
+/** The open regions' header words in the canonical bytes (count, which arrays are there, uniform sky, face pairs; −1: none). */
+function regionFlags(r: OpenRegionsOut | null | undefined): number[] {
+  if (r == null) return [-1];
+  return [r.count, r.labels === null ? 0 : r.labels.BYTES_PER_ELEMENT, r.sky === null ? 0 : 1, r.skyUniform, r.connect];
 }
 
 /**
@@ -873,7 +911,7 @@ export function derivedTransfer(d: DerivedData, out: ArrayBuffer[] = []): ArrayB
 export function encodeDerived(d: DerivedData): Uint8Array {
   const id = utf8Encode(d.rules.id);
   const arrays = arraysOf(d);
-  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.shader.side, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1, d.shader.width, d.level, d.collision.ramps.vertexCount];
+  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.shader.side, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1, d.shader.width, d.level, d.collision.ramps.vertexCount, ...regionFlags(d.regions)];
   let size = 4 + id.length + 4 * flags.length;
   for (const a of arrays) size += 4 + a.byteLength;
   const out = new Uint8Array(size);

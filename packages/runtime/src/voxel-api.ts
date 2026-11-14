@@ -37,6 +37,11 @@
  * first voxel that stops it (a body, or what blocks light), on into the
  * coarser levels and the far field past the full-detail ring.
  *
+ * Regions: `regionAt` names the open region a cell is in (connected open
+ * cells, stitched across chunks as they load), whether it is enclosed, its
+ * volume and whether the cell is under open sky; door and window openings
+ * are portals between regions, so a house's room is its own region.
+ *
  * Materials: a voxel names its material by id; `materialOf(id)` and
  * `materialAt(x, y, z)` answer with the material record that id is (its name,
  * use and kit, its physics resolved against its profile, and the game's own
@@ -133,6 +138,33 @@ export interface VoxelRayHit {
   readonly far: boolean;
 }
 
+/**
+ * The open region a cell is in (`regionAt`): connected open cells (not drawn as a body: air, liquid, rails and
+ * posts; joined across cell faces, never by an edge alone), or a portal (the cells of a door or window opening,
+ * which separate the regions either side of it).
+ */
+export interface VoxelRegionInfo {
+  /** The region's id: the same while the region does not change (it is joined or split by an edit, or grows as chunks load). */
+  readonly id: number;
+  /** The cell is in an opening (a portal between regions), not in a region. */
+  readonly portal: boolean;
+  /**
+   * Nothing of the region is under open sky, it reaches no space that is not loaded yet, and not the world's
+   * edge: a room whose openings are its only ways out. A region reaching a chunk not loaded is never enclosed.
+   */
+  readonly enclosed: boolean;
+  /** The region reaches no space that is not loaded yet (false: it may continue there). */
+  readonly complete: boolean;
+  /** The region's volume in m³ (the loaded part of it while not complete). */
+  readonly volume: number;
+  /** This cell is under open sky: no solid voxel above it in its column (as far as the world is loaded). */
+  readonly sky: boolean;
+  /** Some cell of the region is under open sky. */
+  readonly seesSky: boolean;
+  /** A region: the portals (openings) on its boundary; a portal: the regions it joins. */
+  readonly portals: number;
+}
+
 /** A walk's hit as scripts read it. */
 export function voxelRayHit(ray: WalkRay, hit: WalkHit): VoxelRayHit {
   const s = VOXEL_SIZE_M;
@@ -214,6 +246,13 @@ export interface BehaviorVoxelWorld {
    * @graphNode skip a ray's origin and direction are points, which a graph input cannot take yet
    */
   raycast(origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions): VoxelRayHit | null;
+  /**
+   * The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the
+   * cell is under open sky, and its portals (door and window openings). Null where the cell is solid, or the world
+   * is not loaded there or its regions are not stitched yet (a moment after a chunk arrives or an edit lands).
+   * @graphNode skip a region is an object, which a graph output cannot take yet
+   */
+  regionAt(x: number, y: number, z: number): VoxelRegionInfo | null;
   /**
    * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
    * or its id has no material record in the build).

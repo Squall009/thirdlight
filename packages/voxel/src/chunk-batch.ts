@@ -43,6 +43,8 @@ import type { SwapReport } from './stream-sections';
 import type { StreamEvent } from './voxel-streamer';
 import type { WalkSource } from './occupancy-walk';
 import { WalkBlockFeed, type WalkBlockWire } from './walk-pages';
+import type { OpenRegionStitch } from './open-region-stitch';
+import type { SkyColumnWire } from './sky-columns';
 
 /** Packing the walk's blocks a batch carries, as a span of the thread the world runs on. */
 const WALK_PACK_SPAN = threadProfiler.span('walk blocks packed', 'voxelStream');
@@ -163,6 +165,8 @@ export interface ChunkDrawBatch {
   readonly far?: FarDrawWire;
   /** The occupancy walk's blocks packed or gone (walk-pages.ts), for the page's GPU walk. */
   readonly walk?: readonly WalkBlockWire[];
+  /** Chunk columns' sky heights changed or gone (sky-columns.ts), for lighting on the page. */
+  readonly sky?: readonly SkyColumnWire[];
   /** Where the near field draws changed (with a far field only). */
   readonly nearCover?: NearCoverWire;
   /** Wall-clock ms (`performance.timeOrigin + performance.now()`) when the batch left. */
@@ -217,6 +221,8 @@ export interface ChunkDrawBatcherOptions {
    * blocks its changes touched, packed (walk-pages.ts), for the page's GPU walk.
    */
   readonly walk?: WalkSource;
+  /** The world's open regions where it runs (open-region-stitch.ts): with them the batches carry the sky heights that changed. */
+  readonly sky?: Pick<OpenRegionStitch, 'onSky' | 'takeSky'>;
 }
 
 /** The buffers a batch can hand over (each once). */
@@ -257,6 +263,7 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
   }
   add(b.nearCover?.cells);
   for (const w of b.walk ?? []) add(w.packed?.page ?? undefined);
+  for (const w of b.sky ?? []) add(w.heights);
   return [...out];
 }
 
@@ -315,6 +322,9 @@ export class ChunkDrawBatcher {
     const side = shaderGridSide(feed.grid.edge);
     this.scratch = new Uint16Array(side * side * side);
     feed.on((e) => this.onStream(e));
+    this.opts.sky?.onSky(() => {
+      if (!this.closed) this.queue();
+    });
     feed.far?.on((e) => {
       if (this.closed) return;
       this.farAdded.push(...e.added);
@@ -490,8 +500,9 @@ export class ChunkDrawBatcher {
       walk = this.walkFeed.take();
       threadProfiler.end(WALK_PACK_SPAN);
     }
-    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null && walk.length === 0)) return;
-    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk } : {}), sentAt: wallClock(), joinMs: this.joinMs };
+    const sky = this.closed ? [] : (this.opts.sky?.takeSky() ?? []);
+    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null && walk.length === 0 && sky.length === 0)) return;
+    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk } : {}), ...(sky.length > 0 ? { sky } : {}), sentAt: wallClock(), joinMs: this.joinMs };
     this.farAdded = [];
     this.farRemoved = [];
     this.relief = null;

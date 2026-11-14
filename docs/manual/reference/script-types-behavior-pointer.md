@@ -782,6 +782,13 @@ export interface BehaviorVoxelWorld {
    */
   raycast(origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions): VoxelRayHit | null;
   /**
+   * The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the
+   * cell is under open sky, and its portals (door and window openings). Null where the cell is solid, or the world
+   * is not loaded there or its regions are not stitched yet (a moment after a chunk arrives or an edit lands).
+   * @graphNode skip a region is an object, which a graph output cannot take yet
+   */
+  regionAt(x: number, y: number, z: number): VoxelRegionInfo | null;
+  /**
    * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
    * or its id has no material record in the build).
    * @graphNode skip a material record is an object, which a graph output cannot take yet
