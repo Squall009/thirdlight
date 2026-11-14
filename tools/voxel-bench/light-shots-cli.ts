@@ -47,7 +47,7 @@ import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
 import { BENCH_LAMP_LIGHT, BENCH_LAMPS, caveStroke, changedShare, EDIT_DIGS, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems } from './lighting-cameras';
-import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from './gpu-measure-page';
+import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { openPlay, type PlayGame } from './travel-page';
 import { settleAfter, type CountSample } from './travel';
 

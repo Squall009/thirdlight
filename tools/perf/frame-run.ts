@@ -25,6 +25,8 @@ import { installFrameProbe, probeGpuPasses, probeOcclusionOracle, probeSceneCoun
 import type { OracleResult } from '@thirdlight/three-adapter';
 import { installFrameCallCounts, installPerfInstrumentation, readSample, startRecording, type FrameEvent, type PageSample } from './instrument';
 import { profileSplit, type ProfileSplit } from './profile';
+import { gpuMeasureOnPage, measureGpuOnPage } from './gpu-measure-page';
+import type { GpuMeasurement } from '@thirdlight/game-host';
 import { profileSummary, type ProfileReport, type ProfileSummary } from '@thirdlight/game-host';
 import { dumpScene, type DumpSummary } from './scene-dump';
 import { histogram, summarize, type Summary } from './stats';
@@ -87,6 +89,8 @@ export interface FrameRunOptions {
   shot?: string;
   /** Trace this long (ms) for each thread's busy time (0 or absent: no trace). */
   busyMs?: number;
+  /** After the record, the page's GPU measurement (game-host gpu-measure.ts: ms per pass category) with these options. */
+  gpuMeasure?: { readonly repeats?: number; readonly only?: readonly string[] };
   /** The longest wait (ms) for the scene to settle (absent: 90 s; a flying camera's scene never stops changing). */
   settleMs?: number;
   /** Last, after everything else (it makes the page build its programs again): the occlusion oracle's count. */
@@ -207,6 +211,8 @@ export interface FrameRunResult {
   /** What the view draws that no pixel shows (`oracle`), or why it could not be counted. */
   oracle?: OracleResult | { error: string };
   oracleCulled?: OracleCulledRun;
+  /** The page's GPU measurement per pass category (`gpuMeasure`), or why it could not run. */
+  gpuMeasure?: GpuMeasurement | { error: string };
   errors: string[];
 }
 
@@ -368,12 +374,14 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       await page.evaluate(probeSetGpuTiming, false);
     }
     const profile = opts.profileMs > 0 ? await profileSplit(cdp, opts.profileMs, opts.sourceOf ?? (() => null)) : null;
+    const gpuMeasured = opts.gpuMeasure === undefined ? undefined : await measureGpuOnPage((call, options) => page.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), opts.gpuMeasure).catch((e: unknown) => ({ error: String(e).slice(0, 300) }));
     const busy = (opts.busyMs ?? 0) > 0 ? await threadBusy(browser, page, opts.busyMs!) : undefined;
     await cdp.detach().catch(() => undefined);
     const heavy: Record<string, number> = {};
     for (const e of sample.frameEvents) for (const [k, v] of Object.entries(e.calls)) heavy[k] = (heavy[k] ?? 0) + v;
     const missedCalls = sample.frameEvents.filter((e, i, all) => e.dt > 25 || (all[i + 1]?.dt ?? 0) > 25).slice(0, 60);
     const out: FrameRunResult = {
+      ...(gpuMeasured !== undefined ? { gpuMeasure: gpuMeasured } : {}),
       ...(missedCalls.length > 0 ? { missedCalls } : {}),
       ...(opts.frameCalls === true ? { heavyCalls: { frames: sample.frameEvents.filter((e) => Object.keys(e.calls).length > 0).length, calls: heavy, builds: sample.frameEvents.filter((e) => Object.keys(e.calls).some((k) => /^(linkProgram|texStorage|texImage|createRenderPipeline|createTexture)/.test(k))).slice(0, 60) } } : {}),
       url: opts.url,

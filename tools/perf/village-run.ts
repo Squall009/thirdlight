@@ -55,11 +55,14 @@
  *   --see-through-fade F         with --see-through: the subjects' max fade (0: the mask runs, nothing thinned: its own cost)
  *   --viewport WxH               the export pages' size (default 1920x1080; 1280x720 is the low tier's goal); not with
  *                                --gate, --check or --write-baseline (the gate's baseline is 1080p)
+ *   --gpu-measure                after each renderer's export run, the page's GPU measurement (ms per pass category,
+ *                                the Profiler's Measure GPU; WebGPU, about two minutes): `gpuMeasure` in the report
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/<village or the project folder's name>-<time>.json
  * (latest-<name>.json too). tools/perf/games.sh runs it on copies of game projects.
  */
+import { gpuMeasureSummary } from './gpu-measure-page';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
@@ -429,7 +432,8 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     const site = exportDir === null ? null : await serveStatic(exportDir, {}, dumpDir);
     try {
       for (const [i, r] of (site === null ? [] : renderers).entries()) {
-        const res = await measurePage(browser, { viewport, url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`), busyMs, oracle, oracleCull: oracle });
+        const res = await measurePage(browser, { viewport, url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`), busyMs, oracle, oracleCull: oracle, ...(has('gpu-measure') ? { gpuMeasure: {} } : {}) });
+        if (res.gpuMeasure !== undefined) console.log(`${r} GPU measurement: ${'error' in res.gpuMeasure ? res.gpuMeasure.error : gpuMeasureSummary(res.gpuMeasure)}`);
         report.export[r] = res;
         log(frameLine(`export ${r}`, res));
         if (oracle) log(oracleLine(`export ${r}`, res));

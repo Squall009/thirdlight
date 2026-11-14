@@ -119,9 +119,9 @@ test('an MCP agent inspects the selection, plays, observes, moves and captures t
   const gpuPart = async (section: string): Promise<{ state: string; step?: number }> => ((await call('tl_diagnostics', { playSessionId, sections: [section] })).body.diagnostics as Record<string, { state: string; step?: number }>)[section]!;
   expect((await gpuPart('gpu')).state).toBe('idle');
   expect((await gpuPart('gpu')).state).toBe('idle');
-  const started = await gpuPart('gpuMeasure');
-  expect(['running', 'unavailable']).toContain(started.state);
-  expect((await gpuPart('gpu')).state).toBe(started.state);
+  const gpuStarted = await gpuPart('gpuMeasure');
+  expect(['running', 'unavailable']).toContain(gpuStarted.state);
+  expect((await gpuPart('gpu')).state).toBe(gpuStarted.state);
 
   expect((await call('tl_play_stop', { playSessionId })).isError).toBe(false);
   await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0);

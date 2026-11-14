@@ -67,7 +67,7 @@ import { profileSummary, type ProfileReport } from '@thirdlight/game-host';
 import { launchGpuBrowser, parseViewport } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import type { GpuMeasurement } from '@thirdlight/game-host';
-import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from './gpu-measure-page';
+import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { FarSettle, frameCap, frameWindow, misses, searchLimit, spread, type FrameWindow, type LimitResult } from './headroom';
 
 function arg(name: string, fallback: string): string {

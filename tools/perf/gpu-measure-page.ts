@@ -6,7 +6,7 @@
 import type { GpuMeasureState, GpuMeasurement } from '@thirdlight/game-host';
 
 /** Runs `start` (with the options) or `state` on the page and answers its state (a Frame's or a Locator's evaluate, wrapped). */
-export type GpuMeasureCall = (call: 'start' | 'state', options?: { repeats?: number; windowS?: number }) => Promise<GpuMeasureState>;
+export type GpuMeasureCall = (call: 'start' | 'state', options?: { readonly repeats?: number; readonly windowS?: number; readonly only?: readonly string[] }) => Promise<GpuMeasureState>;
 
 /** What a page evaluates for {@link GpuMeasureCall}. */
 export function gpuMeasureOnPage(arg: { call: 'start' | 'state'; options?: unknown }): GpuMeasureState {
@@ -15,7 +15,7 @@ export function gpuMeasureOnPage(arg: { call: 'start' | 'state'; options?: unkno
   return arg.call === 'start' ? g.start(arg.options ?? {}) : g.state();
 }
 
-export async function measureGpuOnPage(call: GpuMeasureCall, wait: (ms: number) => Promise<void>, options: { repeats?: number; windowS?: number } = {}, timeoutMs = 600_000): Promise<GpuMeasurement> {
+export async function measureGpuOnPage(call: GpuMeasureCall, wait: (ms: number) => Promise<void>, options: { readonly repeats?: number; readonly windowS?: number; readonly only?: readonly string[] } = {}, timeoutMs = 600_000): Promise<GpuMeasurement> {
   const started = await call('start', options);
   if (started.state === 'unavailable') throw new Error(`GPU measurement: ${started.reason}`);
   const t0 = Date.now();
