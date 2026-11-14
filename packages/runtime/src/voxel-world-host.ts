@@ -70,6 +70,7 @@ import {
   type WorkerPool,
   type PieceTable,
 } from '@thirdlight/voxel';
+import { residentBytes } from '@thirdlight/shared';
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
 import { floorColumns, VoxelFloors } from './voxel-floor';
 import {
@@ -255,6 +256,7 @@ export class VoxelWorldHost {
   private level: QualityLevelConfig | null;
   private conn: VoxelWorldConnection | null = null;
   private streamer: VoxelStreamer | null = null;
+  private unresident: (() => void) | null = null;
   private ring: CollisionRing | null = null;
   private bodies: PortBodies | null = null;
   /** The coarse floor where fine collision is late (null: no physics port, or no far cache). */
@@ -339,6 +341,9 @@ export class VoxelWorldHost {
     const s = this.settings;
     const streamer = worldStreamer(conn, s);
     this.streamer = streamer;
+    // The memory report reads the streamer's own count against its budget.
+    this.unresident?.();
+    this.unresident = residentBytes.register('voxelStream', () => streamer.held.total);
     const port = this.physics;
     if (port !== undefined && typeof port.addStaticColliders === 'function' && typeof port.removeStaticColliders === 'function') {
       this.bodies = new PortBodies(port, conn.grid, `voxel:${this.name}:`);
@@ -571,6 +576,8 @@ export class VoxelWorldHost {
     for (const w of this.waits.splice(0)) this.events.answered(w.id, false);
     this.pending.clear();
     this.streamer = null;
+    this.unresident?.();
+    this.unresident = null;
     this.ring = null;
     this.channel = null;
     this.derived.clear();

@@ -29,7 +29,14 @@ every thread, as the page does. Nothing is read while the tab is closed.
   GPU's planned shares and the frame arbiter's time slices (what the streaming and upload steps may spend a frame).
 - **Counters.** Draw calls and triangles of the last frame, instance copies (and those in view), page heap,
   texture and geometry memory, GPU resources, voxel chunks, instances, triangles and far-field memory, the job
-  queues, and the profiler's own cost (spans a frame and a span's cost).
+  queues, and the profiler's own cost (spans a frame and a span's cost). Under them the **Memory** table: every
+  memory budget of the tier (voxel streaming, physics memory, the far nodes drawn, a scene's objects, the far
+  field on the GPU, streamed textures, streamed scene cells, the surface cache, probe tiles, the voxel undo in the
+  backend), each with the bytes its system holds now, its budget (the project's own where it sets one: textures,
+  scene streaming) and the use; a budget whose system keeps no count on the page reads "not counted here". The
+  last two rows add up the page's (with its workers') and the GPU's budgets and what they hold, against the tier's
+  hardware target (low: page 1,536 MiB, GPU 2,560 MiB of an 8 GB machine; medium and high have none of their own
+  yet). The simulation worker's share (the voxel streamers, physics) arrives with its ticks.
 - **Spikes.** The last 8 long frames, each kept with every thread's frames over it; **Open** shows those frames in
   the timeline and the Frame view ("what every thread was doing"), **Back** returns.
 - **Pause / Resume** freezes the view to inspect it (the page keeps recording). **Save capture** writes the
@@ -66,13 +73,15 @@ A capture is one JSON file, `thirdlight-profile-<date>.json`:
 
 The report holds every thread's frames (`threads.page | sim | jobs`, each frame with its start on the wall clock,
 its ms, own ms by category and its spans), the counters, the GPU's pass shares, the budget rows, the arbiter's
-slices, the spikes and the profiler's cost. A reader refuses another `version` (and says which it reads); a newer
+slices, the spikes and the profiler's cost; `counters.memory` (the Memory table) is optional, so older captures
+of version 1 still open (without the table). A reader refuses another `version` (and says which it reads); a newer
 engine adds a version, never changes this one.
 
 ## For agents: `tl_diagnostics`
 
 `tl_diagnostics {playSessionId, sections: ["profile"]}` returns the profile's digest (at most 6 KiB): the tier,
 rate and cap; per thread its mean own ms a frame and each category's mean, worst, budget and use; the categories
-over budget; the counters; the GPU's pass shares; the worst long frame kept with its longest spans per thread; the
+over budget; the counters (with `memoryMiB`: each memory budget's MiB resident and budgeted, and the page's and
+GPU's sums against the tier's target); the GPU's pass shares; the worst long frame kept with its longest spans per thread; the
 profiler's cost. It is left out of an answer that does not name it. The digest is made on the play page from the
 same profile the Profiler tab reads, through the same relay as the rest of a Play's diagnostics.

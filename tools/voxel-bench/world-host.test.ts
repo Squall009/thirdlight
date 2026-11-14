@@ -22,8 +22,8 @@ import {
   type VoxelWorldConnection,
   type VoxelWorldPorts,
 } from '@thirdlight/runtime';
-import { bufferResolver as bufferResolverOf, presentVoxelWorlds, shippedVoxelPorts, type ShippedVoxelPortsOptions } from '@thirdlight/game-host';
-import { bytesToHex, crc32, sha256Hex, threadProfiler } from '@thirdlight/shared';
+import { bufferResolver as bufferResolverOf, memoryReport, presentVoxelWorlds, shippedVoxelPorts, type ShippedVoxelPortsOptions } from '@thirdlight/game-host';
+import { bytesToHex, crc32, residentBytes, sha256Hex, threadProfiler } from '@thirdlight/shared';
 import { chunkDrawBatchTransfer, chunkGrid, DEFAULT_SECTION_EDGE, RELIEF_RING_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type StreamEvent, parseRegionFileName, shippedChunkSource, shippedVoxelWorldsProblem, type ShippedVoxelWorld, createWorldStore, dependentChunks, jobRadius, lightCoverageAt, WORLD_RULES, PROP_COVERAGE_PART, propBounds, propCoverageChunk, readSave, shaderGridSide, VOXEL_SIZE_M, VoxelStreamer, WorkerPool, livePoolQueues, writeSave, type ChunkDrawBatch, type ChunkDrawWire, type PaletteStore, type PropShape, type VoxelRecord } from '@thirdlight/voxel';
 import { resolveMaterialInstances, withResolvedPhysics, type MaterialDef, type QualityLevelConfig } from '@thirdlight/project-model';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -1120,8 +1120,15 @@ describe('the frame profile of a streaming world', () => {
     expect(names.has('step') && names.has('voxel streaming')).toBe(true);
     // The pool's queues while it is open: its two workers.
     expect(livePoolQueues()?.workers).toBe(2);
+    // The memory report's voxel streaming row: the streamer's own count of what it holds, against the tier's budget.
+    const held = residentBytes.read().voxelStream ?? 0;
+    expect(held).toBeGreaterThan(0);
+    const row = memoryReport('low', [residentBytes.read()], undefined, null).rows.find((r) => r.id === 'voxelStream')!;
+    expect([row.resident! > 0, row.budget, row.use! > 0 && row.use! < 1]).toEqual([true, VOXEL_STREAM_BUDGET_BYTES.low, true]);
     await h.inStep(() => true);
     h.rt.dispose();
     expect(livePoolQueues()).toBeNull();
+    // Gone with the scene's world.
+    expect(residentBytes.read().voxelStream).toBeUndefined();
   }, 60_000);
 });

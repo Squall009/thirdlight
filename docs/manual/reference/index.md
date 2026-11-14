@@ -66,9 +66,9 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: asset-pipeline](limits-asset-pipeline.md) | `inspect-font.ts`, `limits.ts`, `simplify.ts` |
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
 | [Limits and defaults: commands](limits-commands.md) | `terrain-erosion-ops.ts` |
-| [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
+| [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `storage.ts` |
 | [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 34 sections |
-| [Limits and defaults: project-model (part 2, from `light-layers.ts`)](limits-project-model-2.md) | 47 sections |
+| [Limits and defaults: project-model (part 2, from `light-layers.ts`)](limits-project-model-2.md) | 46 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `wire-change.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 27 sections |
 | [MCP tools (part 1, from tl_bake_lighting)](mcp-tools-1.md) | `tl_bake_lighting`, `tl_command` |

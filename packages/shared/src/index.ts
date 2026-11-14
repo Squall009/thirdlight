@@ -38,3 +38,4 @@ export { FRAME_SLICE_DEFAULTS, FRAME_SLICE_IDS, FrameArbiter, frameArbiter, fram
 export { CPU_SCALAR_OPS, type ScalarOps } from './scalar-ops';
 export { lodLevelOf, lodLevelStep, lodSwitchMargin, type LodLevelAcc } from './lod-level';
 export { grownArray, grownCapacity, type GrowableArray } from './grow';
+export { MEMORY_BUDGET_IDS, ResidentBytes, residentBytes, type MemoryBudgetId, type ResidentReader, type ResidentReading } from './resident-bytes';

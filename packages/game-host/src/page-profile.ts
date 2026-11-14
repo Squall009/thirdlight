@@ -27,8 +27,9 @@
  * something reads it.
  */
 import { FRAME_BUDGET_BY_TIER, frameBudgetMs, type BehaviorStats, type FrameBudget } from '@thirdlight/runtime';
-import { frameArbiter, PROFILE_FRAMES, SPAN_CATEGORIES, SpanRecorder, threadProfiler, wallClock, type FrameSliceReading, type PackedProfile, type ProfileFrame, type SpanCategory } from '@thirdlight/shared';
+import { frameArbiter, PROFILE_FRAMES, residentBytes, SPAN_CATEGORIES, SpanRecorder, threadProfiler, wallClock, type FrameSliceReading, type PackedProfile, type ProfileFrame, type ResidentReading, type SpanCategory } from '@thirdlight/shared';
 import type { PoolQueues } from '@thirdlight/voxel';
+import { memoryReport, type ProfileMemory } from './page-memory';
 
 /** A frame is a spike when the time since the last one passes this many frame intervals (a frame at the cap missed). */
 export const PROFILE_SPIKE_FACTOR = 1.5;
@@ -149,6 +150,8 @@ export interface ProfileReport {
     readonly copyRows?: ProfileCopyRows | null;
     /** Ground cover's point sets as rows of the same table (absent in older captures; null: no table). */
     readonly coverRows?: ProfileCoverRows | null;
+    /** Bytes resident by memory budget against the tier's table (`page-memory.ts`; absent in older captures). */
+    readonly memory?: ProfileMemory;
   };
   readonly gpu: {
     /** Whether the renderer resolves timestamps. */
@@ -231,6 +234,8 @@ export class PageProfile {
   private lastStart: number | null = null;
   private sources: ProfileSources = {};
   private queues: PoolQueues | null = null;
+  /** The simulation worker's last resident-bytes reading (none in single-thread mode: its systems register on the page). */
+  private simResident: ResidentReading = {};
   private readonly pending: PendingSpike[] = [];
   private readonly spikes: ProfileSpike[] = [];
   /** Spikes kept so far (the newest of them are in `spikes`). */
@@ -283,8 +288,9 @@ export class PageProfile {
   }
 
   /** A tick's frame from the simulation worker: its profiler frames and its pools' queues. */
-  simFrames(profile: PackedProfile | undefined, queues: PoolQueues | undefined): void {
+  simFrames(profile: PackedProfile | undefined, queues: PoolQueues | undefined, resident?: ResidentReading): void {
     if (queues !== undefined) this.queues = queues;
+    if (resident !== undefined) this.simResident = resident;
     if (profile === undefined) return;
     const before = this.sim.frameCount;
     if (!this.sim.ingest(profile)) return;
@@ -427,6 +433,16 @@ export class PageProfile {
     return this.nsPerSpan;
   }
 
+  /** Bytes resident by memory budget now, against the tier's table (the report's `counters.memory`). */
+  memory(): ProfileMemory {
+    const d = this.sources.diagnostics?.() as { ok?: boolean; diagnostics?: unknown } | undefined;
+    return this.memoryOf(d?.ok === true ? d.diagnostics : undefined, this.sources.voxels?.() ?? null);
+  }
+
+  private memoryOf(diagnostics: unknown, voxels: ProfileVoxels | null): ProfileMemory {
+    return memoryReport(this.budget.tier, [residentBytes.read(), this.simResident], diagnostics, voxels?.farGpuBytes ?? null);
+  }
+
   /**
    * The whole profile now (plain data). With `after` (a cursor an earlier
    * read returned as `seq`), the threads' frames, the page's counter frames
@@ -444,6 +460,8 @@ export class PageProfile {
     const gpuMem = d?.ok === true ? d.diagnostics?.gpu : undefined;
     const field = d?.ok === true ? d.diagnostics?.interaction?.field : undefined;
     const rows = d?.ok === true ? d.diagnostics?.occlusion?.copies : undefined;
+    const voxels = this.sources.voxels?.() ?? null;
+    const memory = this.memoryOf(d?.ok === true ? d.diagnostics : undefined, voxels);
     const passes = this.sources.gpuPasses?.() ?? null;
     const total = passes === null ? 0 : passes.renderMs + (passes.computeMs ?? 0);
     const spans = all.page.reduce((n, f) => n + f.spans.length + f.dropped, 0);
@@ -459,10 +477,11 @@ export class PageProfile {
         stats,
         instances: inst !== undefined ? { copies: inst.copies ?? 0, inView: inst.inView ?? 0 } : null,
         gpuResources: gpuMem !== undefined ? { geometries: gpuMem.geometries ?? 0, textures: gpuMem.textures ?? 0, programs: gpuMem.programs ?? 0 } : null,
-        voxels: this.sources.voxels?.() ?? null,
+        voxels,
         queues: this.queues,
         interaction: field !== undefined ? { stamps: field.stamps, live: field.live, bytes: field.bytes } : null,
         copyRows: rows !== undefined && rows !== null ? { sets: rows.sets, copies: rows.copies, rows: rows.rows, lists: rows.lists, inView: rows.inView, listed: rows.listed, drawn: rows.drawn, triangles: rows.triangles, bytes: rows.bytes } : null,
+        memory,
         coverRows: rows?.cover !== undefined ? { sets: rows.cover.sets, points: rows.cover.copies, rows: rows.cover.rows, lists: rows.cover.lists, inView: rows.cover.inView, drawn: rows.cover.drawn, triangles: rows.cover.triangles } : null,
       },
       gpu: {

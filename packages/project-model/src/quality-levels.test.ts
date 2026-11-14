@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 import type { ModelErrorV2 } from './errors';
 import { canonicalEnvironment, validateEnvironment, type PostConfig } from './materials';
 import { TEXTURE_BUDGET_DEFAULT_MB } from './texture-streaming';
-import { DEFAULT_QUALITY_LEVELS, FRAME_BUDGET_BY_TIER, frameBudgetMs, levelFrameBudget, LIGHTING_TIERS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_BUDGET_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
+import { DEFAULT_QUALITY_LEVELS, FRAME_BUDGET_BY_TIER, MEMORY_BUDGET_BY_TIER, PHYSICS_MEMORY_CAP_BYTES, PROBE_RESIDENT_BYTES, frameBudgetMs, levelFrameBudget, LIGHTING_TIERS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_BUDGET_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
 import { validateQualityBindings } from './save-schema';
-import { FRAME_SLICE_DEFAULTS, SPAN_CATEGORIES } from '@thirdlight/shared';
+import { FRAME_SLICE_DEFAULTS, MEMORY_BUDGET_IDS, SPAN_CATEGORIES } from '@thirdlight/shared';
+import { FAR_BUDGET_BYTES, FAR_GPU_BUDGET_BYTES_BY_TIER, UNDO_MEMORY_BUDGET_BYTES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
+import { SCENE_OBJECT_BUDGET_BYTES } from './scene-memory';
+import { STREAMING_BUDGET_DEFAULT_MB } from './world-streaming';
 
 const errorsOf = (v: unknown): ModelErrorV2[] => {
   const errors: ModelErrorV2[] = [];
@@ -194,5 +197,51 @@ describe('the frame budget per tier', () => {
     }
     expect(levelFrameBudget({})).toBe(FRAME_BUDGET_BY_TIER.medium);
     expect(levelFrameBudget(DEFAULT_QUALITY_LEVELS[0]!)).toBe(FRAME_BUDGET_BY_TIER.low);
+  });
+});
+
+describe('the memory budget per tier', () => {
+  const MIB = 2 ** 20;
+  it('lists every budget the systems had, each at the value its system holds to (MiB at low / medium / high)', () => {
+    const at = (id: string): number[] => LIGHTING_TIERS.map((t) => MEMORY_BUDGET_BY_TIER[t].entries.find((e) => e.id === id)!.bytes / MIB);
+    expect(MEMORY_BUDGET_BY_TIER.low.entries.map((e) => e.id)).toEqual([...MEMORY_BUDGET_IDS]);
+    expect(at('voxelStream')).toEqual([768, 768, 1024]);
+    expect(at('physics')).toEqual([512, 512, 512]);
+    expect(at('farSelection')).toEqual([48, 48, 48]);
+    expect(at('sceneObjects')).toEqual([32, 32, 32]);
+    expect(at('farGpu')).toEqual([384, 384, 384]);
+    expect(at('textures')).toEqual([512, 512, 512]);
+    expect(at('worldStream')).toEqual([768, 768, 768]);
+    expect(at('surfaceCache')).toEqual([32, 64, 128]);
+    expect(at('probes')).toEqual([128, 128, 128]);
+    expect(at('undo')).toEqual([64, 64, 64]);
+    // The same numbers as the constants the systems read (the table gathers them; it changes none).
+    for (const t of LIGHTING_TIERS) {
+      const b = Object.fromEntries(MEMORY_BUDGET_BY_TIER[t].entries.map((e) => [e.id, e.bytes]));
+      expect(b).toEqual({
+        voxelStream: VOXEL_STREAM_BUDGET_BYTES[t],
+        physics: PHYSICS_MEMORY_CAP_BYTES,
+        farSelection: FAR_BUDGET_BYTES,
+        sceneObjects: SCENE_OBJECT_BUDGET_BYTES,
+        farGpu: FAR_GPU_BUDGET_BYTES_BY_TIER[t],
+        textures: TEXTURE_BUDGET_DEFAULT_MB * MIB,
+        worldStream: STREAMING_BUDGET_DEFAULT_MB * MIB,
+        surfaceCache: LIGHTING_TIER_SETTINGS[t].surfaceCacheMiB * MIB,
+        probes: PROBE_RESIDENT_BYTES,
+        undo: UNDO_MEMORY_BUDGET_BYTES,
+      });
+      expect(levelVoxels({ lighting: t }).budgetBytes).toBe(b['voxelStream']);
+      expect(levelVoxels({ lighting: t }).farGpuBudget).toBe(b['farGpu']);
+    }
+  });
+
+  it("sums the page's and the GPU's entries against the low tier's hardware target (the undo is the backend's); medium and high have none of their own", () => {
+    const low = MEMORY_BUDGET_BY_TIER.low;
+    expect(low.sums).toEqual({ page: (768 + 512 + 48 + 32) * MIB, gpu: (384 + 512 + 768 + 32 + 128) * MIB });
+    expect(low.target).toEqual({ page: LOW_MEMORY_BUDGET_MIB.pageHeap * MIB, gpu: LOW_MEMORY_BUDGET_MIB.gpu * MIB });
+    expect(low.sums.page).toBeLessThanOrEqual(low.target!.page);
+    expect(low.sums.gpu).toBeLessThanOrEqual(low.target!.gpu);
+    expect(MEMORY_BUDGET_BY_TIER.high.sums).toEqual({ page: (1024 + 512 + 48 + 32) * MIB, gpu: (384 + 512 + 768 + 128 + 128) * MIB });
+    expect([MEMORY_BUDGET_BY_TIER.medium.target, MEMORY_BUDGET_BY_TIER.high.target]).toEqual([null, null]);
   });
 });

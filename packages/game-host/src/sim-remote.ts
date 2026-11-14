@@ -335,7 +335,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     switch (m.t) {
       case 'frame': {
         // The worker's profiler frames are taken in as they arrive (a later read lines them up by time and tick).
-        pageProfile.simFrames(m.profile, m.queues);
+        pageProfile.simFrames(m.profile, m.queues, m.resident);
         if (relayFinished !== null && relayFinished.seq === null) relayFinished.seq = m.state.seq;
         const f = inFlight;
         const answers = f !== null && f.seq === m.state.seq;

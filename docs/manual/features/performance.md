@@ -16,7 +16,10 @@ streaming, animation, sent with each tick) and the voxel job workers' (each job'
 frame's draw calls, triangles and heap, the quality tier's frame budget per thread and category with each
 category's use against it (`FRAME_BUDGET_BY_TIER` in project-model's `quality-levels.ts`), the time slices the
 frame arbiter hands out (`frameSliceMs` in `@thirdlight/shared`: every system that spreads work over frames asks
-it), and the last long frames with what every thread did over them. A page's tools read all of it as plain data
+it), the tier's memory budgets with the bytes each system holds now (`MEMORY_BUDGET_BY_TIER` beside the frame
+budget: one entry per budget a system keeps, each the constant that system reads, summed against the tier's page
+and GPU target; `counters.memory`, the Profiler tab's Memory table), and the last long frames with what every
+thread did over them. A page's tools read all of it as plain data
 through `window.__tlProfiler.read()`; the perf harness and `tools/voxel-bench` headroom print each thread's CPU a
 frame from it. The GPU appears as pass shares only: at a frame-rate cap its timestamps are not milliseconds, and
 the headroom meter (`run.mjs headroom`) measures its room on demand. Recording costs about a microsecond a span

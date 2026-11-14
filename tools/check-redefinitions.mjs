@@ -199,6 +199,9 @@ export const OWNED_FAMILIES = Object.freeze([
   // Growing a buffer by copy: one growth policy and one copy for typed arrays; the GPU's scratch buffers grow by it too.
   { family: 'buffer-grow', owner: 'packages/shared/src/grow.ts', names: ['grownCapacity', 'grownArray'] },
   { family: 'gpu-buffer-grow', owner: 'packages/three-adapter/src/tracer-gpu.ts', names: ['grownGpuBuffer'] },
+  // The memory budgets in one table per tier, and the per-thread registry of what each holds now.
+  { family: 'memory-budgets', owner: 'packages/project-model/src/quality-levels.ts', names: ['MEMORY_BUDGET_BY_TIER', 'PHYSICS_MEMORY_CAP_BYTES', 'PROBE_RESIDENT_BYTES', 'SCENE_OBJECT_BUDGET_BYTES'] },
+  { family: 'resident-bytes', owner: 'packages/shared/src/resident-bytes.ts', names: ['ResidentBytes', 'MEMORY_BUDGET_IDS'] },
   // A region of a texture three owns written from the CPU, a texture grown by copy, and a new texture's version: the private three hooks they take live in this module alone.
   { family: 'region-texture', owner: 'packages/three-adapter/src/region-texture.ts', names: ['uploadTextureRegion', 'copyTextureInto', 'freshTexture'] },
   // Level of detail by screen size with hysteresis, for the CPU and shaders (voxel rings keep their own rings).

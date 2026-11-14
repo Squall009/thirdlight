@@ -7,11 +7,9 @@
  */
 import { serializeCanonical } from './normalize';
 
-/**
- * The bytes one scene's document may take: about four times what 16,384
- * plain objects take (a box as createEntity makes it is about 530 bytes).
- */
-export const SCENE_OBJECT_BUDGET_BYTES = 32 * 1024 * 1024;
+/** A scene document's byte budget (an entry of the memory budget table). */
+import { SCENE_OBJECT_BUDGET_BYTES } from './quality-levels';
+export { SCENE_OBJECT_BUDGET_BYTES };
 
 const bytesCache = new WeakMap<object, { head: string; bytes: Uint8Array }>();
 

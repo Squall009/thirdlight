@@ -19,7 +19,7 @@
  * boundary they reach in single-thread mode.
  */
 import { createRecordedActionSource, DEFAULT_FIXED_STEP_HZ, fixedStepHzOf, type ActionSource, type PhysicsPort3D, type Runtime, type SimulationModuleSpec, type VoxelWorldPorts } from '@thirdlight/runtime';
-import { threadProfiler } from '@thirdlight/shared';
+import { residentBytes, threadProfiler } from '@thirdlight/shared';
 import { chunkDrawBatchTransfer, livePoolQueues, type ShippedVoxelWorld } from '@thirdlight/voxel';
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
@@ -83,6 +83,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
   let memoryCap = PHYSICS_MEMORY_CAP_BYTES;
   /** The loaded backend's memory probe. */
   let memoryProbe: (() => number | null) | undefined;
+  let unregisterPhysics: (() => void) | undefined;
   let memoryStopped = false;
   let digestOn = false;
   let digests: string[] = [];
@@ -154,7 +155,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     threadProfiler.endFrame();
     const profile = threadProfiler.pack();
     const queues = livePoolQueues();
-    post({ t: 'frame', state, ...(profile !== null ? { profile } : {}), ...(queues !== null ? { queues } : {}) }, profile !== null ? [...transfer, profile.data.buffer as ArrayBuffer] : transfer);
+    // This thread's resident bytes by budget (the voxel streamers', physics), for the page's memory report.
+    const resident = residentBytes.read();
+    post({ t: 'frame', state, resident, ...(profile !== null ? { profile } : {}), ...(queues !== null ? { queues } : {}) }, profile !== null ? [...transfer, profile.data.buffer as ArrayBuffer] : transfer);
   };
 
   const init = async (m: SimInitMessage): Promise<void> => {
@@ -171,6 +174,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         }
         const backend = await deps.loadPhysics3D();
         memoryProbe = backend.physicsMemoryBytes3D;
+        // The memory report's physics entry: the probe the cap is checked with.
+        unregisterPhysics?.();
+        unregisterPhysics = residentBytes.register('physics', memoryNow);
         const made = await backend.createPhysicsPort3D(m.physics as never);
         if (!made.ok) {
           post({ t: 'failed', error: { code: 'physics_init_failed', message: `physics init failed: ${made.error.code}${made.error.message !== undefined ? ` (${made.error.message})` : ''}` } });

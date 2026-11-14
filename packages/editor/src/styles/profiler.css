@@ -42,3 +42,5 @@
 .tl-prof__spike-ms { font-family: var(--tl-font-mono); color: var(--err); min-width: 64px; text-align: right; }
 .tl-prof__table td.tl-prof__name { min-width: 9em; }
 .tl-prof__table tr.tl-prof__group td { padding-top: 6px; color: var(--text-dim); font-weight: var(--weight-medium); background: var(--surface-0); }
+.tl-prof__kv + .tl-prof__table { margin-top: 8px; }
+.tl-prof__table tr.tl-prof__total td { font-weight: var(--weight-medium); border-top: 1px solid var(--line); }

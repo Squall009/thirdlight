@@ -11,8 +11,8 @@
  * same tiles over and over.
  */
 
-/** GPU memory the resident probe tiles may take (bytes): the packed texture, as placed (each tile's column width and the deepest tile's depth). */
-export const PROBE_RESIDENT_BYTES = 128 * 1024 * 1024;
+/** The probe tiles' GPU budget (an entry of the memory budget table). */
+export { PROBE_RESIDENT_BYTES } from '@thirdlight/project-model';
 /**
  * How far past the budget the texture may grow: tiles placed in columns as
  * wide as the widest tile leave gaps, and growing doubles; the pick counts

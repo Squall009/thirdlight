@@ -177,4 +177,5 @@ export { bindingGlyph, gamepadFamily, glyphDataUrl, glyphSvg, keyName, padAxisGl
 export { createDialoguePreview, type DialoguePreview, type DialoguePreviewDeps, type DialoguePreviewObservation } from './dialogue-preview';
 export type { DialogueObservation } from './host';
 // The page's frame profile: every thread's recent frames, counters, the tier's budget against use, spikes (one read).
+export { memoryReport, type ProfileMemory, type ProfileMemoryRow, type ProfileMemorySide } from './page-memory';
 export { pageProfile, PROFILE_HOOK, PROFILE_SPIKE_FACTOR, PROFILE_SPIKES, profileSummary, type ProfileCursor, type ProfileSummary, type ProfileBudgetRow, type ProfileFrameCounters, type ProfileReport, type ProfileSources, type ProfileSpike, type ProfileVoxels } from './page-profile';

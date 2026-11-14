@@ -28,7 +28,7 @@ import type {
   UiOutput,
   ModeView,
 } from '@thirdlight/runtime';
-import type { PackedProfile } from '@thirdlight/shared';
+import type { PackedProfile, ResidentReading } from '@thirdlight/shared';
 import type { FarSeenWire, PoolQueues } from '@thirdlight/voxel';
 import type { ManifestBehaviorRow } from './host';
 import type { RelayEffect, RelayTestFrame } from './relay-input';
@@ -61,13 +61,8 @@ export const STEP_PAIR_STRIDE = 2 * TRANSFORM_STRIDE;
 /** Floats per camera pose: position 3, rotation 4, fovY, near, far, letterbox. */
 export const CAMERA_POSE_FLOATS = 11;
 
-/**
- * Engine limit: the physics engine's WebAssembly memory may grow to
- * this many bytes; past it the simulation stops with `physics_memory_limit`
- * instead of growing without bound (a runaway spawn loop, a leak). 512 MiB is
- * far above any benchmark scene (the 16 000-entity one uses a few MiB).
- */
-export const PHYSICS_MEMORY_CAP_BYTES = 512 * 1024 * 1024;
+/** The physics memory cap (an entry of the memory budget table). */
+export { PHYSICS_MEMORY_CAP_BYTES } from '@thirdlight/project-model';
 
 /** Main → worker: compose the simulation. */
 export interface SimInitMessage {
@@ -290,7 +285,7 @@ export type WorkerToMain =
    * A tick's frame, with the profiler's frames the worker closed since the last (the tick's own, its steps' and the
    * job workers' spans; the buffer is transferred) and its voxel pools' queues.
    */
-  | { readonly t: 'frame'; readonly state: FrameState; readonly profile?: PackedProfile; readonly queues?: PoolQueues }
+  | { readonly t: 'frame'; readonly state: FrameState; readonly profile?: PackedProfile; readonly queues?: PoolQueues; readonly resident?: ResidentReading }
   | { readonly t: 'scene.request'; readonly sceneId: string }
   | { readonly t: 'relay.done'; readonly from: number; readonly to: number }
   /** A relay step's UI edges or click for the page. */

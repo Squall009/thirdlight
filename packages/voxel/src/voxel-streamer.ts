@@ -349,6 +349,21 @@ export interface SampleSummary {
 
 const summarize = (r: SampleRing): SampleSummary => ({ p50: Number(r.quantile(0.5).toFixed(1)), p95: Number(r.quantile(0.95).toFixed(1)), n: r.count });
 
+/**
+ * Bytes a stream holds by part (chunk payloads, derived results, the runtime overlay) and, with what it reads from
+ * outside (open tables, the chunk tree's nodes, the page's kits), its total against the budget: the count the
+ * memory report reads (`stats().bytes.total`).
+ */
+export class StreamHeld {
+  chunks = 0;
+  derived = 0;
+  overlay = 0;
+  constructor(private readonly outside: () => number) {}
+  get total(): number {
+    return this.chunks + this.derived + this.overlay + this.outside();
+  }
+}
+
 /** One derive section's result and its section coordinates. */
 export interface DerivedChunk {
   readonly cx: number;
@@ -400,7 +415,7 @@ export class VoxelStreamer {
   /** Refresh load jobs in flight, and the last refresh number given. */
   private readonly refreshes = { live: 0, seq: 0 };
   /** Bytes the stream holds by part: chunk payloads, derived results, the runtime overlay. */
-  private readonly held = { chunks: 0, derived: 0, overlay: 0 };
+  readonly held = new StreamHeld(() => this.opts.source.memoryBytes() + (this.mips?.bytes ?? 0) + this.pieces.gpuBytes);
   /** Payloads, worker results and save bases with the overlay laid over the base. */
   private readonly merged: OverlayMerge;
   private readonly heldOutside = new Set<number>();
@@ -759,7 +774,7 @@ export class VoxelStreamer {
       decoding,
       damaged,
       deriving,
-      bytes: { total: this.held.chunks + this.held.derived + this.held.overlay + tables + mips + kits, chunks: this.held.chunks, derived: this.held.derived, overlay: this.held.overlay, tables, mips, kits, budget: this.budgetBytes, relief: this.relief?.bytes ?? 0, reliefShare: this.relief?.share(this.budgetBytes) ?? 0 },
+      bytes: { total: this.held.total, chunks: this.held.chunks, derived: this.held.derived, overlay: this.held.overlay, tables, mips, kits, budget: this.budgetBytes, relief: this.relief?.bytes ?? 0, reliefShare: this.relief?.share(this.budgetBytes) ?? 0 },
       storeBytes: this.store.memoryBytes(),
       counters: { ...this.counters, ground: copyCoverage(this.counters.ground) },
       evaluateUs: this.derives === null ? null : { all: summarize(this.derives.evaluateUs.all), pieces: summarize(this.derives.evaluateUs.pieces) },

@@ -179,14 +179,72 @@ export function Counters({ report }: { report: ProfileReport }): JSX.Element {
     ['profiler cost', `${report.cost.pageSpansPerFrame.toFixed(1)} page spans a frame at ${Math.round(report.cost.nsPerSpan)} ns`],
   ];
   return (
-    <table className="tl-prof__table tl-prof__kv" aria-label="counters" data-testid="profiler-counters">
+    <>
+      <table className="tl-prof__table tl-prof__kv" aria-label="counters" data-testid="profiler-counters">
+        <tbody>
+          {rows.map(([k, v]) => (
+            <tr key={k}>
+              <td className="tl-prof__dim">{k}</td>
+              <td>{v}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {c.memory !== undefined && <MemoryTable memory={c.memory} />}
+    </>
+  );
+}
+
+type Memory = NonNullable<ProfileReport['counters']['memory']>;
+
+/** Bytes resident by memory budget against the tier's table, and each side's sums against the tier's target. */
+function MemoryTable({ memory }: { memory: Memory }): JSX.Element {
+  const side = { page: 'page and workers', gpu: 'GPU', backend: 'editor backend' } as const;
+  const sum = (name: string, s: Memory['page']): JSX.Element => (
+    <tr className="tl-prof__total" data-total={name} data-resident={s.resident} data-budget={s.budget}>
+      <td className="tl-prof__name">{name} total</td>
+      <td className="tl-prof__num">{mib(s.resident)}</td>
+      <td className="tl-prof__num">{mib(s.budget)}</td>
+      <td className="tl-prof__dim">{s.target === null ? 'no target of its own at this tier' : `target ${mib(s.target)} · budgets ${Math.round((s.budget / s.target) * 100)} % of it · held ${Math.round((s.resident / s.target) * 100)} %`}</td>
+    </tr>
+  );
+  return (
+    <table className="tl-prof__table" aria-label="memory" data-testid="profiler-memory" data-tier={memory.tier}>
+      <thead>
+        <tr>
+          <th className="tl-prof__name">memory budget ({memory.tier} tier)</th>
+          <th className="tl-prof__num">resident</th>
+          <th className="tl-prof__num">budget</th>
+          <th>use</th>
+        </tr>
+      </thead>
       <tbody>
-        {rows.map(([k, v]) => (
-          <tr key={k}>
-            <td className="tl-prof__dim">{k}</td>
-            <td>{v}</td>
-          </tr>
-        ))}
+        {memory.rows.map((r) => {
+          const over = r.use !== null && r.use > 1;
+          return (
+            <tr key={r.id} className={over ? 'is-over' : undefined} data-id={r.id} data-side={r.side} data-resident={r.resident ?? ''} data-over={over ? 'true' : 'false'}>
+              <td className="tl-prof__name" title={r.label}>
+                {r.label} <span className="tl-prof__dim">· {side[r.side]}</span>
+              </td>
+              <td className="tl-prof__num">{r.resident === null ? '—' : mib(r.resident)}</td>
+              <td className="tl-prof__num">{mib(r.budget)}</td>
+              <td className="tl-prof__use">
+                {r.use === null ? (
+                  <span className="tl-prof__dim">not counted here</span>
+                ) : (
+                  <>
+                    <span className="tl-prof__meter">
+                      <span style={{ width: `${Math.min(100, r.use * 100)}%` }} />
+                    </span>
+                    {Math.round(r.use * 100)} %{over ? ' over' : ''}
+                  </>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+        {sum('page', memory.page)}
+        {sum('GPU', memory.gpu)}
       </tbody>
     </table>
   );

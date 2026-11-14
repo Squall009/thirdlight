@@ -60,8 +60,10 @@
  *
  * Pure: no I/O.
  */
-import { FRAME_SLICE_DEFAULTS, type FrameSlice, type FrameSliceId, type SpanCategory } from '@thirdlight/shared';
-import { FAR_ERROR_PIXELS_BY_TIER, FAR_FIELD_BY_TIER, FAR_FINE_HOLD_M_BY_TIER, FAR_GPU_BUDGET_BYTES_BY_TIER, RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type FarFieldMode } from '@thirdlight/voxel';
+import { FRAME_SLICE_DEFAULTS, MEMORY_BUDGET_IDS, type FrameSlice, type FrameSliceId, type MemoryBudgetId, type SpanCategory } from '@thirdlight/shared';
+import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS_BY_TIER, FAR_FIELD_BY_TIER, FAR_FINE_HOLD_M_BY_TIER, FAR_GPU_BUDGET_BYTES_BY_TIER, RELIEF_RING_SCALES, RELIEF_STEPS_BY_TIER, UNDO_MEMORY_BUDGET_BYTES, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type FarFieldMode } from '@thirdlight/voxel';
+import { TEXTURE_BUDGET_DEFAULT_MB } from './texture-streaming';
+import { STREAMING_BUDGET_DEFAULT_MB } from './world-streaming';
 import type { FrameRateCap } from './frame-rate-cap';
 import type { PostConfig } from './materials';
 import type { AmbientOcclusionKind, OcclusionCulling } from './render-settings';
@@ -444,3 +446,84 @@ export function levelFrameBudget(level: Pick<QualityLevelConfig, 'lighting'>): F
 export function frameBudgetMs(budget: FrameBudget, thread: 'page' | 'sim' | 'jobs' | 'gpu', category: SpanCategory): number {
   return (budget[thread][category] ?? 0) * budget.intervalMs;
 }
+
+const MIB = 1024 * 1024;
+
+/**
+ * Engine limit: the physics engine's WebAssembly memory may grow to
+ * this many bytes; past it the simulation stops with `physics_memory_limit`
+ * instead of growing without bound (a runaway spawn loop, a leak). 512 MiB is
+ * far above any benchmark scene (the 16 000-entity one uses a few MiB).
+ */
+export const PHYSICS_MEMORY_CAP_BYTES = 512 * MIB;
+
+/**
+ * The bytes one scene's document may take: about four times what 16,384
+ * plain objects take (a box as createEntity makes it is about 530 bytes).
+ * Here, not with the scene's byte count (`scene-memory.ts`), so the budget
+ * table reads it without the serializer's imports.
+ */
+export const SCENE_OBJECT_BUDGET_BYTES = 32 * MIB;
+
+/** GPU memory the resident probe tiles may take (bytes): the packed texture, as placed (each tile's column width and the deepest tile's depth). */
+export const PROBE_RESIDENT_BYTES = 128 * MIB;
+
+/**
+ * One entry of a tier's memory budget: what it holds, where (`page`: the
+ * page's and its workers' heaps; `gpu`: GPU memory; `backend`: the editor's
+ * backend, not part of a game's memory), its bytes, and the constant (or
+ * project setting) the system that keeps it to the budget reads.
+ */
+export interface MemoryBudgetEntry {
+  readonly id: MemoryBudgetId;
+  readonly label: string;
+  readonly side: 'page' | 'gpu' | 'backend';
+  readonly bytes: number;
+  readonly from: string;
+}
+
+/** A tier's memory budget: every entry, and the hardware target the page and GPU entries must fit in (null: the tier has no target of its own yet). */
+export interface MemoryBudget {
+  readonly tier: LightingTier;
+  readonly entries: readonly MemoryBudgetEntry[];
+  /** The target's page and GPU memory (bytes). */
+  readonly target: { readonly page: number; readonly gpu: number } | null;
+  /** The page and GPU entries' sums (bytes). */
+  readonly sums: { readonly page: number; readonly gpu: number };
+}
+
+/**
+ * Each budget's bytes at a tier: every one the value its system had (the
+ * table gathers them; it changes none). Shown in this order.
+ */
+function memoryEntries(tier: LightingTier): readonly MemoryBudgetEntry[] {
+  const e = (id: MemoryBudgetId, label: string, side: MemoryBudgetEntry['side'], bytes: number, from: string): MemoryBudgetEntry => Object.freeze({ id, label, side, bytes, from });
+  const all: Readonly<Record<MemoryBudgetId, MemoryBudgetEntry>> = {
+    voxelStream: e('voxelStream', 'voxel streaming (chunks, derived parts, overlay, tables, mips, kits)', 'page', VOXEL_STREAM_BUDGET_BYTES[tier], 'VOXEL_STREAM_BUDGET_BYTES'),
+    physics: e('physics', 'physics memory (the simulation stops past it)', 'page', PHYSICS_MEMORY_CAP_BYTES, 'PHYSICS_MEMORY_CAP_BYTES'),
+    farSelection: e('farSelection', 'far nodes drawn at once (their stored bytes)', 'page', FAR_BUDGET_BYTES, 'FAR_BUDGET_BYTES'),
+    sceneObjects: e('sceneObjects', "a scene's objects (each scene)", 'page', SCENE_OBJECT_BUDGET_BYTES, 'SCENE_OBJECT_BUDGET_BYTES'),
+    farGpu: e('farGpu', 'far field on the GPU', 'gpu', FAR_GPU_BUDGET_BYTES_BY_TIER[tier], 'FAR_GPU_BUDGET_BYTES_BY_TIER'),
+    textures: e('textures', 'streamed textures (the project may set its own)', 'gpu', TEXTURE_BUDGET_DEFAULT_MB * MIB, 'TEXTURE_BUDGET_DEFAULT_MB'),
+    worldStream: e('worldStream', 'streamed scene cells (the project may set its own)', 'gpu', STREAMING_BUDGET_DEFAULT_MB * MIB, 'STREAMING_BUDGET_DEFAULT_MB'),
+    surfaceCache: e('surfaceCache', 'surface cache', 'gpu', LIGHTING_TIER_SETTINGS[tier].surfaceCacheMiB * MIB, 'LIGHTING_TIER_SETTINGS.surfaceCacheMiB'),
+    probes: e('probes', 'probe tiles', 'gpu', PROBE_RESIDENT_BYTES, 'PROBE_RESIDENT_BYTES'),
+    undo: e('undo', 'voxel undo (each world, in the backend)', 'backend', UNDO_MEMORY_BUDGET_BYTES, 'UNDO_MEMORY_BUDGET_BYTES'),
+  };
+  return Object.freeze(MEMORY_BUDGET_IDS.map((id) => all[id]));
+}
+
+const memoryBudget = (tier: LightingTier): MemoryBudget => {
+  const entries = memoryEntries(tier);
+  const sum = (side: MemoryBudgetEntry['side']): number => entries.filter((x) => x.side === side).reduce((n, x) => n + x.bytes, 0);
+  // Low is the hardware target (an 8 GB machine); medium and high have none of their own until measured on their hardware.
+  const target = tier === 'low' ? Object.freeze({ page: LOW_MEMORY_BUDGET_MIB.pageHeap * MIB, gpu: LOW_MEMORY_BUDGET_MIB.gpu * MIB }) : null;
+  return Object.freeze({ tier, entries, target, sums: Object.freeze({ page: sum('page'), gpu: sum('gpu') }) });
+};
+
+/** Each tier's memory budget: the one table of them (the frame budget's memory side). */
+export const MEMORY_BUDGET_BY_TIER: Readonly<Record<LightingTier, MemoryBudget>> = Object.freeze({
+  low: memoryBudget('low'),
+  medium: memoryBudget('medium'),
+  high: memoryBudget('high'),
+});

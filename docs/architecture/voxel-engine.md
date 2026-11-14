@@ -62,7 +62,8 @@ page in the same commit.
 ## 4. Streaming
 
 - A load ring around each focus (192 m by default; it ends at the detail reach on a world baked to its drawn
-  level), a memory budget per tier (768 MiB at low), far GPU budget (384 MiB at low).
+  level), a memory budget per tier (768 MiB at low), far GPU budget (384 MiB at low); both are entries of the one
+  memory budget table (`MEMORY_BUDGET_BY_TIER`, §6 row 7).
 - **At speed:** no level 0 is built, stale queued work is dropped, the far field carries the view; level 0
   returns from the camera outward when the focus stops.
 - **Collision** is on its own path round moving bodies; a **coarse floor** from the 2 m data stops anything
@@ -91,13 +92,15 @@ page in the same commit.
 | 4 | Camera-following window helper | wind, interaction field, ripples, water info, fog density and simulation | exists: `three-adapter` `camera-window.ts` (`CameraWindow`, `WindowTargets`); the wind map (`wind-field.ts`, its sample public as `MaterialLibrary.windSample`) and the interaction field (`interaction-field.ts`: 256² × 0.25 m, every `interactor` stamped by one compute pass, read by foliage; WebGPU only) sit on it |
 | 5 | Regenerated structures (a definition → voxels + overrides) | buildings, road and river splines, water bodies | 47a; `structure-overrides.ts` is a draft |
 | 6 | One culled-instance table for every instanced draw | kit pieces, terrain and far nodes; stored copies (trees, rocks, instance sets); ground cover from point sets; impostors | exists (`occlusion-instances.ts`, on every occlusion path on WebGPU); stored copies and point-set ground cover (block layers, models, architecture floors: `cover-rows.ts`, a point expanded to a copy's 16 floats) are its rows (`copy-rows.ts`: level by the shared screen-size rule `lodLevelStep` with hysteresis and a cross-fade, thinning by rank or by the cover's share across the ground, frustum and depth pyramid, picked in compute). Not in it: terrain cover placed from heightfield texels (retires in 48); on WebGL 2 copies and point-set cover keep their vertex-stage paths |
-| 7 | Budget table, profiler and frame arbiter | everything | exists: spans on every thread (`threadProfiler`, shared), `__tlProfiler.read()` on game pages, `FRAME_BUDGET_BY_TIER`, `frameSliceMs`; views and capture in game-host `profile-view.ts` / `profile-capture.ts`; editor Profiler tab (`editor/src/ui/profiler`), overlay Shift+F3, `tl_diagnostics` profile |
+| 7 | Budget table, profiler and frame arbiter | everything | exists: spans on every thread (`threadProfiler`, shared), `__tlProfiler.read()` on game pages, `FRAME_BUDGET_BY_TIER`, `frameSliceMs`; memory too: `MEMORY_BUDGET_BY_TIER` (every memory budget as an entry, summed against the tier's page and GPU target) and the resident-bytes report (`residentBytes` registries per thread, game-host `page-memory.ts`, the Profiler tab's Memory table); views and capture in game-host `profile-view.ts` / `profile-capture.ts`; editor Profiler tab (`editor/src/ui/profiler`), overlay Shift+F3, `tl_diagnostics` profile |
 | 8 | One world edit mode on the brush kit, in the Scene view | sculpt, paint, fill, splines, rule preview | 47b; the brush kit exists |
 
 Also shared already and to be reused, not rebuilt: the editor's brush settings, cursor, keys and panel; the
 preview renderer; the node-graph canvas; asset pickers; the edit-mode shell; `paint-brush.ts`; the scatter rule
 core (`scatter.ts`); the spline format and curve maths; the voxel `WorkerPool` and `job-queue`; `view-cull.ts`; the level-of-detail rule by screen size with hysteresis (`@thirdlight/shared` `lodLevelOf` / `lodLevelStep`, for the CPU and shaders; voxel rings keep their own);
-`screen-history.ts`; `dither-fade.ts`; one scene realizer for the editor and games; one content closure for
+`screen-history.ts`; `dither-fade.ts`; one buffer grow (`@thirdlight/shared` `grownCapacity` / `grownArray`;
+`grownGpuBuffer` for raw GPU scratch buffers); one region-texture helper for a texture three owns (`region-texture.ts`:
+partial upload, grow by copy, the texture version rule; the private three hooks for it live there alone); one scene realizer for the editor and games; one content closure for
 Play and export.
 
 ## 7. What is planned on top (see the roadmap)

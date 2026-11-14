@@ -979,7 +979,7 @@ interface PlayObservation { state?: string; stepIndex?: number; counters?: Recor
 interface ProfileFrameE2e { thread: string; frame: number; tick?: number; start: number; ms: number; byCategory: Record<string, number>; spans: Array<{ name: string; category: string; start: number; ms: number; selfMs: number; depth: number; lane?: number }>; dropped: number }
 interface ProfileE2e {
   threads: { page: ProfileFrameE2e[]; sim: ProfileFrameE2e[]; jobs: ProfileFrameE2e[] };
-  counters: { frames: Array<{ frame: number; drawCalls: number; triangles: number; heapBytes: number | null }>; stats: { drawCalls: number; triangles: number; quality: string } | null; queues: { workers: number; queued: number; inFlight: number } | null; voxels: { chunks: number } | null };
+  counters: { frames: Array<{ frame: number; drawCalls: number; triangles: number; heapBytes: number | null }>; stats: { drawCalls: number; triangles: number; quality: string } | null; queues: { workers: number; queued: number; inFlight: number } | null; voxels: { chunks: number } | null; memory?: { tier: string; rows: Array<{ id: string; resident: number | null; budget: number }> } };
   gpu: { timestamps: boolean; shares: unknown; room: string };
   budget: { tier: string; hz: number; intervalMs: number; rows: Array<{ thread: string; category: string; budgetMs: number; meanMs: number; worstMs: number; use: number | null }> };
   slices: Array<{ id: string; msNow: number | null }>;
@@ -1049,6 +1049,14 @@ async function profilerPanel(page: Page, pr: ProfileE2e, readProfile: () => Prom
   await page.screenshot({ path: test.info().outputPath('profiler-file-1920.png') });
   await panel.getByRole('tab', { name: 'Counters' }).click();
   await expect(panel.getByTestId('profiler-counters')).toContainText('draw calls');
+  // The Memory table (the capture's): every budget of the tier's table, the voxel streamer's own count posted from
+  // the simulation worker, the far field's GPU bytes counted, the page's sum.
+  const memory = panel.getByTestId('profiler-memory');
+  await expect(memory).toHaveAttribute('data-tier', 'high');
+  expect(await memory.locator('tbody tr[data-id]').count()).toBe(capture.report.counters.memory!.rows.length);
+  expect(Number(await memory.locator('tr[data-id="voxelStream"]').getAttribute('data-resident')), 'voxel streaming resident').toBeGreaterThan(0);
+  expect(await memory.locator('tr[data-id="farGpu"]').getAttribute('data-resident'), 'far field GPU bytes counted').not.toBe('');
+  expect(Number(await memory.locator('tr[data-total="page"]').getAttribute('data-resident'))).toBeGreaterThan(0);
   await page.screenshot({ path: test.info().outputPath('profiler-counters-1920.png') });
   await page.setViewportSize({ width: 1280, height: 720 });
   await panel.getByRole('button', { name: 'Back to live' }).click();
@@ -1250,6 +1258,9 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     const st = pr.counters.stats!;
     expect(pr.counters.frames.some((c) => c.drawCalls === st.drawCalls && c.triangles === st.triangles), `stats ${st.drawCalls} draws / ${st.triangles} tris among the frames`).toBe(true);
     expect(pr.counters.voxels?.chunks ?? 0).toBeGreaterThan(20);
+    // The resident-bytes report: the streamer's bytes in the simulation worker, at the tier's budget.
+    expect(pr.counters.memory?.tier).toBe('high');
+    expect(pr.counters.memory?.rows.find((r) => r.id === 'voxelStream')?.resident ?? 0).toBeGreaterThan(0);
     // The tier switched to at run time is the budget's: high, planned at 60 Hz.
     expect(st.quality).toBe('high');
     expect([pr.budget.tier, pr.budget.hz]).toEqual(['high', 60]);

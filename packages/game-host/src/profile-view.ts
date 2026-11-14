@@ -267,6 +267,8 @@ export interface ProfileDigest {
     readonly geometryMiB: number | null;
     readonly voxels: ProfileReport['counters']['voxels'];
     readonly queues: ProfileReport['counters']['queues'];
+    /** MiB resident and budgeted per memory budget ([resident (null: no count), budget]); each side's [resident, budget, target] (absent: an older capture). */
+    readonly memoryMiB?: { readonly rows: Readonly<Record<string, readonly [number | null, number | null]>>; readonly page: readonly [number | null, number | null, number | null]; readonly gpu: readonly [number | null, number | null, number | null] };
   };
   readonly gpu: ProfileReport['gpu'];
   readonly spikes: { readonly kept: number; readonly worst: null | { readonly reason: ProfileSpike['reason']; readonly ms: number; readonly thresholdMs: number; readonly agoS: number; readonly top: Readonly<Record<ProfileLane, readonly { readonly name: string; readonly category: SpanCategory; readonly ms: number }[]>> } };
@@ -275,6 +277,12 @@ export interface ProfileDigest {
 
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 const mib = (b: number | null | undefined): number | null => (typeof b === 'number' && b >= 0 ? Math.round((b / 1048576) * 10) / 10 : null);
+
+function memoryDigest(m: NonNullable<ProfileReport['counters']['memory']>): NonNullable<ProfileDigest['counters']['memoryMiB']> {
+  const rows: Record<string, readonly [number | null, number | null]> = {};
+  for (const x of m.rows) rows[x.id] = [mib(x.resident), mib(x.budget)];
+  return { rows, page: [mib(m.page.resident), mib(m.page.budget), mib(m.page.target)], gpu: [mib(m.gpu.resident), mib(m.gpu.budget), mib(m.gpu.target)] };
+}
 
 /** The digest of a profile read, within {@link PROFILE_DIGEST_MAX_BYTES} (the worst spike's spans and the quiet categories go first if it is not). */
 export function profileDigest(r: ProfileReport, now: number = r.at, maxBytes = PROFILE_DIGEST_MAX_BYTES): ProfileDigest {
@@ -309,6 +317,7 @@ export function profileDigest(r: ProfileReport, now: number = r.at, maxBytes = P
         geometryMiB: mib(r.counters.stats?.geometryBytes),
         voxels: r.counters.voxels,
         queues: r.counters.queues,
+        ...(r.counters.memory !== undefined ? { memoryMiB: memoryDigest(r.counters.memory) } : {}),
       },
       gpu: r.gpu,
       spikes: {
