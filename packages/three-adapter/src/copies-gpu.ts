@@ -49,7 +49,7 @@ import { vertexReachOf } from './vertex-reach';
 import { CUTAWAY_LAYER } from './block-cutaway-view';
 import { BLOCK_FLOATS, COPY_ROW, COPY_TEXEL_FLOATS, COPY_TEXELS, copyDensityAt, copyDensitySteps, copyRank, measureBlock, prepareCopies, writeCopyTexels, type PreparedCopies } from './copies-prepare';
 import { COVER_DRAW_KEY, installCoverPlacement, type CoverPlacement } from './cover-gpu';
-import { COPY_ROW_FLOATS } from './copy-rows-rule';
+import { COPY_ROW_FLOATS, modelSphereOf } from './copy-rows-rule';
 import { disposeSharingGeometry } from './dispose';
 import type { N } from './effects-tsl';
 import { TSL_SCALAR_OPS } from './field-ops';
@@ -368,6 +368,8 @@ export class GpuCopySet {
   private readonly rowsSource: CopyRowsSource;
   /** The farthest a model's point lies from its origin at scale 1 (most detailed level). */
   private readonly reach: number;
+  /** The model's sphere around its centre (scale 1), which the culled-instance table tests each copy with. */
+  private readonly sphere: ReturnType<typeof modelSphereOf>;
   private readonly tuning: LodTuning;
   private view: CullView | null = null;
   private stamp = -1;
@@ -423,6 +425,7 @@ export class GpuCopySet {
       box.union(b.copy(g.boundingBox!).applyMatrix4(part.local));
     }
     this.reach = box.isEmpty() ? 0 : Math.max(box.min.length(), box.max.length(), Math.hypot(box.max.x, box.min.y, box.min.z), Math.hypot(box.min.x, box.max.y, box.max.z), Math.hypot(box.min.x, box.min.y, box.max.z), Math.hypot(box.max.x, box.max.y, box.min.z), Math.hypot(box.max.x, box.min.y, box.max.z), Math.hypot(box.min.x, box.max.y, box.min.z));
+    this.sphere = modelSphereOf(box);
     const dens = this.plan.density;
     if (dens !== null && this.plan.radius > 0) this.density.set(this.plan.radius / (TAN_HALF_REFERENCE * dens.start), this.plan.radius / (TAN_HALF_REFERENCE * dens.end), dens.min, 1);
     const blocks = p.blocks.length / BLOCK_FLOATS;
@@ -548,7 +551,8 @@ export class GpuCopySet {
       get world() {
         return set.draws[0]!.mesh.matrixWorld;
       },
-      modelReach: this.reach,
+      modelReach: this.sphere.radius,
+      modelCentre: this.sphere.centre,
       get density() {
         const d = set.density;
         return d.w > 0.5 ? { from: d.x, to: d.y, min: d.z } : null;

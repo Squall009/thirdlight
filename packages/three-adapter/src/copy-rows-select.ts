@@ -22,7 +22,7 @@ import { lodLevelStep, lodSwitchMargin, type LodLevelAcc } from '@thirdlight/sha
 import type { StorageBufferAttribute } from 'three/webgpu';
 
 import { copyDensitySteps } from './copies-prepare';
-import { COPY_FADE_FULL } from './copy-rows-rule';
+import { COPY_FADE_FULL, copySphereCentre } from './copy-rows-rule';
 import { coverShareSteps } from './cover-placement';
 import type { N } from './effects-tsl';
 import { TSL_SCALAR_OPS } from './field-ops';
@@ -53,10 +53,11 @@ export const SELECT_THINS = 2;
 export const SELECT_COVER = 4;
 /**
  * Floats a selection's parameters take before its switch distances: the set's world matrix (16), its largest
- * world scale, metres → level units, the hysteresis share, the model's reach from its origin (scale 1), how far
- * its vertices move (m; huge: no bound), the near list's reach (m), the falloff's start, end and least share.
+ * world scale, metres → level units, the hysteresis share, the model's sphere radius (scale 1), how far its
+ * vertices move (m; huge: no bound), the near list's reach (m), the falloff's start, end and least share, and the
+ * model's sphere centre (model space, scale 1; `modelSphereOf`).
  */
-export const SELECTION_F32 = 25;
+export const SELECTION_F32 = 28;
 const F_WORLD = 0;
 const F_SCALE = 16;
 const F_TO_DISTANCE = 17;
@@ -65,6 +66,7 @@ const F_MODEL_REACH = 19;
 const F_VERTEX_REACH = 20;
 const F_NEAR = 21;
 const F_DENSITY = 22;
+const F_CENTRE = 25;
 
 /** What the passes read and write (the table's pools and buffers). */
 export interface SelectBuffers {
@@ -182,13 +184,17 @@ export function copySelectKernels(b: SelectBuffers, v: SelectView, t: SelectTabl
           nextLeft.assign(0);
         });
         state.element(stateAt).assign(target.add(1).bitOr(nextLeft.shiftLeft(8)).bitOr(nextFade.shiftLeft(16)));
-        // Its world sphere (the late pass tests the pyramid with it) and the frustum.
+        // Its world sphere around the model's centre as placed (the late pass tests the pyramid with it) and the frustum.
+        const v1 = matrices.element(at.add(1)).toVar();
+        const v2 = matrices.element(at.add(2)).toVar();
+        const local = copySphereCentre(o, [v0.x, v0.y, v0.z], [v1.x, v1.y, v1.z, v1.w], [v2.x, v2.y, v2.z], [fl(F_CENTRE), fl(F_CENTRE + 1), fl(F_CENTRE + 2)]);
+        const sc = world.mul(TSL.vec4(local[0], local[1], local[2], 1)).xyz.toVar();
         const r = fl(F_MODEL_REACH).mul(s).add(fl(F_VERTEX_REACH)).toVar();
-        spheres.element(copies.add(c)).assign(TSL.vec4(wp, r));
+        spheres.element(copies.add(c)).assign(TSL.vec4(sc, r));
         const inView = TSL.bool(true).toVar();
         for (let p = 0; p < 6; p += 1) {
           const plane = v.planes.element(p);
-          inView.assign(inView.and(plane.xyz.dot(wp).add(plane.w).greaterThanEqual(r.negate())));
+          inView.assign(inView.and(plane.xyz.dot(sc).add(plane.w).greaterThanEqual(r.negate())));
         }
         const thins = flags.bitAnd(SELECT_THINS).notEqual(0);
         const cover = flags.bitAnd(SELECT_COVER).notEqual(0);

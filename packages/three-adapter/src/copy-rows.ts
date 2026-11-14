@@ -69,8 +69,9 @@ export interface CopyRowsSource {
   readonly cover?: CoverThinning | null;
   /** The set's world matrix (the copies' places are in its frame). */
   readonly world: THREE.Matrix4;
-  /** The model's farthest point from its origin at scale 1. */
+  /** The model's sphere at scale 1 (`modelSphereOf`): its radius, and its centre in model space. */
   readonly modelReach: number;
+  readonly modelCentre: readonly [number, number, number];
   /** The falloff by distance (level units at scale 1), null: none. */
   readonly density: { readonly from: number; readonly to: number; readonly min: number } | null;
   /** The near-shadow draws' reach (m; null: none). */
@@ -614,6 +615,7 @@ export class CopyRowsTable {
         put(c?.full ?? d?.from ?? 0);
         put(c?.reach ?? d?.to ?? 0);
         put(c?.min ?? d?.min ?? 1);
+        for (const k of src.modelCentre) put(k);
         const dist = src.groups[g]?.distances ?? [0];
         for (let k = 0; k < sel.levels.length; k += 1) put(dist[k] ?? 0);
       }

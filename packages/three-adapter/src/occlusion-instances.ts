@@ -698,8 +698,8 @@ export class InstanceOcclusion implements InstanceCullerHost {
     let draws = 0;
     for (const d of this.frameRows) if (d.whole !== true && d.copy !== true) draws += 1;
     const c = this.copyRows.diagnostics();
-    // Off the pyramid's path the view draws every copy its lists hold.
-    const read = this.ranLate || this.read.copies.drawn + this.read.copies.coverDrawn > 0;
+    // Off the pyramid's path the view draws every copy its lists hold (a read-back from while it was on is stale).
+    const read = this.allDraws && (this.ranLate || this.read.copies.drawn + this.read.copies.coverDrawn > 0);
     const drawn = read ? this.read.copies.drawn : c.inView;
     const cover = { ...c.cover, drawn: read ? this.read.copies.coverDrawn : c.cover.inView };
     return { draws, poolCopies: p.copies, bytes: bytes + c.bytes, ...this.read, copies: { ...c, drawn, otherDraws: this.otherDraws.last, cover }, error: this.failed };

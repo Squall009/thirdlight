@@ -7,7 +7,9 @@ import * as THREE from 'three';
 import { StorageBufferAttribute } from 'three/webgpu';
 import { describe, expect, it, vi } from 'vitest';
 
-import { COPY_FADE_FULL, COPY_LEVEL_FADE_S, copyFadeStep, nextCopyState, packCopyState, selectCopy, unpackCopyState, type CopySelection } from './copy-rows-rule';
+import { CPU_SCALAR_OPS } from '@thirdlight/shared';
+
+import { COPY_FADE_FULL, COPY_LEVEL_FADE_S, copyFadeStep, copySphereCentre, modelSphereOf, nextCopyState, packCopyState, selectCopy, unpackCopyState, type CopySelection } from './copy-rows-rule';
 import { CopyRowsTable, type CopyRow, type CopyRowsHost, type CopyRowsSource } from './copy-rows';
 import { NO_OUTPUT, SELECT_COVER, SELECTION_U32 } from './copy-rows-select';
 import { LodTuning } from './lod-switch';
@@ -80,6 +82,38 @@ describe('a copy picked for the view (the selection pass, on the CPU)', () => {
   });
 });
 
+describe('a copy\'s sphere (the selection pass tests the frustum and the pyramid with it)', () => {
+  it('lies around the model\'s box centre as the copy places it, holds every corner of the placed box, and is far smaller than a sphere around a standing model\'s origin', () => {
+    // A 3 m marker standing on its origin, as a tree or a rock does: x 0..3, y 0..3, z -1.5..1.5.
+    const box = new THREE.Box3(new THREE.Vector3(0, 0, -1.5), new THREE.Vector3(3, 3, 1.5));
+    const sphere = modelSphereOf(box);
+    expect(sphere.centre).toEqual([1.5, 1.5, 0]);
+    expect(sphere.radius).toBeCloseTo(Math.hypot(1.5, 1.5, 1.5), 12);
+    const fromOrigin = Math.hypot(3, 3, 1.5);
+    expect(sphere.radius / fromOrigin).toBeLessThan(0.6);
+    expect(modelSphereOf(new THREE.Box3())).toEqual({ centre: [0, 0, 0], radius: 0 });
+    let seed = 7;
+    const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+    for (let i = 0; i < 200; i += 1) {
+      const q = new THREE.Quaternion(rnd(), rnd(), rnd(), rnd()).normalize();
+      const scale = new THREE.Vector3(0.2 + Math.abs(rnd()) * 3, 0.2 + Math.abs(rnd()) * 3, 0.2 + Math.abs(rnd()) * 3);
+      const place = new THREE.Vector3(rnd() * 100, rnd() * 10, rnd() * 100);
+      const c = copySphereCentre(CPU_SCALAR_OPS, [place.x, place.y, place.z], [q.x, q.y, q.z, q.w], [scale.x, scale.y, scale.z], sphere.centre);
+      // The draw's placement (copy-rows-draw.ts): turn(q, p × scale) + place, here by three's own quaternion.
+      const want = new THREE.Vector3(...sphere.centre).multiply(scale).applyQuaternion(q).add(place);
+      expect(c[0]).toBeCloseTo(want.x, 9);
+      expect(c[1]).toBeCloseTo(want.y, 9);
+      expect(c[2]).toBeCloseTo(want.z, 9);
+      // The pass's radius: the model's times the copy's largest scale; every placed corner lies inside it.
+      const r = sphere.radius * Math.max(scale.x, scale.y, scale.z);
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        const corner = new THREE.Vector3(x, y, z).multiply(scale).applyQuaternion(q).add(place);
+        expect(corner.distanceTo(want)).toBeLessThanOrEqual(r + 1e-9);
+      }
+    }
+  });
+});
+
 /** A set of `count` copies on a line, with one LOD group of `levels` levels and two meshes a level, plus a near-shadow mesh. */
 function source(count: number, levels: number, near: boolean): CopyRowsSource {
   const meshes = [];
@@ -96,6 +130,7 @@ function source(count: number, levels: number, near: boolean): CopyRowsSource {
     },
     world: new THREE.Matrix4(),
     modelReach: 1,
+    modelCentre: [0.25, 0.5, -0.75],
     density: null,
     nearReach: near ? 30 : null,
     blockLevels: () => null,
@@ -238,6 +273,8 @@ describe('a set of copies as the table rows', () => {
     const floats = (table as unknown as { floats: StorageBufferAttribute }).floats.array as Float32Array;
     const f = data[headers + SELECTION_U32 + 5]!;
     expect([...floats.subarray(f + 22, f + 25)].map((v) => Math.round(v * 100) / 100)).toEqual([21, 80, 0.1]);
+    // Then the model's sphere centre (its radius at 19).
+    expect([floats[f + 19], ...floats.subarray(f + 25, f + 28)]).toEqual([1, 0.25, 0.5, -0.75]);
     expect(table.diagnostics()).toMatchObject({ sets: 1, copies: 10, rows: 4, lists: 2, cover: { sets: 1, copies: 128, rows: 2, lists: 1 } });
     // A changed point set: only its range written (and uploaded).
     dirty.length = 0;

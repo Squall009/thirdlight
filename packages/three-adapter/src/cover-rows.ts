@@ -26,7 +26,7 @@ import { coverPointAt, coverPointCopy, INTERACTOR_DEFAULTS, type CoverPointSet, 
 import { CULLED_COPIES_KEY, INSTANCE_CULLER_KEY } from './attribute-instancing';
 import type { CopyRowsMesh, CopyRowsSource } from './copy-rows';
 import { COPY_ROW_KEY, COPY_ROWS_ATTRIBUTE, installCopyRows, rowsPlacement, type CopyRowDraw } from './copy-rows-draw';
-import { COPY_ROW_FLOATS } from './copy-rows-rule';
+import { COPY_ROW_FLOATS, modelSphereOf } from './copy-rows-rule';
 import { COVER_DRAW_KEY, installCoverPlacement } from './cover-gpu';
 import type { CoverPlan } from './cover-placement';
 import { COVER_POINT_BLOCK, type CoverPointAtlas } from './cover-points-gpu';
@@ -112,8 +112,8 @@ export class CoverRows {
   private view: CullView | null = null;
   private undress: (() => void) | null = null;
   private disposed = false;
-  /** The farthest a model's point lies from its origin at scale 1 (most detailed level). */
-  private readonly reach: number;
+  /** The model's sphere its points' copies are tested with (scale 1, most detailed level). */
+  private readonly sphere: ReturnType<typeof modelSphereOf>;
 
   constructor(private readonly o: CoverRowsOptions) {
     installCoverPlacement();
@@ -128,7 +128,7 @@ export class CoverRows {
       if (g.boundingBox === null) g.computeBoundingBox();
       box.union(b.copy(g.boundingBox!).applyMatrix4(part.local));
     }
-    this.reach = box.isEmpty() ? 0 : Math.max(...[box.min, box.max].flatMap((a) => [box.min, box.max].flatMap((c) => [box.min, box.max].map((e) => Math.hypot(a.x, c.y, e.z)))));
+    this.sphere = modelSphereOf(box);
     for (const part of o.model.parts) this.makeDraw(part);
     this.setOrigin(o.origin);
     this.undress = o.dress?.(this.root, o.rule.asset.assetId) ?? null;
@@ -287,7 +287,8 @@ export class CoverRows {
       get world() {
         return self.root.matrixWorld;
       },
-      modelReach: this.reach,
+      modelReach: this.sphere.radius,
+      modelCentre: this.sphere.centre,
       density: null,
       cover: o.plan.thinning,
       nearReach: null,

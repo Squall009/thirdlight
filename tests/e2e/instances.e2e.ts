@@ -27,6 +27,7 @@ import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 import { chooseItem, menu } from './ui';
+import { expectOcclusionShotsMatch, keepThreeScenes, onOcclusionSwitch, settledShot } from './view-match';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -340,7 +341,8 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
   const outDir = join(be.exportRoot, String(res.json.outputDir));
   expect(JSON.stringify(exportedContent(outDir))).toContain('"lod":{"screenSizes":[0.1],"cullSize":0.04}');
   // A second export with a wall 60 m ahead hiding the row's far copies (none of the placed markers), drawn on the
-  // depth pyramid's path: the table's tests leave the hidden copies out.
+  // depth pyramid's path: the table's tests leave the hidden copies out. The wall (8 × 8 m, standing on the ground)
+  // hides the 14 copies past 60 m whole; the 7 nearer ones stand in front of it.
   const wallAt = ground(60, 0);
   await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Wall', transform: { position: [wallAt[0], 4, wallAt[2]] }, box: { size: [8, 8, 0.5], material: { color: '#808080' } } });
   const walled = await be.admin(`projects/${be.projectId}/export`);
@@ -372,13 +374,31 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
   const behind = await page.context().newPage();
   behind.on('pageerror', (e) => errors.push(e.message));
   try {
+    await behind.addInitScript(keepThreeScenes);
     const q = exportQueryFor(variant);
     await behind.goto(`${walledSite.url}${q === '' ? '?' : `${q}&`}occlusion=hiz`);
-    // The frustum still holds the whole row; the pyramid leaves out the copies the wall hides (read back a few frames late).
-    await expect.poll(async () => JSON.stringify(await rowsOf(behind).then((r) => (r === null ? null : [r.inView, r.drawn > 0 && r.drawn < r.inView - 4]))), { timeout: 30_000, message: 'the walled export on the pyramid path: hidden copies left out' }).toBe(JSON.stringify([copyDistances.length, true]));
-    const r = (await rowsOf(behind))!;
-    console.log(`[instances-lod] walled export, pyramid path: ${r.drawn} of ${r.inView} copies in view drawn`);
-    await behind.locator('canvas').first().screenshot({ path: `test-results/instances-lod-walled-${variant}.png` });
+    const canvas = behind.locator('canvas').first();
+    const inFront = copyDistances.filter((d) => d < 60).length;
+    // The frustum still holds the whole row; once the read-back arrives (the drawn count is 0 before it) every copy in
+    // front of the wall is drawn and the pyramid has left hidden ones out. Each copy's sphere lies around the marker's
+    // centre (r 2.6 m); a copy is left out where the pyramid level its screen box picks (2 × 2 texels) lies wholly on
+    // the wall: from about 118 m on (7 of the 14 hidden copies here). Nearer hidden copies' texels reach past the
+    // wall's foot to the empty sky below it, so they are kept (the test is conservative, never the reverse).
+    let r: Rows | null = null;
+    await expect
+      .poll(async () => {
+        r = await rowsOf(behind);
+        return r === null ? null : [r.inView, r.drawn >= inFront && r.drawn <= copyDistances.length - 5];
+      }, { timeout: 30_000, message: 'the walled export on the pyramid path: the copies in front drawn, hidden ones left out' })
+      .toEqual([copyDistances.length, true])
+      .finally(() => console.log(`[instances-lod] walled export, pyramid path: ${r?.drawn} of ${r?.inView} copies in view drawn (${inFront} in front of the wall)`));
+    // Nothing that shows is missing: the same picture with the pyramid's path pinned off, which draws every copy.
+    const on = { image: await settledShot(canvas, 'instances-lod-walled-hiz', 500), occlusion: await canvas.getAttribute('data-tl-occlusion') };
+    writeFileSync(`test-results/instances-lod-walled-${variant}.png`, await canvas.screenshot());
+    await onOcclusionSwitch(behind, 'pin', 'off');
+    await expect.poll(async () => (await rowsOf(behind))?.drawn, { timeout: 30_000, message: 'the walled export off the pyramid path: every copy in view drawn' }).toBe(copyDistances.length);
+    const off = { image: await settledShot(canvas, 'instances-lod-walled-off', 500), occlusion: await canvas.getAttribute('data-tl-occlusion') };
+    expectOcclusionShotsMatch(on, off, `instances-lod-walled-${variant}`);
     expect(errors).toEqual([]);
   } finally {
     await behind.close();

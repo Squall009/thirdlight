@@ -23,7 +23,7 @@
  * Per copy the pass keeps one u32 of state: the level drawn, the level left
  * and the fade's progress.
  */
-import { lodLevelOf } from '@thirdlight/shared';
+import { lodLevelOf, type ScalarOps } from '@thirdlight/shared';
 
 import { copyDensityAt } from './copies-prepare';
 import { coverShare, type CoverThinning } from './cover-placement';
@@ -72,6 +72,36 @@ export function nextCopyState(state: number, target: number, step: number): numb
   } else remaining = Math.max(0, remaining - step);
   if (remaining === 0) left = -1;
   return packCopyState(target, left, remaining);
+}
+
+type Vec3Like = { readonly x: number; readonly y: number; readonly z: number };
+
+/**
+ * The sphere a model's copies are tested with (model space, scale 1): around its box's centre, radius half the
+ * box's diagonal. Not around the model's origin: most models stand on theirs (trees, rocks, markers), and a
+ * sphere there reaches the model's full height down into the ground and out to the sides, so a wall that hides
+ * the whole model hides that sphere only from far away.
+ */
+export function modelSphereOf(box: { readonly min: Vec3Like; readonly max: Vec3Like }): { readonly centre: readonly [number, number, number]; readonly radius: number } {
+  if (!(box.max.x >= box.min.x && box.max.y >= box.min.y && box.max.z >= box.min.z)) return { centre: [0, 0, 0], radius: 0 };
+  const centre = [(box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, (box.min.z + box.max.z) / 2] as const;
+  return { centre, radius: Math.hypot(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z) / 2 };
+}
+
+/**
+ * Where a copy's sphere centre is in its set's frame: the model's centre scaled by the copy's scale, turned by its
+ * unit quaternion and moved to its place (as the draw places its vertices). The selection pass runs the same
+ * steps on shader nodes.
+ */
+export function copySphereCentre<F, B>(o: ScalarOps<F, B>, place: readonly [F, F, F], turn: readonly [F, F, F, F], scale: readonly [F, F, F], centre: readonly [F, F, F]): [F, F, F] {
+  const v = [o.mul(centre[0], scale[0]), o.mul(centre[1], scale[1]), o.mul(centre[2], scale[2])] as const;
+  const [qx, qy, qz, qw] = turn;
+  const cross = (ax: F, ay: F, az: F, bx: F, by: F, bz: F): [F, F, F] => [o.sub(o.mul(ay, bz), o.mul(az, by)), o.sub(o.mul(az, bx), o.mul(ax, bz)), o.sub(o.mul(ax, by), o.mul(ay, bx))];
+  const two = o.n(2);
+  const c = cross(qx, qy, qz, v[0], v[1], v[2]);
+  const t = [o.mul(c[0], two), o.mul(c[1], two), o.mul(c[2], two)] as const;
+  const u = cross(qx, qy, qz, t[0], t[1], t[2]);
+  return [0, 1, 2].map((i) => o.add(place[i]!, o.add(o.add(v[i]!, o.mul(t[i]!, qw)), u[i]!))) as [F, F, F];
 }
 
 /** What a selection knows of its set and group for a frame (the CPU reference's input; the pass reads the same from its buffers). */
