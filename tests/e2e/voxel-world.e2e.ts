@@ -402,9 +402,9 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
   expect(await hashes()).toEqual(h0);
   await noneStale();
   expect((await hook<EditAnswer>(page, 'dab', other, 'dig')).ok).toBe(true);
-  // The refused command's HTTP 409 is the one console error.
+  // The refused command's and the stale undo's HTTP 409s are the only console errors.
   expect(errors.filter((e) => !/status of 409/.test(e))).toEqual([]);
-  expect(errors).toHaveLength(1);
+  expect(errors).toHaveLength(2);
 }
 
 {
