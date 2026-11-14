@@ -17,16 +17,17 @@
  *   in it (its clip time advances at half the rate at ×0.5).
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { socketGlb } from './socket-glb';
 import { openEditor, editorPane, previewPane } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -43,10 +44,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-sockets' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-sockets' });
 }
 
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -192,27 +190,6 @@ function checkSamples(samples: { step: number; p: [number, number, number] | nul
   const after = samples.filter((s) => s.step > 545);
   expect(after.length).toBeGreaterThan(0);
   for (const s of after) expect(s.p, `${what}: let go at step ${s.step}`).toBeNull();
-}
-
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
 }
 
 test('a socket follows an animated node in Play and the export; a script halves the clip rate and detaches it', async ({ page }) => {

@@ -21,16 +21,17 @@
  * engine action) resumes.
  */
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { expect, test, type Frame, type Page } from './pw';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 import { makePng } from './png-make';
 import { projectWindow } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const FONTS = join(REPO, 'fixtures', 'fonts');
@@ -56,16 +57,7 @@ async function api(path: string, body: unknown): Promise<{ status: number; json:
 }
 const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: Number((await query('queryProject')).revision),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-project-ui' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-project-ui' });
 }
 
 const SCRIPT = [
@@ -217,22 +209,6 @@ async function pauseAndResume(page: Page, root: Page | Frame): Promise<void> {
   await expect(root.locator('[data-tl-ui-doc="pause"]')).toHaveCount(0);
 }
 
-function serve(root: string): Promise<{ server: Server; url: string }> {
-  const server = createServer((req, reply) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      reply.statusCode = 404;
-      reply.end();
-      return;
-    }
-    const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(reply);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}/` })));
-}
-
 // Play and the export share one set-up: the export is made from the project Play just ran.
 test('project UI in Play: bound bar, click to script, keyboard and gamepad focus, world label, a replaced pause screen; the same in the static export', async ({ page, context }) => {
   test.setTimeout(300_000);
@@ -320,7 +296,7 @@ test('project UI in Play: bound bar, click to script, keyboard and gamepad focus
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await page.goto('about:blank');
   await be.halt();
-  const s = await serve(join(be.exportRoot, String(res.json.outputDir)));
+  const s = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
   const errors: string[] = [];
   try {
     const game = await page.context().newPage();

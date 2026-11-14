@@ -1,9 +1,7 @@
 /**
  * Play and standalone export of a fresh project, observed as pixels.
  */
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
@@ -11,6 +9,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { menu } from './ui';
 
 import { colorCount, decodePng } from './png';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -19,34 +18,6 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   await be.stop();
 });
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html',
-  '.js': 'text/javascript',
-  '.json': 'application/json',
-  '.wasm': 'application/wasm',
-};
-
-/** A plain static file server: the exported game gets nothing else. */
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
 
 async function createBox(page: Page): Promise<void> {
   await page.goto(be.editorUrl);

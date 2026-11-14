@@ -28,10 +28,7 @@
  * pool and about the sun's brightness it had before. A cell edit makes the
  * bake stale.
  */
-import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 import * as THREE from 'three';
@@ -40,6 +37,8 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { openWindow } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -47,14 +46,9 @@ test.afterEach(async () => {
   be = null;
 });
 
-async function query(op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-  return be!.command({ op, projectId: be!.projectId, args });
-}
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-block-lightmaps' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-block-lightmaps' });
 }
 
 /** Mean brightness of a small square around a world point, as the game camera (0, 3, 6) looking down 30° sees it. */
@@ -101,27 +95,6 @@ const groundGlow: [number, number, number] = [-3, 0, -8];
 const groundMirror: [number, number, number] = [3, 0, -8];
 /** How much brighter (of 255) a glowing box's pool is than its mirror spot where its light is drawn. */
 const GLOW_POOL = 12;
-
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.png': 'image/png' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
 
 /** The cube's face toward the camera: the sun grazes it, so it is darker than the lit blocks once the scene is drawn. */
 const cubeFront: [number, number, number] = [0, 0.5, 0.5];
@@ -259,7 +232,7 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake lighting saves a sta
   const res = await be!.admin(`projects/${be!.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await be!.halt();
-  const site = await serveDir(join(be!.exportRoot, String(res.json.outputDir)));
+  const site = await serveDir(join(be!.exportRoot, String(res.json.outputDir)), { types: { '.png': 'image/png' } });
   try {
     for (const [renderer, query] of [['webgl2', exportQueryFor('webgl2')], ['webgpu', '?quality=low']] as const) {
       const game = await page.context().newPage();

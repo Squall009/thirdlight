@@ -26,27 +26,15 @@ import { encodePng16, packProbeTexels, savedSurfaceFromFiles } from '@thirdlight
 import { diff, show, STRICT, within } from './parity';
 import { menu, openWindow, showView } from './ui';
 import { centre, gameCameraAtView, settledShot } from './view-match';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
-let seq = 0;
 test.afterEach(async () => {
   await be?.stop();
 });
 
 async function cmd(op: string, args: Record<string, unknown>, sameIsFine = false): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: q.revision,
-    requestId: `req-${(0xb0a00 + seq).toString(16).padStart(32, '0')}`,
-    origin: { kind: 'mcp', clientId: 'e2e-lightmaps' },
-    args,
-  });
-  if (sameIsFine && (res as { error?: { code?: string } }).error?.code === 'no_change') return res;
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-lightmaps', noChangeIsDone: sameIsFine });
 }
 
 /** Two pages' live light, each settled: STRICT's share of bad pixels, a little more mean difference. */

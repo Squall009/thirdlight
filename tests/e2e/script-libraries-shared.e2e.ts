@@ -19,14 +19,15 @@
  *    in several patches, one commit.
  */
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
 import { exportedContent, type E2EBackend, startBackend } from './backend';
 import { openWindow, editorPane, openEditor } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -47,9 +48,7 @@ async function api(path: string, body: unknown): Promise<{ status: number; json:
 const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 const rid = (s: string): string => `req-${createHash('sha256').update(`${s}${Math.random()}`).digest('hex').slice(0, 32)}`;
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: rid(op), origin: { kind: 'mcp', clientId: 'e2e-libraries-shared' }, args });
-  expect(res.ok, JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-libraries-shared' });
 }
 
 /** Publish `behaviorId` with this source through the stage + source route (trust acknowledged first). */
@@ -90,29 +89,6 @@ async function replaceCode(page: Page, scope: ReturnType<Page['getByRole']>, tex
 }
 
 type Obs = { state?: string; counters?: Record<string, number> };
-
-/** A plain static file server: the exported game gets nothing else. It records the paths it served. */
-function serveDir(dir: string, served: string[] = []): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    served.push(rel);
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
 
 const TALLY = [
   'let calls = 0;',
@@ -234,7 +210,7 @@ test('libraries are shared modules in Play (worker and page) and the export; the
   await page.goto('about:blank');
   await be.halt();
   const served: string[] = [];
-  const site = await serveDir(out, served);
+  const site = await serveDir(out, { served });
   try {
     for (const q of ['', '?threads=off']) {
       const game = await page.context().newPage();

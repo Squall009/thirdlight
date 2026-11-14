@@ -9,14 +9,13 @@
  * spawn; Settings → music down shows 90 % and is kept for the next page load
  * (the player's settings storage).
  */
-import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type FrameLocator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -27,10 +26,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-shell-scenes' }, args });
-  expect(res.ok, JSON.stringify(res).slice(0, 400)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-shell-scenes' });
 }
 
 const FULL = { anchor: [0, 0], pivot: [0, 0], stretch: 'both' };
@@ -59,22 +55,6 @@ const DOCS = [
 ];
 
 type Obs = { state?: string; player?: { x: number; y: number }; scenes?: { loaded: string[] }; shell?: { screen: string; scene: { index: number; id: string | null } } };
-
-function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
-}
 
 /** The shell's screens, driven in one page or frame; `observe` reads the observation. */
 async function playThrough(surface: Page | FrameLocator, keys: Page, observe: () => Promise<Obs>): Promise<void> {

@@ -4,7 +4,6 @@
  * walks and streaming, and the editor's terrain tools, rules and scatter driven through the page (the terrain editor, an
  * edit mode on the lent Scene view: its rail's modes hold the tools).
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
@@ -19,6 +18,7 @@ import { decodePng, type Image } from './png';
 import { armTile, closeEditor, editMode, editModeTab, editorPane, enterBlockEditor, enterEditMode, leaveEditMode, menu, openEditor } from './ui';
 import { expectRendererBackend } from './renderer-variants';
 import { count, frameShareNear, meanDiff, projectWith, share, type CameraView, type V3 } from './frame-reading';
+import { mustCommand } from '../support/commands';
 
 
 let be: E2EBackend | null = null;
@@ -31,9 +31,7 @@ export async function query(op: string, args: Record<string, unknown> = {}): Pro
   return be!.command({ op, projectId: be!.projectId, args });
 }
 export async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-terrain-cdlod' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-terrain-cdlod' });
 }
 export type Observation = { state: string; stepIndex?: number; player?: { x: number; y: number; z: number } };
 export type TerrainDiag = { tilesDrawn: number; draws: number; perLevel: number[]; errors: string[]; uploadMsPeak?: number; uploadBytesPeak?: number; tilesUploaded?: number; cpuBytes?: number; decodeMs?: number; packMs?: number; macro?: { baked: number; waiting: number; bakes: number; bakeMsTotal: number; bakeMs: number; farNodes: number; draws: number } };

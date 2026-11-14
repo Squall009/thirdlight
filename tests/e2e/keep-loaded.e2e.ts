@@ -16,12 +16,12 @@
  *   as authored, no second Problems line). Read through the director's log
  *   lines in Play diagnostics, the play observation and the Problems route.
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
 import { publishScript, STARTER, startBackend, type E2EBackend } from './backend';
 import { createBox, inspector } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -29,10 +29,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-keep-loaded' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-keep-loaded' });
 }
 const kept = async (id: string): Promise<boolean> => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: id } }))['entity'] as { keepLoaded?: boolean } | undefined)?.keepLoaded === true;
 const row = (page: Page, id: string) => page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`);

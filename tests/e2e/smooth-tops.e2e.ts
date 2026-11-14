@@ -19,10 +19,9 @@
  * TL_SMOOTH_TOPS_DIR=<dir> keeps the pictures (the default ones are the
  * before/after comparison for "existing scenes look the same").
  */
-import { randomBytes, randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 import * as THREE from 'three';
@@ -31,6 +30,8 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { inspector, menu, openWindow, projectWindow } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -43,9 +44,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-smooth-tops' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-smooth-tops' });
 }
 
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -206,27 +205,6 @@ const keep = (name: string, png: Buffer): void => {
   writeFileSync(join(dir, `${name}-${test.info().project.name}.png`), png);
 };
 
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.png': 'image/png' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
-
 /** Play: a picture of the game canvas over HTTP (relay screenshot) until `check` passes; returns the last jumps. */
 async function playPicture(page: Page, fovY: number, check: (j: Jumps) => string | null, name: string): Promise<Jumps> {
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
@@ -338,7 +316,7 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`smoothed block-layer tops
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await be.halt();
-  const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
+  const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)), { types: { '.png': 'image/png' } });
   const game = await page.context().newPage();
   const gameErrors: string[] = [];
   game.on('pageerror', (e) => gameErrors.push(e.message));

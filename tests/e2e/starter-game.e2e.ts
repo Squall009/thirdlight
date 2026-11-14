@@ -26,6 +26,7 @@ import { expect, test, type Page } from './pw';
 
 import { controls, STARTER, startBackend, type E2EBackend } from './backend';
 import { openProjectSettings, closeEditor } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -47,9 +48,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be.command({ op, projectId: be.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-starter-game' }, args });
-  expect(res.ok, JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-starter-game' });
 }
 async function create(name: string, position: number[], extra: Record<string, unknown> = {}, kind = 'group'): Promise<string> {
   return String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind, name, transform: { position }, ...extra }))['createdId']);

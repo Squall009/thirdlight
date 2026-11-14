@@ -6,16 +6,16 @@
  * routes), placed side by side, rendered in Play and in the export served with
  * the backend stopped. Screenshots land in test-results/import-extensions/.
  */
-import { copyFileSync, createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng, litBands } from './png';
 import { projectWindow, openWindow, closeEditor } from './ui';
+import { serveDir } from '../support/serve-dir';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const FIXTURES = join(REPO, 'fixtures', 'import-ext');
@@ -31,28 +31,6 @@ test.afterEach(async () => {
   await be.stop();
   rmSync(games, { recursive: true, force: true });
 });
-
-const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
 
 let seq = 0;
 async function api(path: string, body?: unknown): Promise<Record<string, unknown>> {

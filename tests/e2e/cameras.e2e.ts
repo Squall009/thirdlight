@@ -29,15 +29,15 @@
  *   undo.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { gpuAvailable } from './browser-env.mjs';
 import { decodePng, type Image } from './png';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -50,10 +50,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-cameras' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-cameras' });
 }
 
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -290,27 +287,6 @@ async function shot(target: Locator | Page, path?: string): Promise<Image> {
 }
 
 const near = (a: number, b: number, eps = 0.02): boolean => Math.abs(a - b) <= eps;
-
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
 
 test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on input, a rail with letterbox that blends back; and in the export', async ({ page }) => {
   test.setTimeout(300_000);

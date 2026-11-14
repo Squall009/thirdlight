@@ -18,7 +18,6 @@
  * The animator, effect and dialogue previews are checked in pixels in their
  * own specs (animator, effect-editor, dialogue).
  */
-import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
@@ -26,18 +25,15 @@ import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { closeEditor, editorTab, editorWindow, openEditor, previewCanvas, previewPane } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
   await be?.stop();
 });
 
-const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await query('queryProject');
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`, origin: { kind: 'mcp', clientId: 'e2e-preview-pane' }, args });
-  expect(r['ok'], JSON.stringify(r).slice(0, 600)).toBe(true);
-  return r;
+  return mustCommand(be, op, args, { clientId: 'e2e-preview-pane' });
 }
 
 const shot = async (l: Locator): Promise<Image> => decodePng(await l.screenshot());

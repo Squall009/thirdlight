@@ -12,12 +12,12 @@
  *   header in that family's colour from the stylesheet;
  * - the project window shows each kind's picture.
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { createItem, editorPane, editorWindow, openEditor, openProjectSettings, projectWindow, settingsWindow, closeProjectSettings, type EditorKind } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -25,9 +25,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
-  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision']);
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-editor-chrome' }, args });
-  expect(res['ok'], `${op}: ${JSON.stringify(res).slice(0, 300)}`).toBe(true);
+  await mustCommand(be, op, args, { clientId: 'e2e-editor-chrome' });
 }
 async function record(kind: string, id: string): Promise<Record<string, unknown> | undefined> {
   const r = await be.command({ op: 'queryIndex', projectId: be.projectId, args: { kind, ids: [id], records: true, refs: false } });

@@ -27,7 +27,6 @@
  * leaves it, and the final picture (batched against `?batching=off`)
  * includes them.
  */
-import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -39,6 +38,7 @@ import { diff, diffPng, show, STRICT, within } from './parity';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 import { lodSwitchDistance } from '@thirdlight/three-adapter';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -50,16 +50,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: Number((await query('queryProject'))['revision']),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-batch-dispose' },
-    args,
-  });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-batch-dispose' });
 }
 
 type Hue = 'red' | 'green' | 'blue';

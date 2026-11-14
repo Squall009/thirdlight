@@ -6,7 +6,6 @@
  * and applies in Play while a game mode activates that map; removing the
  * map drops its setting.
  */
-import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +15,7 @@ import { expect, test } from './pw';
 import { startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
 import { openProjectSettings, projectWindow } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -139,9 +139,7 @@ test('a project map\'s cursor, set in the Input window, applies in Play while a 
   test.setTimeout(120_000);
   const config = async (): Promise<{ input: { maps?: string[]; cursor?: Record<string, string> } | null; modes?: unknown }> => (await be.command({ op: 'queryGameConfig', projectId: be.projectId })) as never;
   const run = async (op: string, args: Record<string, unknown>): Promise<void> => {
-    const rev = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision']);
-    const r = await be.command({ op, projectId: be.projectId, expectedRevision: rev, requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-input-cursor' }, args });
-    expect(r['ok'], JSON.stringify(r)).toBe(true);
+    await mustCommand(be, op, args, { clientId: 'e2e-input-cursor' });
   };
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

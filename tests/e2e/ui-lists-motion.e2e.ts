@@ -17,12 +17,12 @@
  * Editor: the widget inspector binds an offset axis, the opacity and the
  * rotation, and sets a list's item key; the stored document holds them.
  */
-import { randomUUID } from 'node:crypto';
 
 import { expect, test, type Frame, type Locator, type Page } from './pw';
 
 import { STARTER, type E2EBackend, publishScript, startBackend } from './backend';
 import { closeEditor, createItem } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -34,8 +34,7 @@ test.afterEach(async () => {
 
 const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-ui-lists' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
+  await mustCommand(be, op, args, { clientId: 'e2e-ui-lists' });
 }
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, {

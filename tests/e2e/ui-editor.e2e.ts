@@ -19,13 +19,13 @@
  * screen shows the document in Play with the same text, button
  * and theme colour.
  */
-import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
 import { menu, createItem, openProjectSettings } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -38,15 +38,7 @@ test.afterEach(async () => {
 const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 const revision = async (): Promise<number> => Number((await query('queryProject')).revision);
 async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: await revision(),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-ui-editor' },
-    args,
-  });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
+  await mustCommand(be, op, args, { clientId: 'e2e-ui-editor' });
 }
 
 interface W {

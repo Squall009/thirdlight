@@ -14,6 +14,10 @@
  * algorithm uses (mulberry32's increment, the CRC-32 polynomial, SHA-256's
  * first round constant). A file that holds a fingerprint but no named
  * definition of the family counts as one copy, listed as `<family> fingerprint`.
+ * A family can instead be marked by the shape it builds (`shape`: property
+ * names an object literal has all of, inside a named function, in the files
+ * under `scope`): the test helpers that build a command envelope are found so,
+ * whatever they are called, listed under the helper's name.
  *
  * Copies that exist today are named in the ratchet list (RATCHET_FILE). It
  * only shrinks: the check fails on a copy not on the list, and on a listed
@@ -176,6 +180,17 @@ export const OWNED_FAMILIES = Object.freeze([
       'terrainHorizonFromUrl',
     ],
   },
+  // The test and benchmark support (tests/support): the static file server, the backend process and the command
+  // envelope; a spec helper that builds the envelope itself (op, expectedRevision and requestId together) is a copy.
+  { family: 'serve-dir', owner: 'tests/support/serve-dir.ts', names: ['serveDir', 'SERVE_DIR_TYPES'] },
+  { family: 'backend-process', owner: 'tests/support/backend-process.ts', names: ['launchBackend', 'backendEnv'] },
+  {
+    family: 'test-command',
+    owner: 'tests/support/commands.ts',
+    names: ['commandEnvelope', 'sendCommand', 'mustCommand', 'newRequestId', 'projectRevision'],
+    shape: ['op', 'expectedRevision', 'requestId'],
+    scope: ['tests/', 'tools/'],
+  },
   // Domain constants and lists: one definition in the model, read by every package that names them.
   { family: 'shadow-defaults', owner: 'packages/project-model/src/scene-v3.ts', names: ['DIRECTIONAL_SHADOW_DEFAULTS'] },
   { family: 'surface-presets', owner: 'packages/project-model/src/types-v3.ts', names: ['SURFACE_PRESETS', 'SURFACE_PRESET_NAMES'] },
@@ -248,6 +263,7 @@ function scriptKind(file) {
 
 const byName = new Map(OWNED_FAMILIES.flatMap((f) => f.names.map((n) => [n, f])));
 const byFingerprint = new Map(OWNED_FAMILIES.flatMap((f) => (f.fingerprints ?? []).map((v) => [v, f])));
+const SHAPED = OWNED_FAMILIES.filter((f) => f.shape !== undefined);
 
 /** True when a variable only names another binding (an alias or re-binding, not a copy). */
 function isAlias(init) {
@@ -264,6 +280,9 @@ export function definitionsIn(text, file) {
   const lineOf = (node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
   const named = [];
   const printed = new Map();
+  const shaped = SHAPED.filter((f) => f.scope.some((prefix) => file.startsWith(prefix)));
+  // The named functions the walk is inside (null: an anonymous one, such as a test's body).
+  const within = [];
   const visit = (node) => {
     let id;
     if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) id = node.name;
@@ -273,7 +292,17 @@ export function definitionsIn(text, file) {
       const fam = byFingerprint.get(Number(node.text.replaceAll('_', '')));
       if (fam && !printed.has(fam.family)) printed.set(fam.family, lineOf(node));
     }
+    if (shaped.length > 0 && ts.isObjectLiteralExpression(node) && within.length > 0 && within[within.length - 1] !== null) {
+      const keys = new Set(node.properties.map((p) => (p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) ? p.name.text : null)));
+      const fn = within[within.length - 1];
+      for (const fam of shaped) {
+        if (fam.shape.every((k) => keys.has(k)) && !named.some((d) => d.family === fam.family && d.name === fn.name)) named.push({ name: fn.name, family: fam.family, line: fn.line });
+      }
+    }
+    const fnName = functionName(node);
+    if (fnName !== undefined) within.push(fnName === null ? null : { name: fnName, line: lineOf(node) });
     ts.forEachChild(node, visit);
+    if (fnName !== undefined) within.pop();
   };
   visit(sf);
   const out = [...named];
@@ -282,6 +311,17 @@ export function definitionsIn(text, file) {
   }
   const owners = new Set(OWNED_FAMILIES.filter((f) => f.owner === file).map((f) => f.family));
   return out.filter((d) => !owners.has(d.family));
+}
+
+/** A function's name for the shape test: its own, the variable or property it is bound to, null when it has none; undefined: not a function. */
+function functionName(node) {
+  if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) return node.name && ts.isIdentifier(node.name) ? node.name.text : null;
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+    const p = node.parent;
+    if (p && (ts.isVariableDeclaration(p) || ts.isPropertyAssignment(p)) && p.name && ts.isIdentifier(p.name)) return p.name.text;
+    return null;
+  }
+  return undefined;
 }
 
 /** Every copy under `root`: `[{ file, name, family, line }]`, sorted by file then name. */

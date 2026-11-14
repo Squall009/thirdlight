@@ -19,10 +19,7 @@
  * - Export (served statically, backend stopped, the debug console on): the
  *   wall starts hidden and the console's `signal reveal` shows it, in pixels.
  */
-import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -30,6 +27,8 @@ import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -43,9 +42,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-hidden-signals' }, args });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-hidden-signals' });
 }
 async function api(path: string, body: unknown = {}): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/${path}`, {
@@ -128,22 +125,6 @@ async function mcpClient(): Promise<{ mcp: Client; call: (name: string, args?: R
     return { isError: res.isError === true, body, text };
   };
   return { mcp, call };
-}
-
-function serve(dir: string): Promise<{ server: Server; url: string }> {
-  const server = createServer((req, reply) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      reply.statusCode = 404;
-      reply.end();
-      return;
-    }
-    const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(reply);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}/` })));
 }
 
 async function exportShot(game: Page): Promise<Image> {
@@ -246,7 +227,7 @@ test('Visible off in the Inspector: hidden in Play until a tool signal shows it;
   expect(exported.status, JSON.stringify(exported.json)).toBe(200);
   await page.goto('about:blank');
   await be!.halt();
-  const served = await serve(join(be!.exportRoot, String(exported.json.outputDir)));
+  const served = await serveDir(join(be!.exportRoot, String(exported.json.outputDir)));
   const errors: string[] = [];
   try {
     const game = await page.context().newPage();

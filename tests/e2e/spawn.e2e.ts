@@ -11,14 +11,14 @@
  * statically with the backend stopped, spawns them too.
  */
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { STARTER, type E2EBackend, startBackend, withoutSky } from './backend';
 import { decodePng } from './png';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -43,16 +43,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: Number((await query('queryProject')).revision),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-spawn' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-spawn' });
 }
 
 /** Publish a behavior with this source and attach it to `entityId` (default: the player). */
@@ -176,20 +167,7 @@ test('a script spawns a projectile on a timer in Play (and in the export); old o
   expect(exported.status, JSON.stringify(exported.json)).toBe(200);
   const dir = join(be.exportRoot, String(exported.json.outputDir));
   await be.halt();
-  const server = createServer((req, reply) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      reply.statusCode = 404;
-      reply.end();
-      return;
-    }
-    const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(reply);
-  });
-  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', () => ok()));
-  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`;
+  const { server, url } = await serveDir(dir);
   const errors: string[] = [];
   const game = await page.context().newPage();
   game.on('pageerror', (e) => errors.push(e.message));

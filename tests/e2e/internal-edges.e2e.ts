@@ -9,6 +9,7 @@
 import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend, controls } from './backend';
+import { sendCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -18,11 +19,8 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-let seq = 0;
 async function mutate(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  return be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${(0xed9e00 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-internal-edges' }, args });
+  return sendCommand(be, op, args, { clientId: 'e2e-internal-edges' });
 }
 
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {

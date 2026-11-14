@@ -23,16 +23,15 @@
  * - The same project exported and served statically with the backend
  *   stopped: the door disappears (pixels) and the HUD shows "Opened 1".
  */
-import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { addTitleShell, publishWav, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng } from './png';
 import { openWindow, openEditor, expectEditorOpen, inspector as inspectorOf } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -57,16 +56,7 @@ async function api(path: string, body: unknown): Promise<{ status: number; json:
 }
 const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: Number((await query('queryProject')).revision),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-visual-script' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-visual-script' });
 }
 async function record(id: string): Promise<Record_ | undefined> {
   return ((await query('queryBehaviors', { includeDeclaration: true, behaviorId: id }))['behaviors'] as Record_[] | undefined)?.[0];
@@ -315,24 +305,3 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   }
 });
 
-/** A plain static file server: the exported game gets nothing else. */
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, reply) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      reply.statusCode = 404;
-      reply.end();
-      return;
-    }
-    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(reply);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}

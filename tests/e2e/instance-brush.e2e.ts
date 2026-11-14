@@ -57,6 +57,7 @@ import { consoleErrors, refusedObjects } from './console-errors';
 import { changedPixels, decodePng, type Image } from './png';
 import { inspector } from './ui';
 import { channelView, enterPaint, fit, frame, leavePaint, paintColumnsFit, paintDrag, paintEditor, paintState, paintTool, pickTile, select, sceneProjector, setPaint, strokeDone, view, type Projector } from './vertex-paint-drive';
+import { mustCommand } from '../support/commands';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -69,9 +70,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-instance-brush' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-instance-brush' });
 }
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/play/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be!.token}`, 'content-type': 'application/json', origin: be!.origin }, body: JSON.stringify(body) });

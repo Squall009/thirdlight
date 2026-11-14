@@ -4,13 +4,13 @@
  * land in the backend as one graphEdit (checked through the command route
  * the MCP adapter uses), and an MCP edit must show up in the open editor.
  */
-import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { openWindow, chooseItem, createItem, closeEditor, openEditor as openItemEditor, expectEditorOpen, editorTab, viewTab, editorWindow, inspector as inspectorOf } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -26,20 +26,8 @@ async function graphOf(graphId: string): Promise<Graph> {
   const g = ((r.graphs ?? []) as { graphId: string; graph: Graph }[]).find((x) => x.graphId === graphId);
   return g?.graph ?? { nodes: [], edges: [] };
 }
-async function revision(): Promise<number> {
-  return Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
-}
 async function mcp(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: await revision(),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-graph' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-graph' });
 }
 
 const node = (page: Page, id: string): Locator => page.locator(`[data-node-id="${id}"]`);

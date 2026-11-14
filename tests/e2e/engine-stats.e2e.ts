@@ -28,6 +28,7 @@ import { expect, test, type FrameLocator, type Page } from './pw';
 
 import { STARTER, publishScript, serveDir, startBackend, type E2EBackend } from './backend';
 import { backendOf } from './renderer-variants';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -39,8 +40,7 @@ test.afterEach(async () => {
 
 const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-engine-stats' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
+  await mustCommand(be, op, args, { clientId: 'e2e-engine-stats' });
 }
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin }, body: JSON.stringify(body) });

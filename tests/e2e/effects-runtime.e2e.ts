@@ -11,10 +11,7 @@
  * - The Scene view plays the selected object's effect in edit mode (Gizmos →
  *   "Play selected effects"), and stops when the toggle is off.
  */
-import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type FrameLocator, type Locator, type Page } from './pw';
 
@@ -22,6 +19,8 @@ import { exportedContent, addTitleShell, startBackend, type E2EBackend, withoutS
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -29,33 +28,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: q['revision'],
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-effects-runtime' },
-    args,
-  });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
-}
-
-function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
+  return mustCommand(be, op, args, { clientId: 'e2e-effects-runtime' });
 }
 
 /** A system graph: the four contexts, each with its chain of blocks. */

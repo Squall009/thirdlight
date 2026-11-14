@@ -4,7 +4,6 @@
  * type shows its own icon on its hierarchy row (one priority order decides,
  * a tooltip names the type) and the Scene view billboard draws the same art.
  */
-import { randomUUID } from 'node:crypto';
 
 import * as THREE from 'three';
 import { expect, test, type Page } from './pw';
@@ -13,6 +12,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { colorCount, decodePng } from './png';
 import { menu } from './ui';
 import { ICON_FILES } from '../../packages/editor/src/viewport/icons';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -34,10 +34,7 @@ async function screenPoint(page: Page, world: [number, number, number]): Promise
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-icons' }, args });
-  expect(r['ok'], JSON.stringify(r).slice(0, 400)).toBe(true);
-  return r;
+  return mustCommand(be, op, args, { clientId: 'e2e-icons' });
 }
 
 test('lights, spawns and empties show as icons that can be clicked to select; every object type shows its own icon', async ({ page }) => {

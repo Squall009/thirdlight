@@ -10,12 +10,12 @@
  * does the same. Positions are read from the observation's `players`
  * (`tl_game_observe` in Play, `window.__thirdlightObserve` in the export).
  */
-import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
 import { serveDir, startBackend, type E2EBackend } from './backend';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -39,10 +39,7 @@ const PAD_IN_SLOT_2 = `(() => {
 })();`;
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await be!.command({ op: 'queryProject', projectId: be!.projectId, args: {} })).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-co-op' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-co-op' });
 }
 
 async function observePlay(psid: string): Promise<Observation | null> {

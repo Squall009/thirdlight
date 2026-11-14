@@ -32,6 +32,7 @@ import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { closeProjectSettings, inspector, menu, openProjectSettings, settingsWindow, showView } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeAll(async () => {
@@ -44,9 +45,7 @@ test.afterAll(async () => {
 
 /** One command on the project at its current revision (it must succeed). */
 async function send(op: string, args: Record<string, unknown>): Promise<void> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId });
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${randomBytes(16).toString('hex')}`, args });
-  expect(r['ok'], JSON.stringify(r)).toBe(true);
+  await mustCommand(be, op, args, { clientId: null });
 }
 
 /**

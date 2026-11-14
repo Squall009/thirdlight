@@ -18,7 +18,7 @@
  *   budget's pressure reacts to them) and the resident bytes stay inside the
  *   budget; with the models removed, the same budget gives it level 0.
  */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -32,6 +32,7 @@ import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { textureStreamerSettled } from './texture-settle';
 import { makeTwoColourWebp } from './webp-make';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -43,10 +44,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-embedded-textures' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 400)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-embedded-textures' });
 }
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be!.token}`, origin: be!.origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });

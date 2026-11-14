@@ -86,6 +86,27 @@ describe('what counts as a copy', () => {
     expect(isRetired('packages/project-model/src/sha256.ts')).toBe(false);
     expect(isRetired('packages/runtime/src/camera-rig.ts')).toBe(false);
   });
+
+  it('finds a spec helper that builds the command envelope itself, by its shape, under the helper\'s name', () => {
+    const text = [
+      'async function cmd(op: string, args: object) {',
+      '  return be.command({ op, projectId: "p", expectedRevision: 1, requestId: "req-1", args });',
+      '}',
+      'const send = async (op: string) => post({ op, expectedRevision: 2, requestId: "req-2" });',
+      // A test body (an anonymous function) may send one as it likes; a delegate to the support module is no copy.
+      'test("x", async () => { await be.command({ op: "a", expectedRevision: 3, requestId: "req-3" }); });',
+      'async function run(op: string) { return mustCommand(be, op, {}); }',
+      // The content route's body has no op.
+      'async function publish() { return post({ stageId: "s", expectedRevision: 4, requestId: "req-4" }); }',
+    ].join('\n');
+    expect(definitionsIn(text, 'tests/e2e/x.e2e.ts').filter((d) => d.family === 'test-command')).toEqual([
+      { name: 'cmd', family: 'test-command', line: 1 },
+      { name: 'send', family: 'test-command', line: 4 },
+    ]);
+    // Only the scope's files are held to the shape; the owner keeps its own.
+    expect(definitionsIn(text, 'packages/a/src/x.ts').filter((d) => d.family === 'test-command')).toEqual([]);
+    expect(definitionsIn(text, ownerOf('test-command'))).toEqual([]);
+  });
 });
 
 describe('the ratchet, as the build runs it', () => {

@@ -7,10 +7,9 @@
  * test-results/import-fbx/.
  */
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -19,6 +18,7 @@ import { expect, test, type Page } from './pw';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, litBands, type Image } from './png';
 import { projectWindow, closeEditor, openWindow } from './ui';
+import { serveDir } from '../support/serve-dir';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const FBX = join(REPO, 'fixtures', 'import-ext', 'fbx');
@@ -35,27 +35,6 @@ test.afterEach(async () => {
   await be.stop();
   rmSync(games, { recursive: true, force: true });
 });
-
-const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
 
 /** Mean colour of the lit pixels in the central region: red cube vs blue cube. */
 function dominant(img: Image): 'red' | 'blue' | 'none' {

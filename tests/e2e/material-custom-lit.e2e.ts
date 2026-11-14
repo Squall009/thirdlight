@@ -12,9 +12,7 @@
  *
  * Runs per renderer: `webgl2` in `default`, `webgpu` in `webgpu`.
  */
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
@@ -22,6 +20,8 @@ import { exportedContent, startBackend, type E2EBackend, withoutSky } from './ba
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu, closeEditor, openEditor, previewCanvas } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -32,32 +32,8 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-let seq = 0;
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${(0x23f15000 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-material-custom-lit' }, args });
-  expect(r['ok'], JSON.stringify(r)).toBe(true);
-  return r;
-}
-function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => {
-    // Keep-alive connections of the export page would hold close() open.
-    server.close(() => d());
-    server.closeAllConnections();
-  }) })));
+  return mustCommand(be, op, args, { clientId: 'e2e-material-custom-lit' });
 }
 
 function count(img: Image, test: (r: number, g: number, b: number) => boolean): number {
@@ -170,7 +146,7 @@ for (const variant of VARIANTS) test(`a Custom-lit graph (two N·L bands) shades
   expect(manifest.materials.map((m) => m.materialId)).not.toContain('mat-wrong');
   await page.goto('about:blank');
   await be.halt();
-  const site = await serveDir(out);
+  const site = await serveDir(out, { dropConnections: true });
   const exported = await page.context().newPage();
   const errors: string[] = [];
   exported.on('pageerror', (err) => errors.push(err.message));

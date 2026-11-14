@@ -21,7 +21,6 @@
  * body in depth), its X arrow still moves it; an object without a body
  * stays free; the toolbar's side view looks across the plane.
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
@@ -29,6 +28,7 @@ import { publishBytes, publishScript, startBackend, type E2EBackend, withoutSky 
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng } from './png';
 import { menu } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -40,10 +40,7 @@ type Observation = { state: string; stepIndex?: number; player?: { x: number; y:
 type Ent = { id: string; name?: string; components: Record<string, Record<string, unknown> | undefined> };
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await be!.command({ op: 'queryProject', projectId: be!.projectId, args: {} })).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-colliders' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-colliders' });
 }
 async function comp(id: string, name: string): Promise<Record<string, unknown> | undefined> {
   const r = await be!.command({ op: 'queryEntity', projectId: be!.projectId, args: { entityId: id } });

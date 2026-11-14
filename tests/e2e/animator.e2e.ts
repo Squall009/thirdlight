@@ -23,9 +23,9 @@ import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { skinnedGlb } from './skinned-glb';
 import { chooseItem, createItem, closeEditor, openEditor, expectEditorOpen, editorPane, inspector as inspectorOf, previewCanvas, previewPane } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
-let seq = 0;
 test.beforeEach(async () => {
   be = await startBackend();
   await withoutSky(be);
@@ -44,11 +44,7 @@ interface Ctl {
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: q.revision, requestId: `req-${(0xa11a00 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-animator' }, args });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-animator' });
 }
 const controllers = async (): Promise<Ctl[]> => ((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as Ctl[] | undefined) ?? [];
 

@@ -10,6 +10,7 @@ import { expect, test, type Page } from './pw';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 import { closeProjectSettings, openProjectSettings } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -34,16 +35,7 @@ async function revision(): Promise<number> {
 
 /** One command through the route the MCP adapter uses. */
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: await revision(),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-tags' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-tags' });
 }
 
 test('tags in project settings and the inspector: add, rename keeps the bit, folder tags inherited, used tags stay', async ({ page }) => {

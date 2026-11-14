@@ -27,15 +27,15 @@
  * What it sounds like is owner look pending.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorTab, menu, projectWindow, openWindow, openEditor, previewPane } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -49,10 +49,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-timeline' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-timeline' });
 }
 
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -255,22 +252,6 @@ async function drive(page: Page, read: () => Promise<Observation | null>, ids: I
   let img = null as Image | null;
   await expect.poll(async () => dark((img = decodePng(await view.screenshot())), 0.01, 0.08), { timeout: 10_000, message: 'the top bar' }).toBeGreaterThan(0.9);
   expect(dark(img!, 0.4, 0.6), 'the view between the bars').toBeLessThan(0.5);
-}
-
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }
 
 test('a six-shot timeline in Play and the export: cameras, move, music, fade and letterbox; skip mid-way ends in the end state', async ({ page }) => {

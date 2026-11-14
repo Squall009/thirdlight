@@ -21,6 +21,7 @@ import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { backendOf, editorUrlFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { projectWindow, openWindow, createItem, inspector, expectEditorOpen, openEditor, previewCanvas } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 let dir: string;
@@ -34,13 +35,8 @@ test.afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-let seq = 0;
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${(0x18f2e000 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-material-preview' }, args });
-  expect(r['ok'], JSON.stringify(r)).toBe(true);
-  return r;
+  return mustCommand(be, op, args, { clientId: 'e2e-material-preview' });
 }
 interface Mat { materialId: string; name: string; shader: string; graph?: { nodes: { id: string; type: string; data?: Record<string, unknown> }[] }; parameters?: { key: string }[] }
 async function materials(): Promise<Mat[]> {

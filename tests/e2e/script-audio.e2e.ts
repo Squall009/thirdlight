@@ -19,14 +19,14 @@
  * What it sounds like is owner look pending.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { projectWindow, closeEditor } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -40,10 +40,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-script-audio' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-script-audio' });
 }
 
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -129,22 +126,6 @@ const SOUND = [
 
 type Voice = { handle: number; key?: string; assetId: string; state: string; loop: boolean; gain: number; rate: number; pan?: number; distanceGain?: number };
 type Audio = { voices: Voice[]; voiceCount: number; listener: { position: number[] } | null; panningModel: string };
-
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
-}
 
 /** The neutral 3D scene: floor, player, the audio source to the camera's left, the script, the key actions. */
 async function buildScene(page: Page): Promise<{ loop: string; answer: string; source: string }> {

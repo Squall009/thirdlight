@@ -15,21 +15,17 @@ import { expect, test, type Page } from './pw';
 import { STARTER, startBackend, type E2EBackend, controls } from './backend';
 import { LOCOMOTION_CLIPS, skinnedGlb } from './skinned-glb';
 import { chooseItem, createItem, closeEditor, editorPane } from './ui';
+import { mustCommand } from '../support/commands';
 
 const shots = process.env['TL_ANIM_SHOTS'];
 
 let be: E2EBackend;
-let seq = 0;
 test.afterEach(async () => {
   await be?.stop();
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: q.revision, requestId: `req-${(0x5a0a00 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-skinned-anim' }, args });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-skinned-anim' });
 }
 
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {

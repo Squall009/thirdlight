@@ -14,7 +14,6 @@
  *   ungrouped script step while a grouped one and physics are held (the
  *   player does not walk under a held key); Start plays everything.
  */
-import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 
 import { expect, test, type Locator, type Page } from './pw';
@@ -23,6 +22,7 @@ import { STARTER, type E2EBackend, publishBytes, publishScript, publishWav, star
 import { decodePng } from './png';
 import { makePng } from './png-make';
 import { createItem, openProjectSettings } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -34,9 +34,7 @@ test.afterEach(async () => {
 
 const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-ui-sounds' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-ui-sounds' });
 }
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, {

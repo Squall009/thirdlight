@@ -21,6 +21,7 @@ import { expect, test, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 import { closeProjectSettings, openWindow } from './ui';
+import { sendCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -44,14 +45,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function send(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: Number((await query('queryProject')).revision),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-script-props' },
-    args,
-  });
+  return sendCommand(be, op, args, { clientId: 'e2e-script-props' });
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {

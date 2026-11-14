@@ -15,7 +15,6 @@
  * - a right-click deletes an item (its editor closes); a refused delete says
  *   why under the item.
  */
-import { randomBytes } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,17 +24,15 @@ import { expect, test, type Page } from './pw';
 import { startBackend, STARTER, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
 import { chooseItem, closeEditor, closeProjectSettings, createItem, editorTab, expectEditorOpen, inspector, openProjectSettings, projectWindow, settingsWindow } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
   await be.stop();
 });
 
-const revision = async (): Promise<number> => Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision']);
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: await revision(), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-project-items' }, args });
-  expect(res['ok'], `${op}: ${JSON.stringify(res).slice(0, 400)}`).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-project-items' });
 }
 /** An item's index entry over HTTP (undefined: not in the project). */
 async function entry(kind: string, id: string): Promise<{ id: string; name: string; path: string | null } | undefined> {

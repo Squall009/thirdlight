@@ -97,6 +97,7 @@ import { MAT } from '../../tools/voxel-bench/world-kit';
 import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-sets';
 import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
+import { mustCommand } from '../support/commands';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -830,11 +831,7 @@ async function fineBricks(page: Page, yaw: number, ox: number, oy: number, oz: n
 
 /** `sameIsFine`: an edit that changes nothing (`no_change`, e.g. after a test that stopped before undoing it) is done. */
 async function playCmd(op: string, args: Record<string, unknown>, sameIsFine = false): Promise<Record<string, unknown>> {
-  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-play' }, args });
-  if (sameIsFine && (res as { error?: { code?: string } }).error?.code === 'no_change') return res;
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-voxel-play', noChangeIsDone: sameIsFine });
 }
 async function projectApi(path: string, body: unknown = {}): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin }, body: JSON.stringify(body) });

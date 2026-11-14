@@ -36,6 +36,7 @@ import { expect, test } from './pw';
 import { STARTER, type E2EBackend, startBackend } from './backend';
 // @ts-expect-error — a plain .mjs helper shared with the Playwright config
 import { browserLibs } from './browser-env.mjs';
+import { mustCommand } from '../support/commands';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -81,8 +82,7 @@ function projectApi(projectId: string) {
   const envelope = async (body: Record<string, unknown>): Promise<Record<string, unknown>> => (await post('commands', { ...body, projectId })).json;
   const revision = async (): Promise<number> => Number((await envelope({ op: 'queryProject', args: {} })).revision);
   const cmd = async (op: string, args: Record<string, unknown>): Promise<void> => {
-    const res = await envelope({ op, expectedRevision: await revision(), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-playtest' }, args });
-    expect(res.ok, JSON.stringify(res).slice(0, 600)).toBe(true);
+    await mustCommand({ projectId, command: envelope }, op, args, { clientId: 'e2e-playtest' });
   };
   /** The probe script on the character and the HUD document it shows. */
   const setUp = async (): Promise<void> => {

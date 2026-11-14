@@ -19,9 +19,7 @@
  *   the console opens and runs the command (served statically, backend stopped).
  */
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -30,6 +28,8 @@ import { expect, test, type Page } from './pw';
 import { STARTER, startBackend, type E2EBackend } from './backend';
 // @ts-expect-error — a plain .mjs helper shared with the Playwright config
 import { browserLibs } from './browser-env.mjs';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -52,16 +52,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: Number((await query('queryProject')).revision),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-debug-entry' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-debug-entry' });
 }
 
 const SCRIPT = [
@@ -275,22 +266,6 @@ test('MCP tl_play_start takes a scene and variables; tl_game_control runs a debu
   }
 });
 
-function serve(dir: string): Promise<{ server: Server; url: string }> {
-  const server = createServer((req, reply) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      reply.statusCode = 404;
-      reply.end();
-      return;
-    }
-    const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-    reply.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(reply);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}/` })));
-}
-
 async function startExport(game: Page, url: string): Promise<void> {
   await game.bringToFront();
   await game.goto(url);
@@ -311,8 +286,8 @@ test('an export has no debug console unless the project turns debug_console on',
   expect(withConsole.json.outputDir).not.toBe(plain.json.outputDir);
   await be.halt();
 
-  const a = await serve(join(be.exportRoot, String(plain.json.outputDir)));
-  const b = await serve(join(be.exportRoot, String(withConsole.json.outputDir)));
+  const a = await serveDir(join(be.exportRoot, String(plain.json.outputDir)));
+  const b = await serveDir(join(be.exportRoot, String(withConsole.json.outputDir)));
   const errors: string[] = [];
   try {
     const game = await page.context().newPage();

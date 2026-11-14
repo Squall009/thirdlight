@@ -13,11 +13,9 @@
  * (renderer-variants.ts PRODUCT_RENDERER_VARIANTS): shader-parity compares
  * the foliage shader on both backends.
  */
-import { randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
@@ -26,6 +24,8 @@ import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { projectWindow, openWindow, createItem, inspector, menu } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 let dir: string;
@@ -64,21 +64,6 @@ async function importFile(page: Page, file: string): Promise<void> {
   await expect(publish).toBeEnabled({ timeout: 15_000 });
   await publish.click();
   await expect(page.locator('.tl-assets__status')).toContainText('committed', { timeout: 10_000 });
-}
-function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }
 
 for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a foliage material moves in the wind (editor, Play, export) (${variant})`, async ({ page }) => {
@@ -221,10 +206,7 @@ test('foliage bends round any number of interactors and a script\'s subject, and
   test.skip(backendOf('auto') !== 'webgpu', 'the interaction field is a WebGPU compute pass; WebGL 2 draws no pressing');
   test.setTimeout(180_000);
   const cmd = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-    const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-press' }, args });
-    expect(r['ok'], JSON.stringify(r).slice(0, 400)).toBe(true);
-    return r;
+    return mustCommand(be, op, args, { clientId: 'e2e-press' });
   };
   // Still air (the posts move only when pressed), a dark sky and floor, the sun from above; the camera straight down.
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#101418', environmentIntensity: 0 }, post: { antialias: 'smaa' }, wind: { direction: [1, 0], strength: 0, gust: 0, gustFrequency: 0.3, turbulence: 0 } } });

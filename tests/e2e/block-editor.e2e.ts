@@ -34,7 +34,6 @@
  * the block type editor's edits, region follow-ups, the paint palette) are in
  * vitest (`block-brush.test.ts`, `block-mode.test.ts`).
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
@@ -42,6 +41,7 @@ import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng } from './png';
 import { editMode, editModeTab, editPanel, inspector, leaveEditMode, menu, menuItem, openPanel } from './ui';
+import { mustCommand } from '../support/commands';
 
 /** Done's Esc badge (it says whether Esc would leave now). */
 const escBadge = (page: Page) => editMode(page).locator('.tl-done kbd');
@@ -57,9 +57,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-block-editor' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-block-editor' });
 }
 
 /** The layer: its min corner at (-8, -7.5, -8), so the top of the filled half (row 7) is at y = 0.5 (clear of the editor's ground grid). */

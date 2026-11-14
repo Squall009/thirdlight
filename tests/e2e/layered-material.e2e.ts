@@ -103,7 +103,7 @@
  *
  * TL_LAYERED_DIR=<dir> keeps the pictures.
  */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -126,6 +126,7 @@ import { consoleErrors, gpuErrors, refusedObjects } from './console-errors';
 import { expectLayeredWall, fmtLayeredWall, holdSlotArrays, makeLayeredWall } from './layered-walls-scene';
 import { gpuAvailable } from './browser-env.mjs';
 import { DECALS_KEY, driveDecalTool, expectSameGreen, expectSameLight, fmtDecals, frameDecals, isDecalGreen, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, TOOL_READS, type DecalJudgement } from './projected-decals-scene';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -138,9 +139,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-layered' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-layered' });
 }
 
 /** The layer's min corner: six 1 m columns along X (two per material), two deep, their tops at y = 0.5 (above the Scene view's floor grid). */

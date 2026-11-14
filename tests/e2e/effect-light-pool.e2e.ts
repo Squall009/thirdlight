@@ -23,7 +23,6 @@
  * and brighter again with the swarm's 24 more (how it should look is not
  * judged here).
  */
-import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
 import { expect, test, type Frame, type Locator, type Page } from './pw';
@@ -31,6 +30,7 @@ import { expect, test, type Frame, type Locator, type Page } from './pw';
 import { decodePng, type Image } from './png';
 import { exportedContent, publishScript, serveDir, startBackend, type E2EBackend } from './backend';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -39,10 +39,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be!.command({ op: 'queryProject', projectId: be!.projectId, args: {} });
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-effect-light-pool' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-effect-light-pool' });
 }
 
 /** Shader builds since the frame loaded, counted where the browser builds them (installed before any page script). */

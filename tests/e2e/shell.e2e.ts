@@ -15,16 +15,15 @@
  * second collectible uncollected, the character back where it
  * stood when it was saved).
  */
-import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { openProjectSettings } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -46,9 +45,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be.command({ op, projectId: be.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-shell' }, args });
-  expect(res.ok, JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-shell' });
 }
 async function create(name: string, position: number[], components: Record<string, unknown>): Promise<string> {
   return String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name, transform: { position }, components }))['createdId']);
@@ -386,18 +383,3 @@ test('the export saves to a slot and a new page continues from it; Clear Play sa
   }
 });
 
-function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
-}

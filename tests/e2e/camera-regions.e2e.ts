@@ -17,13 +17,13 @@
  * Play picture a green board beside the region shrinks to about a quarter
  * of its pixels inside the region and comes back outside.
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { STARTER, controls, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { menu } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -33,13 +33,8 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-async function query(op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-  return be.command({ op, projectId: be.projectId, args });
-}
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-regions' }, args });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-regions' });
 }
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/play/${path}`, {

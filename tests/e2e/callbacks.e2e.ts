@@ -24,6 +24,7 @@ import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { openWindow, expectEditorOpen, editorPane, inspector as inspectorOf } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -38,9 +39,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-callbacks' }, args });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-callbacks' });
 }
 async function api(path: string, body: unknown = {}): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/${path}`, {

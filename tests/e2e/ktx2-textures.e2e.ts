@@ -21,11 +21,10 @@
  * Runs per renderer variant (renderer-variants.ts): auto, WebGL 2
  * (TL_E2E_ALL_VARIANTS=1 on a GPU), WebGPU in `webgpu`.
  */
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 import { zstdDecompressSync } from 'node:zlib';
 
 import { expect, test, type Locator, type Page } from './pw';
@@ -36,6 +35,8 @@ import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 import { projectWindow, closeEditor } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 let dir = '';
@@ -52,10 +53,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-ktx2' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-ktx2' });
 }
 
 /** Upload, inspect with `ktx2`, publish with the returned convertedFrom (the MCP path). */
@@ -169,22 +167,6 @@ function checkPicture(img: Image, anywhere = false): string | null {
   return null;
 }
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
-
-function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
-}
 
 for (const variant of RENDERER_VARIANTS) test(`KTX2 textures encoded on import (colour and normal map) show in the Scene view, Play and the export (${variant})`, async ({ page }) => {
   onlyInItsProject(variant);

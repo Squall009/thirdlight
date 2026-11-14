@@ -19,6 +19,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -40,9 +41,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be.command({ op, projectId: be.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-play-end' }, args });
-  expect(res.ok, `${op}: ${JSON.stringify(res)}`).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-play-end' });
 }
 async function script(behaviorId: string, source: string, entityId: string): Promise<void> {
   const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);

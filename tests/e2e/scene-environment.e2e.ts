@@ -18,9 +18,8 @@
  * Runs per renderer: WebGL 2 in `default`, WebGPU in `webgpu`.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
@@ -28,6 +27,8 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { openWindow, toolWindowScene } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -39,10 +40,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-scene-environment' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-scene-environment' });
 }
 /** Each scene's stored look, by scene id. */
 async function looks(): Promise<Record<string, unknown>> {
@@ -160,22 +158,6 @@ async function script(behaviorId: string, source: string, entityId: string): Pro
   const published = await api('content/behaviors/source', { stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}` });
   expect(published.status, JSON.stringify(published.json)).toBe(200);
   await cmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
-}
-
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((done) => server.close(() => done())) })));
 }
 
 /** Keys: 1 loads scene-two and makes it active over 5 s once it is in; 2 makes scene-main active at once; 3 scene-two at once. */

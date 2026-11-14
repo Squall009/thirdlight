@@ -18,15 +18,15 @@
  *   still draws every animation frame (nothing between a frame and its draw
  *   waits), and a 240 Hz game at 30 fps keeps real time without dropped steps.
  */
-import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
 import { addTitleShell, publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -47,9 +47,7 @@ async function relay(path: string, body: unknown): Promise<{ status: number; jso
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
-  const revision = Number((await be!.command({ op: 'queryProject', projectId: be!.projectId, args: {} })).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-simw' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
+  await mustCommand(be!, op, args, { clientId: 'e2e-simw' });
 }
 
 /** The starter with its step and platform removed, a collectible that chimes (a fixture sound through the event cue table) 1.5 m ahead of the player, and a title that waits for the start (the game shell). */
@@ -247,32 +245,6 @@ test('Play never waits on the simulation: it draws at the display rate with a sl
   }
 });
 
-/** A plain static file server (optionally with COOP/COEP headers). */
-function serveDir(dir: string, isolated: boolean): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    if (isolated) {
-      res.setHeader('cross-origin-opener-policy', 'same-origin');
-      res.setHeader('cross-origin-embedder-policy', 'require-corp');
-    }
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
-
 test('the export: the worker by default (messages; shared memory under COOP/COEP) and the page with ?threads=off — the keyboard plays it', async ({ page }) => {
   test.setTimeout(240_000);
   await setup(false);
@@ -290,7 +262,7 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
     { isolated: true, query: '', want: { mode: 'worker', transport: 'shared', isolated: true } },
   ];
   for (const c of cases) {
-    const site = await serveDir(dir, c.isolated);
+    const site = await serveDir(dir, { isolated: c.isolated });
     const game = await page.context().newPage();
     const errors: string[] = [];
     game.on('pageerror', (e) => errors.push(e.message));

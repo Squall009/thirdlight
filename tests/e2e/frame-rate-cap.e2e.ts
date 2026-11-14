@@ -11,12 +11,12 @@
  *   is kept with the player's settings: the next Play starts at it;
  * - game time never moves with it: ~120 steps a second at every cap.
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test } from './pw';
 
 import { publishScript, startBackend, type E2EBackend } from './backend';
 import { browserLaunchEnv, GPU_ARGS, gpuAvailable, SOFTWARE_GL_ARGS } from './browser-env.mjs';
+import { mustCommand } from '../support/commands';
 
 // Uncapped: the browser's own vsync and frame-rate limit lifted, so only the game's cap holds frames back.
 test.use({ launchOptions: { env: browserLaunchEnv() as Record<string, string>, args: [...(gpuAvailable() ? GPU_ARGS : SOFTWARE_GL_ARGS), '--disable-gpu-vsync', '--disable-frame-rate-limit'] } });
@@ -37,10 +37,7 @@ async function api(path: string, body: unknown): Promise<Record<string, unknown>
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await be!.command({ op: 'queryProject', projectId: be!.projectId, args: {} })).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-fps-cap' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-fps-cap' });
 }
 
 /** `cap {fps}` sets the cap from the script (0: none), `setting {value}` writes the player's settings field; the counter `cap` mirrors what the script reads. */

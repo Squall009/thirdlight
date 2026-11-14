@@ -20,17 +20,17 @@
  * physical, Play runs without a player and a second scene loaded through the
  * game control brings one, which lands on that scene's block.
  */
-import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { projectWindow } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 let dir: string;
@@ -47,10 +47,7 @@ type Observation = { state: string; stepIndex?: number; player?: { x: number; y:
 type Ent = { id: string; name?: string; components: Record<string, Record<string, unknown> | undefined> };
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await be!.command({ op: 'queryProject', projectId: be!.projectId, args: {} })).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-physics3d-colliders' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-physics3d-colliders' });
 }
 async function entities(): Promise<Ent[]> {
   return (await be!.command({ op: 'queryEntities', projectId: be!.projectId, args: { limit: 200, offset: 0 } }))['entities'] as Ent[];
@@ -103,27 +100,6 @@ async function selectAndFocus(page: Page, id: string): Promise<void> {
   }
 }
 const snapped = (v: number, step = 0.05): boolean => Math.abs(v / step - Math.round(v / step)) < 1e-6;
-
-function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.glb': 'model/gltf-binary' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
 
 /**
  * The player rides the pad 3 m along +x from x = 1 and rests on its top (y = 0.5): origin 0.9 m up
@@ -244,7 +220,7 @@ test('3D: a `_COL` node becomes a mesh then a convex collider; a 3D trigger star
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await be.halt();
-  const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
+  const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)), { types: { '.glb': 'model/gltf-binary' } });
   const game = await page.context().newPage();
   const errors: string[] = [];
   game.on('pageerror', (e) => errors.push(e.message));

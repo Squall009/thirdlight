@@ -20,6 +20,7 @@ const expect = baseExpect.configure({ timeout: 15_000 });
 import { startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
 import { menu, projectWindow, openWindow, closeEditor, openProjectSettings, expectEditorOpen, chooseItem, createItem } from './ui';
+import { mustCommand } from '../support/commands';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -31,13 +32,8 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-let seq = 0;
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${(0x15e2e000 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-inspector' }, args });
-  expect(r['ok'], JSON.stringify(r)).toBe(true);
-  return r;
+  return mustCommand(be, op, args, { clientId: 'e2e-inspector' });
 }
 async function components(id: string): Promise<Record<string, unknown>> {
   const r = await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: id } });

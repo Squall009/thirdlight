@@ -10,7 +10,6 @@
  * scene-transition.e2e.ts (a script's ctx.scenes: keep-loaded.e2e,
  * scene-reload.e2e).
  */
-import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -19,6 +18,7 @@ import { expect, test, type Page } from './pw';
 import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng } from './png';
 import { createBox } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -33,22 +33,10 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be.command({ op, projectId: be.projectId, args });
 }
 
-async function revision(): Promise<number> {
-  return Number((await query('queryProject')).revision);
-}
 
 /** One command through the route the MCP adapter uses. */
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: await revision(),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-scenes' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-scenes' });
 }
 
 test('several scenes in the editor: new scene is active, objects go there, rename, start set, drag across, close/open, delete', async ({ page }) => {

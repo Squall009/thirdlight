@@ -13,10 +13,9 @@
  * flag value and setting value 0 mean `auto`.
  */
 import { gpuAvailable } from './browser-env.mjs';
-import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -26,6 +25,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { menu, openProjectSettings, projectWindow } from './ui';
+import { serveDir } from '../support/serve-dir';
 
 // WebGPU initialisation and SwiftShader frames are slow on a loaded host: poll generously.
 const expect = baseExpect.configure({ timeout: 30_000 });
@@ -62,29 +62,6 @@ function brightPixels(img: Image, threshold = 40): number {
 /** The renderer attributes the factory writes on a canvas. */
 async function rendererOf(canvas: Locator): Promise<{ backend: string | null; state: string | null; reason: string | null }> {
   return canvas.evaluate((c) => ({ backend: c.getAttribute('data-tl-renderer'), state: c.getAttribute('data-tl-renderer-state'), reason: c.getAttribute('data-tl-renderer-reason') }));
-}
-
-const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-
-/** A plain static file server: the exported game gets nothing else. */
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
 }
 
 /** The editor URL with a `?renderer=` flag (before the token fragment). */

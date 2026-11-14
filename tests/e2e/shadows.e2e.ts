@@ -42,6 +42,7 @@ import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu, showView } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -53,20 +54,8 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-let seq = 0;
 async function command(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: q['revision'],
-    requestId: `req-${String(seq).padStart(32, '0')}`,
-    origin: { kind: 'mcp', clientId: 'e2e-shadows' },
-    args,
-  });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-shadows' });
 }
 
 /** Pixels where `a` is darker than `b` by more than `delta` (luminance, 0–255), but those `skip` names. */

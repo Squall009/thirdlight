@@ -34,10 +34,8 @@
  * the start scene's), served statically with the backend stopped: night, 11
  * lit patches and the cookie in its own pixels.
  */
-import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, test } from './pw';
 
@@ -46,6 +44,8 @@ import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, exportQueryFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -53,13 +53,8 @@ test.afterEach(async () => {
   be = null;
 });
 
-async function query(op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-  return be!.command({ op, projectId: be!.projectId, args });
-}
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-scene-lights' }, args });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-scene-lights' });
 }
 async function api(path: string, body: unknown = {}): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/${path}`, {
@@ -179,28 +174,6 @@ const FLICKER = (lamp: string): string =>
     '};',
     '',
   ].join('\n');
-
-/** A plain static file server: the exported game gets nothing else. */
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
 
 for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most recently loaded scene's sun is on, the point lights of a loaded level light it within their light layers, a spot cookie shows (${variant})`, async ({ page }) => {
   onlyInItsProject(variant);

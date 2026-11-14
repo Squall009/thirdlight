@@ -17,7 +17,6 @@
  *
  * Runs per renderer variant (renderer-variants.ts).
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
@@ -26,6 +25,7 @@ import { ALBEDO_HEIGHT_LAYERS, count, isBlue, isGreenish, isRed, materials, pack
 import { decodePng } from './png';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 import { armTile, closeEditor, createItem, editMode, editModeTab, enterBlockEditor, leaveEditMode, openWindow } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -37,9 +37,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-terrain-paint' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-terrain-paint' });
 }
 
 const ORIGIN = [-16, -2, -16] as const;

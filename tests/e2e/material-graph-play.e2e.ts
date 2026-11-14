@@ -8,10 +8,9 @@
  *
  * Runs per renderer: `auto` in `default` (WebGL 2 there), `webgpu` in `webgpu`.
  */
-import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
@@ -20,6 +19,8 @@ import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu, projectWindow } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 let dir: string;
@@ -33,13 +34,8 @@ test.afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-let seq = 0;
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${(0x18f3e000 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-material-graph-play' }, args });
-  expect(r['ok'], JSON.stringify(r)).toBe(true);
-  return r;
+  return mustCommand(be, op, args, { clientId: 'e2e-material-graph-play' });
 }
 async function importFile(page: Page, file: string): Promise<void> {
   await projectWindow(page);
@@ -48,21 +44,6 @@ async function importFile(page: Page, file: string): Promise<void> {
   await expect(publish).toBeEnabled({ timeout: 15_000 });
   await publish.click();
   await expect(page.locator('.tl-assets__status')).toContainText('committed', { timeout: 10_000 });
-}
-function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }
 
 /** Pixels of the tint on the texture's bright squares (green: the material's tint; blue: the object's override). */

@@ -10,7 +10,6 @@
  * sees (20 m to the side), a blue one only the default pose sees. Per
  * renderer: the product's own (`auto` in `default`, `webgpu` in `webgpu`).
  */
-import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
@@ -18,6 +17,7 @@ import { expect, test, type Locator, type Page } from './pw';
 import { serveDir, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -26,10 +26,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be!.command({ op: 'queryProject', projectId: be!.projectId, args: {} });
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-engine-view' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-engine-view' });
 }
 
 const problems = async (): Promise<{ code: string; message: string }[]> => {

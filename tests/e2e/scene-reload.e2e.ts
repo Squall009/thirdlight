@@ -19,12 +19,12 @@
  * State is read through the play relay (observe, diagnostics, the Problems
  * route); the sound is the Web Audio graph's state, not heard.
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type FrameLocator } from './pw';
 
 import { publishScript, publishWav, startBackend, type E2EBackend } from './backend';
 import { openWindow } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -32,10 +32,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-scene-reload' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-scene-reload' });
 }
 async function api(path: string, body: unknown = {}): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, {

@@ -24,6 +24,7 @@ import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/
 import { pcmWav } from '../../tools/perf/scale-media';
 import { publishScript, publishWav, startBackend, type E2EBackend } from './backend';
 import { openWindow } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: PerfBackend;
 let root: string;
@@ -208,10 +209,7 @@ test('an owned loop fades out over its fadeOut when its scene unloads, one owned
   const sb: E2EBackend = await startBackend('sound-owner-kinds-e2e', 'starter');
   try {
     const cmd = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
-      const q = await sb.command({ op: 'queryProject', projectId: sb.projectId, args: {} });
-      const res = await sb.command({ op, projectId: sb.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-sound-owners' }, args });
-      expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-      return res;
+      return mustCommand(sb, op, args, { clientId: 'e2e-sound-owners' });
     };
     await publishWav(sb, 'cue-max.wav', 'amb', 'Ambience');
     await publishWav(sb, 'cue-max.wav', 'free', 'Free loop');

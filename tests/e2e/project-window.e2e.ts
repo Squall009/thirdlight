@@ -14,7 +14,6 @@
  *   revision: the buildId, the capture, and the revision each scene document
  *   is stamped with); no file path is in it.
  */
-import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -22,6 +21,7 @@ import { expect, test, type Page } from './pw';
 
 import { startBackend, STARTER, type E2EBackend } from './backend';
 import { menu, projectWindow, editorWindow, inspector } from './ui';
+import { mustCommand } from '../support/commands';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const OPUS = readFileSync(join(REPO, 'fixtures', 'music', 'chord-opus.ogg'));
@@ -33,9 +33,7 @@ test.afterEach(async () => {
 
 const revision = async (): Promise<number> => Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision']);
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: await revision(), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-project-window' }, args });
-  expect(res['ok'], `${op}: ${JSON.stringify(res).slice(0, 400)}`).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-project-window' });
 }
 /** Every file under a folder (relative paths). */
 function walk(dir: string, rel = ''): string[] {

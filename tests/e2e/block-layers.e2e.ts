@@ -51,9 +51,8 @@
  * game reads back, on WebGPU and (on a GPU host) WebGL 2.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
@@ -63,6 +62,8 @@ import { multiPieceGlb } from './multi-piece-glb';
 import { closeProjectSettings, editMode, inspector, leaveEditMode, openProjectSettings } from './ui';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -77,9 +78,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-blocks' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-blocks' });
 }
 
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -397,27 +396,6 @@ async function expectConnectedWall(shoot: () => Promise<Buffer>, where: string):
   await expect.poll(() => count(redPixels), { timeout: 30_000, message: `the connected wall's corner in ${where}` }).toBeGreaterThan(50);
   await expect.poll(() => count(bluePixels), { timeout: 30_000, message: `the connected wall's T-join in ${where}` }).toBeGreaterThan(50);
   console.log(`connected wall in ${where}: yellow ${await count(yellowPixels)}, red ${await count(redPixels)}, blue ${await count(bluePixels)}`);
-}
-
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
 }
 
 /** The player rests on the blocks: the default capsule's origin 0.9 m above the column top, plus the skin. */

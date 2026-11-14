@@ -10,12 +10,12 @@
  * layers 1 and 2 are mixed half and half the height blend shows layer 1
  * (red), never an olive cross-fade.
  */
-import { randomUUID } from 'node:crypto';
 
 import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
 import type { E2EBackend } from './backend';
 import type { Image } from './png';
 import { makePng } from './png-make';
+import { mustCommand } from '../support/commands';
 
 export const LAYER_ALBEDO: readonly [number, number, number][] = [
   [220, 40, 40],
@@ -28,10 +28,7 @@ export const LAYER_HEIGHT = [230, 20, 128, 128] as const;
 type Channel = { assetId: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number };
 
 async function command(be: E2EBackend, op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-painted-layers' }, args });
-  if (r['ok'] !== true) throw new Error(`${op}: ${JSON.stringify(r).slice(0, 500)}`);
-  return r;
+  return mustCommand(be, op, args, { clientId: 'e2e-painted-layers' });
 }
 
 /** Publish a PNG as a plain texture through the content route, closing its stage (a project keeps at most 8 open). */

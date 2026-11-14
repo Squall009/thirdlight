@@ -21,6 +21,7 @@ import { expect, test, type Locator, type Page } from './pw';
 import { startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
 import { menu, projectWindow, openWindow, chooseItem, createItem, closeEditor, expectEditorOpen, editorTab, openEditor, inspector as inspectorOf, editMode, editModeTab, leaveEditMode } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 let dir: string;
@@ -228,13 +229,8 @@ test('New material: the defaults with previews and what they read; Customize tur
   await leaveEditMode(page);
 });
 
-let seq = 0;
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${(0x18e2e000 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-material-graph' }, args });
-  expect(r['ok'], JSON.stringify(r)).toBe(true);
-  return r;
+  return mustCommand(be, op, args, { clientId: 'e2e-material-graph' });
 }
 async function components(id: string): Promise<Record<string, unknown>> {
   const r = await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: id } });

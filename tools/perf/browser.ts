@@ -8,9 +8,7 @@
  * from the play diagnostics. A raw-WebGL calibration page gives the machine's
  * speed for relative numbers.
  */
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { chromium, type Browser, type Frame, type Page } from '@playwright/test';
 
@@ -22,6 +20,10 @@ import { installPerfInstrumentation, readSample, startRecording, type PageSample
 import { measureEditorOps, type EditorOpsResult } from './editor-ops';
 import { summarize, type Summary } from './stats';
 import { uncappedUrl } from './frame-run';
+import { serveDir } from '../../tests/support/serve-dir';
+
+/** A plain static file server: the exported game gets nothing else. */
+export { serveDir };
 
 export type RendererName = 'legacy' | 'webgl2' | 'webgpu' | 'auto';
 
@@ -135,29 +137,6 @@ export function splitLine(s: PlayStartSplit): string {
   const stages = s.stages.map((x) => `${x.name} ${d(x)}${x.endMs !== null ? `@${Math.round(x.endMs)}` : ''}`).join(', ');
   const f = s.afterFirstFrame;
   return `response ${s.responseMs} (backend ${s.backend === null ? '-' : Object.entries(s.backend).map(([k, v]) => `${k} ${v}`).join(', ')}), page ${s.pageMs ?? '-'}, ${stages}; ready ${s.readyMs ?? '-'}, first frame ${s.firstFrameMs ?? '-'}; after it ${f === null ? '-' : `${f.frames} frames, ${f.over50} > 50 ms, ${f.over250} > 250 ms, worst ${f.worst.map((w) => w.ms).join('/')}`}`;
-}
-
-const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.bin': 'application/octet-stream' };
-
-/** A plain static file server: the exported game gets nothing else. */
-export function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
 }
 
 export async function poll<T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs: number, what: string): Promise<T> {

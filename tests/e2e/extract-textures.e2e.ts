@@ -21,11 +21,10 @@
  *   asks for; under a 1 MiB budget it stays at a smaller level, inside the
  *   budget, with nothing embedded.
  */
-import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { extname, join, normalize } from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
@@ -36,6 +35,8 @@ import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { textureStreamerSettled } from './texture-settle';
 import { projectWindow, closeEditor } from './ui';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -47,36 +48,12 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-extract-textures' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 400)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-extract-textures' });
 }
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be!.token}`, origin: be!.origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const text = await r.text();
   return { status: r.status, json: text === '' ? {} : (JSON.parse(text) as Record<string, unknown>) };
-}
-
-const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
 }
 
 /** The four quarters' colours (top left, top right, bottom left, bottom right). */

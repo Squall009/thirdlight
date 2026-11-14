@@ -17,7 +17,6 @@
  * asserting the bounds. `?workers=off` (the editor's own flag) runs every job
  * inline — the test checks both paths give the same result.
  */
-import { createHash } from 'node:crypto';
 import { availableParallelism, loadavg } from 'node:os';
 
 import { expect, test, type Page } from './pw';
@@ -26,9 +25,9 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { editorUrlFor, expectRendererBackend } from './renderer-variants';
 import { menu, openWindow } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
-let seq = 0;
 test.afterEach(async () => {
   await be?.stop();
 });
@@ -162,17 +161,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  seq += 1;
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: Number((await query('queryProject')).revision),
-    requestId: `req-${createHash('sha256').update(`${op}${seq}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-editor-workers' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res).slice(0, 400)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-editor-workers' });
 }
 
 /** Settle: wait until a whole second passes without a long task (bounded), so a window starts quiet. */

@@ -2,17 +2,18 @@
  * The real backend bundle (dist/backend/backend.mjs) on free
  * ports over a given data root (under ~/.cache/thirdlight-perf/, never /tmp:
  * the large benchmark is big), with small HTTP helpers for the command API
- * and the content routes. The same process shape as tests/e2e/backend.ts.
+ * and the content routes. The process is tests/support/backend-process.ts's,
+ * as the browser tests' backend.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
-import { launchOnFreePorts, type BackendPorts } from './ports';
+import { launchBackend, REPO } from '../../tests/support/backend-process';
+import { commandEnvelope } from '../../tests/support/commands';
 
-export const REPO = resolve(import.meta.dirname, '..', '..');
+export { REPO };
 /** Where benchmark projects, runs and reports live. */
 export const PERF_ROOT = process.env['TL_PERF_ROOT'] ?? join(homedir(), '.cache', 'thirdlight-perf');
 
@@ -49,45 +50,8 @@ export async function startPerfBackend(dataRoot: string, exportRoot = join(dataR
   mkdirSync(dataRoot, { recursive: true });
   mkdirSync(exportRoot, { recursive: true });
   const token = `perf-${randomBytes(24).toString('hex')}`;
-  const launch = async (ports: BackendPorts): Promise<ChildProcess> => {
-    const origin = `http://127.0.0.1:${ports.authoring}`;
-    const env = {
-      ...process.env,
-      THIRDLIGHT_DATA_ROOT: dataRoot,
-      THIRDLIGHT_AUTHORING_ORIGIN: origin,
-      THIRDLIGHT_PREVIEW_ORIGIN: `http://127.0.0.1:${ports.preview}`,
-      THIRDLIGHT_AUTHORING_BIND: `127.0.0.1:${ports.authoring}`,
-      THIRDLIGHT_PREVIEW_BIND: `127.0.0.1:${ports.preview}`,
-      THIRDLIGHT_AUTHORING_ORIGINS: origin,
-      THIRDLIGHT_EDITOR_DIR: join(REPO, 'dist', 'editor'),
-      THIRDLIGHT_PREVIEW_DIR: join(REPO, 'dist', 'preview'),
-      THIRDLIGHT_OWNER_TOKEN: token,
-      THIRDLIGHT_EXPORT_ROOT: exportRoot,
-      THIRDLIGHT_ENGINE_ROOT: REPO,
-      THIRDLIGHT_HEADLESS: 'off',
-    };
-    const child: ChildProcess = spawn(process.execPath, [join(REPO, 'dist', 'backend', 'backend.mjs')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
-    let log = '';
-    await new Promise<void>((ok, fail) => {
-      const timer = setTimeout(() => fail(new Error(`backend did not start: ${log}`)), 30_000);
-      child.stderr!.on('data', (d: Buffer) => {
-        log += d.toString();
-        if (log.length > 20_000) log = log.slice(-10_000);
-        if (log.includes('listening')) {
-          clearTimeout(timer);
-          ok();
-        }
-      });
-      child.once('exit', (code) => {
-        clearTimeout(timer);
-        fail(new Error(`backend exited (${code}): ${log}`));
-      });
-    });
-    return child;
-  };
-  const { value: child, ports } = await launchOnFreePorts(launch);
-  const origin = `http://127.0.0.1:${ports.authoring}`;
-  const previewOrigin = `http://127.0.0.1:${ports.preview}`;
+  const proc = await launchBackend({ dataRoot, exportRoot, token, startTimeoutMs: 30_000, killAfterMs: 10_000, tailLog: true });
+  const { origin, previewOrigin } = proc;
   const headers = { authorization: `Bearer ${token}`, origin };
   const post = async (path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> => {
     const r = await fetch(`${origin}${path}`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -115,7 +79,6 @@ export async function startPerfBackend(dataRoot: string, exportRoot = join(dataR
     }
     return stageId;
   };
-  let seq = 0;
   const project = (projectId: string): ProjectClient => {
     let rev: number | null = null;
     const query = async (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => (await post(`/api/v1/projects/${projectId}/commands`, { op, projectId, args })).json;
@@ -126,9 +89,7 @@ export async function startPerfBackend(dataRoot: string, exportRoot = join(dataR
     const command = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const expectedRevision = rev ?? (await revision());
-        seq += 1;
-        const requestId = `req-${createHash('sha256').update(`${token}:${seq}`).digest('hex').slice(0, 32)}`;
-        const res = (await post(`/api/v1/projects/${projectId}/commands`, { op, projectId, expectedRevision, requestId, origin: { kind: 'mcp', clientId: 'perf-harness' }, args })).json;
+        const res = (await post(`/api/v1/projects/${projectId}/commands`, commandEnvelope(op, projectId, expectedRevision, args, 'perf-harness'))).json;
         if (res['ok'] === true) {
           rev = Number(res['revision']);
           return res;
@@ -152,7 +113,7 @@ export async function startPerfBackend(dataRoot: string, exportRoot = join(dataR
     token,
     dataRoot,
     exportRoot,
-    pid: child.pid ?? -1,
+    pid: proc.pid(),
     post,
     get: async (path) => {
       const r = await fetch(`${origin}${path}`, { headers });
@@ -163,13 +124,6 @@ export async function startPerfBackend(dataRoot: string, exportRoot = join(dataR
       await fetch(`${origin}/api/v1/projects/${projectId}/content/stages/${stageId}`, { method: 'DELETE', headers });
     },
     project,
-    stop: async () => {
-      if (child.exitCode !== null) return;
-      const exited = new Promise<void>((ok) => child.once('exit', () => ok()));
-      child.kill('SIGTERM');
-      const timer = setTimeout(() => child.kill('SIGKILL'), 10_000);
-      await exited;
-      clearTimeout(timer);
-    },
+    stop: proc.halt,
   };
 }

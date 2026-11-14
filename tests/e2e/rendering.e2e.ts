@@ -46,9 +46,8 @@
  *    forced overload (`?slowFrames=`) steps the scale down and, once it ends,
  *    back up.
  */
-import { existsSync, createReadStream, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
@@ -61,6 +60,8 @@ import { expectOcclusionShotsMatch, keepThreeScenes, onOcclusionSwitch, settledS
 import { pyramidBreaks, type PyramidLayout } from '../../packages/three-adapter/src/occlusion-pyramid-rule';
 import type { Image } from './png';
 import { decodePng } from './png';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -70,20 +71,8 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-let seq = 0;
 async function command(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: q['revision'],
-    requestId: `req-${String(seq).padStart(32, '0')}`,
-    origin: { kind: 'mcp', clientId: 'e2e-rendering' },
-    args,
-  });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-rendering' });
 }
 
 async function relay(path: string, body: unknown = {}): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -499,28 +488,6 @@ async function boxesUnderRig(): Promise<void> {
   await command('moveEntities', { entityIds: ids, parentId: rig });
 }
 
-const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.css': 'text/css', '.png': 'image/png' };
-
-function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
-
 test('the export draws the box field instanced and looks the same as without instancing', async ({ page }) => {
   test.setTimeout(240_000);
   // The high quality level, drawn at full resolution (the occlusion pyramid's size is checked below; a device left to
@@ -557,8 +524,8 @@ test('the export draws the box field instanced and looks the same as without ins
   expect(rigged.json.outputDir).not.toBe(res.json.outputDir);
   await page.close();
   await be.halt();
-  const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
-  const siteRigged = await serveDir(join(be.exportRoot, String(rigged.json.outputDir)));
+  const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)), { types: { '.css': 'text/css', '.png': 'image/png' } });
+  const siteRigged = await serveDir(join(be.exportRoot, String(rigged.json.outputDir)), { types: { '.css': 'text/css', '.png': 'image/png' } });
   const out = test.info().outputPath();
   mkdirSync(out, { recursive: true });
   try {

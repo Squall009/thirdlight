@@ -3,14 +3,13 @@
  * undefined there. Play in the editor and the exported game must still
  * work (the artifact digests fall back to the pure SHA-256).
  */
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
 import { networkInterfaces } from 'node:os';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -20,31 +19,13 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-
 /** A static server on a non-loopback address (a real insecure context), or null if the host has none. */
 function serveOnLan(dir: string): Promise<{ url: string; close: () => Promise<void> } | null> {
   const lan = Object.values(networkInterfaces())
     .flat()
     .find((i) => i !== undefined && i.family === 'IPv4' && !i.internal);
   if (lan === undefined) return Promise.resolve(null);
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, lan.address, () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://${lan.address}:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
+  return serveDir(dir, { host: lan.address });
 }
 
 // One backend for both: the export is made from the project Play just ran, then served with the backend stopped.

@@ -16,7 +16,6 @@
  * The Scene view's edit-mode preview following an edit live is in
  * effects-runtime.e2e.ts (with its Gizmos toggle).
  */
-import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
@@ -24,6 +23,7 @@ import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { expectEditorOpen, closeEditor, openEditor, previewCanvas, previewPane } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -31,17 +31,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: q['revision'],
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-effect-editor' },
-    args,
-  });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-effect-editor' });
 }
 
 type Block = { type: string; data?: Record<string, unknown>; wires?: Record<string, string> };

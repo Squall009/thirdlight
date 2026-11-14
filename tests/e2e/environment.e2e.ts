@@ -14,10 +14,7 @@
  * product's own renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS):
  * env-parity compares the sky, grading, bloom and fog volume on both backends.
  */
-import { randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
@@ -28,6 +25,8 @@ import { gpuAvailable } from './browser-env.mjs';
 import { menu, openWindow, toolWindowScene } from './ui';
 import { makePng } from './png-make';
 import { publishTexture } from './painted-layers';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -71,21 +70,6 @@ function look(img: Image): Look {
 }
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
 const bright = (c: [number, number, number]): number => (c[0] + c[1] + c[2]) / 3;
-function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
-}
 
 for (const variant of PRODUCT_RENDERER_VARIANTS) test(`sky, vignette, bloom and a fog volume in the Scene view, in Play and in the export (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
@@ -180,9 +164,7 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`sky, vignette, bloom and 
   const sunAt = [(120 / 360 + 0.5) * SKY_W - 0.5, (0.5 - 20 / 180) * SKY_H - 0.5]; // pixel centres
   await publishTexture(be, new Uint8Array(makePng(SKY_W, SKY_H, (x, y) => (Math.hypot(x - sunAt[0]!, y - sunAt[1]!) < 4 ? [255, 255, 250, 255] : y < SKY_H / 2 ? [60, 120, 230, 255] : x < SKY_W / 2 ? [200, 60, 50, 255] : [50, 170, 60, 255]))), 'sky-sun', 'Sky with a sun');
   const mcp = async (op: string, args: Record<string, unknown>): Promise<void> => {
-    const rev = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
-    const r = await be.command({ op, projectId: be.projectId, expectedRevision: rev, requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-environment' }, args });
-    expect(r['ok'], JSON.stringify(r).slice(0, 400)).toBe(true);
+    await mustCommand(be, op, args, { clientId: 'e2e-environment' });
   };
   // The key light comes from (−0.2, 0.6, 1): azimuth atan2(1, −0.2) = 101.3°.
   await mcp('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.2, -0.6, -1], castShadow: false } });

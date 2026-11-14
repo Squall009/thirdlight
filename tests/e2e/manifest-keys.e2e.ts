@@ -23,15 +23,16 @@
  * `packages/project-model/src/manifest-v5.test.ts`.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, test, type FrameLocator, type Page } from './pw';
 
 import { CATALOG_BLOCK_KEYS, MANIFEST_KEYS_V5 } from '@thirdlight/project-model';
 
 import { publishWav, startBackend, STARTER, type E2EBackend } from './backend';
+import { mustCommand } from '../support/commands';
+import { serveDir } from '../support/serve-dir';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -53,9 +54,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be.command({ op, projectId: be.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-manifest-keys' }, args });
-  expect(res.ok, `${op}: ${JSON.stringify(res)}`).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-manifest-keys' });
 }
 async function script(behaviorId: string, source: string, entityId: string): Promise<void> {
   const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
@@ -197,29 +196,6 @@ async function expectRunning(root: Page | FrameLocator, observe: () => Promise<O
   await expect.poll(played, { timeout: 20_000, message: 'the event sound plays on the signal' }).toBeGreaterThan(first);
 }
 
-/** A plain static file server: the exported game gets nothing else. It records the paths it served. */
-function serveDir(dir: string, served: string[] = []): Promise<{ url: string; close: () => Promise<void> }> {
-  const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(dir, rel);
-    if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
-    served.push(rel);
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
-      ok({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
-    });
-  });
-}
-
 test('a manifest with modes, timelines, event cues, the shell, dialogue and the other optional keys builds, verifies, plays and exports', async ({ page }) => {
   test.setTimeout(300_000);
   await buildProject();
@@ -270,7 +246,7 @@ test('a manifest with modes, timelines, event cues, the shell, dialogue and the 
   expect(exported['catalog']).toEqual(playManifest['catalog']);
   await page.goto('about:blank');
   await be.halt();
-  const site = await serveDir(out, served);
+  const site = await serveDir(out, { served });
   const game = await page.context().newPage();
   const errors: string[] = [];
   game.on('pageerror', (e) => errors.push(e.message));

@@ -13,6 +13,7 @@
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -22,13 +23,8 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-let seq = 0;
 async function mutate(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${(0x15e200 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-handles' }, args });
-  expect(r['ok'], JSON.stringify(r)).toBe(true);
-  return r;
+  return mustCommand(be, op, args, { clientId: 'e2e-handles' });
 }
 async function create(name: string, position: number[], components: Record<string, unknown>, kind = 'group', extra: Record<string, unknown> = {}): Promise<string> {
   return String((await mutate('createEntity', { sceneId: 'scene-main', parentId: null, kind, name, transform: { position }, components, ...extra }))['createdId']);

@@ -10,11 +10,11 @@
  * device used last. A pad button is rebound the same way, on the
  * shell's controls screen.
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Frame, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -25,9 +25,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
-  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-rebind' }, args });
-  expect(res.ok, JSON.stringify(res).slice(0, 400)).toBe(true);
+  await mustCommand(be, op, args, { clientId: 'e2e-rebind' });
 }
 
 const FULL = { anchor: [0, 0], pivot: [0, 0], stretch: 'both' };

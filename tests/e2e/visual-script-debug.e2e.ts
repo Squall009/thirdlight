@@ -16,12 +16,12 @@
  *   still; wire values show on hover; the watch list shows a variable; Step
  *   once runs exactly one step; Resume lets the game run on.
  */
-import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { type E2EBackend, startBackend } from './backend';
 import { openWindow, closeEditor, openEditor, expectEditorOpen, inspector as inspectorOf } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -46,16 +46,7 @@ async function api(path: string, body: unknown): Promise<{ status: number; json:
 }
 const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: Number((await query('queryProject')).revision),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-visual-script-debug' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-visual-script-debug' });
 }
 async function record(id: string): Promise<Record_ | undefined> {
   return ((await query('queryBehaviors', { includeDeclaration: true, behaviorId: id }))['behaviors'] as Record_[] | undefined)?.[0];

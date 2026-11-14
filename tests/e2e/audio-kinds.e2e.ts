@@ -23,6 +23,7 @@ import { expect, test, type Page } from './pw';
 import { opusVoice } from '../../tools/perf/scale-media';
 import { startBackend, type E2EBackend } from './backend';
 import { projectWindow } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 let dir = '';
@@ -39,10 +40,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-audio-kinds' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-audio-kinds' });
 }
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/${path}`, {

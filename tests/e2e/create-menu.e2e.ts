@@ -11,12 +11,12 @@
  * project shows every entry (one physics backend): a platform's collider, a
  * one-way shelf, a hitbox and a trigger have a depth.
  */
-import { randomUUID } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { closeMenu, menu, menuItem } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -27,10 +27,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-create-menu' }, args });
-  expect(r['ok'], JSON.stringify(r)).toBe(true);
-  return r;
+  return mustCommand(be, op, args, { clientId: 'e2e-create-menu' });
 }
 
 type Ent = { id: string; name?: string; components: Record<string, Record<string, unknown> | undefined> };

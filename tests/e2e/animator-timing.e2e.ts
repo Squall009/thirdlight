@@ -19,9 +19,9 @@ import { expect, test, type Page } from './pw';
 import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
 import { closeEditor, editorPane, inspector as inspectorOf, openEditor } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
-let seq = 0;
 test.beforeEach(async () => {
   be = await startBackend('anim-timing');
 });
@@ -30,11 +30,7 @@ test.afterEach(async () => {
 });
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: q.revision, requestId: `req-${(0x28a900 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-anim-timing' }, args });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-anim-timing' });
 }
 
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {

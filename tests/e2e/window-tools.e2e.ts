@@ -18,13 +18,13 @@
  *   its load type, preload and listening; Project Settings → Audio holds the
  *   event sounds.
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
 import { publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { inspector, menu, menuItem, openProjectSettings, projectWindow, settingsTab, settingsWindow, showView, toolWindow, toolWindowScene, windowTab } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 const beOf = (): E2EBackend => be!;
@@ -37,10 +37,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be!.command({ op, projectId: be!.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const revision = Number((await query('queryProject')).revision);
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-window-tools' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-window-tools' });
 }
 async function looks(): Promise<Record<string, Record<string, unknown> | null>> {
   const rows = (await query('queryProject', { environments: true }))['scenes'] as { sceneId: string; environment?: Record<string, unknown> }[];

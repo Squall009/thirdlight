@@ -1,18 +1,20 @@
 /**
  * Runs the real backend deployment bundle (dist/backend/backend.mjs) on free
- * ports with a throwaway data root, for browser end-to-end tests.
+ * ports with a throwaway data root, for browser end-to-end tests (the process
+ * itself: tests/support/backend-process.ts), and the content-route helpers the
+ * specs share.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import { readRuntimeContentSync, type ExpandedRuntimeContent } from '@thirdlight/project-model';
-import { launchOnFreePorts, type BackendPorts } from '../../tools/perf/ports';
+import { launchBackend, REPO } from '../support/backend-process';
+import { mustCommand, newRequestId, projectRevision } from '../support/commands';
 
-const REPO = resolve(import.meta.dirname, '..', '..');
+/** Serve an export's folder statically on a free port (the backend can be stopped meanwhile). */
+export { serveDir } from '../support/serve-dir';
 
 export interface E2EBackend {
   origin: string;
@@ -42,64 +44,16 @@ export async function startBackend(projectId = 'e2e-0001', template?: string, ex
   // One owner token covers the project routes and the admin routes.
   const token = `e2e-owner-${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
   const adminToken = token;
-  const envFor = (ports: BackendPorts): NodeJS.ProcessEnv => {
-    const origin = `http://127.0.0.1:${ports.authoring}`;
-    return {
-      ...process.env,
-      THIRDLIGHT_DATA_ROOT: dataRoot,
-      THIRDLIGHT_AUTHORING_ORIGIN: origin,
-      THIRDLIGHT_PREVIEW_ORIGIN: `http://127.0.0.1:${ports.preview}`,
-      THIRDLIGHT_AUTHORING_BIND: `127.0.0.1:${ports.authoring}`,
-      THIRDLIGHT_PREVIEW_BIND: `127.0.0.1:${ports.preview}`,
-      THIRDLIGHT_AUTHORING_ORIGINS: origin,
-      THIRDLIGHT_EDITOR_DIR: join(REPO, 'dist', 'editor'),
-      THIRDLIGHT_PREVIEW_DIR: join(REPO, 'dist', 'preview'),
-      THIRDLIGHT_OWNER_TOKEN: token,
-      THIRDLIGHT_EXPORT_ROOT: exportRoot,
-      // Every command the e2e suites send is held to the op table's declared records.
-      THIRDLIGHT_CHECK_OP_RECORDS: '1',
-      THIRDLIGHT_ENGINE_ROOT: REPO,
-      // No headless editor unless a test asks for one.
-      THIRDLIGHT_HEADLESS: 'off',
-      ...extraEnv,
-    };
-  };
-
-  let proc: ChildProcess | null = null;
-  const launch = async (env: NodeJS.ProcessEnv): Promise<void> => {
-    const child = spawn(process.execPath, [join(REPO, 'dist', 'backend', 'backend.mjs')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
-    proc = child;
-    let log = '';
-    await new Promise<void>((ok, fail) => {
-      const timer = setTimeout(() => fail(new Error(`backend did not start: ${log}`)), 15_000);
-      child.stderr!.on('data', (d: Buffer) => {
-        log += d.toString();
-        if (log.includes('listening')) {
-          clearTimeout(timer);
-          ok();
-        }
-      });
-      child.once('exit', (code) => {
-        clearTimeout(timer);
-        fail(new Error(`backend exited (${code}): ${log}`));
-      });
-    });
-  };
-  const halt = async (): Promise<void> => {
-    const p = proc;
-    proc = null;
-    if (!p || p.exitCode !== null) return;
-    const exited = new Promise<void>((ok) => p.once('exit', () => ok()));
-    p.kill('SIGTERM');
-    const timer = setTimeout(() => p.kill('SIGKILL'), 5_000);
-    await exited;
-    clearTimeout(timer);
-  };
-
-  // The ports are fixed for the backend's life: a restart binds them again (the page's URL names them).
-  const { ports } = await launchOnFreePorts((p) => launch(envFor(p)));
-  const env = envFor(ports);
-  const origin = `http://127.0.0.1:${ports.authoring}`;
+  const proc = await launchBackend({
+    dataRoot,
+    exportRoot,
+    token,
+    // Every command the e2e suites send is held to the op table's declared records.
+    env: { THIRDLIGHT_CHECK_OP_RECORDS: '1', ...extraEnv },
+    startTimeoutMs: 15_000,
+    killAfterMs: 5_000,
+  });
+  const { origin, halt } = proc;
   const created = await fetch(`${origin}/api/v1/admin/projects`, {
     method: 'POST',
     headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
@@ -124,10 +78,7 @@ export async function startBackend(projectId = 'e2e-0001', template?: string, ex
       });
       return { status: r.status, json: (await r.json()) as Record<string, unknown> };
     },
-    restart: async () => {
-      await halt();
-      await launch(env);
-    },
+    restart: proc.restart,
     stop: async () => {
       await halt();
       rmSync(dataRoot, { recursive: true, force: true });
@@ -161,9 +112,7 @@ export const STARTER = { playerId: 'model-0001', spawnId: 'spawn-0001', cameraId
  */
 export async function addTitleShell(be: E2EBackend, hud?: string): Promise<void> {
   const run = async (op: string, args: Record<string, unknown>): Promise<void> => {
-    const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-    const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-shell' }, args });
-    if (r['ok'] !== true) throw new Error(`addTitleShell ${op}: ${JSON.stringify(r).slice(0, 400)}`);
+    await mustCommand(be, op, args, { clientId: 'e2e-shell' });
   };
   const corner = { anchor: [0, 0], pivot: [0, 0], offset: [12, 12] };
   await run('setUiDocument', { document: { uiDocumentId: 'start-title', name: 'Start', root: { type: 'panel', ...corner, size: [180, 56], css: { background: '#203040', padding: 6 }, children: [
@@ -185,9 +134,7 @@ export async function addTitleShell(be: E2EBackend, hud?: string): Promise<void>
  * One command: the next revision, undoable like any edit.
  */
 export async function withoutSky(be: E2EBackend, sceneId = 'scene-main', projectId = be.projectId): Promise<void> {
-  const q = await be.command({ op: 'queryProject', projectId, args: {} });
-  const r = await be.command({ op: 'setEnvironment', projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-sky' }, args: { sceneId, environment: {} } });
-  if (r['ok'] !== true) throw new Error(`withoutSky: ${JSON.stringify(r).slice(0, 400)}`);
+  await mustCommand(be, 'setEnvironment', { sceneId, environment: {} }, { clientId: 'e2e-sky', projectId });
 }
 
 /**
@@ -212,16 +159,12 @@ export async function publishBytes(be: E2EBackend, bytes: Uint8Array, kind: stri
   const inspected = (await (await fetch(`${base}/${stage.stageId}/inspect`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...inspect, kind }) })).json()) as { proposal?: Record<string, unknown>; convertedFrom?: Record<string, unknown> };
   const p = inspected.proposal;
   if (p === undefined) throw new Error(`publish ${assetId} inspect: ${JSON.stringify(inspected).slice(0, 300)}`);
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const r = await be.command({
-    op: 'publishAsset',
-    projectId: be.projectId,
-    expectedRevision: Number(q['revision']),
-    requestId: `req-${randomUUID().replace(/-/g, '')}`,
-    origin: { kind: 'mcp', clientId: 'e2e-publish' },
-    args: { mode: 'create', assetId, kind, displayName, sourceDigest: p['sourceDigest'], sourceByteLength: p['sourceByteLength'], ...(inspected.convertedFrom !== undefined ? { convertedFrom: inspected.convertedFrom } : {}), importRecipe: p['importRecipe'], metrics: p['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), ...publish },
-  });
-  if (r['ok'] !== true) throw new Error(`publish ${assetId}: ${JSON.stringify(r).slice(0, 400)}`);
+  await mustCommand(
+    be,
+    'publishAsset',
+    { mode: 'create', assetId, kind, displayName, sourceDigest: p['sourceDigest'], sourceByteLength: p['sourceByteLength'], ...(inspected.convertedFrom !== undefined ? { convertedFrom: inspected.convertedFrom } : {}), importRecipe: p['importRecipe'], metrics: p['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), ...publish },
+    { clientId: 'e2e-publish' },
+  );
   return assetId;
 }
 
@@ -264,9 +207,7 @@ export async function publishScript(be: E2EBackend, behaviorId: string, source: 
   const headers = { authorization: `Bearer ${be.token}`, origin: be.origin };
   const base = `${be.origin}/api/v1/projects/${be.projectId}`;
   const run = async (op: string, args: Record<string, unknown>): Promise<void> => {
-    const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-    const r = await be.command({ op, projectId: be.projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-script' }, args });
-    if (r['ok'] !== true) throw new Error(`publishScript ${op}: ${JSON.stringify(r).slice(0, 400)}`);
+    await mustCommand(be, op, args, { clientId: 'e2e-script' });
   };
   const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms, files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
   const stage = (await (await fetch(`${base}/content/stages`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}' })).json()) as { stageId: string };
@@ -275,29 +216,11 @@ export async function publishScript(be: E2EBackend, behaviorId: string, source: 
   const declaration = { properties: [] };
   await run('publishBehavior', { behaviorId, displayName: behaviorId, mode: 'declaration-create', declaration });
   await run('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
   const published = await fetch(`${base}/content/behaviors/source`, {
     method: 'POST',
     headers: { ...headers, 'content-type': 'application/json' },
-    body: JSON.stringify({ stageId: stage.stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}` }),
+    body: JSON.stringify({ stageId: stage.stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: await projectRevision(be), requestId: newRequestId() }),
   });
   if (published.status !== 200) throw new Error(`publishScript ${behaviorId}: ${published.status} ${(await published.text()).slice(0, 400)}`);
   await run('setBehaviorProperties', { entityId, behaviorId, values: {} });
-}
-
-/** Serve an export's folder statically on a free port (the backend can be stopped meanwhile). */
-export function serveDir(root: string): Promise<{ url: string; close: () => Promise<void> }> {
-  const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm' };
-  const server: Server = createServer((req, res) => {
-    const rel = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]!)).replace(/^\/+/, '') || 'index.html';
-    const file = join(root, rel);
-    if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-    res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
-    createReadStream(file).pipe(res);
-  });
-  return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }

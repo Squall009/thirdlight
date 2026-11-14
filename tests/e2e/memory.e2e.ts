@@ -41,6 +41,7 @@ import { type E2EBackend, startBackend } from './backend';
 import { cycles, describe as summary, expectBack, installProbe, MemoryProbe, TOLERANCE, type MemorySample, type Tolerance } from './memory-probe';
 import { skinnedGlb } from './skinned-glb';
 import { projectWindow, editorPane, editorTab, closeEditor, createItem, expectEditorOpen, openEditor as openEditorTab, openWindow, previewCanvas, previewPane, type EditorKind } from './ui';
+import { mustCommand } from '../support/commands';
 
 /**
  * Cycles per loop. A loop whose leak would keep a GPU object, a context, a worker or a renderer
@@ -77,16 +78,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
   return be.command({ op, projectId: be.projectId, args });
 }
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: Number((await query('queryProject'))['revision']),
-    requestId: `req-${createHash('sha256').update(`${op}${Math.random()}`).digest('hex').slice(0, 32)}`,
-    origin: { kind: 'mcp', clientId: 'e2e-memory' },
-    args,
-  });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-memory' });
 }
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, {

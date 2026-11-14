@@ -11,7 +11,6 @@
  * rides it up, on the starter scene's plane. The switches work without a
  * game session.
  */
-import { randomBytes } from 'node:crypto';
 
 import { INPUT_RELAY_MAX_FRAMES } from '@thirdlight/protocol';
 
@@ -19,6 +18,7 @@ import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend, controls } from './backend';
 import { menu } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -48,9 +48,7 @@ async function field(page: Page, label: string, value: string): Promise<void> {
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
-  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-gameplay-blocks' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
+  await mustCommand(be, op, args, { clientId: 'e2e-gameplay-blocks' });
 }
 
 async function create(page: Page, item: string): Promise<void> {

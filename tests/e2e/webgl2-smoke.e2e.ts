@@ -13,7 +13,6 @@
  * picture of nothing (the clear colour, or the sky alone) over a real share
  * of its pixels, and a voxel world's chunks are counted drawn by its page.
  */
-import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -24,6 +23,7 @@ import { consoleErrors } from './console-errors';
 import { decodePng, type Image } from './png';
 import { menu } from './ui';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
+import { mustCommand } from '../support/commands';
 
 /**
  * The least share of a drawn picture off its most common colour (see `drawnShare`): any scene (the Scene view's
@@ -86,10 +86,7 @@ const voxelHook = <T>(page: Page, fn: string, ...args: unknown[]): Promise<T> =>
   page.evaluate(([f, a]) => (window as unknown as { __tlVoxelWorld: Record<string, (...x: unknown[]) => unknown> }).__tlVoxelWorld[f as string]!(...(a as unknown[])) as T, [fn, args] as const);
 
 async function command(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-webgl2-smoke' }, args });
-  expect(res['ok'], JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-webgl2-smoke' });
 }
 
 test('WebGL 2 forced: the Scene view, Play, a voxel world and the export served with the backend stopped all draw, with no console error', async ({ page }) => {

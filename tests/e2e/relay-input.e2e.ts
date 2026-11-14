@@ -30,6 +30,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect, test, type Page } from './pw';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
+import { mustCommand } from '../support/commands';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -58,8 +59,7 @@ async function call(name: string, args: Record<string, unknown> = {}): Promise<{
 }
 const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => be.command({ op, projectId: be.projectId, args });
 async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
-  const res = await be.command({ op, projectId: be.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-relay-input' }, args });
-  expect(res.ok, JSON.stringify(res).slice(0, 600)).toBe(true);
+  await mustCommand(be, op, args, { clientId: 'e2e-relay-input' });
 }
 async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, {

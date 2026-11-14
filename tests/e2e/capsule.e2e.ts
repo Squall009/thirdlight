@@ -15,6 +15,7 @@ import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend, controls } from './backend';
 import { menu } from './ui';
+import { sendCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -24,11 +25,8 @@ test.afterEach(async () => {
   await be.stop();
 });
 
-let seq = 0;
 async function mutate(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  return be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${(0xc0a500 + seq).toString(16).padStart(32, '0')}`, origin: { kind: 'mcp', clientId: 'e2e-capsule' }, args });
+  return sendCommand(be, op, args, { clientId: 'e2e-capsule' });
 }
 
 async function controllerOf(id: string): Promise<{ capsule?: { radius: number; height: number; offset?: number[] } } | undefined> {

@@ -9,13 +9,13 @@
  * editor shows the stored terrain (the same cells from the backend, the same
  * mesh in the Scene view). Every result is read back through `queryBlocks`.
  */
-import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { consoleErrors, refusedObjects } from './console-errors';
 import { armTile, editMode, editModeTab, enterBlockEditor } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -28,9 +28,7 @@ async function query(op: string, args: Record<string, unknown> = {}): Promise<Re
 }
 
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const res = await be!.command({ op, projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-terrain-brushes' }, args });
-  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
-  return res;
+  return mustCommand(be!, op, args, { clientId: 'e2e-terrain-brushes' });
 }
 
 /** The layer's min corner: 4 rows of 0.5 m, so the flat top is at y = 0 (world). */

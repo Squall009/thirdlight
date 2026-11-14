@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { menu } from './ui';
+import { mustCommand } from '../support/commands';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -29,21 +30,9 @@ async function openEditor(page: Page): Promise<void> {
   await expect(status(page)).toContainText('connected');
 }
 
-let seq = 0;
 /** One command through the backend's command route (the route the MCP adapter uses). */
 async function cmd(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
-  seq += 1;
-  const res = await be.command({
-    op,
-    projectId: be.projectId,
-    expectedRevision: q.revision,
-    requestId: `req-${(0xe2e00 + seq).toString(16).padStart(32, '0')}`,
-    origin: { kind: 'mcp', clientId: 'e2e-hierarchy' },
-    args,
-  });
-  expect(res.ok, JSON.stringify(res)).toBe(true);
-  return res;
+  return mustCommand(be, op, args, { clientId: 'e2e-hierarchy' });
 }
 
 async function entity(id: string): Promise<{ entity: Record<string, unknown>; parentChain: string[] }> {
