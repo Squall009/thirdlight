@@ -369,11 +369,16 @@ still view after the fade, a moved view picks; the three passes' WGSL: atomics, 
 the set is 1 set, 2 rows, 2 lists with near + mid copies in view; the export served with the backend stopped: rows
 and all 21 copies in view drawn off the pyramid's path; a second export with a wall 60 m ahead on `?occlusion=hiz`:
 copies in view unchanged, fewer drawn (the hidden ones left out); the existing level pictures (green near, magenta
-past the switch, culled past the cull size, LOD bias 2) unchanged. WebGL 2: `webgl2-smoke.e2e.ts` (vertex path).
+past the switch, culled past the cull size, LOD bias 2) unchanged. WebGL 2: `webgl2-smoke.e2e.ts` (vertex path). Gate: `gate-fast-20261113-225756` red in vitest (the fixture generator
+lacked the `interactor` upgrade: D647, red at the branch head too; the three checklist row; an unhandled read-back in
+a test), reruns red on the table's 9th storage buffer, on-demand frames, the shadow-draw observable and the stale
+pyramid key (all fixed, above; D643's impostor ratio 0.589 / 0.574 / 0.624, D319's export root); `gate-fast-20261114-
+000248` (every area: e2e 22.7 min over 180 files, rendering 372 s, levels 374 s) red only on D319 and a voxel read-ring
+timing (D648), `gate-rerun-20261114-003641` green: village at 60 Hz 0/360 missed, main 6.16 ms (baseline 5.64).
 
 **Measured** 2026-11-13, each run alone (`thirdlight-gate` inactive), low tier, WebGPU, 1280 × 720 at the 30 Hz cap,
 `--busy 5000`; before at 54bf2e50 (19:59–20:15 UTC, uptime 21.1 d, load 0.5–2.9), after at 88b97054 (22:45–22:57,
-load 0.9–1.4). The dense case is the level class's landscape with impostors (`node tools/perf/run.mjs level --classes
+load 0.9–1.4; the later fixes touch the pyramid's path, on-demand hosts and counters only). The dense case is the level class's landscape with impostors (`node tools/perf/run.mjs level --classes
 landscape --impostors 0.05 …`, same flags): stored trees, pines and rocks (near shadows, blobs, impostors) and the
 foliage instance sets, ~29 k copies listed. Raw: `~/.cache/thirdlight-phase46f/work/46f.3a/{before,after5}-*`.
 
