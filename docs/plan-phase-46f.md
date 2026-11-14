@@ -549,7 +549,11 @@ skipped strokes after a checkout (2) and a release (4), none after a restart; MC
 again; Ctrl+Z ×3: 501 / ground as before (< 50 px from the picture before the dig) / 500; Ctrl+Shift+Z ×3: 501 / the
 pit (< 50 px from the dug picture) / 502; undo then a new move: Edit → Redo disabled); the bench page's Z (the
 assembly test's undos) on the one undo; `mcp.e2e.ts` (the same interleaving with `tl_command`, positions by
-`tl_inspect`, the world's region files byte for byte, `redoDepth` 0 and `history_empty` after a new edit).
+`tl_inspect`, the world's region files byte for byte, `redoDepth` 0 and `history_empty` after a new edit). Gate:
+`gate-fast-20261114-022542` green, 30 min (backend plumbing: every area; vitest related 305 s; e2e 322 tests 22.5 min).
+Times before (`gate-fast-20261114-000248`, 46f.3a's, whose Play test failed and was retried there) → after: voxel area
+183 → 162 s, the Scene view test 13.8 → 13.5 s (by hand, alone: the whole `voxel-world.e2e.ts` 2.2 min), mcp area
+109 → 108 s, the extended MCP test 2.8 → 2.9 s.
 
 **Looked at** (opened, `~/.cache/thirdlight-phase46f/work/46f.4/shots/`): `scene-view-before-dig.png`,
 `scene-view-dug.png` (the pit and the hole through the wall), `scene-view-undone.png` (the same as before the dig;
