@@ -58,6 +58,11 @@ ends at the lighting storage choice; **46e-b** builds the choice out.
 - Worlds with interiors: the town (houses with rooms, stairs, openings), alone and at the centre of the 8 km
   world; the caves and vertical worlds.
 
+## 3a. three.js check
+
+Done 2026-11-14 (46e.0): `npm view three version` (run by the lead) gave 0.187.0, equal to the pin; nothing to
+assess, no update. No update without the owner.
+
 ## 4. Budgets and how each item is judged
 
 From `FRAME_BUDGET_BY_TIER` and `MEMORY_BUDGET_BY_TIER` (46f): at the low tier's 30 Hz frame the GPU's `lighting`
@@ -67,6 +72,61 @@ simulation ms a frame from the profiler, memory against its table entry, the tim
 light, and pictures at five fixed cameras (street at noon, a room with a window, a cave, night with lamps, the far
 view). Medium and high: pass shares only, "unverified on target hardware". A miss is recorded with its cause and
 does not block; a tier that cannot afford a feature gets it switched off or cheaper, by a tier setting.
+
+## 4a. Baseline (46e.0)
+
+**Measured** 2026-11-14 14:24–15:05 UTC, Iris Xe, WebGPU, 1280 × 720, each run alone (`thirdlight-gate`
+inactive, no build or other agent), every run in the brief's `MemoryMax=10G` scope with `TMPDIR` on disk; uptime
+21.9 d, load (1 min) 1.3–4.1 (6.3 once, at the trace's export). Product code as at the phase start (the bench
+commit bec4c31d, dist built at it before the runs); the D654 trace at d2cc91a3 (the profiler fixes below).
+Staging's 8 km world (`voxel-slice`, world `far`), bake level 2 m, fine bricks off. Raw outputs with an `*.uptime`
+beside each: `~/.cache/thirdlight-phase46e/work/46e.0/` (`measure.sh`, `trace.sh`). `<capped>` = the brief's
+scope prefix; staging running unless the row says an export.
+
+| What | Numbers | Reproduce |
+|---|---|---|
+| Headroom, low 30 Hz, 8 km town orbit (2 rounds) | room 176 ballast × 0.131 ms = 23.1 ms of 33.3 (both rounds); no load 0/89 missed both; frame GPU from the edge 8.2–10.3 ms (the line 6.3 / 5.7: they disagree, quote ms past the edge); hidden near 0 / 4.20 ms, far 2.73 / 5.14, shadows −0.93 / 1.83, post −4.33 / 0.54; shares of the four (round 2): near 36 %, far 44 %, shadows 16 %, post 5 % (round 1: far alone positive, noise at the cap as in 46f.6) | `<capped> node tools/voxel-bench/run.mjs headroom --quality low --rounds 2` (`headroom-low.*`) |
+| Headroom, medium 60 Hz (1 round, unverified on target hardware) | room 64 × 0.129 = 8.3 ms; near 0.85, far 2.23, shadows 0.28, post −3.54 ms: near 25 %, far 66 %, shadows 8 % | same, `--quality medium --rounds 1 --scales none` |
+| Headroom, high 60 Hz (1 round, unverified on target hardware) | misses at no load 15/178; near 4.42, far 7.34, shadows −1.16, post −3.76 ms: near 38 %, far 62 % | same, `--quality high` |
+| Page and simulation a frame, 8 km town orbit (profile own time, no load, 2 rounds) | page 4.57 / 4.13 ms, simulation 2.05 / 1.82, job workers 0.07 / 0.08; **lighting (page) 0.050 / 0.045 ms of its 2.0 ms budget (worst 0.3 / 0.2)**; render 3.91 / 3.48 of 8.33, props 0.43 / 0.41; simulation voxel streaming 1.91 / 1.71 of 6.67 | the headroom rows' `profile` |
+| Page and simulation at the five cameras (1 run) | page 5.29 / 4.58 / 3.35 / 3.61 / 3.30 ms, simulation 2.32 / 2.41 / 2.31 / 1.54 / 1.83 (street, room, cave, night, far); lighting 0.21 / 0.17 / 0.17 / 0.16 / 0.12 ms of 2.0 (worst ≤ 0.5): the page's lights, shadows and environment spans | `<capped> … light-shots --quality low --out DIR` (`shots/light-shots.json`) |
+| Memory | page heap 594 MiB, GPU process 936 MiB at the town (low's 1,536 / 2,560: under). Resident-bytes table at the cameras: voxel streaming 47–98 MiB of 768, far on the GPU 77–92 of 384, textures 152 of 512; **surface cache and probe tiles: no reading (nothing registered on a voxel scene), budgets 32 and 128 MiB** | headroom `memory`; light-shots `shots[].memory` |
+| Time for an edit to show in the light | **no light responds to a voxel edit today**; the floor is the edit to the first frame drawing the changed mesh: 53.3 / 22.3 / 32.7 ms (3 / 1 / 2 frames) for a 1 m runtime dig in the street (`ctx.voxels.dig`, 2–4 chunks rebuilt, swap 13–23 ms) | light-shots `edits` (`__tlVoxelPlay.edits()`) |
+| Coverage, export, 60 m/s (2 rounds) | longest 53.8 / 51.7 ms, 0 > 100, missed 1.5 / 1.5 a min; ground 0.03 s, stands 0.25 s; detail 4.2 / 3.9 s, pending 7.8 / 7.8 s; falls 1/83 onto lower ground (0 through); 0 holes | staging up: `<capped> … coverage --export --quality low`; stopped: `<capped> … coverage --dir <export> --quality low --speed 60` (`cov-low-60-r*`) |
+| Coverage, export, 150 m/s (2 rounds) | longest 45.9 / 51.9 ms, 0 > 100, missed 2.7 / 3.7 a min; detail 4.7 / 4.4 s, pending 8.5 / 8.2 s; falls 0/34; 0 holes | `--speed 150` (`cov-low-150-r*`) |
+
+**The five pictures** (low tier, `run.mjs light-shots`, refused unless settled, drawing voxels and changing with
+them hidden; looked at; a second run 40 min apart differed by 0.21 % of pixels at the street and 0 at the others):
+`~/.cache/thirdlight-phase46e/work/46e.0/shots/` (each with a `-voxels-hidden.png` beside it).
+
+| Picture | What it shows today |
+|---|---|
+| `street-noon.png` | the street between the house rows of lots 4 and 5, gable ends and fences; every surface lit by sun and ambient as if alone: no shadow anywhere (not from the houses on the grass, nor the fence on itself) |
+| `room-window.png` | the centre house's ground floor, three windows in its west wall and the stairs: the room as bright as the street, walls, floor and ceiling lit evenly; no patch of sun under the windows, no darker corner |
+| `cave.png` | 22 m into the dug cave looking out at the mouth and the valley: the tube's rock is as bright as the hillside outside; no occlusion, no falloff into the cave |
+| `night-lamps.png` | the same street at night, five warm point lamps: lamp light falls on the house fronts, fences and grass with distance falloff; no shadow from the fence posts or houses is visible though the lamps ask for shadows, and the unlit fronts are near black (no bounce) |
+| `far-view.png` | from 40 m over the town's east edge across the roofs to the western massif: far bricks and near meshes lit alike by the sun, no shadow from the mountains or the houses visible, no darkening in the valleys or between the houses |
+
+**The content they needed** (engine-owned test data, made by the bench at each run, nothing in the generators):
+the town has no cave and no lamps. The cave is one `editVoxels` dig stroke (spheres 6 m across along a horizontal
+axis from 4 m outside to 26 m into the 45° hillside at (−406, 118.7, 558) m, 24,238 cells), kept in staging's
+world after the first run (a later run's stroke answers `no_change`); the lamps are five point-light objects added
+before Play and taken out after; the looks are two environment presets (`bench-noon`, `bench-night`, a clear
+physical sky) kept in the project. A regenerated far world gets its cave back from the next `light-shots` run.
+Auto-exposure is off on the camera, so the look's fixed exposure stands; the render scale is pinned to the tier's.
+
+**D654, the bounded trace** (`trace-60.*`, `trace-150.*`, 1 round a speed after the 2 baseline rounds): why the
+bench kept no long frame: (1) its own spike rule keeps gaps over 100 ms and long animation frames over 50 ms, and
+none happened; (2) it never read the profiler; (3) the profiler counted a frame as a spike past 1.5 intervals,
+which under a 30 Hz cap on a 60 Hz display is one missed frame exactly (50 ms), so a miss was never kept; (4) the
+profiler's page global dropped `read(after)`'s cursor and answered every kept spike on each read. Fixed (3) and (4)
+in `page-profile.ts` (threshold 1.25 intervals; the global passes the cursor) and the bench now reads the spikes
+once a second. With the fixes, flights of 55.4 ms longest (60 m/s, 4 missed) and 46.2 ms (150 m/s, 6 missed) kept
+no interval or page spike: the page's frames started on time by their animation-frame clock and no page frame's
+own work passed the interval, yet the meter's stamps (taken when a frame's draw submission ends) were 46–55 ms
+apart. The two simulation spikes (45.6 and 33.9 ms ticks, voxel streaming 39 / 27 ms, at the flight's first 2 s)
+sit in the worker and did not stall the page. Cause not found; what is left is work on the page thread outside the
+frame's spans or before its callback runs (worker messages, GC) under 50 ms, which neither rule sees. D654 stays open.
 
 ## 5. Where things live (reuse first; never copy)
 
@@ -112,7 +172,7 @@ does not block; a tier that cannot afford a feature gets it switched off or chea
 
 | Item | Status |
 |---|---|
-| 46e.0 | not started |
+| 46e.0 | Done 2026-11-14 (bec4c31d, d2cc91a3): three.js 0.187.0 = pin; five lighting cameras + `run.mjs light-shots` (cave dug, lamps, two looks; refuses unsettled or voxel-less shots); baseline §4a: room 23.1 ms, page 4.1–4.6 / sim 1.8–2.0 ms, lighting 0.05 of 2.0 ms, edit to screen 22–53 ms (no light responds); D654 traced, profiler spike fixes, cause open |
 | 46e.1 | not started |
 | 46e.2 | not started |
 | 46e.3 | not started |
@@ -149,6 +209,17 @@ does not block; a tier that cannot afford a feature gets it switched off or chea
   (retiring code is not touched).
 - 2026-11-14 (plan): 46f's defaults stand (owner): the arbiter stays a table, D652 waits for the performance
   phase, job kinds wait for 48, voxel redo stays as built (the spec sentence waits for the owner's note).
+
+- 2026-11-14 (46e.0, default chosen, owner to confirm): the cave the cave camera needs is dug by the bench's set-up
+  (one `editVoxels` stroke into the hillside nearest the town, kept in staging's world) rather than added to the
+  far-world generator: regenerating the 8 km world and its far cache costs far more, and no format changes. The
+  lamps are scene objects the bench adds and takes out each run, so no other bench sees them.
+- 2026-11-14 (46e.0, default chosen, owner to confirm): the lighting pictures use a clear physical sky (clouds 0)
+  in both looks: clouds drift with time, so two runs' skies would differ; noon keeps the scene's own sun
+  (direction [0.4, −1, −0.3], 1.2) and ambient, night turns the sun off under the horizon with a dim blue ambient.
+- 2026-11-14 (46e.0): the profiler's spike threshold is 1.25 frame intervals (was 1.5): under a 30 Hz cap on a
+  60 Hz display one missed frame is 1.5 intervals exactly and was never kept, against the Profiler page's
+  definition of a long frame ("a missed frame"); and `__tlProfiler.read(after)` now passes its cursor on.
 
 ## 10. Open questions for the owner (asked with the plan)
 

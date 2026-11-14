@@ -75,7 +75,10 @@ page in the same commit.
 
 - Always at the display's cap; GPU timestamps are not usable there (D544). The **headroom meter** loads the
   frame until it misses and gives room and pass shares (`run.mjs headroom`); the **coverage bench** gives
-  hitches, settle times and fall-throughs (`run.mjs coverage`).
+  hitches, settle times and fall-throughs (`run.mjs coverage`). The **lighting cameras** (`run.mjs light-shots`,
+  `tools/voxel-bench/lighting-cameras.ts`) take five fixed pictures of the 8 km world's town (street at noon, a room
+  with a window, a dug cave, night with lamps, the far view) once streaming settles, with the profile at each and
+  the edit-to-screen time.
 - The **frame profile** (`window.__tlProfiler.read()` on a game page) gives each thread's CPU a frame (page,
   simulation worker, job workers) by budget category against the tier's budget, and the last long frames. It is
   shown in the editor's **Profiler** tab while Play runs, in the stats overlay (Shift+F3, Play and exports), saved

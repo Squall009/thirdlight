@@ -1,7 +1,7 @@
 # Thirdlight — Status
 
-Updated 2026-11-14. Current work: **46f, shared foundations** (`docs/plan-phase-46f.md`), started 2026-11-13 (46f.0 baseline done); 46d-c is
-closed (`docs/plan-phase-46d.md` §10: defaults stand). Then 46e (lighting). What the engine is now:
+Updated 2026-11-14. Current work: **46e-a, lighting, regions and the lighting storage A/B** (`docs/plan-phase-46e.md`),
+started 2026-11-14 (46e.0 baseline done); 46f is done (owner look pending, its defaults stand). What the engine is now:
 `docs/architecture/voxel-engine.md`; owner decisions: `docs/decisions/owner-decisions.md`; order: `docs/roadmap.md`.
 
 Defects: open and watch rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
@@ -67,7 +67,7 @@ The owner reviews by building in the game folders; a problem comes back as a gam
 | 44b | Camera: occlusion modes per camera, adaptive exposure — `docs/plan-phase-44b.md` | done 2026-11-01, owner look pending: pull-in/see-through/none per camera, auto-exposure, bloom after exposure, three r187; D339 fixed; full gate red→fixed; open D427, D429 |
 | 45–49 | Voxel world: formats (45), core (46a–e), structures and tools (47a–c), migration and merge (48a–c), water (49) — `docs/plan-phase-45.md` | 45 done 2026-11-02; 46a–46d done 2026-11-03…09 (owner looks pending); 46d-b done 2026-11-11 (owner look pending: acc46d-b); 46d-c done 2026-11-13 (owner look pending: acc46d-c) |
 | 46f | Shared foundations: profiler + budget table + frame arbiter, interaction field, trees and cover in the culled table, one undo, cheap merges — `docs/plan-phase-46f.md` | done 2026-11-14, owner look pending (5 questions, plan §10): Profiler tab + overlay, interaction field, copies and cover as culled-table rows, one undo with voxel redo, memory table; open D646, D652, D654–D658 |
-| 46e | Lighting, regions and the walk graph: GPU time per pass, one occupancy walk, open regions, voxel shadows, the lighting storage A/B (46e-a); the choice built out, rooms, culling, walk graph (46e-b) — `docs/plan-phase-46e.md` | planned 2026-11-14, not started |
+| 46e | Lighting, regions and the walk graph: GPU time per pass, one occupancy walk, open regions, voxel shadows, the lighting storage A/B (46e-a); the choice built out, rooms, culling, walk graph (46e-b) — `docs/plan-phase-46e.md` | 46e-a in progress: 46e.0 done (baseline, five lighting cameras `run.mjs light-shots`, D654 trace) |
 | — | Engine verdict (owner request) — `docs/verdict-2026-10-04.md` | 2026-10-04: keep; the owner resumed feature phases with 28b; open D153, D156 |
 
 Phases 0–43 are owner look pending where visual or audible (see above). A row's open D-rows are the ones it named;
