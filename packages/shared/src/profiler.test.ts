@@ -141,7 +141,7 @@ describe('the frame arbiter', () => {
       return Object.fromEntries(FRAME_SLICE_IDS.map((id) => [id, a.sliceMs(id)]));
     };
     // voxelBatch: VOXEL_BATCH_FRAME_SHARE (0.25) of the interval; the rest were fixed constants.
-    const old = { farSelect: 2, voxelDerive: 2, voxelEditDerive: 8, voxelCollisionAdd: 4, staticMerge: 4, decalClip: 4, surfacePrepare: 1, probePlace: 1, scenePrep: 4 };
+    const old = { farSelect: 2, voxelDerive: 2, voxelEditDerive: 8, voxelCollisionAdd: 4, staticMerge: 4, decalClip: 4, surfacePrepare: 1, probePlace: 1, scenePrep: 4, scatterBuild: 4, farFinePack: 4 };
     expect(at(30)).toEqual({ voxelBatch: 0.25 * (1000 / 30), ...old });
     expect(at(60)).toEqual({ voxelBatch: 0.25 * (1000 / 60), ...old });
     expect(a.sliceMs('voxelBatch', 1000 / 30)).toBeCloseTo(8.333, 3);

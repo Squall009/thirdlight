@@ -58,6 +58,7 @@
 import * as THREE from 'three';
 
 import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/project-model';
+import { grownCapacity } from '@thirdlight/shared';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { CUTAWAY_MESH_KEY } from './block-cutaway-view';
@@ -259,9 +260,7 @@ export const MIN_INSTANCE_CAPACITY = 1025;
 
 /** The instance slots a chunk of `n` gets: at least {@link MIN_INSTANCE_CAPACITY}, doubling beyond it. */
 export function instanceCapacity(n: number): number {
-  let c = MIN_INSTANCE_CAPACITY;
-  while (c < n) c *= 2;
-  return c;
+  return grownCapacity(MIN_INSTANCE_CAPACITY, n);
 }
 
 /** Fewest slots of an automatic batch (its columns share the program at any size). */
@@ -269,9 +268,7 @@ export const MIN_BATCH_CAPACITY = 16;
 
 /** The slots a batch of `n` gets: at least {@link MIN_BATCH_CAPACITY}, doubling beyond it. */
 export function batchCapacity(n: number): number {
-  let c = MIN_BATCH_CAPACITY;
-  while (c < n) c *= 2;
-  return c;
+  return grownCapacity(MIN_BATCH_CAPACITY, n);
 }
 
 /**

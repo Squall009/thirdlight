@@ -203,7 +203,7 @@ const pressScript = (subject: string): string => [
 ].join('\n');
 
 test('foliage bends round any number of interactors and a script\'s subject, and stands up again once they leave (editor, export with the backend stopped; WebGPU)', async ({ page }) => {
-  test.skip(backendOf('auto') !== 'webgpu', 'the interaction field is a WebGPU compute pass; WebGL 2 draws no pressing');
+  test.skip(backendOf('auto') !== 'webgpu', 'the interaction field is a WebGPU compute pass; WebGL 2 bends round the view\'s subjects only (subject-bend.test.ts)');
   test.setTimeout(180_000);
   const cmd = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
     return mustCommand(be, op, args, { clientId: 'e2e-press' });

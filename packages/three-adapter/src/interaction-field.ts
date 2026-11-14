@@ -35,8 +35,9 @@
  * - It costs nothing until something presses: no texture reaches the GPU and
  *   no pass runs before the first stamp, and the pass stops (readers skip
  *   their reads) once everything pressed has stood up again. WebGL 2 has no
- *   compute: there the field stays off and foliage does not bend round
- *   objects.
+ *   compute: there the field stays off and the same read falls back to the
+ *   analytic push round the view's few subjects (`subject-bend.ts`), what
+ *   WebGL 2 drew before the field.
  *
  * The arithmetic of a stamp, the decay and the bend is written once over
  * {@link ScalarOps}: the pass and the shader run it on nodes, the reference
@@ -48,8 +49,9 @@ import * as TSLTyped from 'three/tsl';
 import { CameraWindow, scrolledSource, WindowTargets } from './camera-window';
 import { releaseStorage } from './dispose';
 import type { N } from './effects-tsl';
-import type { ScalarOps } from '@thirdlight/shared';
+import { grownCapacity, type ScalarOps } from '@thirdlight/shared';
 import { TSL_SCALAR_OPS } from './field-ops';
+import type { SubjectBend } from './subject-bend';
 import { untransformedTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
@@ -172,6 +174,9 @@ interface FieldRenderer {
 }
 
 export class InteractionField {
+  /** WebGL 2's fallback: the view's subjects as uniforms (null: nothing bends there). */
+  constructor(readonly subjects: SubjectBend | null = null) {}
+
   readonly window = new CameraWindow({ texels: INTERACTION_TEXELS, cellM: INTERACTION_CELL_M });
   /** The state textures (JS objects only until the first pass). */
   private readonly targets = new WindowTargets(INTERACTION_TEXELS, 2);
@@ -257,7 +262,7 @@ export class InteractionField {
 
   /** The most a vertex `tall` metres above its root may be pushed now (what culling bounds grow by). */
   reach(tall: number): number {
-    return this.isLive() ? Math.max(0, tall) : 0;
+    return this.isLive() || this.subjects?.isLive() === true ? Math.max(0, tall) : 0;
   }
 
   /** GPU bytes the field holds (0 until its first pass). */
@@ -270,11 +275,22 @@ export class InteractionField {
     return { live: this.isLive(), stamps: this.stampCount, passes: this.passes, centre: Number.isNaN(this.window.originX) ? null : this.window.centre(), bytes: this.bytes() };
   }
 
+  /** Whether a program built for WebGL 2 (`webgl`) or WebGPU reads a bend at all. */
+  reads(webgl: boolean): boolean {
+    return !webgl || this.subjects !== null;
+  }
+
+  /** The uniform a program tests before its read: above 0 while something bends (the field, or WebGL 2's subjects). */
+  liveFor(webgl: boolean): N {
+    return webgl ? this.subjects!.live : this.live;
+  }
+
   /**
    * The bend's offset (world) of a foliage vertex at `world`, `height` above its root, of bend capacity `cap`
-   * (vertex stage; call only where {@link live} is on).
+   * (vertex stage; call only where {@link liveFor} is on). A WebGL 2 program reads the subjects' analytic push.
    */
-  foliageOffset(world: N, height: N, cap: N): N {
+  foliageOffset(world: N, height: N, cap: N, webgl = false): N {
+    if (webgl) return this.subjects!.offset(world, height, cap);
     const out = TSL.vec3(0).toVar();
     const uv = this.window.uvNode(TSL.vec2(world.x, world.z)).toVar();
     TSL.If(this.window.edgeNode(uv).greaterThan(1), () => {
@@ -305,8 +321,7 @@ export class InteractionField {
   /** The frame's stamps into the buffer (grown, and the pass made again, when they do not fit), heights made relative. */
   private upload(renderer: FieldRenderer, stamps: InteractionStamps, base: number): void {
     if (this.pass === null || stamps.count > this.capacity) {
-      let cap = Math.max(STAMP_CAPACITY_START, this.capacity);
-      while (cap < stamps.count) cap *= 2;
+      const cap = grownCapacity(this.capacity, Math.max(stamps.count, 1), STAMP_CAPACITY_START);
       this.pass?.dispose?.();
       if (this.stamps !== null) releaseStorage(this.renderer ?? renderer, [this.stamps.value]);
       this.capacity = cap;

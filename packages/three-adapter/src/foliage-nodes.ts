@@ -9,7 +9,8 @@
  * further than short ones. A mesh without COLOR_0 sways by its height share
  * of the first metre instead. On top of the wind, the plant gives way to what
  * presses into the interaction field by the same weight and height
- * (`interaction-field.ts`; WebGPU only: WebGL 2 runs no field).
+ * (`interaction-field.ts`; WebGL 2 runs no field and bends round the view's
+ * few subjects instead, `subject-bend.ts`).
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
@@ -54,7 +55,7 @@ const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.
 /** COLOR_0 as data (a missing attribute reads (0, 0, 0, 1), as WebGL's default vertex attribute does). */
 const vertexData = TSL.Fn((builder: NodeBuilder) => ((builder as unknown as { geometry: THREE.BufferGeometry }).geometry.hasAttribute('color') ? TSL.attribute('color', 'vec4') : TSL.vec4(0, 0, 0, 1)));
 
-/** Whether a program is built for three's WebGL 2 backend (no compute: the interaction field never runs there). */
+/** Whether a program is built for three's WebGL 2 backend (no compute: the interaction field never runs there, its subjects' push does). */
 const webglBuild = (builder: NodeBuilder): boolean => (builder as unknown as { renderer?: { backend?: { isWebGLBackend?: boolean } } }).renderer?.backend?.isWebGLBackend === true;
 
 /** Whether the drawn geometry carries COLOR_0 (the wind's weights). */
@@ -115,9 +116,11 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
       before?.assign(offsetAt(g.timePrevious));
     });
     // Round what presses into the interaction field (nothing live, or a vertex that cannot lean: a root, a dropped cover
-    // candidate: skipped), from the plant's rest pose, on top of the wind. WebGL 2 runs no field: no read at all.
-    if (!webglBuild(builder)) TSL.If(field.live.greaterThan(0).and(capacity.greaterThan(0)), () => {
-      const pushed = TSL.modelWorldMatrixInverse.mul(TSL.vec4(field.foliageOffset(world, height, capacity.mul(copyBend())), 0)).xyz;
+    // candidate: skipped), from the plant's rest pose, on top of the wind. WebGL 2 runs no field: it reads the view's
+    // subjects' push through the same call.
+    const webgl = webglBuild(builder);
+    if (field.reads(webgl)) TSL.If(field.liveFor(webgl).greaterThan(0).and(capacity.greaterThan(0)), () => {
+      const pushed = TSL.modelWorldMatrixInverse.mul(TSL.vec4(field.foliageOffset(world, height, capacity.mul(copyBend()), webgl), 0)).xyz;
       if (before === null) out.addAssign(pushed);
       else {
         const p = pushed.toVar();

@@ -83,6 +83,7 @@ import { KEEP_MATERIAL_KEY, MATERIAL_NO_SHADOW_KEY } from './material-keys';
 import { declareVertexReach } from './vertex-reach';
 import { WindField, type WindFieldWind, type WindSample, type WindZoneLike } from './wind-field';
 import { InteractionField } from './interaction-field';
+import { SubjectBend } from './subject-bend';
 import { installFoliage } from './foliage-nodes';
 import { withPaint } from './vertex-paint-draw';
 import type { N as TslNode } from './effects-tsl';
@@ -380,7 +381,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** The decoded textures, held per built material (and by the compiled graphs, the preloads, the wind's pattern). */
   const holds: TextureHolds = textureHolds(options.resources, options.loadTexture);
   /** What presses into foliage round the camera. */
-  const interaction = new InteractionField();
+  const interaction = new InteractionField(new SubjectBend());
   /** The wind every foliage vertex and graph wind node reads (the global wind, the zones' map, the gust pattern). */
   const windField = new WindField(nodeGlobals.windTime, (id) => holds.get(id, 'wind'), () => holds.releaseHolder('wind'), () => options.onChange?.());
   const clock = clockMethods(nodeGlobals, windField, () => options.onChange?.());

@@ -56,9 +56,6 @@ export function farFineScale(level: number): number {
  */
 export const FAR_FINE_GPU_FORESEEN_BYTES = 16 * DISTANCE_BRICK_SAMPLES * (1 + FAR_BRICK_BAKED_BYTES) + 64 * FAR_BRICK_TABLE_GPU_BYTES;
 
-/** ms of the world's thread a far field update may spend reading fine nodes' blocks (each a few chunks exported). */
-export const FAR_FINE_PACK_MS = 4;
-
 /**
  * Chunks short of the load ring where level 2 begins in the main: a level-2 node opens into those of its level-1
  * children whose two chunks a side and one more round them are resident (FarFineIndex), so level 2 begins one to

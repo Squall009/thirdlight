@@ -26,6 +26,7 @@
 import * as THREE from 'three';
 
 import { type ScatterCopyChange } from '@thirdlight/runtime';
+import { frameSliceMs } from '@thirdlight/shared';
 import { SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, INSTANCE_FLOATS, decodeChunkScatter, instanceDensityOf, resolveStreamingRings, scatterCellBytes, scatterCellOfBlob, squareDistance, storedScatterRules, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterCell, type ScatterRule, type StreamingRings, type StreamRing, type TerrainComponent } from '@thirdlight/project-model';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
@@ -48,8 +49,6 @@ import { SEE_THROUGH_KEY } from './see-through';
 
 /** The width (m) of the squares a rule's copies are drawn together in: a few draws for a landscape, a bounded rebuild per edit. */
 export const SCATTER_GROUP_METRES = 2048;
-/** Main-thread time (ms) a frame may spend making sets (at least one set a frame). */
-export const SCATTER_BUILD_MS = 4;
 
 /** The page query that leaves the scatter out (`?scatter=off`: a diagnostic comparison). */
 export const SCATTER_URL_PARAM = 'scatter';
@@ -409,7 +408,8 @@ export class StoredScatter {
     // Make what is prepared, oldest first, within the frame's time (at least one set a frame).
     // A game page's streamed arrivals share their time with the block chunks' (world-stream.ts).
     const tm = performance.now();
-    const until = Math.min(start + SCATTER_BUILD_MS, tm + (this.deps.stream?.arrivalLeft() ?? Number.POSITIVE_INFINITY));
+    // Main-thread time a frame may spend making sets (at least one set a frame): the arbiter's slice.
+    const until = Math.min(start + frameSliceMs('scatterBuild'), tm + (this.deps.stream?.arrivalLeft() ?? Number.POSITIVE_INFINITY));
     while (this.ready.length > 0) {
       if (built && performance.now() > until) break;
       const r = this.ready.shift()!;

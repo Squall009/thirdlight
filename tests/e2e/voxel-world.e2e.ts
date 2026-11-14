@@ -374,6 +374,17 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
   await noneStale();
   expect((await hook<Drop>(page, 'drop', [ox + 9.5, oy + 4, oz + 10.5], 0.15, 0.15)).feet[1]).toBeCloseTo(before.feet[1], 1);
 
+  // The page's Z goes against the project revision it last knew: a scene edit made elsewhere since (the editor, MCP)
+  // is not taken back unseen. That undo is refused and the object stays; a second Z, sent knowing it, takes it back.
+  const guard = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Undo guard', transform: { position: [0, -500, 0] } }))['createdId']);
+  const guardHeld = async (): Promise<boolean> => (await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: guard } }))['ok'] === true;
+  const stale = await hook<EditAnswer>(page, 'undo');
+  expect([stale.ok, stale.code]).toEqual([false, 'revision_conflict']);
+  expect(await guardHeld()).toBe(true);
+  const known = await hook<EditAnswer>(page, 'undo');
+  expect([known.ok, known.code]).toEqual([true, 'scene']);
+  expect(await guardHeld()).toBe(false);
+
   // Files changed behind the backend (the generator's world written over an edited one, as a checkout would): the next
   // command is refused world_changed and the page reads the world again without a reload, so the edit the checkout took
   // away is gone from the page too; sent again, the command applies on the checked-out world.
@@ -1379,7 +1390,8 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     expect(h.readRing?.setM).toBe(100);
     expect(h.readRing?.reachM).not.toBeNull();
     expect(h.readRing!.reachM!).toBeLessThan(100);
-    expect(h.readRing?.nowM).toBe(h.readRing?.reachM);
+    // The ring in use shrinks to that reach as the world settles: polled, not read once.
+    await expect.poll(async () => { const r = (await host())?.readRing; return r !== undefined && r.reachM !== null && r.nowM === r.reachM; }, { timeout: 30_000, message: 'the read ring shrunk to its reach' }).toBe(true);
     expect(errors).toEqual([]);
     await page.getByTitle('Stop the play preview').click();
     // Back to 2 m (the cache keeps the baked levels; a scene asking 2 m neither reads nor ships them).

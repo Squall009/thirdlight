@@ -69,6 +69,7 @@
  * square voxel faces. Two detail states, not a piece mesh per level: a kit
  * authors one mesh a piece.
  */
+import { grownCapacity } from '@thirdlight/shared';
 import type { Neighbourhood } from './assembly';
 import { DAMAGE_PIECES_MAX } from './damage-stages';
 
@@ -205,8 +206,7 @@ class Bytes {
   reserve(n: number): number {
     const at = this.length;
     if (at + n > this.buf.length) {
-      let size = this.buf.length * 2;
-      while (size < at + n) size *= 2;
+      const size = grownCapacity(this.buf.length, at + n);
       const next = new Uint8Array(size);
       next.set(this.buf.subarray(0, at));
       this.buf = next;

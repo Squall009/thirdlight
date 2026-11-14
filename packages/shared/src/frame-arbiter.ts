@@ -3,7 +3,8 @@
  * from. A system that spreads work over frames (making staged draws,
  * selecting far nodes, building derive jobs, adding collision bodies,
  * merging static cells, clipping decals, preparing the surface cache,
- * placing probes, preparing a loaded scene) asks the arbiter how many
+ * placing probes, preparing a loaded scene, making stored scatter's sets,
+ * reading far fine nodes' blocks) asks the arbiter how many
  * milliseconds it may spend in this frame or update, instead of keeping a
  * constant of its own; the profiler's budget table shows them beside the
  * categories they are spent in.
@@ -21,7 +22,7 @@
 import type { SpanCategory } from './profiler';
 
 /** The time slices the arbiter hands out. */
-export const FRAME_SLICE_IDS = ['voxelBatch', 'farSelect', 'voxelDerive', 'voxelEditDerive', 'voxelCollisionAdd', 'staticMerge', 'decalClip', 'surfacePrepare', 'probePlace', 'scenePrep'] as const;
+export const FRAME_SLICE_IDS = ['voxelBatch', 'farSelect', 'voxelDerive', 'voxelEditDerive', 'voxelCollisionAdd', 'staticMerge', 'decalClip', 'surfacePrepare', 'probePlace', 'scenePrep', 'scatterBuild', 'farFinePack'] as const;
 export type FrameSliceId = (typeof FRAME_SLICE_IDS)[number];
 
 /** One slice: a share of the frame interval, or fixed milliseconds; the budget category it is spent in, and the thread it runs on. */
@@ -41,7 +42,8 @@ export interface FrameSlice {
  * derive jobs' aprons 2 ms an update, an edit's 8; collision bodies 4 ms an
  * update; static merging and the page's own decal clips 4 ms a frame; the
  * surface cache's charts and trace rings 1 ms, a probe placement 1 ms; a
- * loaded scene's preparation 4 ms a step.
+ * loaded scene's preparation 4 ms a step; stored scatter's sets 4 ms a frame;
+ * the far field's fine nodes' blocks 4 ms an update.
  */
 export const FRAME_SLICE_DEFAULTS: Readonly<Record<FrameSliceId, FrameSlice>> = Object.freeze({
   voxelBatch: Object.freeze({ category: 'voxelApply', thread: 'page', share: 0.25 }),
@@ -54,6 +56,8 @@ export const FRAME_SLICE_DEFAULTS: Readonly<Record<FrameSliceId, FrameSlice>> = 
   surfacePrepare: Object.freeze({ category: 'lighting', thread: 'page', ms: 1 }),
   probePlace: Object.freeze({ category: 'lighting', thread: 'page', ms: 1 }),
   scenePrep: Object.freeze({ category: 'other', thread: 'sim', ms: 4 }),
+  scatterBuild: Object.freeze({ category: 'props', thread: 'page', ms: 4 }),
+  farFinePack: Object.freeze({ category: 'voxelStream', thread: 'sim', ms: 4 }),
 } satisfies Record<FrameSliceId, FrameSlice>);
 
 /** A slice as a reader of the arbiter gets it: its milliseconds at the interval it was asked at. */

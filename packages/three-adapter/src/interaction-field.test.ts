@@ -8,7 +8,8 @@
  * pressed path behind a mover standing up over its recovery time, more
  * objects than the old four slots, the gatherer (interactors, subjects,
  * easing, jumps), when the GPU pass runs and what it holds, and the programs
- * three builds: the foliage read (WebGPU; none on WebGL 2), the pass, and the
+ * three builds: the foliage read (WebGPU; WebGL 2 reads its subjects' push,
+ * `subject-bend.test.ts`), the pass, and the
  * public wind sample read in a compute node.
  */
 import * as THREE from 'three';
@@ -246,7 +247,7 @@ describe('the objects that press', () => {
     field.update(r, many, EYE, 6, 1 / 60);
     expect(field.state().stamps).toBe(40);
     expect(field.bytes()).toBe(2 * 2 * INTERACTION_TEXELS * INTERACTION_TEXELS * 8 + 64 * STAMP_FLOATS * 4);
-    // WebGL 2: no pass.
+    // WebGL 2: no pass (its subjects bend through uniforms, `subject-bend.ts`).
     const gl = fakeRenderer(true);
     expect(new InteractionField().update(gl, many, EYE, 0, 1 / 60)).toBe(false);
     expect(gl.computes).toBe(0);
@@ -264,7 +265,7 @@ describe('the programs', () => {
     return { lib, mesh };
   };
 
-  it('foliage reads the field in its vertex stage on WebGPU (one program for any number of objects), not at all on WebGL 2', () => {
+  it('foliage reads the field in its vertex stage on WebGPU (one program for any number of objects), no texture of it on WebGL 2', () => {
     const { lib, mesh } = foliage();
     const scene = litScene();
     scene.add(mesh);

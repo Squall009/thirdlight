@@ -45,6 +45,7 @@
  *
  * Pure (no three.js, no device).
  */
+import { grownCapacity } from '@thirdlight/shared';
 import { DISTANCE_BRICK_CELLS, surfelFacing, type DistanceBrickSet, type SurfelSet } from '@thirdlight/project-model';
 
 import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, surfelLevelFor, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
@@ -119,8 +120,7 @@ interface PackedSurfels {
 function packSurfels(w: Words, s: SurfelSet, k: number, uv1: boolean): PackedSurfels {
   const cell = s.spacing * 2 ** k;
   const n = s.levels[k] ?? 0;
-  let cap = 1;
-  while (cap < n * 2) cap *= 2;
+  const cap = grownCapacity(1, n * 2);
   const hash = w.alloc(cap * HASH_WORDS);
   for (let i = 0; i < cap; i += 1) w.setU(hash + i * HASH_WORDS + 3, EMPTY_SLOT);
   for (let i = 0; i < n; i += 1) {

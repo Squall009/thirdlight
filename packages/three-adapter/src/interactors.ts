@@ -12,12 +12,17 @@
  * time when it starts pressing, so nothing springs. One that stops pressing
  * leaves the field to stand up again over its recovery time; one that jumped
  * (a teleport) starts again where it lands, leaving no streak.
+ *
+ * On WebGL 2 (no compute, no field) the view's subjects alone bend the
+ * foliage through the analytic push it drew before the field
+ * (`subject-bend.ts`); objects that only carry the component do not.
  */
 import * as THREE from 'three';
 import { interactorOf } from '@thirdlight/project-model';
 
 import { STAMP_FLOATS, type InteractionField, type InteractionStamps } from './interaction-field';
 import { subjectExtent, type SeeThroughEntities, type SubjectExtent } from './see-through';
+import { SubjectBendView } from './subject-bend';
 
 /** An object that moved further than this in one frame jumped (a teleport): its sweep starts again where it is. */
 const JUMP_M = 8;
@@ -57,15 +62,19 @@ export class InteractorView {
   private longest = 0;
   private frame = 0;
   private at: number | null = null;
+  /** WebGL 2's subjects (updated only there). */
+  private readonly subjectBend: SubjectBendView;
 
   constructor(
     private readonly d: InteractorDeps,
     private readonly field: InteractionField | null,
-  ) {}
+  ) {
+    this.subjectBend = new SubjectBendView(d, field?.subjects ?? null);
+  }
 
-  /** The objects pressing now, with their ease (diagnostics). */
+  /** The objects pressing now, with their ease (diagnostics; on WebGL 2 the subjects bent round). */
   objects(): { id: string; ease: number }[] {
-    return [...this.pressing.entries()].map(([id, p]) => ({ id, ease: p.ease }));
+    return [...[...this.pressing.entries()].map(([id, p]) => ({ id, ease: p.ease })), ...this.subjectBend.subjects()];
   }
 
   /** This frame's stamps (after `update`). */
@@ -77,6 +86,10 @@ export class InteractorView {
   update(renderer: FieldRenderer, camera: THREE.Camera, now: number = performance.now()): void {
     const dt = this.at === null ? 0 : Math.min(0.1, Math.max(0, (now - this.at) / 1000));
     this.at = now;
+    if (renderer.backend?.isWebGLBackend === true) {
+      this.subjectBend.update(camera, now);
+      return;
+    }
     this.gather(dt);
     if (this.field === null) return;
     const e = camera.matrixWorld.elements;

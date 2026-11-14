@@ -41,7 +41,7 @@ import { farBrickDirty, farBrickJobCells, farFineOf } from './far-bricks-baked';
 import { farBricksGpuBytes } from './far-bricks-shade';
 import { FarGpuLedger } from './far-gpu-ledger';
 import { FAR_SEEN_RELEASE_SHARE, FAR_SEEN_RESELECT_MS, FAR_SEEN_TURN_MS, FAR_UNSEEN_ERROR_SCALE, FarSeenLog, type FarSeenWire } from './far-seen';
-import { FAR_FINE_COMMIT_BYTES, FAR_FINE_GPU_FORESEEN_BYTES, FAR_FINE_PACK_MS, farFineBytes, farFineDirty, farFineFade, isFarFine, type FarFineCells, type FarFineHost, type FarFineRefused } from './far-fine';
+import { FAR_FINE_COMMIT_BYTES, FAR_FINE_GPU_FORESEEN_BYTES, farFineBytes, farFineDirty, farFineFade, isFarFine, type FarFineCells, type FarFineHost, type FarFineRefused } from './far-fine';
 import { FarFineNodes } from './far-fine-nodes';
 import { farMeshBytes, farNeighbourIndex, type FarMesh, type FarMeshInput } from './far-mesh';
 import { FAR_BUDGET_BYTES, FAR_ERROR_PIXELS, farAncestors, farCellPixels, farNodeBox, farNodeDistance, FarNodeIndex, FarSelection, type FarDrawn, type FarSelected } from './far-tree';
@@ -842,6 +842,8 @@ export class FarField {
     if (this.cursor >= todo.length && this.jobs.size === 0) return this.wake();
     // Fine nodes take no worker: their blocks are read here, within a share of the thread an update, in the todo's order.
     if (this.fineNodes.on) {
+      // The world's thread's time an update may spend reading fine nodes' blocks (each a few chunks exported).
+      const slice = frameSliceMs('farFinePack');
       let spent = 0;
       let left = false;
       for (let i = this.cursor, seen = 0; i < todo.length && seen < FAR_PUMP_SCAN; i++, seen++) {
@@ -849,7 +851,7 @@ export class FarField {
         if (!this.fineNodes.built(n)) continue;
         const key = mipNodeKey(n);
         if (!this.needs(key)) continue;
-        if (spent >= FAR_FINE_PACK_MS) {
+        if (spent >= slice) {
           left = true;
           break;
         }

@@ -220,17 +220,34 @@ export interface EditTiming {
 }
 
 /**
- * Sends a command on the project's command route. The one undo goes against the project's revision as it is now
- * (this page shows no scene to have seen first); it answers a voxel stroke's step under `voxels` (a scene edit's
- * undo has none, and changes nothing this page draws).
+ * The project's revision as this page last knew it (read when the page opens, then from each undo's answer; a
+ * voxel stroke leaves it as it is). The one undo goes against it, as the editor's does against the revision it has
+ * seen, so a scene edit made elsewhere since is not taken back unseen: that undo is refused (`revision_conflict`)
+ * and the page learns the new revision, so a second Z, sent knowing it, steps it.
+ */
+let knownRevision = 0;
+
+async function postEnvelope(envelope: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
+  const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ projectId, ...envelope }) });
+  return { status: r.status, body: (await r.json()) as Record<string, unknown> };
+}
+
+/** Reads the project's revision now into {@link knownRevision}. */
+async function readRevision(): Promise<void> {
+  knownRevision = Number((await postEnvelope({ op: 'queryProject', args: {} })).body['revision']);
+}
+
+/**
+ * Sends a command on the project's command route. The undo answers a voxel stroke's step under `voxels` (a scene
+ * edit's undo has none, and changes nothing this page draws).
  */
 async function postCommand(op: string, args: Record<string, unknown>, requestId: string): Promise<{ status: number; body: Record<string, unknown> }> {
-  const post = async (envelope: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> => {
-    const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ projectId, ...envelope }) });
-    return { status: r.status, body: (await r.json()) as Record<string, unknown> };
-  };
-  const expected = op === 'undo' ? { expectedRevision: Number((await post({ op: 'queryProject', args: {} })).body['revision']) } : {};
-  return post({ op, requestId, ...expected, args });
+  if (op !== 'undo') return postEnvelope({ op, requestId, args });
+  const r = await postEnvelope({ op, requestId, expectedRevision: knownRevision, args });
+  const error = r.body['error'] as { code?: string; currentRevision?: number } | undefined;
+  if (r.body['ok'] === true) knownRevision = Number(r.body['revision']);
+  else if (error?.code === 'revision_conflict' && typeof error.currentRevision === 'number') knownRevision = error.currentRevision;
+  return r;
 }
 
 // The bundle is a classic script (no top-level await): everything that waits runs in main.
@@ -246,7 +263,7 @@ async function shownTiming(streamer: Pick<VoxelStreamer, 'settle'>, t0: number, 
 }
 
 async function main(): Promise<void> {
-  const world = await RangeWorld.open({ url: `${api}/voxels/${encodeURIComponent(worldName)}`, headers, workerUrl: './voxel-worker.js', workers, stats: range }).catch((e: unknown) => fail(`voxel world ${worldName}: ${e instanceof Error ? e.message : String(e)}`));
+  const world = await readRevision().then(() => RangeWorld.open({ url: `${api}/voxels/${encodeURIComponent(worldName)}`, headers, workerUrl: './voxel-worker.js', workers, stats: range })).catch((e: unknown) => fail(`voxel world ${worldName}: ${e instanceof Error ? e.message : String(e)}`));
   /** The region files the world lists, by name, and their current tags. */
   const files = world.files;
   /** A line for the status: the last refusal, or that the world was read again. */
@@ -435,7 +452,7 @@ async function main(): Promise<void> {
     const answerMs = performance.now() - t0;
     if (!body.ok) {
       const code = body.error?.code ?? String(r.status);
-      notice = `${op === 'undo' ? 'undo' : 'edit'} refused: ${code}`;
+      notice = code === 'revision_conflict' && op === 'undo' ? 'undo refused: the project changed since this page read it (an edit elsewhere); Z again undoes the newest edit' : `${op === 'undo' ? 'undo' : 'edit'} refused: ${code}`;
       // Someone else changed the files (a checkout, a restore): what this page holds is not the world any more.
       if (code === 'world_changed') await readWorldAgain();
       return { ok: false, code, answerMs };

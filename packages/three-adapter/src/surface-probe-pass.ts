@@ -10,6 +10,7 @@
  *
  * Only the few WebGPU calls this uses are typed (`tracer-gpu.ts`'s types).
  */
+import { grownCapacity } from '@thirdlight/shared';
 import { EXACT_TRACE } from './tracer-cpu-math';
 import { GPU_BUFFER_USAGE as USAGE, grownGpuBuffer, type GpuBuffer, type GpuTexture, type GpuTracer, type TracerDevice } from './tracer-gpu';
 import { RAY_FLOATS } from './tracer-scene';
@@ -85,8 +86,7 @@ export class ProbeWordsBuffer {
     const bytes = (packed.slotsAt + packed.tail.length) * 4;
     if (this.buf === null || this.buf.size < bytes) {
       this.buf?.destroy();
-      let size = 256;
-      while (size < bytes) size *= 2;
+      const size = grownCapacity(256, bytes);
       this.buf = this.device.createBuffer({ size, usage: USAGE.STORAGE | USAGE.COPY_DST, label: this.label });
       this.written = null;
     }
