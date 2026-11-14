@@ -49,6 +49,12 @@ import {
   readSave,
   SaveFileError,
   setFineBricks,
+  FarWalkNodes,
+  streamerWalkSource,
+  walkRay,
+  walkVoxels,
+  WALK_STOPS,
+  type WalkSource,
   VOXEL_PLANES,
   VOXEL_SIZE_M,
   VoxelStreamer,
@@ -70,15 +76,19 @@ import {
   type WorkerPool,
   type PieceTable,
 } from '@thirdlight/voxel';
-import { residentBytes } from '@thirdlight/shared';
+import { residentBytes, threadProfiler } from '@thirdlight/shared';
+
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
 import { floorColumns, VoxelFloors } from './voxel-floor';
 import {
   regionCellList,
   regionCells,
   validPaint,
+  voxelRayHit,
   writeRecord,
   type BehaviorVoxelWorld,
+  type VoxelRayHit,
+  type VoxelRayOptions,
   type RegionCells,
   type VoxelBox,
   type VoxelChange,
@@ -98,6 +108,9 @@ import {
   type VoxelValue,
   type VoxelWrite,
 } from './voxel-api';
+
+/** A script's ray walks, as a span of the simulation's frame (what its rays cost). */
+const RAYCAST_SPAN = threadProfiler.span('voxel rays', 'scripts');
 
 /** A world's chunk source and the workers its jobs run on, as the host (Play, an export, a test) provides them. */
 export interface VoxelWorldConnection {
@@ -263,6 +276,10 @@ export class VoxelWorldHost {
   private floors: VoxelFloors | null = null;
   /** The props' lighting occupancy over the resident chunks (null until the world is open). */
   private channel: PropLightChannel | null = null;
+  /** The far nodes drawn, kept for rays past the rings (their bricks copied before they leave for the page). */
+  private farWalk: FarWalkNodes | null = null;
+  private walkSource: WalkSource | null = null;
+  private unresidentWalk: (() => void) | null = null;
   /** The props stamped into the world, by object: kept while the world opens, placed into the channel when it is. */
   private readonly props = new Map<string, PropShape>();
   private disposed = false;
@@ -304,6 +321,7 @@ export class VoxelWorldHost {
       name: this.name,
       get: (x: number, y: number, z: number) => this.get(x, y, z),
       coverageAt: (x: number, y: number, z: number) => this.coverageAt(x, y, z),
+      raycast: (origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions) => this.raycast(origin, direction, maxDistance, options),
       materialAt: (x: number, y: number, z: number) => {
         const v = this.get(x, y, z);
         return v === null ? null : (this.materials.get(v.material) ?? null);
@@ -359,6 +377,13 @@ export class VoxelWorldHost {
     const channel = new PropLightChannel(streamer, VOXEL_SIZE_M);
     channel.apply(this.props);
     this.channel = channel;
+    // Rays past the rings march the far nodes drawn: their bricks are copied as they go out (the batches hand theirs over).
+    const farWalk = streamer.far !== null ? new FarWalkNodes(conn.grid.edge, true) : null;
+    if (farWalk !== null) streamer.far!.on((e) => farWalk.apply(e));
+    this.farWalk = farWalk;
+    this.walkSource = streamerWalkSource(streamer, farWalk);
+    this.unresidentWalk?.();
+    this.unresidentWalk = farWalk === null ? null : residentBytes.register('voxelStream', () => farWalk.bytes);
     streamer.on((e) => this.onStream(e));
     conn.present?.(streamer, s.sectionEdge);
   }
@@ -580,6 +605,11 @@ export class VoxelWorldHost {
     this.unresident = null;
     this.ring = null;
     this.channel = null;
+    this.unresidentWalk?.();
+    this.unresidentWalk = null;
+    this.farWalk?.clear();
+    this.farWalk = null;
+    this.walkSource = null;
     this.derived.clear();
   }
 
@@ -668,6 +698,23 @@ export class VoxelWorldHost {
     // A result without an assembly is air all around: only the props block light there.
     const v = light === undefined ? prop : lightCoverageAt(light, ((((cx & m) << sec.shift) | (cz & m)) << sec.shift) | (cy & m), prop);
     return v / 255;
+  }
+
+  /** A ray's first hit through the world's occupancy (occupancy-walk.ts), or null (nothing within the distance, or no world). */
+  raycast(origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions): VoxelRayHit | null {
+    const src = this.walkSource;
+    if (src === null || !(maxDistance >= 0) || !Number.isFinite(maxDistance)) return null;
+    const stop = options?.stop ?? 'solid';
+    if (!WALK_STOPS.includes(stop)) return null;
+    const ray = Array.isArray(origin) && Array.isArray(direction) ? walkRay(origin, direction) : null;
+    if (ray === null) return null;
+    threadProfiler.begin(RAYCAST_SPAN);
+    try {
+      const hit = walkVoxels(src, ray, maxDistance, { stop }).hit;
+      return hit === null ? null : voxelRayHit(ray, hit);
+    } finally {
+      threadProfiler.end(RAYCAST_SPAN);
+    }
   }
 
   private resident(r: RegionCells): boolean {

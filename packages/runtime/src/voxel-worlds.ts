@@ -21,7 +21,7 @@ import { deepFreeze } from '@thirdlight/shared';
 import { qualityLevelsOf, resolveVoxelWorld, voxelMaterialInfos, type EntityV3, type QualityLevelConfig, type VoxelMaterialInfo, type VoxelWorldComponent } from '@thirdlight/project-model';
 import type { PropShape } from '@thirdlight/voxel';
 import type { PhysicsPort3D } from './ports';
-import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelWaitAnswer } from './voxel-api';
+import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelRayOptions, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelWaitAnswer } from './voxel-api';
 import { VoxelWorldHost, type VoxelWorldPorts } from './voxel-world-host';
 import type { WorldTransform } from './world-transform';
 
@@ -109,6 +109,7 @@ export class RuntimeVoxels {
       },
       get: (x: number, y: number, z: number) => first()?.get(x, y, z) ?? null,
       coverageAt: (x: number, y: number, z: number) => first()?.coverageAt(x, y, z) ?? null,
+      raycast: (origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions) => first()?.raycast(origin, direction, maxDistance, options) ?? null,
       materialAt: (x: number, y: number, z: number) => first()?.materialAt(x, y, z) ?? null,
       // Materials are the game's, not a world's: answered with no world loaded too.
       materialOf: (id: number) => this.materials.get(id) ?? null,

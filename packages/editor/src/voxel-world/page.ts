@@ -414,7 +414,7 @@ async function main(): Promise<void> {
   });
 
   /** The cell under a screen point: the one behind the hit surface (dig) or in front of it (add). */
-  const pickCell = cellPicker(camera, () => meshes.pickable, origin);
+  const pickCell = cellPicker(camera, streamer, origin);
 
   const lastEdits: EditTiming[] = [];
 

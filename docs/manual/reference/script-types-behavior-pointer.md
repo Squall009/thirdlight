@@ -772,6 +772,16 @@ export interface BehaviorVoxelWorld {
    */
   coverageAt(x: number, y: number, z: number): number | null;
   /**
+   * The first voxel a ray meets from `origin` along `direction` (metres; any length) within `maxDistance` metres,
+   * or null. The ray steps from cell face to cell face (never between two cells that touch only by an edge); past
+   * the full-detail ring it continues through the coarser levels and the far field drawn, so a ray toward a
+   * distant mountain still meets it (`far`, cells of 2 m and more there). What stops it is `options.stop`:
+   * `solid` (default: a voxel drawn as a body, what a pick hits) or `light` (one that blocks light: half covered or
+   * more). Liquid, openings and air never stop it; where nothing is loaded it passes as through air.
+   * @graphNode skip a ray's origin and direction are points, which a graph input cannot take yet
+   */
+  raycast(origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions): VoxelRayHit | null;
+  /**
    * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
    * or its id has no material record in the build).
    * @graphNode skip a material record is an object, which a graph output cannot take yet
@@ -1342,26 +1352,4 @@ export interface BehaviorStatsLighting {
 ```ts
 /** A value of a dialogue variable or binding. */
 export type DialogueVariableValue = number | string | boolean | null;
-```
-
-<a id="script-type-behavior-dialogue-state"></a>
-## `BehaviorDialogueState`
-
-```ts
-/** The conversation now. */
-export interface BehaviorDialogueState {
-  readonly conversation: number;
-  readonly dialogueId: string;
-  readonly nodeId: string;
-  /** line, choice, signal (waiting for resume), wait. */
-  readonly kind: 'line' | 'choice' | 'signal' | 'wait';
-  readonly speaker: string;
-  /** The line as shown (rich text; '' when not on a line). */
-  readonly text: string;
-  /** Visible characters of the line so far, and in all. */
-  readonly revealed: number;
-  readonly total: number;
-  /** The options shown, in order (a choice), as their texts. */
-  readonly options: readonly string[];
-}
 ```

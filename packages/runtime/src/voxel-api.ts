@@ -33,6 +33,10 @@
  * and the relief ring (`levels.relief`) is planned again, its sections
  * swapping together.
  *
+ * Rays: `raycast` walks the world's occupancy cell face by cell face to the
+ * first voxel that stops it (a body, or what blocks light), on into the
+ * coarser levels and the far field past the full-detail ring.
+ *
  * Materials: a voxel names its material by id; `materialOf(id)` and
  * `materialAt(x, y, z)` answer with the material record that id is (its name,
  * use and kit, its physics resolved against its profile, and the game's own
@@ -42,7 +46,7 @@
  * triangle).
  */
 import type { VoxelMaterialInfo } from '@thirdlight/project-model';
-import { cellInWorld, MATERIAL_ID_MAX, SHAPE_FULL, VOXEL_ROLE_COUNT, VOXEL_SIZE_M, WETNESS_MAX, type VoxelRecord } from '@thirdlight/voxel';
+import { cellInWorld, MATERIAL_ID_MAX, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE_COUNT, VOXEL_SIZE_M, WETNESS_MAX, type VoxelRecord, type WalkHit, type WalkRay } from '@thirdlight/voxel';
 
 export type { VoxelMaterialInfo };
 
@@ -108,6 +112,37 @@ export type VoxelEditResult = { readonly ok: true; readonly edit: number; readon
 /** A restore's answer: its id (named again in `changes` once the loaded pieces it changed are swapped in) and the save's changed pieces. */
 export type VoxelRestoreResult = { readonly ok: true; readonly edit: number; readonly chunks: number } | VoxelRefused;
 
+/** What stops a ray (`raycast`): a voxel drawn as a body (`solid`), or one that blocks light (`light`). */
+export interface VoxelRayOptions {
+  readonly stop?: 'solid' | 'light';
+}
+
+/** Where a ray met the world. */
+export interface VoxelRayHit {
+  /** Metres from the origin to where the ray enters the voxel. */
+  readonly distance: number;
+  /** That point (world metres). */
+  readonly point: readonly [number, number, number];
+  /** The centre of the voxel hit (world metres): `get`, `dig` and `set` at it act on that voxel. */
+  readonly at: readonly [number, number, number];
+  /** The face entered, as its outward normal (0, 0, 0: the ray started inside). */
+  readonly normal: readonly [number, number, number];
+  /** The voxel (null: met in the coarser levels or the far field, which hold no single voxel). */
+  readonly voxel: VoxelValue | null;
+  /** Met in the far field or a coarser level than full detail. */
+  readonly far: boolean;
+}
+
+/** A walk's hit as scripts read it. */
+export function voxelRayHit(ray: WalkRay, hit: WalkHit): VoxelRayHit {
+  const s = VOXEL_SIZE_M;
+  const point = ray.origin.map((o, a) => o + ray.dir[a]! * hit.t) as [number, number, number];
+  const at = hit.cell.map((c) => (c + 0.5) * s) as [number, number, number];
+  const r = hit.record;
+  const voxel = r === null ? null : Object.freeze({ material: valueMaterial(r), role: valueRole(r), shape: valueShape(r), wetness: valueWetness(r) });
+  return Object.freeze({ distance: hit.t, point: Object.freeze(point), at: Object.freeze(at), normal: Object.freeze([hit.normal[0] + 0, hit.normal[1] + 0, hit.normal[2] + 0] as [number, number, number]), voxel, far: hit.far || hit.level > 0 });
+}
+
 /** A box in world metres. */
 export interface VoxelBox {
   readonly min: readonly [number, number, number];
@@ -169,6 +204,16 @@ export interface BehaviorVoxelWorld {
    * @graphNode Light coverage at
    */
   coverageAt(x: number, y: number, z: number): number | null;
+  /**
+   * The first voxel a ray meets from `origin` along `direction` (metres; any length) within `maxDistance` metres,
+   * or null. The ray steps from cell face to cell face (never between two cells that touch only by an edge); past
+   * the full-detail ring it continues through the coarser levels and the far field drawn, so a ray toward a
+   * distant mountain still meets it (`far`, cells of 2 m and more there). What stops it is `options.stop`:
+   * `solid` (default: a voxel drawn as a body, what a pick hits) or `light` (one that blocks light: half covered or
+   * more). Liquid, openings and air never stop it; where nothing is loaded it passes as through air.
+   * @graphNode skip a ray's origin and direction are points, which a graph input cannot take yet
+   */
+  raycast(origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions): VoxelRayHit | null;
   /**
    * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
    * or its id has no material record in the build).

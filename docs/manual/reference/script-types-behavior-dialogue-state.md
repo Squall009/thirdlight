@@ -1,8 +1,30 @@
-# Script API types (from `BehaviorDialogueEvent`)
+# Script API types (from `BehaviorDialogueState`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-dialogue-state"></a>
+## `BehaviorDialogueState`
+
+```ts
+/** The conversation now. */
+export interface BehaviorDialogueState {
+  readonly conversation: number;
+  readonly dialogueId: string;
+  readonly nodeId: string;
+  /** line, choice, signal (waiting for resume), wait. */
+  readonly kind: 'line' | 'choice' | 'signal' | 'wait';
+  readonly speaker: string;
+  /** The line as shown (rich text; '' when not on a line). */
+  readonly text: string;
+  /** Visible characters of the line so far, and in all. */
+  readonly revealed: number;
+  readonly total: number;
+  /** The options shown, in order (a choice), as their texts. */
+  readonly options: readonly string[];
+}
+```
 
 <a id="script-type-behavior-dialogue-event"></a>
 ## `BehaviorDialogueEvent`
@@ -405,6 +427,37 @@ export interface VoxelValue {
   readonly shape: number;
   /** Wetness, 0 (dry) to 7. */
   readonly wetness: number;
+}
+```
+
+<a id="script-type-voxel-ray-options"></a>
+## `VoxelRayOptions`
+
+```ts
+/** What stops a ray (`raycast`): a voxel drawn as a body (`solid`), or one that blocks light (`light`). */
+export interface VoxelRayOptions {
+  readonly stop?: 'solid' | 'light';
+}
+```
+
+<a id="script-type-voxel-ray-hit"></a>
+## `VoxelRayHit`
+
+```ts
+/** Where a ray met the world. */
+export interface VoxelRayHit {
+  /** Metres from the origin to where the ray enters the voxel. */
+  readonly distance: number;
+  /** That point (world metres). */
+  readonly point: readonly [number, number, number];
+  /** The centre of the voxel hit (world metres): `get`, `dig` and `set` at it act on that voxel. */
+  readonly at: readonly [number, number, number];
+  /** The face entered, as its outward normal (0, 0, 0: the ray started inside). */
+  readonly normal: readonly [number, number, number];
+  /** The voxel (null: met in the coarser levels or the far field, which hold no single voxel). */
+  readonly voxel: VoxelValue | null;
+  /** Met in the far field or a coarser level than full detail. */
+  readonly far: boolean;
 }
 ```
 

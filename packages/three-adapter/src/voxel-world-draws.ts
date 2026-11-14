@@ -73,7 +73,7 @@
  * over the hop to this page to the first frame drawn after the batch.
  */
 import * as THREE from 'three';
-import { threadProfiler, wallClock } from '@thirdlight/shared';
+import { residentBytes, threadProfiler, wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
 import { isStreamedTexture } from './texture-streaming';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
@@ -90,6 +90,8 @@ import { farVisibilityFromUrl } from './voxel-far-visibility';
 import { fineTextureFromUrl } from './voxel-far-fine-shade';
 import { pageSearch } from './renderer-factory';
 import { gpuPassHides } from './gpu-pass-hides';
+import { fineDeviceOf } from './voxel-fine-bricks';
+import { VoxelWalkGpu } from './voxel-walk-gpu';
 
 /** One edit's way to the screen, as this page saw it (ms). */
 export interface VoxelEditToScreen {
@@ -273,11 +275,19 @@ export class VoxelWorldDraws {
 
   /** The near and far draws' entries in the page's GPU measurement (taken out on dispose). */
   private readonly unregister: (() => void)[] = [];
+  /** Each world's occupancy walk blocks on the GPU (WebGPU only; voxel-walk-gpu.ts). */
+  private readonly walks = new Map<string, VoxelWalkGpu>();
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.unregister.push(
       gpuPassHides.register({ category: 'near', name: 'voxel near surfaces and kit pieces', present: () => [...this.worlds.values()].some((w) => w.view.count > 0), hide: (h) => this.showNear(!h) }),
       gpuPassHides.register({ category: 'far', name: 'voxel far field', present: () => [...this.worlds.values()].some((w) => w.view.far.nodes > 0), hide: (h) => this.showFar(!h) }),
+      // The walk's blocks are a share of the chunks drawn (a page a mixed block), held on the page and the GPU.
+      residentBytes.register('voxelStream', () => {
+        let n = 0;
+        for (const g of this.walks.values()) n += g.table.bytes + g.gpuBytes;
+        return n;
+      }),
     );
     this.setKits(opts.kits ?? null);
     if (opts.materials !== undefined) this.setMaterials(opts.materials);
@@ -520,7 +530,28 @@ export class VoxelWorldDraws {
     return w;
   }
 
+  /** A world's occupancy walk on the GPU (null: none yet, or not WebGPU). */
+  walk(world: string): VoxelWalkGpu | null {
+    return this.walks.get(world) ?? null;
+  }
+
+  /** A batch's walk blocks into its world's GPU walk (WebGL 2: none, the blocks are dropped). */
+  private applyWalk(world: string, wires: ChunkDrawBatch['walk']): void {
+    if (wires === undefined || wires.length === 0) return;
+    let g = this.walks.get(world);
+    if (g === undefined) {
+      const r = this.opts.renderer();
+      const device = r === null ? null : fineDeviceOf(r);
+      if (device === null) return;
+      g = new VoxelWalkGpu(device as ConstructorParameters<typeof VoxelWalkGpu>[0]);
+      this.walks.set(world, g);
+    }
+    g.apply(wires);
+  }
+
   private close(name: string): void {
+    this.walks.get(name)?.dispose();
+    this.walks.delete(name);
     const w = this.worlds.get(name);
     if (w === undefined) return;
     for (const q of this.waiting) if (q.stage?.view === w.view) q.stage.discard();
@@ -554,6 +585,7 @@ export class VoxelWorldDraws {
     if (!ready) return false;
     const w = this.worlds.get(b.world)!;
     if (b.relief !== undefined) this.giveRelief(w, b.relief);
+    this.applyWalk(b.world, b.walk);
     const t1 = performance.now();
     const done = q.stage.commit();
     this.staging.commitMsMax = Math.max(this.staging.commitMsMax, performance.now() - t1);

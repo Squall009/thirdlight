@@ -36,7 +36,7 @@ import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSetting
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { fineBricksFromUrl, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, type GlbLoaderPort, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLookRecord } from '@thirdlight/three-adapter';
+import { fineBricksFromUrl, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, walkBenchRays, type GlbLoaderPort, type VoxelWalkGpu, type WalkBenchKind, type WalkGpuRay, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLookRecord } from '@thirdlight/three-adapter';
 import type { ShippedVoxelWorld } from './voxel-shipped';
 import { voxelMeter } from './voxel-meter';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
@@ -669,6 +669,38 @@ function relayedInput(relay: RelayActionSource, browserInput: BrowserInput, r: {
   };
 }
 
+/**
+ * The page's GPU occupancy walk for measuring runs and tests (`__tlVoxelPlay.walk`): its blocks, a check of the GPU's
+ * hits against the CPU walk over the same blocks (rays of the bench's kinds round a point, every other one stopped by
+ * solid instead of light), and the bench pass that walks a batch every frame (null kind: stop).
+ */
+function walkHooks(draws: VoxelWorldDraws) {
+  const rays = (g: VoxelWalkGpu, kind: WalkBenchKind, n: number, centre: readonly [number, number, number]): WalkGpuRay[] => walkBenchRays(g.table, kind, n, centre);
+  return {
+    stats: (world: string) => {
+      const g = draws.walk(world);
+      return g === null ? null : { blocks: g.table.size, pages: g.table.pagesUsed, maxLevel: g.table.maxLevel, bytes: g.table.bytes, gpuBytes: g.gpuBytes, ...g.counters };
+    },
+    check: async (world: string, kinds: readonly WalkBenchKind[], n: number, centre: readonly [number, number, number]) => {
+      const g = draws.walk(world);
+      if (g === null) return null;
+      const all = kinds.flatMap((k) => rays(g, k, n, centre)).map((r, i): WalkGpuRay => (i % 2 === 1 ? { ...r, stop: 'solid' } : r));
+      return g.check(all);
+    },
+    bench: (world: string, kind: WalkBenchKind | null, n: number, centre: readonly [number, number, number]) => {
+      const g = draws.walk(world);
+      if (g === null) return 0;
+      if (kind === null) {
+        g.setBench(null);
+        return 0;
+      }
+      const list = rays(g, kind, n, centre);
+      g.setBench({ rays: list });
+      return list.length;
+    },
+  };
+}
+
 /** The test hook on a game page with voxel worlds: what is drawn, each edit's way to the screen, the kit meshes' states, relief drawn flat or moved, the far field shown or hidden, and the GPU headroom meter's knobs (voxel-meter.ts). */
 const VOXEL_PLAY_HOOK = '__tlVoxelPlay';
 
@@ -741,7 +773,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     meter: () => true,
   });
-  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter) };
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws) };
   return {
     draws,
     kitMeshes,

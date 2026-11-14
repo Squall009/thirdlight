@@ -9,9 +9,12 @@
  */
 import * as THREE from 'three';
 import { createOcclusionFrame, fineBricksFromUrl, occlusionFromUrl, shadowSeesCutaways, RELIEF_TEST_SIZE, reliefTestHeights, type OcclusionFrame, voxelStandInLook, voxelTestRelief, type VoxelFarView, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceOptions } from '@thirdlight/three-adapter';
-import { FAR_BRICK_BUILD, FAR_FIELD_MODES, farViewOf, reliefFade, setFineBricks, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
+import { FAR_BRICK_BUILD, FAR_FIELD_MODES, farViewOf, reliefFade, setFineBricks, VOXEL_SIZE_M, VOXEL_STREAM_BUDGET_BYTES, FarWalkNodes, streamerWalkSource, walkRay, walkVoxels, type FarDrawKind, type FarFieldMode, type FloatingOrigin, type ReliefRingSettings, type StreamRelief, type VoxelStreamer } from '@thirdlight/voxel';
 import { engineQualityLevel, resolveVoxelWorld, type ResolvedVoxelWorld } from '@thirdlight/project-model/voxel-world';
 import { aimAtPointer } from '../viewport/scene-queries';
+
+/** Metres a pick looks along the pointer's ray. */
+export const PICK_MAX_M = 4000;
 
 /** Metres of the sun's shadow map round the focus, and its texels. */
 const SHADOW_SPAN_M = 80;
@@ -296,17 +299,31 @@ export function bindViewInput(canvas: HTMLCanvasElement, view: { yaw: number; pi
   return keys;
 }
 
-/** A picker of the cell under a screen point among `pickable()`: the one behind the hit surface (dig) or in front of it (add). */
-export function cellPicker(camera: THREE.Camera, pickable: () => THREE.Object3D[], origin: FloatingOrigin): (px: number, py: number, mode: 'dig' | 'add') => [number, number, number] | null {
+/**
+ * A picker of the cell under a screen point: the pointer's ray (`aimAtPointer`) walked through the world's occupancy
+ * (`@thirdlight/voxel` occupancy-walk.ts, the streamer's derived data, then its far nodes), so it finds the cell
+ * whatever is drawn yet: right after a camera jump, or on a far brick. Dig takes the cell hit, add the one in front of
+ * the face hit. Cells are the world's (the floating origin added back).
+ */
+export function cellPicker(camera: THREE.Camera, streamer: VoxelStreamer, origin: FloatingOrigin, maxM = PICK_MAX_M): (px: number, py: number, mode: 'dig' | 'add') => [number, number, number] | null {
   const raycaster = new THREE.Raycaster();
+  // The far nodes drawn, as they go to the page's far view (kept there too: nothing is handed over).
+  const far = streamer.far === null ? null : new FarWalkNodes(streamer.grid.edge, false);
+  if (far !== null) streamer.far!.on((e) => far.apply(e));
+  const walk = streamerWalkSource(streamer, far);
   return (px, py, mode) => {
+    // The camera may have moved since the last frame drew it.
+    camera.updateMatrixWorld();
     aimAtPointer(raycaster, camera, px, py, { left: 0, top: 0, width: innerWidth, height: innerHeight });
-    const hit = raycaster.intersectObjects(pickable(), false)[0];
-    if (hit === undefined || hit.face === null || hit.face === undefined) return null;
-    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
-    const p = hit.point.addScaledVector(n, mode === 'dig' ? -0.25 : 0.25);
     const o = origin.origin;
-    return [Math.floor(p.x / VOXEL_SIZE_M) + o.x, Math.floor(p.y / VOXEL_SIZE_M) + o.y, Math.floor(p.z / VOXEL_SIZE_M) + o.z];
+    const p = raycaster.ray.origin;
+    const d = raycaster.ray.direction;
+    const ray = walkRay([p.x + o.x * VOXEL_SIZE_M, p.y + o.y * VOXEL_SIZE_M, p.z + o.z * VOXEL_SIZE_M], [d.x, d.y, d.z]);
+    const hit = ray === null ? null : walkVoxels(walk, ray, maxM).hit;
+    if (hit === null) return null;
+    if (mode === 'dig') return [hit.cell[0], hit.cell[1], hit.cell[2]];
+    if (hit.normal.every((n) => n === 0)) return null;
+    return [hit.cell[0] + hit.normal[0], hit.cell[1] + hit.normal[1], hit.cell[2] + hit.normal[2]];
   };
 }
 

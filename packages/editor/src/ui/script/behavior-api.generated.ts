@@ -3187,6 +3187,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded"
     },
     {
+      "name": "raycast",
+      "kind": "method",
+      "detail": "(origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions | undefined): VoxelRayHit | null",
+      "returns": "VoxelRayHit",
+      "doc": "The first voxel a ray meets from `origin` along `direction` (metres; any length) within `maxDistance` metres, or null. The ray steps from cell face to cell face (never between two cells that touch only by an edge); past the full-detail ring"
+    },
+    {
       "name": "materialAt",
       "kind": "method",
       "detail": "(x: number, y: number, z: number): VoxelMaterialInfo | null",
@@ -3312,6 +3319,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(x: number, y: number, z: number): number | null",
       "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded"
+    },
+    {
+      "name": "raycast",
+      "kind": "method",
+      "detail": "(origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions | undefined): VoxelRayHit | null",
+      "returns": "VoxelRayHit",
+      "doc": "The first voxel a ray meets from `origin` along `direction` (metres; any length) within `maxDistance` metres, or null. The ray steps from cell face to cell face (never between two cells that touch only by an edge); past the full-detail ring"
     },
     {
       "name": "materialAt",
@@ -5057,6 +5071,45 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "GameDataJson",
       "doc": "The game's own data (null: none), never read by the engine."
+    }
+  ],
+  "VoxelRayHit": [
+    {
+      "name": "distance",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Metres from the origin to where the ray enters the voxel."
+    },
+    {
+      "name": "point",
+      "kind": "property",
+      "detail": "readonly [number, number, number]",
+      "doc": "That point (world metres)."
+    },
+    {
+      "name": "at",
+      "kind": "property",
+      "detail": "readonly [number, number, number]",
+      "doc": "The centre of the voxel hit (world metres): `get`, `dig` and `set` at it act on that voxel."
+    },
+    {
+      "name": "normal",
+      "kind": "property",
+      "detail": "readonly [number, number, number]",
+      "doc": "The face entered, as its outward normal (0, 0, 0: the ray started inside)."
+    },
+    {
+      "name": "voxel",
+      "kind": "property",
+      "detail": "VoxelValue | null",
+      "type": "VoxelValue",
+      "doc": "The voxel (null: met in the coarser levels or the far field, which hold no single voxel)."
+    },
+    {
+      "name": "far",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "Met in the far field or a coarser level than full detail."
     }
   ],
   "VoxelRings": [

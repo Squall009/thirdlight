@@ -27,7 +27,7 @@
  * and the seams rebuilt from it come in one task too, and the nodes an edit
  * changes on screen come in its swap's task, with its chunks.
  */
-import { crc32, wallClock } from '@thirdlight/shared';
+import { crc32, threadProfiler, wallClock } from '@thirdlight/shared';
 import { chunkKey, chunkOfKey, type ChunkGrid } from './coords';
 import type { FarEvent, FarNodeDraw } from './far-field';
 import type { FarSeenWire } from './far-seen';
@@ -41,6 +41,11 @@ import { shaderGridEntries, shaderGridSide, shaderSolidEntry } from './derived-s
 import type { FaceSeam, NodeFace } from './lod-seam';
 import type { SwapReport } from './stream-sections';
 import type { StreamEvent } from './voxel-streamer';
+import type { WalkSource } from './occupancy-walk';
+import { WalkBlockFeed, type WalkBlockWire } from './walk-pages';
+
+/** Packing the walk's blocks a batch carries, as a span of the thread the world runs on. */
+const WALK_PACK_SPAN = threadProfiler.span('walk blocks packed', 'voxelStream');
 
 /** A surface as drawn: a relief mesh's carries a crease weight a vertex (relief-mesh.ts; 0 fixed, 255 free). */
 export type DrawSurface = SurfaceBuffer & { readonly crease?: Uint8Array };
@@ -156,6 +161,8 @@ export interface ChunkDrawBatch {
   readonly relief?: ChunkReliefWire;
   /** The far field's draws changed (applied after `chunks` and `seams`). */
   readonly far?: FarDrawWire;
+  /** The occupancy walk's blocks packed or gone (walk-pages.ts), for the page's GPU walk. */
+  readonly walk?: readonly WalkBlockWire[];
   /** Where the near field draws changed (with a far field only). */
   readonly nearCover?: NearCoverWire;
   /** Wall-clock ms (`performance.timeOrigin + performance.now()`) when the batch left. */
@@ -205,6 +212,11 @@ export interface ChunkDrawBatcherOptions {
    * then sent as they are, not copied.
    */
   readonly inPlace?: boolean;
+  /**
+   * The world as the occupancy walk reads it where it runs (walk-sources.ts): with it every batch carries the walk
+   * blocks its changes touched, packed (walk-pages.ts), for the page's GPU walk.
+   */
+  readonly walk?: WalkSource;
 }
 
 /** The buffers a batch can hand over (each once). */
@@ -244,6 +256,7 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
     add(a.fine?.words);
   }
   add(b.nearCover?.cells);
+  for (const w of b.walk ?? []) add(w.packed?.page ?? undefined);
   return [...out];
 }
 
@@ -285,6 +298,8 @@ export class ChunkDrawBatcher {
   private closed = false;
   /** Batches sent (with or without swaps). */
   batches = 0;
+  /** The walk blocks touched since the last batch (null: the batches carry none). */
+  private readonly walkFeed: WalkBlockFeed | null;
 
   constructor(
     private readonly world: string,
@@ -296,6 +311,7 @@ export class ChunkDrawBatcher {
     this.opts = typeof opts === 'function' ? { schedule: opts } : opts;
     this.grid = feed.grid;
     this.copy = sectionEdge === feed.grid.edge && this.opts.inPlace !== true;
+    this.walkFeed = this.opts.walk !== undefined ? new WalkBlockFeed(this.opts.walk, feed.grid.edge) : null;
     const side = shaderGridSide(feed.grid.edge);
     this.scratch = new Uint16Array(side * side * side);
     feed.on((e) => this.onStream(e));
@@ -311,6 +327,13 @@ export class ChunkDrawBatcher {
 
   private onStream(e: StreamEvent): void {
     if (this.closed) return;
+    const walk = this.walkFeed;
+    if (walk !== null) {
+      // What the walk knows changes with each chunk's derived occupancy and light (not its shader data or relief) and each node's.
+      if ((e.type === 'chunk' && !e.shaderOnly && !e.reliefOnly) || e.type === 'unloaded') walk.touch(0, e.cx, e.cy, e.cz);
+      else if (e.type === 'node') walk.touch(e.level, e.nx, e.ny, e.nz);
+      if (walk.pending) this.queue();
+    }
     // What the near field draws changes with the levels drawn (and, without mip levels, with each chunk drawn or gone).
     if (this.feed.far != null && (e.type === 'unloaded' || e.type === 'levels' || (e.type === 'chunk' && this.feed.mips == null))) {
       this.coverDirty = true;
@@ -461,8 +484,14 @@ export class ChunkDrawBatcher {
     const cover = this.coverDirty ? this.nearCover() : null;
     this.coverDirty = false;
     const far = this.farAdded.length > 0 || this.farRemoved.length > 0 ? { added: this.farAdded, removed: this.farRemoved, seq: this.farSeq, ...(this.farFade !== null ? { fineFade: this.farFade } : {}) } : null;
-    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null)) return;
-    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), sentAt: wallClock(), joinMs: this.joinMs };
+    let walk: WalkBlockWire[] = [];
+    if (this.walkFeed?.pending === true && !this.closed) {
+      threadProfiler.begin(WALK_PACK_SPAN);
+      walk = this.walkFeed.take();
+      threadProfiler.end(WALK_PACK_SPAN);
+    }
+    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null && walk.length === 0)) return;
+    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk } : {}), sentAt: wallClock(), joinMs: this.joinMs };
     this.farAdded = [];
     this.farRemoved = [];
     this.relief = null;

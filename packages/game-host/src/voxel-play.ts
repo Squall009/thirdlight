@@ -21,7 +21,7 @@
  * go with them too (`ctx.voxels.materialOf`).
  */
 import type { QualityLevelConfig, VoxelMaterialSources, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
-import { ChunkDrawBatcher, setFineBricks, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
+import { ChunkDrawBatcher, setFineBricks, streamerWalkSource, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
 
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
@@ -73,7 +73,8 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           pieces: (table ??= worldPieceTable(kits, seed)),
           present: (stream, sectionEdge) => {
             conn.present?.(stream, sectionEdge);
-            mine = new ChunkDrawBatcher(world, stream, sectionEdge, send);
+            // The batches carry the walk's blocks for the page's GPU walk (levels 0 and up; the far field stays the CPU's).
+            mine = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: streamerWalkSource(stream) });
             batchers.set(world, mine);
             streams.set(world, stream);
           },

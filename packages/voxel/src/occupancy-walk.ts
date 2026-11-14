@@ -123,6 +123,8 @@ export interface WalkOptions {
   readonly skip?: boolean;
   /** false: never march far nodes (where no level knows a place, it is air). */
   readonly far?: boolean;
+  /** Steps it takes at most ({@link WALK_MAX_STEPS}): a GPU walk's own limit, for comparing with one. */
+  readonly maxSteps?: number;
 }
 
 const O = F32_SCALAR_OPS;
@@ -257,7 +259,8 @@ export function walkVoxels(src: WalkSource, r: WalkRay, maxT: number, opts: Walk
   const lo = [0, 0, 0];
   const hi = [0, 0, 0];
   let farNodes = 0;
-  for (let steps = 1; steps <= WALK_MAX_STEPS; steps++) {
+  const most = opts.maxSteps ?? WALK_MAX_STEPS;
+  for (let steps = 1; steps <= most; steps++) {
     if (st.t > maxT) return { hit: null, end: 'distance', steps, farNodes };
     if (!cellInWorld(st.c0[0]!, st.c0[1]!, st.c0[2]!)) return { hit: null, end: 'world', steps, farNodes };
     const sh = src.blockShift(st.level);
@@ -304,7 +307,7 @@ export function walkVoxels(src: WalkSource, r: WalkRay, maxT: number, opts: Walk
     st.t = t;
     st.axis = axis;
   }
-  return { hit: null, end: 'steps', steps: WALK_MAX_STEPS, farNodes };
+  return { hit: null, end: 'steps', steps: most, farNodes };
 }
 
 /**
