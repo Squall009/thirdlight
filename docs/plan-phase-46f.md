@@ -1,6 +1,6 @@
 # Phase 46f — Shared foundations
 
-Status: **46f started 2026-11-13** (46f.0 baseline done) on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
+Status: **46f: done 2026-11-14, owner look pending (five questions in §10)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
 dea68d37; main frozen at d4053cab). Planned from the owner's decisions of 2026-11-10 to 11-12
 (`docs/decisions/owner-decisions.md`), `docs/research/duplication-audit.md` and
 `docs/architecture/voxel-engine.md` §6. It comes before 46e (lighting): 46e's choice is made by GPU time, and
@@ -124,7 +124,7 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 | 46f.3 | Done 2026-11-14: stored copies (a) and point-set ground cover (b) are culled-table rows on WebGPU (level + hysteresis + fade, thinning, frustum, pyramid in compute); one level helper. b, walking slab A/B: GPU frame 6.0→3.6 ms at full clock, page +0.15 ms; meadow (terrain texel cover) unchanged. WebGL 2 keeps vertex paths; texel cover retires in 48. |
 | 46f.4 | Done 2026-11-14: one undo line per project in the backend (workspace `undo-timeline.ts`): `undo`/`redo` step scene entries and voxel strokes in order, redo across kinds cleared by any new edit; voxel redo (exact bytes); gone strokes skipped and named; optional world `expectedRevision`; `undoVoxels` removed (bench Z = one undo). |
 | 46f.5 | Done 2026-11-14. a: one buffer grow, region-texture helper, memory budget table + resident bytes (job kinds left for 48). b: stale headers; one `QUERY_OPS`; tests/support: `serveDir` 45→0 copies, 2 backend launchers→1, command helpers 166→37 (ratchet); `aimAtPointer` for 5 pointer→ray copies (3 retiring left). |
-| 46f.6 | not started |
+| 46f.6 | Done 2026-11-14: phase gate 30 min (46d-c: 28): 906 unit files green, e2e 326/328 (D643 open before the phase, D653 watch); review "close after fixes", fixed (WebGL 2 bend restored, 2 more slices in the table, grow copies); low 30 Hz before → after: room 22.4–23.1 → 21.8–22.0 ms, village page +0.4 ms (D652), travel readings worse (D654). Open: D646, D652, D654–D658. |
 
 ## 8. Results
 
@@ -1042,13 +1042,28 @@ carry it. Not fixed here.
 
 ## 10. Open questions for the owner
 
-(None at planning. Questions the phase raises are listed here, at most five, each with a default that stands
-if unanswered.)
+Five, each with the default that stands if unanswered (final, 46f.6, 2026-11-14).
 
-Collected by the lead while the phase runs (final wording at the close, 46f.6):
+1. **Voxel redo against the approved format spec.** `voxel-format-spec.md` §3.4 says "Redo re-applies the
+   command"; the built redo writes back the chunks the undo removed (exact bytes, no brush re-run; no stored format
+   changed; the spec text is not edited). Notice: nothing, the voxels are the same; redo records are whole chunks
+   in the same 64 MiB budget. **Default:** keep the built redo; the spec sentence is amended only with the owner's
+   note.
+2. **Copies and cover through the culled table on every WebGPU scene.** The GPU frame got cheaper where they are
+   picked in compute (slab walk 6.0 → 3.6 ms at full clock); the page thread costs about 0.4 ms a frame more on the
+   village (D652), a copy holds about 480 B on the GPU against 48 B (D656), levels cross-fade over 0.25 s per copy,
+   and point-set cover's level boundary is ragged per tuft where it was a ring. **Default:** keep; D652 goes to the
+   performance phase.
+3. **The arbiter coordinates nothing yet.** It is one table the 12 slices read their milliseconds from; the worst
+   case (slices adding to more than a frame) is as before. **Default:** leave it a table until the performance
+   phase after 49; no pacing changes before then.
+4. **The profiler cannot yet decide 46e by GPU time** (D655): one render-against-compute split, room only from the
+   bench. **Default:** 46e's first item gives the profiler GPU shares per pass, read with the headroom meter,
+   before any lighting choice is measured.
+5. **Cover, scatter and decal-clip workers as job kinds of the voxel pool** was not cheap (the pool lives in the
+   simulation worker, those run on the page's mesh-worker script with retiring code). **Default:** done in phase 48,
+   when that script loses its block, terrain and architecture jobs.
 
-- **Voxel redo against the approved format spec.** `voxel-format-spec.md` §3.4 (line 695; summary point 16) says
-  "Redo re-applies the command". 46f.4's redo writes back the chunks the undo removed (the lead's brief asked for
-  that: exact bytes, no brush re-run). The voxels are the same and no stored format changed, but the behaviour
-  is not the spec's sentence. The spec text is NOT edited. Default if unanswered: keep the built redo and amend
-  the sentence with an owner note at the phase boundary; the other choice is to rebuild redo as a command re-run.
+Not questions, but visible and logged in §9: every object with `interactor` now presses foliage on WebGPU (before,
+only the view's subjects); a script reading `foliageBend` reads `interactor`; `undoVoxels` is gone (`undo` covers
+it); the one undo line is shared by every client of a project.
