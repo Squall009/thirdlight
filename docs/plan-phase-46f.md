@@ -463,7 +463,7 @@ export from eye height with a wall 8 m ahead on `?occlusion=hiz`: 134 of 1,541 p
 `materials.e2e.ts` (46f.2's interactor check) unchanged and green. WebGL 2: `webgl2-smoke.e2e.ts`. Gate:
 `gate-fast-20261114-012326` green, 12 min (named instances, materials, block-layers — its interior cover now draws as
 rows —, webgl2-smoke; e2e 105 tests 7.5 min, rendering 380 s; village at 60 Hz 0/360 missed, main 6.34 ms against
-5.64), its tree carried these notes uncommitted, so `gate-fast-20261114-*` after the docs commit records it.
+5.64), its tree carried these notes uncommitted, so `gate-fast-20261114-013649` (green, 12 min) recorded it after the docs commit.
 
 **Row layout (chosen on paper first).** Default budget 8 clumps/m² to 30 m + 2/m² to 80 m, sets baked per 16 m
 square at full density: about 42 k + 52 k points held (squares meeting each reach), ~22 % of them in a 50° view,
