@@ -6,7 +6,7 @@
  */
 
 import { createCommandState, describePrefabCopy, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
-import type { HistoryState } from '@thirdlight/commands';
+import type { HistoryState, QueryOp as QueryOpName } from '@thirdlight/commands';
 import { BlockGrid, blockChunkStorageOf, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
 import { composeV4, defaultInputFor, DESCRIPTORS, SCENE_OBJECT_BUDGET_BYTES, sceneObjectBytes, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, liveLoadable, migrateModelAnimations, readModelGeometry, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
@@ -1058,7 +1058,8 @@ export function sceneOfEntity(state: { scenes: ReadonlyMap<string, SceneV4> }, e
 /** The lists `queryGameConfig` may leave out (read by id from the index: `queryIndex {kind, ids, records: true}`). */
 export const GAME_CONFIG_OMITTABLE: readonly string[] = ['dialogues', 'graphs', 'timelines', 'uiDocuments', 'effects'];
 
-type QueryOp = 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig' | 'queryBlocks' | 'queryIndex';
+/** The queries a v4 session serves here; terrains and the surface are served by `session.ts`. */
+type QueryOp = Exclude<QueryOpName, 'queryTerrain' | 'querySurface'>;
 
 function failure(op: string, projectId: string, error: import('@thirdlight/commands').CommandError): QueryResult {
   return { ok: false, op, projectId, error } as unknown as QueryResult;

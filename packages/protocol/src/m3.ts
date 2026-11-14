@@ -73,13 +73,6 @@ export const V3_CONTENT_KEYS = [
 /** The v3 scene document key set, in canonical order. */
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
-/** The v3 query op. */
-// queryBlocks reads block-layer cells and regions.
-// queryIndex reads the project index (assets, resources and scenes, what references what).
-// queryTerrain reads terrains (tiles and their bytes, the surface at points).
-// querySurface reads the ground at points from whichever block layer or terrain is there.
-export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks', 'queryIndex', 'queryTerrain', 'querySurface'];
-
 /** The change-record types a v3 `mutation.applied` frame may carry. */
 export const CHANGE_TYPES = [
   // A linked prefab copy's stored objects (and prefabs) replaced: overrides written, reverted or applied, a copy unpacked

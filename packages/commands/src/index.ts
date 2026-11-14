@@ -273,7 +273,7 @@ export { GRAPH_OWNER_KINDS, GRAPH_OWNERS, editOwnerGraph, parseBehaviorOwnerId, 
 // Asset and prefab deletion (the in-use refusal the workspace also raises), bulk creation.
 export { contentInUse, type DeletedKind } from './delete-content-ops';
 export { MUTATION_OPS_EXPECTED, parseOrigin } from './validate-request';
-export { MUTATION_OPS, VOXEL_WORLD_OPS, isVoxelWorldOp, type VoxelWorldOp } from './mutation-ops';
+export { MUTATION_OPS, VOXEL_WORLD_OPS, isVoxelWorldOp, type VoxelWorldOp, QUERY_OPS, isQueryOp, type QueryOp } from './mutation-ops';
 // A catalog record from import facts (the host rebuilds a lost sidecar's record the way an import makes one).
 export { createdAssetRecord } from './content-ops';
 export { validatePublishAssetArgs } from './validate-content-args';

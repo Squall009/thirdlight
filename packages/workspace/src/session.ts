@@ -21,7 +21,7 @@ import { resolveEntry, type RegisteredProject } from './registry';
 import { mkdirSync, chmodSync, realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
 
-import type { CommandError, HistoryState } from '@thirdlight/commands';
+import type { CommandError, HistoryState, QueryOp } from '@thirdlight/commands';
 import type {
   ContentCatalogV3,
   Manifest,
@@ -1302,28 +1302,6 @@ function echoOp(v: unknown): string | undefined {
   return v.length > 32 ? v.slice(0, 32) : v;
 }
 
-const QUERY_OPS = [
-  'queryProject',
-  'queryEntity',
-  'queryEntities',
-  // The bounded content queries are served
-  // through the same query path (last acknowledged state, never a mutation).
-  'queryAssets',
-  'queryPrefabs',
-  'queryBehaviors',
-  // The v3 game-config query is the same read path (the pure function is
-  // `commands`' single implementation).
-  'queryGameConfig',
-  // Block-layer cells and regions.
-  'queryBlocks',
-  // The project index: what the project holds and what references what.
-  'queryIndex',
-  // Terrains: tiles, their bytes, the surface at points.
-  'queryTerrain',
-  // The ground at points from whichever block layer or terrain is there.
-  'querySurface',
-] as const;
-type QueryOp = (typeof QUERY_OPS)[number];
 
 function queryFailure(
   op: unknown,

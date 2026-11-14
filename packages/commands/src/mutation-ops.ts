@@ -1,6 +1,7 @@
 /**
- * The mutation op names: which ops exist, which are forward (make history
- * entries), grouped by the format generation that brought them. Plain lists
+ * The op names: which mutation ops exist, which are forward (make history
+ * entries), grouped by the format generation that brought them, and the
+ * query ops. Plain lists
  * with no other imports, so the wire layer (protocol) and MCP read the very
  * list the validator checks against. Kept apart from the wire types so adding
  * an op does not grow that file.
@@ -159,6 +160,37 @@ export type VoxelWorldOp = (typeof VOXEL_WORLD_OPS)[number];
 
 export function isVoxelWorldOp(op: unknown): op is VoxelWorldOp {
   return typeof op === 'string' && (VOXEL_WORLD_OPS as readonly string[]).includes(op);
+}
+
+/**
+ * The query ops: reads of the last acknowledged state, served by the
+ * workspace on the same command route (never a mutation, no history). The one
+ * list: the wire's envelope check, the workspace's query envelope and its
+ * dispatch read it.
+ */
+export const QUERY_OPS = [
+  'queryProject',
+  'queryEntity',
+  'queryEntities',
+  // The bounded content queries.
+  'queryAssets',
+  'queryPrefabs',
+  'queryBehaviors',
+  // The game config (the pure function is `commands`' `queryGameConfig`).
+  'queryGameConfig',
+  // Block-layer cells and regions.
+  'queryBlocks',
+  // The project index: what the project holds and what references what.
+  'queryIndex',
+  // Terrains: tiles, their bytes, the surface at points.
+  'queryTerrain',
+  // The ground at points from whichever block layer or terrain is there.
+  'querySurface',
+] as const;
+export type QueryOp = (typeof QUERY_OPS)[number];
+
+export function isQueryOp(op: unknown): op is QueryOp {
+  return typeof op === 'string' && (QUERY_OPS as readonly string[]).includes(op);
 }
 
 /**

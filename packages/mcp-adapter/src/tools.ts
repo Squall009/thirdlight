@@ -72,9 +72,8 @@ export interface ToolDefinition {
   readonly inputSchema: Record<string, unknown>;
 }
 
-// The protocol's op lists (one list each; a new op reaches MCP with it). Voxel world ops ride the same route.
+// The protocol's mutation op list (a new op reaches MCP with it). Voxel world ops ride the same route.
 const MUTATION_OPS = [...PROTOCOL_MUTATION_OPS, ...VOXEL_WORLD_OPS];
-const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /**
  * The tool's commands: the relay's closed set plus `signal`, which the tool
  * sends as the engine's `signal` debug command (input of the next step, so a
@@ -518,7 +517,6 @@ export async function handleProjectFreeCall(
 }
 
 const MUTATION_SET = new Set<string>(MUTATION_OPS);
-const QUERY_SET = new Set<string>(QUERY_OPS);
 /** Dispatch one `tools/call` to the backend services. Never throws. */
 export async function handleToolCall(
   ctx: McpContext,

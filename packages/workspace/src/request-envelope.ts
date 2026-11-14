@@ -4,7 +4,7 @@
  * the failure payload that echoes what could be parsed.
  */
 
-import type { CommandError, MutationResult } from '@thirdlight/commands';
+import { QUERY_OPS, isQueryOp, type CommandError, type MutationResult, type QueryOp } from '@thirdlight/commands';
 
 import { envelopeInvalidRequest, pointerSegment } from './errors';
 
@@ -163,7 +163,7 @@ export function echoProjectId(v: unknown): string | undefined {
 export function validateQueryRequest(request: unknown):
   | {
       ok: true;
-      op: 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig' | 'queryBlocks' | 'queryIndex' | 'queryTerrain' | 'querySurface';
+      op: QueryOp;
       projectId: string;
       args: Record<string, unknown> | undefined;
     }
@@ -184,22 +184,10 @@ export function validateQueryRequest(request: unknown):
     }
   }
   const op = req['op'];
-  if (
-    op !== 'queryProject' &&
-    op !== 'queryEntity' &&
-    op !== 'queryEntities' &&
-    op !== 'queryAssets' &&
-    op !== 'queryPrefabs' &&
-    op !== 'queryBehaviors' &&
-    op !== 'queryGameConfig' &&
-    op !== 'queryBlocks' &&
-    op !== 'queryIndex' &&
-    op !== 'queryTerrain' &&
-    op !== 'querySurface'
-  ) {
+  if (!isQueryOp(op)) {
     return {
       ok: false,
-      error: envelopeInvalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig, queryBlocks, queryIndex, queryTerrain, querySurface', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the accepted query ops'),
+      error: envelopeInvalidRequest('/op', op, `one of: ${QUERY_OPS.join(', ')}`, typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the accepted query ops'),
     };
   }
   const projectId = req['projectId'];

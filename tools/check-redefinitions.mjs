@@ -154,6 +154,8 @@ export const OWNED_FAMILIES = Object.freeze([
   { family: 'request-id-format', owner: 'packages/project-model/src/request-id.ts', names: ['REQUEST_ID_RE'] },
   // The voxel world ops: the route, the protocol, the workspace and MCP read the one list.
   { family: 'voxel-world-ops', owner: 'packages/commands/src/mutation-ops.ts', names: ['VOXEL_WORLD_OPS', 'isVoxelWorldOp'] },
+  // The query ops: the wire's envelope check, the workspace's query envelope and dispatch, and MCP read the one list.
+  { family: 'query-ops', owner: 'packages/commands/src/mutation-ops.ts', names: ['QUERY_OPS', 'isQueryOp', 'V3_QUERY_OPS'] },
   {
     // The page's on-unless-off diagnostic switches; the names are the per-switch parsers each view once kept.
     family: 'page-flags',
