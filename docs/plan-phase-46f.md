@@ -119,8 +119,8 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 | Item | Status |
 |---|---|
 | 46f.0 | Done 2026-11-13: three 0.187.0 = pin. Baseline §4 (low 30 Hz, 720p, alone): 8 km world room 22.4–23.1 ms, far 39–46 % / near 31–33 %; 150 m/s longest 42–44 ms, 0 > 100 ms, detail 4.5–4.7 s; meadow 977 k tris 10 draws; village 242 draws, main 4.5 ms. Sim-worker CPU unmeasured (no timing). Last fast gate 14 min. |
-| 46f.1 | Done 2026-11-13. a: spans on every thread, `__tlProfiler.read()`, budget table per tier, 10 slices from one arbiter. b: editor Profiler tab (timeline, frame breakdown, budget, counters, spikes, captures), overlay Shift+F3, capture file v1, `tl_diagnostics` profile digest. 150 m/s A/B: HEAD 43.9–50.5 ms inside base 42.0–53.9; spike settle fixed. |
-| 46f.2 | Done 2026-11-13: `camera-window.ts` (wind rebuilt on it), wind sample public, `interactor` (schema 8 step from `foliageBend`), interaction field 256² × 0.25 m (one compute pass, any number of stamps) read by foliage; WebGL 2 no bend. E2e: 8 objects bend, recover, export. Meadow low 30 Hz: page +0.03–0.14 ms, pass 0.1 (1) / 0.8 ms (8) at ~520 MHz. |
+| 46f.1 | Done 2026-11-13. a: spans on every thread, `__tlProfiler.read()`, budget table per tier, slices read from one arbiter table (12; not a scheduler). b: editor Profiler tab (timeline, frame breakdown, budget, counters, spikes, captures), overlay Shift+F3, capture file v1, `tl_diagnostics` profile digest. 150 m/s A/B: HEAD 43.9–50.5 ms inside base 42.0–53.9; spike settle fixed. |
+| 46f.2 | Done 2026-11-13: `camera-window.ts` (wind rebuilt on it), wind sample public, `interactor` (schema 8 step from `foliageBend`), interaction field 256² × 0.25 m (one compute pass, any number of stamps) read by foliage; WebGL 2 keeps the subjects' bend. E2e: 8 objects bend, recover, export. Meadow low 30 Hz: page +0.03–0.14 ms, pass 0.1 (1) / 0.8 ms (8) at ~520 MHz. |
 | 46f.3 | Done 2026-11-14: stored copies (a) and point-set ground cover (b) are culled-table rows on WebGPU (level + hysteresis + fade, thinning, frustum, pyramid in compute); one level helper. b, walking slab A/B: GPU frame 6.0→3.6 ms at full clock, page +0.15 ms; meadow (terrain texel cover) unchanged. WebGL 2 keeps vertex paths; texel cover retires in 48. |
 | 46f.4 | Done 2026-11-14: one undo line per project in the backend (workspace `undo-timeline.ts`): `undo`/`redo` step scene entries and voxel strokes in order, redo across kinds cleared by any new edit; voxel redo (exact bytes); gone strokes skipped and named; optional world `expectedRevision`; `undoVoxels` removed (bench Z = one undo). |
 | 46f.5 | Done 2026-11-14. a: one buffer grow, region-texture helper, memory budget table + resident bytes (job kinds left for 48). b: stale headers; one `QUERY_OPS`; tests/support: `serveDir` 45→0 copies, 2 backend launchers→1, command helpers 166→37 (ratchet); `aimAtPointer` for 5 pointer→ray copies (3 retiring left). |
@@ -155,9 +155,17 @@ profiler's own cost). Reached as `window.__tlProfiler.read()` on every game page
 interval), `FAR_SELECT_SLICE_MS` (2), the streamer's derive aprons (2; used by `stream-sections`, `stream-mips`,
 `stream-collision`, `stream-pieces`) and edit derives (8), `COLLISION_ADD_MS_PER_UPDATE` (4), `MERGE_BACKGROUND_BUDGET_MS`
 (4), `PAGE_CLIP_BUDGET_MS` (4), `SURFACE_PREPARE_MS` (1; also the budget `tracer-terrain-rings` is called with) and
-`PROBE_PLACE_SHARE_MS` (1), `SCENE_PREP_BUDGET_MS` (4). **Left:** `block-layers.ts` (`SYNC_MESH_BUDGET_MS`,
-`MESH_APPLY_BUDGET_MS`) and `terrain-view.ts` (`TERRAIN_UPLOAD_BUDGET_MS`, `TERRAIN_MACRO_BUDGET_MS`): block layers
-and heightfield terrain retire in 48 (scope fence).
+`PROBE_PLACE_SHARE_MS` (1), `SCENE_PREP_BUDGET_MS` (4); at the close (46f.6 review) also `SCATTER_BUILD_MS` (4,
+stored scatter's sets, page) and `FAR_FINE_PACK_MS` (4, the far field's fine nodes, the world's thread). **Left:**
+`block-layers.ts` (`SYNC_MESH_BUDGET_MS`, `MESH_APPLY_BUDGET_MS`), `terrain-view.ts` (`TERRAIN_UPLOAD_BUDGET_MS`,
+`TERRAIN_MACRO_BUDGET_MS`) and `world-stream.ts` `STREAM_ARRIVAL_MS` (4: the arrivals of streamed terrain tiles,
+block chunks, scatter groups and generated architecture share it): block layers, heightfield terrain and generated
+architecture retire in 48 (scope fence). Nothing else spends wall-clock ms a frame by its own constant (swept at
+the close; timers, poll spacings and item counts are not slices).
+
+**What the arbiter is.** ONE TABLE the slices read their milliseconds from (and the profiler shows). It does not
+sum the slices against the frame, hand unused time on, or react to load: the slices can still add to more than a
+frame (the audit's worst case is unchanged). Coordinating them is a later decision.
 
 **Tested.** vitest: `shared/src/profiler.test.ts` (nesting and own time, ring and dropped spans, job lane, pack →
 ingest equal, laps and a throw's open span, no buffer growth over 10 000 frames; the arbiter reproduces every moved
@@ -844,8 +852,13 @@ carry it. Not fixed here.
 - 2026-11-13 (46f.2, default chosen, owner to confirm): the view's subjects (the camera's target or a script's
   list) keep pressing without the component, with the defaults, beside every object that has an `interactor`: a
   project where the player parted grass keeps doing so after the rename.
-- 2026-11-13 (46f.2, default chosen, owner to confirm): WebGL 2 runs no field (no compute): foliage does not bend
-  round objects there (it did with the four uniforms); the WebGL 2 smoke stays the only check.
+- 2026-11-14 (46f.6 review fix; replaces the 46f.2 default that dropped bending on WebGL 2): WebGL 2 runs no field
+  (no compute) and keeps what it drew before: the view's subjects (camera target or the script's list, at most
+  four, an `interactor` component giving radius/strength/recovery) bend foliage through the analytic push in
+  uniforms (`subject-bend.ts`, restored from 45ec7ca3's `foliage-bend.ts`), behind the same `foliageOffset` call;
+  objects that only carry the component do not press there (no parity). Proof: `subject-bend.test.ts` (the base's
+  numbers) and a hand-run WebGL 2 export pair, base 45ec7ca3 against the fix, one script-named subject pressing
+  and released: byte-identical pictures (`~/.cache/thirdlight-phase46f/work/46f.6-fixes/shots-{base,fix}/`).
 - 2026-11-13 (46f.2, default chosen, owner to confirm): the field's layout is two RGBA16F pairs (A velocity m/s,
   pressed, foot; B top, recovery rate, radius, the press as stamped), 2 MiB with the read/write pairs, against the
   research's RGBA16F + R16F (1.3 MB): the rate keeps each object's recovery, the radius fades the bend above and
@@ -1000,6 +1013,32 @@ carry it. Not fixed here.
   layer). The voxel world page's picker goes through it too (a bench, not retiring); a click there right after a
   camera jump, before a frame is drawn, finds nothing to pick (the meshes it reads are the drawn ones): the e2e waits
   two frames; a user cannot click before a frame.
+
+- 2026-11-14 — **46f review (independent, 2026-11-14).** Verdict: **close after fixes.** The phase gate
+  `gate-phase-20261114-092241` ran every unit test green (906 files) and e2e 326 of 328 (`ui-editor.e2e.ts:114`
+  passed alone: watch D653; `terrain-cdlod.e2e.ts:520` is D643). The three must-fix items and what was done:
+  1. *WebGL 2 lost its foliage bending* (AGENTS.md: WebGL 2 keeps what it draws today). Fixed: the four-subject
+     analytic push is back on the WebGL 2 branch only (`subject-bend.ts`, the base's steps and view; an
+     `interactor` on a subject gives radius/strength/recovery), read through the same `foliageOffset`; WebGPU
+     unchanged. Proof: `subject-bend.test.ts` against the base's numbers, and a WebGL 2 export pair by hand
+     (base 45ec7ca3 against the fix: one script-named subject pressing, then released) byte-identical (AGENTS.md
+     allows one WebGL 2 e2e, the smoke, so no e2e pass was added).
+  2. *The arbiter missed slices and over-claimed.* `SCATTER_BUILD_MS` and `FAR_FINE_PACK_MS` moved (same 4 ms);
+     `STREAM_ARRIVAL_MS` left (heightfield/block/architecture streaming, retiring in 48). The docs now say what it
+     is: one table of slices, not a scheduler; the worst case (slices adding past a frame) is unchanged (§8 46f.1a).
+  3. *One grow policy.* `grownCapacity` replaces the copies in `interaction-field.ts`, `surface-probe-pass.ts`,
+     `batching.ts` (2), `surface-resolve.ts` and voxel `derived-mesh.ts` (identical policy each); `relief-mesh.ts`
+     left (relief is off and deferred).
+  Also: the voxel bench page's Z sends the project revision it last knew (a scene edit made elsewhere since is
+  refused, not taken back unseen; voxel-world e2e); D648's settle read is polled. The walled-export check still
+  counts drawn copies rather than naming them (the read-back holds counts per run only; not cheap). D-rows:
+  D653–D658; D651 folded into D410 (open), D319 open.
+  **Tests the review judged weak (logged, not fixed in this phase):** the budget/memory table and arbiter tests
+  compare a constant with itself; the profiler e2e checks existence and a plausible shape and would pass with
+  wrong timings; `lod-level.test.ts` runs the same ScalarOps definition on both sides, and `copy-rows.test.ts` /
+  `interaction-field.test.ts` never run the GPU pass (only the e2e pixel and count checks cover the GPU); the
+  bending e2e proves pixels changed and came back, not direction or "the same look"; the walled-export check
+  counts copies, not which ones.
 
 ## 10. Open questions for the owner
 

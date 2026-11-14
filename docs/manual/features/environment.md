@@ -259,8 +259,11 @@ water will read the same field.
 - A scatter or cover rule's `bendAway` (0–4, default 1; the rule card's
   *Gives way* slider) scales how readily its copies give way (0 for trees
   or rocks drawn with a foliage material).
-- WebGPU only: the field is a compute pass. On WebGL 2 foliage does not
-  bend round objects.
+- The field is a WebGPU compute pass. On WebGL 2 (the fallback) there is
+  no field: foliage bends only round the view's subjects (at most the
+  nearest four; an `interactor` component on a subject gives its radius,
+  strength and recovery), with the same falloff, lean and recovery behind a
+  moving subject; other objects with the component do not press there.
 - `tl_diagnostics` `renderer.interaction` lists the objects pressing now
   (each with its ease in) and the field's state (stamps, passes, centre,
   bytes). The frame profiler shows its page time as *interaction field*

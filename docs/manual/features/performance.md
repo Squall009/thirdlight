@@ -15,8 +15,10 @@ page's thread (the host's and the renderer's stages), the simulation worker's (i
 streaming, animation, sent with each tick) and the voxel job workers' (each job's time on its worker), each
 frame's draw calls, triangles and heap, the quality tier's frame budget per thread and category with each
 category's use against it (`FRAME_BUDGET_BY_TIER` in project-model's `quality-levels.ts`), the time slices the
-frame arbiter hands out (`frameSliceMs` in `@thirdlight/shared`: every system that spreads work over frames asks
-it), the tier's memory budgets with the bytes each system holds now (`MEMORY_BUDGET_BY_TIER` beside the frame
+frame arbiter hands out (`frameSliceMs` in `@thirdlight/shared`: one table every system that spreads work over
+frames reads its milliseconds from; it does not add the slices up against the frame, pass unused time on or react
+to load, so on a busy frame they can still add to more than the frame; block layers', heightfield terrain's and
+streamed arrivals' own slices are outside it), the tier's memory budgets with the bytes each system holds now (`MEMORY_BUDGET_BY_TIER` beside the frame
 budget: one entry per budget a system keeps, each the constant that system reads, summed against the tier's page
 and GPU target; `counters.memory`, the Profiler tab's Memory table), and the last long frames with what every
 thread did over them. A page's tools read all of it as plain data

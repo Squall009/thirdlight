@@ -26,7 +26,8 @@ every thread, as the page does. Nothing is read while the tab is closed.
   own ms without what ran inside), the simulation's ticks in it each with its spans, and each job by worker.
 - **Budget.** The tier's budget per thread and category (low 30 Hz, medium and high 60 Hz), beside the mean and
   worst own time a frame over the kept frames and the use; a category over its budget is marked red. Under it the
-  GPU's planned shares and the frame arbiter's time slices (what the streaming and upload steps may spend a frame).
+  GPU's planned shares and the frame arbiter's time slices (what the streaming and upload steps may each spend a
+  frame: a table of limits, not a scheduler; they are not summed against the frame).
 - **Counters.** Draw calls and triangles of the last frame, instance copies (and those in view), page heap,
   texture and geometry memory, GPU resources, voxel chunks, instances, triangles and far-field memory, the job
   queues, and the profiler's own cost (spans a frame and a span's cost). Under them the **Memory** table: every
