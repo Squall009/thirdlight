@@ -603,7 +603,7 @@ and under budget, gone with the scene). Playwright, WebGPU, real backend: `voxel
 streaming row non-zero; the Profiler tab's Memory table from the capture: every row, the streamer's bytes, the far
 field counted, the page sum). Gate `gate-fast-20261114-034934` (every area, 34 min, e2e 322 tests 23.0 min): red only
 on `instances.e2e.ts:378` (D649) and `rendering.e2e.ts` render scale (D320 watch, passed in
-`gate-rerun-20261114-042844`); vitest whole suite green (904 files); e2e times by area as 46f.4's (voxel 169 s).
+`gate-rerun-20261114-042844`); vitest whole suite green (904 files); e2e times by area as 46f.4's (voxel 169 s). After the docs and the e2e picture, `gate-fast-20261114-043324` (34 min): red on D649 and `smooth-tops.e2e.ts` (D650 watch: red in its rerun `gate-rerun-20261114-050745` too, passed alone twice); every other test green. The fast gate is not green while D649 stands (the corrected check is right; the product is not).
 
 **Measured** 2026-11-14, each run alone (`thirdlight-gate` inactive), low tier, WebGPU, 1280 × 720 at the 30 Hz cap,
 uptime 21.4 d, load (1 min) 0.8–3.1; before at da591dc7's build (03:09–03:26 UTC), after at 5698efff (03:31–03:47).
