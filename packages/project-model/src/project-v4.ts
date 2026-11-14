@@ -2,18 +2,24 @@
  * The v4 project — several scenes, one file each — and the
  * pure v3 → v4 migration.
  *
- * Layout (storage v4, workspace): `project.json` (manifest schemaVersion 3;
- * a 2 is upgraded on load), `content.json` (the project-wide content block:
- * assets, prefabs, behaviors, settings, trust, tags, startScenes…) and
- * `scenes/<sceneId>.json` (one v4 scene each). This module holds the rules
- * that span documents:
+ * Layout (storage v4, workspace `store-v4.ts`): `project.json` (manifest
+ * schemaVersion `PROJECT_SCHEMA_VERSION`; the loader upgrades a 6 or a 7
+ * before validating and refuses older ones), `content.json` (the project-wide
+ * content block: settings, trust, tags, startScenes…; resources such as
+ * prefabs, materials and behaviors are files of their own and an asset with a
+ * file has a sidecar; the workspace folds them back into the block before it
+ * reaches this module) and one v4 scene file each. This module holds the rules that
+ * span documents:
  *
  * - scene ids are unique; entity ids are unique across the whole project;
- * - `startScenes` name existing scenes. The start set holds the one-per-game
- *   things — exactly one (active) camera, at most one controller and one
- *   light of each type; other scenes (loaded later) hold none of these;
- * - a scene transition names existing scenes, and its spawn sits in the
- *   scene it loads (or its own);
+ * - the scene index and the scene files match one to one;
+ * - `startScenes` name existing scenes; lights, cameras and the player belong
+ *   to any scene (each scene's own limits apply), and where the player and
+ *   the cameras are is checked when the game starts (`play-checks.ts`), not
+ *   per edit;
+ * - the shell's listed scenes, scene transitions and building interiors name
+ *   existing scenes, and a spawn sits in the scene it starts or loads (or its
+ *   own);
  * - every scene's asset, cue, tag and behavior references resolve against
  *   the content block (the v3 per-scene cross-block rules, reused).
  *

@@ -1,17 +1,18 @@
 /**
  * The v3 play-content build.
  *
- * `buildPlayContentM3` is the v3 counterpart of `buildPlayContent`: it is a THIN consumer of the shared closure builder
+ * `buildPlayContentM3` is a THIN consumer of the shared closure builder
  * `buildContentClosureM3` in `@thirdlight/exporter` — the SAME implementation
- * the export pipeline uses. There is one v2
+ * the export pipeline uses. There is one
  * manifest/closure derivation for play and export; this module owns only the
- * play-specific artifact assembly (the manifest v2 document, the v3 scene, the
- * declared assets and the prebuilt play bundle served as the entry).
+ * play-specific artifact assembly (the runtime-content manifest document, the
+ * declared assets and content files, and the prebuilt play bundle served as
+ * the entry).
  *
  * - The content is the captured v3 `scene` + `content` block (the single
  *   acknowledged envelope read — `readCapturedV3`), passed by the caller.
  * - The artifact set is served by the same manifest-version-agnostic
- *   `PlayContentStore` (the v2 manifest is opaque bytes to the locator).
+ *   `PlayContentStore` (the manifest is opaque bytes to the locator).
  * - It FAILS CLOSED on the shared closure's closed error set (`blob_missing`,
  *   ...) and on a `scene.json` whose bytes
  *   do not re-hash to `manifest.sceneDigest` (a captured-state integrity check).
@@ -184,7 +185,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
   }
 
   const artifacts: PlayServed[] = [];
-  // manifest.json (the runtime-content manifest v2 document; carries
+  // manifest.json (the runtime-content manifest document; carries
   // sceneDigest for the bridge-delivered snapshot verification).
   artifacts.push({
     path: 'manifest.json',

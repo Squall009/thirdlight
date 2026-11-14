@@ -1,20 +1,18 @@
 /**
- * The immutable runtime-content manifest and the scoped
- * play-content locator store.
+ * The scoped play-content locator store and the helpers a Play build shares.
  *
- * This module is a THIN consumer of the shared closure builder in
- * `@thirdlight/exporter` (`buildContentClosure`) — the SAME implementation the
- * export pipeline uses. There is one manifest/closure derivation for play and
- * export; this module owns only the play-specific wrapper (the prebuilt play
- * bundle as `game.js`) and the bounded in-memory artifact store:
+ * A Play's artifact set is built by `buildPlayContentM3` (`play-m3.ts`), a
+ * thin consumer of the closure builder the export pipeline uses
+ * (`buildContentClosureM3` in `@thirdlight/exporter`), so Play and export
+ * derive one manifest and closure. This module owns what is served:
  *
- * - `buildPlayContent` wraps the shared closure and appends `game.js`.
  * - `PlayContentStore` holds one immutable artifact set per play start and
  *   serves reads only through the exact locator route set; a set is readable
  *   while its play runs (at least `PLAY_CONTENT_TTL`, renewed with the play's
  *   own expiry) and `PLAY_CONTENT_GRACE` after the play ended (never past
- *   that expiry), and the
- *   contentId is a redacted secret-equivalent.
+ *   that expiry), and the contentId is a redacted secret-equivalent.
+ * - The artifact kinds (`PlayArtifact` in memory, `PlayFileArtifact` served
+ *   from disk), the content id and the byte digests a build uses.
  *
  * No authoritative or project write ever happens here. What a Play build
  * generates (the manifest, scene files, compiled scripts, content files) is
