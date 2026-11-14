@@ -295,7 +295,7 @@ describe('fine far levels baked by a world', () => {
     await baked(worldsOf(fresh.projectDir, 0.5));
     expect(filesOf(dir)).toEqual(filesOf(farCacheDir(fresh.projectDir, 'w')));
     // Undone, then the same dig again: the dig's nodes come back from the rebuilt store by their content.
-    const u = await worlds.command('p', { op: 'undoVoxels', projectId: 'p', args: { world: 'w' } });
+    const u = await worlds.step('p', 'w', 'undo', worlds.newestStroke('p', 'w')!, null);
     const undone = u.ok ? (u.far as { fine?: { dirty: number; built: number; reused: number } }).fine : undefined;
     expect(undone!.dirty).toBe(dirty.length);
     expect(undone!.built + undone!.reused).toBe(dirty.length);

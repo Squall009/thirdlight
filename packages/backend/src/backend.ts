@@ -20,7 +20,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
-import { openWorkspaceService, readMarker, VoxelWorlds, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
+import { openWorkspaceService, readMarker, UndoTimeline, VoxelWorlds, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
 import { createAssetInspector, createBehaviorCompilerPort, type ContentRoutes } from './content';
 import type { TextureSlotAssembler } from './texture-slots';
@@ -362,9 +362,11 @@ export function createBackend(
     recheckQueued.add(projectId);
     void assetFiles.check(projectId).finally(() => recheckQueued.delete(projectId));
   };
-  const voxels = makeVoxelRoutes({ worlds: voxelWorlds, requireAuth, sendJson, sendError, recordProblem, onApplied: (projectId, change) => channel.sendVoxelsChanged(projectId, change) });
+  // One undo for the project: every scene command and voxel stroke on one line, stepped by `undo` / `redo`.
+  const undoTimeline = new UndoTimeline(service, voxelWorlds);
+  const voxels = makeVoxelRoutes({ worlds: voxelWorlds, requireAuth, sendJson, sendError, recordProblem, onApplied: (projectId, change) => channel.sendVoxelsChanged(projectId, change), run: (projectId, envelope) => undoTimeline.voxelCommand(projectId, envelope) });
   const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile: (projectId, file) => service.openBlobFile(projectId, file), onFileChanged, voxels: voxels.reads });
-  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), voxelCommand: voxels.command, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
+  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), voxelCommand: voxels.command, undoTimeline, voxelApplied: voxels.applied, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
   const library = makeLibraryRoutes({ service, requireAuth });
   const project = makeProjectRoutes({ config, service, sessions, problems: problemLog, checks, packs, requireAuth, authorized: auth.authorized, engine: async () => ({ ...engineInfo(), manual: await manualSummary(manual) }) });
 

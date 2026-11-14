@@ -34,6 +34,6 @@
     {"file":"packages/three-adapter/src/models.ts","kind":"function","unit":"createModelsRealization","size":973},
     {"file":"packages/three-adapter/src/terrain-view.ts","kind":"class","unit":"TerrainView","size":85},
     {"file":"packages/workspace/src/service-content.ts","kind":"function","unit":"contentOps","size":421},
-    {"file":"packages/workspace/src/service.ts","kind":"function","unit":"buildService","size":539}
+    {"file":"packages/workspace/src/service.ts","kind":"function","unit":"buildService","size":485}
   ]
 }

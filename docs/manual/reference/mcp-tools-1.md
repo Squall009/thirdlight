@@ -16,7 +16,7 @@ Bake a scene's lighting: the editor's Scene view (the connected browser, else a 
 <a id="tool-tl_command"></a>
 ## `tl_command`
 
-Submit one undoable editing command {op, args, expectedRevision} — the same commands the editor sends (one mutation path). Returns the new revision and the change, or a structured error (e.g. revision_conflict with currentRevision; refusals name the field). Read-only questions go to tl_inspect / tl_content_query. Each op's argument shape: tl_docs topic "op.\<op>" (e.g. op.editBlocks, op.setComponent); a component's fields: "component.\<name>"; how ops behave by area (scenes, terrain, blocks, materials, UI, timelines …): "tool.tl_command" and its sections. Script source is published with tl_script_publish, not here. Voxel worlds: editVoxels / undoVoxels / writeKitTestScene {world, …} (no expectedRevision).
+Submit one undoable editing command {op, args, expectedRevision} — the same commands the editor sends (one mutation path). Returns the new revision and the change, or a structured error (e.g. revision_conflict with currentRevision; refusals name the field). Read-only questions go to tl_inspect / tl_content_query. Each op's argument shape: tl_docs topic "op.\<op>" (e.g. op.editBlocks, op.setComponent); a component's fields: "component.\<name>"; how ops behave by area (scenes, terrain, blocks, materials, UI, timelines …): "tool.tl_command" and its sections. Script source is published with tl_script_publish, not here. Voxel worlds: editVoxels / writeKitTestScene {world, …} (expectedRevision optional: the world's); undo / redo step the newest edit, scene or voxel.
 
 In full, by area:
 
@@ -55,7 +55,7 @@ In full, by area:
 - [Dialogue](mcp-tools-3.md#tool-tl_command-dialogue) (`tool.tl_command.dialogue`)
 - [Game modes and behavior groups](mcp-tools-3.md#tool-tl_command-game-modes) (`tool.tl_command.game-modes`)
 - [Timelines](mcp-tools-3.md#tool-tl_command-timelines) (`tool.tl_command.timelines`)
-- [Voxel worlds: editVoxels, undoVoxels, writeKitTestScene](mcp-tools-3.md#tool-tl_command-voxel-worlds) (`tool.tl_command.voxel-worlds`)
+- [Voxel worlds: editVoxels, writeKitTestScene, one undo](mcp-tools-3.md#tool-tl_command-voxel-worlds) (`tool.tl_command.voxel-worlds`)
 - [What it returns](mcp-tools-3.md#tool-tl_command-result) (`tool.tl_command.result`)
 
 <a id="tool-tl_command-scene-ops"></a>

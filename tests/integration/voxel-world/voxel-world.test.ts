@@ -226,6 +226,13 @@ const command = async (body: Record<string, unknown>, headers: Record<string, st
   return { status: r.status, json: (await r.json()) as Record<string, unknown> };
 };
 
+/** The project's one undo (or redo) as the editor sends it, against the project's revision now; `voxels` is a stroke step's world answer. */
+const step = async (op: 'undo' | 'redo' = 'undo', requestId = `req-${randomBytes(16).toString('hex')}`): Promise<{ status: number; json: Record<string, unknown>; voxels: Record<string, unknown> | undefined; code: string | undefined }> => {
+  const revision = (await command({ op: 'queryProject', projectId: PROJECT, args: {} })).json['revision'] as number;
+  const r = await command({ op, projectId: PROJECT, expectedRevision: revision, requestId, args: {} });
+  return { ...r, voxels: r.json['voxels'] as Record<string, unknown> | undefined, code: (r.json['error'] as { code?: string } | undefined)?.code };
+};
+
 /** What the range route gives for these chunks, as the browser's chunk source reads them (only the files the world lists). */
 async function readRaw(chunks: readonly ChunkCoord[], world = WORLD): Promise<RegionChunkRead[]> {
   const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${world}`, { headers: auth })).json()) as { manifest: { worldId: string }; files: Array<{ name: string }> };
@@ -374,22 +381,33 @@ describe('voxel world routes', () => {
     expect(info.manifest.revision).toBe(1);
   });
 
-  it('undoes the newest edit as a new revision; nothing left to undo is refused', async () => {
-    const r = await command({ op: 'undoVoxels', projectId: PROJECT, requestId: rid(4), args: { world: WORLD } });
+  it("the project's one undo takes the newest stroke back as a new revision and its redo writes the stroke's voxels again; nothing left is refused", async () => {
+    const r = await step('undo', rid(4));
     expect(r.status, JSON.stringify(r.json)).toBe(200);
+    // A stroke's step: the project's revision as it was, the world's answer under voxels.
+    expect(r.json).toMatchObject({ ok: true, op: 'undo', revision: (await command({ op: 'queryProject', projectId: PROJECT, args: {} })).json['revision'], duplicated: false });
     // It names the cells and chunks the edit changed: the same ones go back.
-    expect(r.json).toMatchObject({ ok: true, op: 'undoVoxels', revision: 2, undoable: 0, cells: applyEdit({ store: () => sceneStore() }, canonicalEditCommand(DIG)).cells });
-    expect((r.json.chunks as unknown[]).length).toBe(4);
+    expect(r.voxels).toMatchObject({ ok: true, op: 'undo', revision: 2, undoable: 0, redoable: 1, cells: applyEdit({ store: () => sceneStore() }, canonicalEditCommand(DIG)).cells });
+    expect((r.voxels!.chunks as unknown[]).length).toBe(4);
     // And the box of the edit it takes back, so a client re-derives only what that edit could change.
-    expect(r.json.box).toEqual(editBounds(grid, canonicalEditCommand(DIG)));
+    expect(r.voxels!.box).toEqual(editBounds(grid, canonicalEditCommand(DIG)));
     expectSame(await readChunks(SCENE_CHUNKS), original, SCENE_CHUNKS);
-    const none = await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } });
-    expect(none.status).toBe(400);
-    expect((none.json.error as { code: string }).code).toBe('nothing_to_undo');
-    // Edit again so the restart below has something to find; the oracle is the original world with that one dig.
+    // The same request id again answers the first answer: nothing else is undone.
+    expect((await step('undo', rid(4))).json).toMatchObject({ ok: true, duplicated: true });
+    const none = await step('undo');
+    expect(none.status).toBe(503);
+    expect(none.code).toBe('history_empty');
+    // The redo writes back exactly the voxels the undo took: the dug world, as the oracle digs it.
     expected = sceneStore();
     applyEdit({ store: () => expected }, canonicalEditCommand(DIG));
-    expect((await command({ op: 'editVoxels', projectId: PROJECT, requestId: rid(5), args: { world: WORLD, command: DIG } })).json).toMatchObject({ ok: true, revision: 3 });
+    const redo = await step('redo');
+    expect(redo.voxels).toMatchObject({ ok: true, op: 'redo', revision: 3, undoable: 1, redoable: 0, cells: r.voxels!.cells, chunks: r.voxels!.chunks, box: r.voxels!.box });
+    expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
+    expect((await step('redo')).code).toBe('history_empty');
+    // A stale world revision on a stroke is refused with the world's, the way a project command is.
+    const stale = await command({ op: 'editVoxels', projectId: PROJECT, expectedRevision: 2, args: { world: WORLD, command: DIG } });
+    expect(stale.status).toBe(409);
+    expect(stale.json.error).toMatchObject({ code: 'revision_conflict', expectedRevision: 2, currentRevision: 3 });
   });
 
   it('reads the world again when its files change behind the running backend (a git checkout): one edit refused, then edits work, no restart', async () => {
@@ -413,7 +431,10 @@ describe('voxel world routes', () => {
     expect((met.json.error as { message: string }).message).toMatch(/changed on disk outside this backend .*reloaded at revision 3, undo history cleared/);
     // What the routes serve now is the checked-out commit: the original world with the one dig.
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
-    expect(((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json.error as { code: string }).code).toBe('nothing_to_undo');
+    // The strokes the line held are gone with the history the world dropped: skipped and named, nothing else undone.
+    const skipped = await step('undo');
+    expect(skipped.code).toBe('history_empty');
+    expect((skipped.json['skipped'] as Array<{ world: string }>).map((k) => k.world)).toEqual([WORLD, WORLD]);
     // The edit sent again applies on it.
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: SET } })).json).toMatchObject({ ok: true, revision: 4, undoable: 1 });
     applyEdit({ store: () => expected }, canonicalEditCommand(SET));
@@ -426,9 +447,9 @@ describe('voxel world routes', () => {
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: WET } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader, materialSwaps: [] });
     const MATERIAL = { ...WET, voxel: { ...WET.voxel, material: 4 } };
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: MATERIAL } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader, materialSwaps: [materialSwap(3, 4)] });
-    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: DERIVED_PART.shader, materialSwaps: [materialSwap(4, 3)] });
-    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: DERIVED_PART.shader, materialSwaps: [] });
-    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.shader, materialSwaps: [materialSwap(4, 3)] });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.shader, materialSwaps: [] });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
   });
 
@@ -437,7 +458,10 @@ describe('voxel world routes', () => {
     expect(((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: DIG } })).json.error as { code: string }).code).toBe('no_change');
     const released = await fetch(`${base()}/api/v1/admin/projects/${PROJECT}/release`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: '{}' });
     expect(released.status, await released.clone().text()).toBe(200);
-    expect(((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json.error as { code: string }).code).toBe('nothing_to_undo');
+    const after = await step('undo');
+    expect(after.voxels).toBeUndefined();
+    // Every stroke the line held of the world (the one still applied and the three undone above) is named.
+    expect((after.json['skipped'] as Array<{ world: string }>).map((k) => k.world)).toEqual([WORLD, WORLD, WORLD, WORLD]);
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
   });
 
@@ -449,7 +473,9 @@ describe('voxel world routes', () => {
     expect(info.manifest.revision).toBe(revision);
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
     // Undo history is the process's: none after a restart.
-    expect(((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json.error as { code: string }).code).toBe('nothing_to_undo');
+    const none = await step('undo');
+    expect(none.code).toBe('history_empty');
+    expect(none.json['skipped']).toBeUndefined();
   }, 60_000);
 
   it('a scene object names the world with a voxelWorld component: set, patched and refused through setComponent, kept on disk and read again', async () => {
@@ -556,16 +582,17 @@ describe('voxel world routes', () => {
     try {
       const { tools } = await mcp.listTools();
       const opEnum = ((tools.find((t) => t.name === 'tl_command')!.inputSchema as { properties: { op: { enum: string[] } } }).properties.op.enum);
-      expect(opEnum).toEqual(expect.arrayContaining(['editVoxels', 'undoVoxels', 'createEntity']));
+      expect(opEnum).toEqual(expect.arrayContaining(['editVoxels', 'writeKitTestScene', 'undo', 'redo', 'createEntity']));
+      expect(opEnum).not.toContain('undoVoxels');
 
       // The page's edit, sent as the page sends it, then taken back: the world as written again.
       const page = await command({ op: 'editVoxels', projectId: PROJECT, requestId: rid(100), args: { world: FEED_WORLD, command: DIG } });
       expect(page.status, JSON.stringify(page.json)).toBe(200);
       expect(page.json).toMatchObject({ ok: true, revision: 1 });
       expect(await nthChange(1)).toEqual(asFeed(page.json, null));
-      const pageUndo = await command({ op: 'undoVoxels', projectId: PROJECT, requestId: rid(101), args: { world: FEED_WORLD } });
-      expect(pageUndo.json).toMatchObject({ ok: true, revision: 2, undoable: 0 });
-      expect(await nthChange(2)).toEqual(asFeed(pageUndo.json, null));
+      const pageUndo = await step('undo', rid(101));
+      expect(pageUndo.voxels).toMatchObject({ ok: true, op: 'undo', world: FEED_WORLD, revision: 2, undoable: 0 });
+      expect(await nthChange(2)).toEqual(asFeed(pageUndo.voxels!, null));
       expectSame(await readChunks(SCENE_CHUNKS, FEED_WORLD), sceneStore(), SCENE_CHUNKS);
 
       // The same stroke through tl_command (no expectedRevision: a world keeps its own): the page's answer, the same file bytes.
@@ -582,24 +609,33 @@ describe('voxel world routes', () => {
       // A request id sent again answers the first answer and tells nobody twice; undo through MCP takes the stroke back.
       const again = await tool({ op: 'editVoxels', requestId: viaMcp.body.requestId, args: { world: FEED_WORLD, command: DIG } });
       expect(again.body).toMatchObject({ ok: true, revision: 3, duplicated: true });
-      const undo = await tool({ op: 'undoVoxels', args: { world: FEED_WORLD } });
-      expect(undo.body).toMatchObject({ ok: true, op: 'undoVoxels', revision: 4, undoable: 0, cells: page.json.cells });
-      expect(await nthChange(4)).toEqual(asFeed(undo.body, { kind: 'mcp', clientId: 'voxel-mcp' }));
-      expect(changes().map((e) => e.revision)).toEqual([1, 2, 3, 4]);
+      const projectRevision = async (): Promise<number> => (await command({ op: 'queryProject', projectId: PROJECT, args: {} })).json['revision'] as number;
+      const undo = await tool({ op: 'undo', expectedRevision: await projectRevision() });
+      expect(undo.body).toMatchObject({ ok: true, op: 'undo', revision: await projectRevision(), voxels: { ok: true, op: 'undo', revision: 4, undoable: 0, redoable: 1, cells: page.json.cells } });
+      const undone = undo.body.voxels as Record<string, unknown>;
+      expect(await nthChange(4)).toEqual(asFeed(undone, { kind: 'mcp', clientId: 'voxel-mcp' }));
+      expectSame(await readChunks(SCENE_CHUNKS, FEED_WORLD), sceneStore(), SCENE_CHUNKS);
+      // Redo through MCP: the stroke's voxels again; undone once more.
+      const redo = await tool({ op: 'redo', expectedRevision: await projectRevision() });
+      expect(redo.body).toMatchObject({ ok: true, op: 'redo', voxels: { ok: true, op: 'redo', revision: 5, undoable: 1, redoable: 0, cells: page.json.cells } });
+      expectSame(await readChunks(SCENE_CHUNKS, FEED_WORLD), oracle, SCENE_CHUNKS);
+      expect((await tool({ op: 'undo', expectedRevision: await projectRevision() })).body).toMatchObject({ ok: true, voxels: { revision: 6 } });
+      expect(await nthChange(6)).toMatchObject({ op: 'undo', revision: 6 });
+      expect(changes().map((e) => e.revision)).toEqual([1, 2, 3, 4, 5, 6]);
       expectSame(await readChunks(SCENE_CHUNKS, FEED_WORLD), sceneStore(), SCENE_CHUNKS);
 
-      // Refusals come back as the backend's, and send nothing to the feed.
-      const none = await tool({ op: 'undoVoxels', args: { world: FEED_WORLD } });
+      // Refusals come back as the backend's, and send nothing to the feed: an undo against a revision the project has moved past.
+      const none = await tool({ op: 'undo', expectedRevision: (await projectRevision()) + 1 });
       expect(none.isError).toBe(true);
-      expect(JSON.stringify(none.body)).toContain('nothing_to_undo');
+      expect(JSON.stringify(none.body)).toContain('revision_conflict');
       const badOrigin = await command({ op: 'editVoxels', projectId: PROJECT, origin: { kind: 'robot', clientId: 'x' }, args: { world: FEED_WORLD, command: DIG } });
       expect(badOrigin.status).toBe(400);
       expect(badOrigin.json.error).toMatchObject({ code: 'invalid_request', path: '/origin/kind' });
       // The page's own session sends as a browser now that it is registered: the feed names it.
       const browser = await command({ op: 'editVoxels', projectId: PROJECT, requestId: rid(102), origin: { kind: 'browser', clientId: sessionId }, args: { world: FEED_WORLD, command: DIG } });
-      expect(browser.json).toMatchObject({ ok: true, revision: 5 });
-      expect(await nthChange(5)).toEqual(asFeed(browser.json, { kind: 'browser', clientId: sessionId }));
-      expect(changes().length).toBe(5);
+      expect(browser.json).toMatchObject({ ok: true, revision: 7 });
+      expect(await nthChange(7)).toEqual(asFeed(browser.json, { kind: 'browser', clientId: sessionId }));
+      expect(changes().length).toBe(7);
     } finally {
       await mcp.close();
       await server.close();
@@ -761,8 +797,8 @@ describe('voxel world routes', () => {
     // Every case of the catalogue (every slot) is labelled: one sampler cell each.
     expect(new Set(scene.labels.map((l) => l.caseId))).toEqual(new Set(WORLD_RULES.catalogue!.cases.map((c) => c.id)));
     expect(((await command({ op: 'writeKitTestScene', projectId: PROJECT, args })).json.error as { code: string }).code).toBe('no_change');
-    const undone = await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: SCENE_WORLD } });
-    expect(undone.json).toMatchObject({ ok: true, revision: 2, undoable: 0, cells: r.json.cells });
+    const undone = await step('undo');
+    expect(undone.voxels).toMatchObject({ ok: true, world: SCENE_WORLD, revision: 2, undoable: 0, cells: r.json.cells });
     expectSame(await readChunks(around, SCENE_WORLD), sceneStore(), around);
   }, 60_000);
 

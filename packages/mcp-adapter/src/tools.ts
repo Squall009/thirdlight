@@ -126,7 +126,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       properties: {
         op: { type: 'string', enum: [...MUTATION_OPS, 'stageScriptLibrary'] },
         args: { type: 'object' },
-        expectedRevision: { type: 'integer', minimum: 0, description: 'required for every op but stageScriptLibrary (which changes no revision) and the voxel world ops editVoxels/undoVoxels/writeKitTestScene (a world keeps its own revision)' },
+        expectedRevision: { type: 'integer', minimum: 0, description: 'required for every op but stageScriptLibrary (which changes no revision); optional for the voxel world ops editVoxels/writeKitTestScene, and then the world\'s revision (a world keeps its own)' },
         requestId: { type: 'string', pattern: '^req-[0-9a-f]{32}$' },
       },
       required: ['op'],
@@ -638,16 +638,16 @@ async function command(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
   if (typeof op !== 'string' || !MUTATION_SET.has(op)) {
     return toolError(`op must be one of ${MUTATION_OPS.join(', ')}`);
   }
-  // A voxel world keeps its own revision (the answer names it): the project's is neither needed nor sent.
+  // A voxel world keeps its own revision (the answer names it): optional there, and then the world's, not the project's.
   const voxel = isVoxelWorldOp(op);
-  if (!voxel && (!isInt(a.expectedRevision) || a.expectedRevision < 0)) {
-    return toolError('expectedRevision is required (an integer ≥ 0) for command submission');
+  if (voxel ? a.expectedRevision !== undefined && (!isInt(a.expectedRevision) || a.expectedRevision < 0) : !isInt(a.expectedRevision) || a.expectedRevision < 0) {
+    return toolError(voxel ? "expectedRevision, when given for a voxel op, is the world's revision (an integer ≥ 0)" : 'expectedRevision is required (an integer ≥ 0) for command submission');
   }
   const requestId = typeof a.requestId === 'string' ? a.requestId : makeRequestId();
   const envelope: Record<string, unknown> = {
     op,
     projectId: ctx.projectId,
-    ...(voxel ? {} : { expectedRevision: a.expectedRevision }),
+    ...(a.expectedRevision !== undefined ? { expectedRevision: a.expectedRevision } : {}),
     requestId,
     origin: { kind: 'mcp', clientId: ctx.clientId },
   };

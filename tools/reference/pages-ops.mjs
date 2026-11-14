@@ -10,13 +10,13 @@ import { code, fence, page, ref, section, splitPages, table, typeId } from './ma
 /** What every voxel world op's section says first: where it applies and what differs from a project op. */
 const VOXEL_OP_NOTE =
   'A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` ' +
-  '(its files under `voxels/<world>/`), not the project, so it takes no `expectedRevision` and the project\'s `undo` does not take it back (`undoVoxels` does). ' +
+  '(its files under `voxels/<world>/`), not the project: its optional `expectedRevision` is the world\'s revision (a stale one is refused with `revision_conflict`), ' +
+  'and the project\'s one `undo` / `redo` take it back and apply it again in order with the scene edits. ' +
   'It answers the world\'s new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; ' +
   'the connected editor gets the same as a `voxelsChanged` event.';
 /** What each voxel world op adds to the note: its own refusal when there is nothing to do. */
 const VOXEL_OP_REFUSAL = {
   editVoxels: 'A stroke that changes no voxel is refused with `no_change`.',
-  undoVoxels: 'It takes back the world\'s newest edit still in this backend\'s undo history; with none left it is refused with `nothing_to_undo`.',
   writeKitTestScene: 'A scene written over the same scene changes no voxel and is refused with `no_change`.',
 };
 

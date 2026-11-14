@@ -150,6 +150,8 @@ export class CommandSender {
    * edit still on its way) is left to the WS events, in order.
    */
   private applyOwnAck(requestId: string, r: { revision: number; change: unknown }): void {
+    // An undo or redo that stepped a voxel stroke made no project revision: the feed's voxelsChanged redraws it.
+    if ((r as { voxels?: unknown }).voxels !== undefined) return;
     this.ownCommands.recordOwnRevision(r.revision);
     if (r.revision !== this.host.projection.revision + 1 || r.change === null || typeof r.change !== 'object') return;
     // A result that names only some of the assembled objects a prefab edit changed: the WS event brings them all.
@@ -166,7 +168,10 @@ export class CommandSender {
         // by requestId); the HTTP ack only drives the save status.
         // An undo or redo of a grouped step that the backend could not take whole: shown, not passed off as done.
         const incomplete = (r as { groupIncomplete?: { code: string; message: string } }).groupIncomplete;
-        this.host.report({ save: 'saved', error: incomplete !== undefined ? { code: incomplete.code, message: incomplete.message } : null, conflict: null });
+        // Steps the one undo found gone (a voxel world read again or closed since) were left out: said, not hidden.
+        const skipped = (r as { skipped?: { reason: string }[] }).skipped;
+        const note = incomplete ?? (skipped !== undefined && skipped.length > 0 ? { code: 'undo_skipped', message: `${op} skipped ${skipped.length} step${skipped.length === 1 ? '' : 's'} no longer held: ${skipped[0]!.reason}` } : undefined);
+        this.host.report({ save: 'saved', error: note !== undefined ? { code: note.code, message: note.message } : null, conflict: null });
         const createdId = (r as { createdId?: unknown }).createdId;
         // A staged library commit says which scripts it recompiled (once each).
         const libraryStage = (r as { libraryStage?: CommandResultOk['libraryStage'] }).libraryStage;

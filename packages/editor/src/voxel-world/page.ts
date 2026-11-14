@@ -16,7 +16,9 @@
  *
  * Drag to orbit, wheel to zoom, W A S D to move; click digs a 1 m sphere,
  * shift-click adds one of the material picked bottom left (the project's
- * voxel materials only, page-materials.ts), Z undoes the newest edit. `window.__tlVoxelWorld`
+ * voxel materials only, page-materials.ts), Z is the project's one undo (the
+ * newest step of the project, a scene edit or a voxel stroke; a scene edit
+ * taken back draws nothing here). `window.__tlVoxelWorld`
  * is the hook a test or a measuring run drives.
  *
  * Every storage chunk within the collision ring around the camera's target
@@ -217,6 +219,20 @@ export interface EditTiming {
   startedAt?: number;
 }
 
+/**
+ * Sends a command on the project's command route. The one undo goes against the project's revision as it is now
+ * (this page shows no scene to have seen first); it answers a voxel stroke's step under `voxels` (a scene edit's
+ * undo has none, and changes nothing this page draws).
+ */
+async function postCommand(op: string, args: Record<string, unknown>, requestId: string): Promise<{ status: number; body: Record<string, unknown> }> {
+  const post = async (envelope: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> => {
+    const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ projectId, ...envelope }) });
+    return { status: r.status, body: (await r.json()) as Record<string, unknown> };
+  };
+  const expected = op === 'undo' ? { expectedRevision: Number((await post({ op: 'queryProject', args: {} })).body['revision']) } : {};
+  return post({ op, requestId, ...expected, args });
+}
+
 // The bundle is a classic script (no top-level await): everything that waits runs in main.
 /** What a swapped edit cost once the frame showing it is drawn (meshes and colliders swap in the same task). */
 async function shownTiming(streamer: Pick<VoxelStreamer, 'settle'>, t0: number, startFrame: number, seen: SwapSeen): Promise<EditTiming> {
@@ -396,7 +412,7 @@ async function main(): Promise<void> {
    * answer's box (the cells the edit, or the edit an undo takes back, can
    * change) bounds what is derived again.
    */
-  async function send(op: 'editVoxels' | 'undoVoxels' | 'writeKitTestScene', args: Record<string, unknown>): Promise<EditTiming> {
+  async function send(op: 'editVoxels' | 'undo' | 'writeKitTestScene', args: Record<string, unknown>): Promise<EditTiming> {
     const log = new Set<string>();
     derivedLogs.add(log);
     try {
@@ -406,15 +422,20 @@ async function main(): Promise<void> {
     }
   }
 
-  async function sendLogged(op: 'editVoxels' | 'undoVoxels' | 'writeKitTestScene', args: Record<string, unknown>, log: Set<string>): Promise<EditTiming> {
+  async function sendLogged(op: 'editVoxels' | 'undo' | 'writeKitTestScene', args: Record<string, unknown>, log: Set<string>): Promise<EditTiming> {
     const t0 = performance.now();
     const startFrame = frames;
-    const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ op, projectId, requestId: requestId(), args: { world: worldName, ...args } }) });
-    const body = (await r.json()) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; box: CellBox; parts: number; materialSwaps: number[]; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
+    const r = await postCommand(op, op === 'undo' ? {} : { world: worldName, ...args }, requestId());
+    const step = op === 'undo' && r.body['ok'] === true ? (r.body['voxels'] as Record<string, unknown> | undefined) : undefined;
+    if (op === 'undo' && r.body['ok'] === true && (step === undefined || step['world'] !== worldName)) {
+      notice = step === undefined ? 'undo took back a scene edit (not drawn here)' : `undo took back a stroke in world ${String(step['world'])}`;
+      return { ok: true, code: step === undefined ? 'scene' : 'other_world', answerMs: performance.now() - t0 };
+    }
+    const body = (step ?? r.body) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; box: CellBox; parts: number; materialSwaps: number[]; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
     const answerMs = performance.now() - t0;
     if (!body.ok) {
       const code = body.error?.code ?? String(r.status);
-      notice = `${op === 'undoVoxels' ? 'undo' : 'edit'} refused: ${code}`;
+      notice = `${op === 'undo' ? 'undo' : 'edit'} refused: ${code}`;
       // Someone else changed the files (a checkout, a restore): what this page holds is not the world any more.
       if (code === 'world_changed') await readWorldAgain();
       return { ok: false, code, answerMs };
@@ -454,7 +475,7 @@ async function main(): Promise<void> {
     return cell === null ? null : dab(cell, mode);
   }
 
-  const undo = (): Promise<EditTiming> => send('undoVoxels', {});
+  const undo = (): Promise<EditTiming> => send('undo', {});
   const kitScene = kitSceneHooks((args) => send('writeKitTestScene', args), document.body);
 
   // ---- frames ----

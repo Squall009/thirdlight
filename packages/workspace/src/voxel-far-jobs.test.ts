@@ -134,11 +134,7 @@ describe('a far cache built in the background', () => {
     expect(shipped.ok && shipped.farNote).toBeUndefined();
     expect(shipped.ok && shipped.far?.files.length).toBeGreaterThan(0);
     // A later edit rebuilds the landed cache's ancestors before it is answered.
-    const r2 = await worlds.command('p', {
-      op: 'undoVoxels',
-      projectId: 'p',
-      args: { world: 'w' },
-    });
+    const r2 = await worlds.step('p', 'w', 'undo', worlds.newestStroke('p', 'w')!, null);
     expect(r2.ok && r2.far).toMatchObject({ nodes: expect.any(Number) });
     const fresh2 = join(root, 'held-fresh-2');
     await buildFarCache(worldDir, fresh2);

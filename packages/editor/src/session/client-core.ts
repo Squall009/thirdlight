@@ -657,6 +657,8 @@ export class SessionClientCore extends SessionProjectState {
         break;
       case 'voxelsChanged':
         this.cb.onVoxelsChanged?.(m as unknown as VoxelsChangedPayload);
+        // A stroke, or the one undo stepping one, moves the project's undo depths without a project revision.
+        this.queueHistoryRefresh();
         break;
       case 'problems.added': {
         const p = m.problem as ProblemView | undefined;

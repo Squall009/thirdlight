@@ -369,7 +369,7 @@ with each borrowing slot's rotation, each mesh's weight and mirror, and the
 ## 7. Look at it: the kit test scene
 
 `writeKitTestScene {world, origin: [x, y, z], material}` (the editor, MCP and
-scripts alike; one undo with `undoVoxels`) builds every case from voxels in
+scripts alike; one undo) builds every case from voxels in
 one material your kit binds, each labelled: notched blocks for every edge
 and corner, a gable, a hip and an L roof, and a wall with a cell at each
 damage stage. Open it on the voxel world page with

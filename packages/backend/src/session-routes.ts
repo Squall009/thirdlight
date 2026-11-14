@@ -5,7 +5,7 @@ import type { ErosionRunner } from './erosion-runner';
 import { randomBytes } from 'node:crypto';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, isVoxelWorldOp, withBoundedAssembled, type SessionError } from '@thirdlight/protocol';
-import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
+import { type CommandError, type MutationResult, type QueryResult, type UndoTimeline, type VoxelCommandApplied, type WorkspaceService } from '@thirdlight/workspace';
 import { SessionRegistry, type SessionRecord } from './sessions';
 
 import { SESSION_LIST_MAX, newConnId, newWsToken, type OriginDoc } from './util';
@@ -36,6 +36,10 @@ export interface SessionRoutesContext {
   readonly notifyMutationApplied: (projectId: string, requestId: string, revision: number, origin: OriginDoc | null, change: unknown, sceneId?: string) => void;
   /** Applies a voxel world command (they ride the command route; the workspace applies them to the world's region files). */
   readonly voxelCommand?: (res: ServerResponse, projectId: string, envelope: Record<string, unknown>) => Promise<void>;
+  /** The project's one undo line: `undo` and `redo` step its newest step, a project entry or a voxel stroke. */
+  readonly undoTimeline: UndoTimeline;
+  /** A voxel stroke undone or redone: the editor's feed tells open views what changed. */
+  readonly voxelApplied?: (projectId: string, r: VoxelCommandApplied, origin: unknown) => void;
   /** The backend's headless editors (the owner's browser evicts them). */
   readonly headless: HeadlessEditors;
   /** The owner of a play went away (its play is stopped after the grace period). */
@@ -43,7 +47,12 @@ export interface SessionRoutesContext {
 }
 
 export function makeSessionRoutes(ctx: SessionRoutesContext) {
-  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport, textures, erosion, voxelCommand } = ctx;
+  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport, textures, erosion, voxelCommand, undoTimeline, voxelApplied } = ctx;
+  // The undo depths a client starts from are the one line's (project entries and voxel strokes).
+  const fullState: SessionRoutesContext['fullState'] = (projectId) => {
+    const st = ctx.fullState(projectId);
+    return st.ok ? { ...st, history: undoTimeline.depths(projectId) } : st;
+  };
 
   const establishSession = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const scope = tokenScope(bearerToken(req), req);
@@ -284,6 +293,10 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
         }
         if (prep !== null) extraction = prep.report;
       }
+      if (envelope.op === 'undo' || envelope.op === 'redo') {
+        await stepRoute(res, projectId, envelope.op, env, envOrigin, session);
+        return;
+      }
       const result = service.runCommand(env);
       // What was prepared for it is used once (a refused or replayed publish leaves nothing behind).
       if (envelope.op === 'publishAsset' && typeof env['requestId'] === 'string') service.preparePublish(projectId, env['requestId'], null);
@@ -311,57 +324,99 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
         return;
       }
       if (result.ok) {
-        let last = result;
-        /** Why a group's undo/redo stopped part way (null: it took the whole step). */
-        let stopped: { code: string; message: string } | null = null;
         if (result.duplicated === false) {
           notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
           if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
-          // One user action that ran several commands (a content pack added) is one undo/redo step:
-          // the rest of its group follows, each on the change feed; the answer is the last.
-          if (envelope.op === 'undo' || envelope.op === 'redo') {
-            const op = envelope.op;
-            const g0 = service.historyGroups(projectId);
-            const group = op === 'undo' ? g0.redo : g0.undo;
-            while (group !== null) {
-              const g = service.historyGroups(projectId);
-              if ((op === 'undo' ? g.undo : g.redo) !== group) break;
-              const r = service.runCommand({ op, projectId, expectedRevision: last.revision, requestId: `req-${randomBytes(16).toString('hex')}`, ...(envOrigin !== null ? { origin: envOrigin } : {}), args: {} });
-              if (!r.ok) {
-                stopped = { code: r.error.code, message: `${op} stopped part way through the step: ${r.error.message ?? r.error.code}` };
-                recordProblem(projectId, 'command', r.error.code, stopped.message);
-                break;
-              }
-              notifyMutationApplied(projectId, r.requestId, r.revision, envOrigin, r.change, (r as { sceneId?: string }).sceneId);
-              if (session) sessions.record(session, 'command', r.requestId, r.revision, nowMs());
-              last = r;
-            }
-          }
         }
-        // What ran is applied (the revision moved), so the answer stays a success; `groupIncomplete` says the step
-        // was not taken whole, and the editor shows it.
         // The result names the assembled objects a big prefab edit changed only up to a bound; the WS feed carries them all.
-        sendJson(res, 200, withBoundedAssembled(stopped !== null ? { ...last, groupIncomplete: stopped } : last));
+        sendJson(res, 200, withBoundedAssembled(result));
         return;
       }
-      // The response is exactly the commands.md result — pass the
-      // raw commands.md error through (it carries `currentRevision` etc.;
-      // a SessionError re-wrap would drop those fields).
-      if (result.error.code !== 'no_change') {
-        recordProblem(projectId, 'command', result.error.code, `${envelope.op}: ${result.error.message ?? result.error.code}`);
-      }
-      sendJson(res, statusFor(result.error.cls), { ok: false, error: result.error });
+      sendRefusal(res, projectId, envelope.op, result);
       return;
     }
     // Query envelope: served by the workspace query path (read-only).
     const qres = service.query(env);
     if (qres.ok) {
-      sendJson(res, 200, qres);
+      // The project's undo depths are the one line's (project entries and voxel strokes).
+      const history = env.op === 'queryProject' && 'history' in qres ? { history: undoTimeline.depths(projectId) } : {};
+      sendJson(res, 200, { ...qres, ...history });
       return;
     }
     sendJson(res, statusFor(qres.error.cls), { ok: false, error: qres.error });
   };
 
+
+  /**
+   * The raw commands.md refusal passed through as it is (it carries `currentRevision` etc.; a SessionError re-wrap
+   * would drop those fields).
+   */
+  const sendRefusal = (res: ServerResponse, projectId: string, op: string, result: Extract<MutationResult, { ok: false }>, extra?: Record<string, unknown>): void => {
+    if (result.error.code !== 'no_change') recordProblem(projectId, 'command', result.error.code, `${op}: ${result.error.message ?? result.error.code}`);
+    sendJson(res, statusFor(result.error.cls), { ok: false, error: result.error, ...extra });
+  };
+
+  /**
+   * `undo` / `redo`: the project's one line steps its newest step (or next undone one), a project entry through the
+   * project pipeline or a voxel stroke through its world. A step whose store no longer holds it is skipped and named
+   * (`skipped`, and on the problems list). A stroke's answer is `{ ok, op, requestId, revision (the project's,
+   * unchanged), duplicated, voxels: the world's answer }`; a project step's is the pipeline's result as before.
+   */
+  const stepRoute = async (res: ServerResponse, projectId: string, op: 'undo' | 'redo', env: Record<string, unknown>, envOrigin: OriginDoc | null, session: SessionRecord | undefined): Promise<void> => {
+    const step = await undoTimeline.step(projectId, op, env);
+    const extra = step.skipped.length > 0 ? { skipped: step.skipped } : {};
+    if (step.skipped.length > 0) recordProblem(projectId, 'command', 'undo_skipped', `${op} skipped ${step.skipped.length} step${step.skipped.length === 1 ? '' : 's'} no longer held: ${step.skipped.map((k) => k.reason).join('; ')}`.slice(0, 1024));
+    if (step.kind === 'refused') {
+      recordProblem(projectId, 'command', step.error.code, `${op}: ${step.error.message}`);
+      sendJson(res, statusFor(step.error.cls), { ok: false, error: step.error, ...extra });
+      return;
+    }
+    if (step.kind === 'voxel') {
+      const r = step.result;
+      if (!r.ok) {
+        recordProblem(projectId, 'command', r.error.code, `${op}: ${r.error.message}`);
+        sendJson(res, statusFor(r.error.cls), { ok: false, error: r.error, ...extra });
+        return;
+      }
+      sendJson(res, 200, { ok: true, op, requestId: r.requestId, revision: step.revision, duplicated: r.duplicated, voxels: r, ...extra });
+      if (!r.duplicated) voxelApplied?.(projectId, r, envOrigin);
+      return;
+    }
+    const result = step.result;
+    if (!result.ok) {
+      sendRefusal(res, projectId, op, result, extra);
+      return;
+    }
+    let last = result;
+    /** Why a group's undo/redo stopped part way (null: it took the whole step). */
+    let stopped: { code: string; message: string } | null = null;
+    if (result.duplicated === false) {
+      notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
+      if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
+      // One user action that ran several commands (a content pack added) is one undo/redo step:
+      // the rest of its group follows, each on the change feed; the answer is the last.
+      const g0 = service.historyGroups(projectId);
+      const group = op === 'undo' ? g0.redo : g0.undo;
+      while (group !== null) {
+        const g = service.historyGroups(projectId);
+        if ((op === 'undo' ? g.undo : g.redo) !== group || undoTimeline.next(projectId, op) !== 'project') break;
+        const s = await undoTimeline.step(projectId, op, { op, projectId, expectedRevision: last.revision, requestId: `req-${randomBytes(16).toString('hex')}`, ...(envOrigin !== null ? { origin: envOrigin } : {}), args: {} });
+        const r = s.kind === 'project' ? s.result : null;
+        if (r === null || !r.ok) {
+          const why = r === null ? 'a step of another kind came first' : (r.error.message ?? r.error.code);
+          stopped = { code: r === null ? 'history_moved' : r.error.code, message: `${op} stopped part way through the step: ${why}` };
+          recordProblem(projectId, 'command', stopped.code, stopped.message);
+          break;
+        }
+        notifyMutationApplied(projectId, r.requestId, r.revision, envOrigin, r.change, (r as { sceneId?: string }).sceneId);
+        if (session) sessions.record(session, 'command', r.requestId, r.revision, nowMs());
+        last = r;
+      }
+    }
+    // What ran is applied (the revision moved), so the answer stays a success; `groupIncomplete` says the step
+    // was not taken whole, and the editor shows it.
+    sendJson(res, 200, withBoundedAssembled({ ...(stopped !== null ? { ...last, groupIncomplete: stopped } : last), ...extra }));
+  };
 
   return { establishSession, listSessions, sessionLog, commandRoute };
 }

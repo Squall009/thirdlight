@@ -29,8 +29,10 @@ page in the same commit.
 - **Derived data is never stored**: meshes, collision, navigation, light coverage, occupancy, detail pieces are
   rebuilt in workers from voxels. The one stored derivative is the **far cache** (levels 2 and up of the mips,
   and baked bricks down to the world's bake level).
-- **Edits** go through `editVoxels` strokes (set, dig, add, brush, fill, stamp) and are undone by the voxel
-  undo store; one user-facing undo for scene and voxels is 46f's.
+- **Edits** go through `editVoxels` strokes (set, dig, add, brush, fill, stamp). The project's one `undo` /
+  `redo` steps scene edits and strokes on one line in the order they were made (workspace `undo-timeline.ts`,
+  in the backend, per project); a stroke's undo and redo write back the records its world's undo store keeps
+  (redo exact, the same byte budget); a stroke whose world dropped it is skipped and named.
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
   water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); `liquid` is
   excluded by scattered checks, not one predicate; a liquid edit re-derives mesh, collision, navigation and

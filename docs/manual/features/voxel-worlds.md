@@ -385,23 +385,26 @@ Limits today:
   open scenes, streamed round the point the view orbits (no colliders in
   the editor). Adding the component shows the world and deleting the
   object removes it at once, with no reload.
-- **Edits show without a reload:** every applied `editVoxels` or
-  `undoVoxels` (from any client, or an AI agent) reaches the open editor,
-  and the Scene view rebuilds the chunks it changed.
+- **Edits show without a reload:** every applied `editVoxels`, and every
+  undo or redo of one (from any client, or an AI agent), reaches the open
+  editor, and the Scene view rebuilds the chunks it changed.
+- **Edit → Undo / Redo** (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) take voxel strokes
+  back and apply them again in turn with the scene's edits (below).
 - The editor has no voxel brush yet (brushes and role painting come
   later). Edits are sent by the voxel world page or over the API (below).
 - **The voxel world page**, `/voxel-world.html?project=<id>&world=<name>`
   (optionally `&at=x,y,z`, `&renderer=webgl2`), opens one world on its own:
   drag to orbit, wheel to zoom, W A S D to move; a click digs a 1 m ball,
   shift-click adds one of the material picked bottom left (the picker lists
-  the project's voxel materials only; with none it adds voxel id 2), Z
-  undoes the newest edit. It sends the same commands as any client and
+  the project's voxel materials only; with none it adds voxel id 2), Z is
+  the project's one undo (it takes back the project's newest edit: a scene
+  edit taken back shows nothing on this page). It sends the same commands as any client and
   never writes a file itself. It reads the material records again when the
   window gets the focus back.
 
-## Edits: `editVoxels` and `undoVoxels`
+## Edits: `editVoxels`
 
-A world's files change through two command ops, which the editor's pages
+A world's files change through command ops, which the editor's pages
 and MCP (`tl_command`) send alike:
 
 - [`editVoxels`](../reference/ops-detail.md#op-editVoxels)
@@ -411,12 +414,12 @@ and MCP (`tl_command`) send alike:
   `dig`). The command format:
   [`VoxelEditCommand`](../reference/types-s-w.md#type-voxel-edit-command).
   **Positions here are cells (0.5 m), not metres.**
-- [`undoVoxels`](../reference/ops-detail.md#op-undoVoxels) `{world}` takes
-  back the world's newest edit.
+- `writeKitTestScene` (below) writes the kit test scene as one stroke.
 
 An answer gives the world's new `revision`, the `cells` changed, the
 changed `chunks`, the `box` of cells it can have touched, the rewritten
-region files and how many edits can still be undone (`undoable`); the
+region files, how many of the world's edits can be undone and redone
+(`undoable`, `redoable`) and the `stroke` it made; the
 connected editor gets the same as a `voxelsChanged` event. Over MCP, a dig
 of a 1 m ball at cell (0, 4, 0):
 
@@ -426,14 +429,52 @@ of a 1 m ball at cell (0, 4, 0):
    "points": [0, 4, 0], "mode": "dig", "smooth": false}}}
 ```
 
-- **Not the project's history.** A world keeps its own revision and its
-  own undo in the backend: the ops take no `expectedRevision`, and the
-  project's `undo` does not take a voxel edit back.
+- **The world's revision.** A world keeps its own revision, apart from
+  the project's: `expectedRevision` is optional on a voxel op, and when
+  given it is the world's (a stale one is refused with `revision_conflict`
+  and the world's `currentRevision`, as a project op is).
 - **Refusals:** `no_change` (the stroke changed no cell), `outside_world`
   (it reaches past the world's bounds), `over_budget` (one stroke too large
-  to undo, about 64 MiB of undo), `nothing_to_undo`, `world_not_found`,
+  to undo, about 64 MiB of undo), `revision_conflict`, `world_not_found`,
   and `invalid_args` naming the bad field. A request id sent again answers
   once and applies nothing.
+
+## One undo for scene and voxels
+
+The project has one undo line: every scene edit and every voxel stroke, in
+the order they were made. `undo` and `redo` (Edit → Undo / Redo, Ctrl+Z,
+Ctrl+Shift+Z or Ctrl+Y in the editor; `tl_command` `undo` / `redo` with the
+project's `expectedRevision` over MCP) step its newest edit, whichever kind
+it is: move an object, dig, move it again, and three undos take back the
+second move, the dig and the first move; three redos do them again in
+order.
+
+- **Redo is exact.** An undo keeps the voxels it took away; a redo writes
+  those back (no brush is run again). A stroke's undo and redo are each a
+  new revision of the world and rebuild what an edit would (meshes,
+  collision, far cache).
+- **A new edit of either kind ends the redo of both** (one line, the usual
+  rule).
+- **The answer** of a stroke's step is `{ok, op, revision (the project's,
+  unchanged), voxels: the world's answer}`; a scene step answers as before.
+- **Whose line.** The line is the backend's, for the project, shared by
+  every client (the editor, other tabs, MCP agents), as the project
+  history always was; a reconnecting editor reads its depths. It lives in
+  the backend process: after a backend restart nothing is undoable, as
+  before. An undo pressed before the editor has seen another client's
+  scene edit is refused; another client's stroke does not move the
+  project's revision, so it is undone like your own.
+- **Strokes that are gone are skipped, never a wall.** A world whose files
+  changed on disk (a checkout: it is read again and its undo records
+  dropped), a world closed with its project or deleted, or a stroke whose
+  record is lost, no longer holds its strokes: the next undo leaves them
+  out, says so (`skipped`, each with the reason; the editor's status bar and
+  the Problems list show it) and steps the next edit. A project history
+  started afresh (an external change taken in) keeps the strokes on the
+  line.
+- **Memory.** Undo and redo records share the world's undo budget (64 MiB
+  in memory per open world, the rest spilled to the project's cache
+  folder); no count of steps.
 - Edits made this way change the authored world; a running game's changes
   never reach the files.
 
@@ -673,7 +714,7 @@ kits with a trim layout: one naming the example layout `detail-trim` (marked
 kit's layout)" and checked against its own regions).
 
 **Kit test scene.** `writeKitTestScene {world, origin [x, y, z], material}`
-(the editor, MCP and scripts alike; one undo with `undoVoxels`) empties a
+(the editor, MCP and scripts alike; one undo) empties a
 box at `origin` and builds every case of the case list there from voxels,
 all in `material`: a fixed sampler (a notched block for every edge and
 corner case, a gable, a hip and an L-plan roof for the roof edges, a wall

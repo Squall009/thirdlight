@@ -356,6 +356,11 @@ export interface WorkspaceService {
   /** The history groups of the entries undo and redo would take next. */
   historyGroups(projectId: string): { undo: number | null; redo: number | null };
 
+  /** The open project's history entries' request ids, in order, its cursor and revision (null: not open). */
+  undoHistory(projectId: string): { revision: number; requestIds: readonly string[]; cursor: number } | null;
+  /** Drops the project history's redo tail (an edit of another kind came after the undos). */
+  dropRedoTail(projectId: string): void;
+
   /**
    * Bounded queries — no mutation lock; served from
    * the last acknowledged in-memory state (never a partial state; while

@@ -277,7 +277,7 @@ describe('the far cache', () => {
     expect(after).toEqual(filesOf(fresh));
     // Undone, then done again: the redo's cells are the edit's, so every brick comes from the rebuilt store by its
     // content key (a store opened afresh, as on the next load), none is built.
-    const undo = await worlds.command('p', { op: 'undoVoxels', projectId: 'p', args: { world: 'far' } });
+    const undo = await worlds.step('p', 'far', 'undo', worlds.newestStroke('p', 'far')!, null);
     expect(undo.ok).toBe(true);
     const back = rebuildFarCache(editedWorld, cache, chunks);
     expect(back.bricks!.built).toBeGreaterThan(0);

@@ -225,4 +225,4 @@ call them from a TypeScript script.
   arrived at this step's start; read them every step.
 - **Edits in the editor are different:** `editVoxels` changes the world's
   files and takes cells, not metres
-  ([edits](../features/voxel-worlds.md#edits-editvoxels-and-undovoxels)).
+  ([edits](../features/voxel-worlds.md#edits-editvoxels)).

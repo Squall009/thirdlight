@@ -1,8 +1,9 @@
 /**
  * A project's voxel worlds over HTTP: the world's manifest and region files
  * (GET), each region file read by byte range, and the voxel world commands
- * the command route hands over (`editVoxels`, `undoVoxels`), applied by the
- * workspace. Clients never write files; they read ranges and re-read the
+ * the command route hands over (`editVoxels`, `writeKitTestScene`), applied
+ * by the workspace through the project's undo timeline (the project's `undo`
+ * and `redo` step strokes too: session-routes.ts). Clients never write files; they read ranges and re-read the
  * chunks a command answers changed.
  *
  * Region files are served with their entity tag (the hash of the bytes the
@@ -23,7 +24,7 @@
 import { closeSync, createReadStream, fstatSync, openSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { parseStrictJsonBytes, sessionError, statusFor, type SessionError, type VoxelsChangedPayload } from '@thirdlight/protocol';
-import type { VoxelWorlds } from '@thirdlight/workspace';
+import type { VoxelCommandApplied, VoxelCommandResult, VoxelWorlds } from '@thirdlight/workspace';
 
 import type { Problem } from './backend';
 import { readBody } from './http';
@@ -36,6 +37,8 @@ export interface VoxelRoutesContext {
   readonly recordProblem: (projectId: string, source: Problem['source'], code: string, message: string) => void;
   /** A command applied (not an answer repeated for a request id seen before): the editor's feed tells open views. */
   readonly onApplied?: (projectId: string, change: VoxelsChangedPayload) => void;
+  /** Applies a voxel command (the project's undo timeline, which records the stroke; default the worlds themselves). */
+  readonly run?: (projectId: string, envelope: Record<string, unknown>) => Promise<VoxelCommandResult>;
 }
 
 /** The single byte range a `Range` header asks for, against a file of `size` bytes. */
@@ -63,6 +66,12 @@ function originOf(v: unknown): VoxelsChangedPayload['origin'] {
 
 export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
   const { worlds, requireAuth, sendJson, sendError, recordProblem, onApplied } = ctx;
+  const run = ctx.run ?? ((projectId: string, envelope: Record<string, unknown>) => worlds.command(projectId, envelope));
+
+  /** Tells the editor's feed what a voxel change (a stroke, or the project's undo or redo of one) changed. */
+  const applied = (projectId: string, r: VoxelCommandApplied, origin: unknown): void => {
+    onApplied?.(projectId, { op: r.op, world: r.world, revision: r.revision, chunks: r.chunks, box: r.box, parts: r.parts, materialSwaps: r.materialSwaps, files: r.files, requestId: r.requestId, origin: originOf(origin) });
+  };
 
   /** The manifest and the region files with their tags (the caller checked who may read them). */
   const sendInfo = async (res: ServerResponse, projectId: string, world: string): Promise<void> => {
@@ -173,15 +182,15 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
 
   /** A voxel world command from the command route (envelope already parsed as strict JSON). */
   const command = async (res: ServerResponse, projectId: string, envelope: Record<string, unknown>): Promise<void> => {
-    const r = await worlds.command(projectId, envelope);
+    const r = await run(projectId, envelope);
     if (r.ok) {
       sendJson(res, 200, r);
-      if (!r.duplicated) onApplied?.(projectId, { op: r.op, world: r.world, revision: r.revision, chunks: r.chunks, box: r.box, parts: r.parts, materialSwaps: r.materialSwaps, files: r.files, requestId: r.requestId, origin: originOf(envelope.origin) });
+      if (!r.duplicated) applied(projectId, r, envelope.origin);
       return;
     }
     if (r.error.code !== 'no_change') recordProblem(projectId, 'command', r.error.code, `${String(envelope.op)}: ${r.error.message}`);
     sendJson(res, statusFor(r.error.cls), r);
   };
 
-  return { info, region, farInfo, farRegion, farBake, command, reads: { info: sendInfo, region: sendRegion, farInfo: sendFarInfo, farFile: sendFarFile } };
+  return { info, region, farInfo, farRegion, farBake, command, applied, reads: { info: sendInfo, region: sendRegion, farInfo: sendFarInfo, farFile: sendFarFile } };
 }

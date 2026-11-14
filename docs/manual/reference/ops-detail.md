@@ -504,7 +504,7 @@ interface EditTerrainArgs {
 <a id="op-editVoxels"></a>
 ## editVoxels
 
-A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` (its files under `voxels/<world>/`), not the project, so it takes no `expectedRevision` and the project's `undo` does not take it back (`undoVoxels` does). It answers the world's new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; the connected editor gets the same as a `voxelsChanged` event. A stroke that changes no voxel is refused with `no_change`.
+A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` (its files under `voxels/<world>/`), not the project: its optional `expectedRevision` is the world's revision (a stale one is refused with `revision_conflict`), and the project's one `undo` / `redo` take it back and apply it again in order with the scene edits. It answers the world's new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; the connected editor gets the same as a `voxelsChanged` event. A stroke that changes no voxel is refused with `no_change`.
 
 Arguments (`args`):
 
@@ -1357,17 +1357,6 @@ interface EmptyArgs {
 }
 ```
 
-<a id="op-undoVoxels"></a>
-## undoVoxels
-
-A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` (its files under `voxels/<world>/`), not the project, so it takes no `expectedRevision` and the project's `undo` does not take it back (`undoVoxels` does). It answers the world's new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; the connected editor gets the same as a `voxelsChanged` event. It takes back the world's newest edit still in this backend's undo history; with none left it is refused with `nothing_to_undo`.
-
-Arguments (`args`):
-
-```ts
-{ world: string }
-```
-
 <a id="op-unpackPrefab"></a>
 ## unpackPrefab
 
@@ -1424,7 +1413,7 @@ interface UpdatePrefabArgs {
 <a id="op-writeKitTestScene"></a>
 ## writeKitTestScene
 
-A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` (its files under `voxels/<world>/`), not the project, so it takes no `expectedRevision` and the project's `undo` does not take it back (`undoVoxels` does). It answers the world's new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; the connected editor gets the same as a `voxelsChanged` event. A scene written over the same scene changes no voxel and is refused with `no_change`.
+A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` (its files under `voxels/<world>/`), not the project: its optional `expectedRevision` is the world's revision (a stale one is refused with `revision_conflict`), and the project's one `undo` / `redo` take it back and apply it again in order with the scene edits. It answers the world's new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; the connected editor gets the same as a `voxelsChanged` event. A scene written over the same scene changes no voxel and is refused with `no_change`.
 
 Arguments (`args`):
 

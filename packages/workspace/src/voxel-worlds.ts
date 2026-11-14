@@ -11,9 +11,12 @@
  * empty sky.
  *
  * Edits arrive as commands (`editVoxels`: one stroke command, the same
- * format and the same deterministic apply as everywhere else;
- * `undoVoxels`: the newest edit's undo record written back as a new
- * change). Each command is applied to the world in memory, then its dirty
+ * format and the same deterministic apply as everywhere else). A world's
+ * edits are taken back and applied again by {@link VoxelWorlds.step}: an
+ * undo writes back the record of what its stroke changed and keeps what it
+ * found as the redo record; a redo writes that back (the exact voxels the
+ * undo took away, no brush run again). The project's one undo
+ * (undo-timeline.ts) decides which world's stroke is next. Each command is applied to the world in memory, then its dirty
  * region files and the next revision of the manifest are written as one
  * staged change: every file is written beside its target first, and only
  * when all are on disk are they renamed into place, the manifest last. A
@@ -104,11 +107,6 @@ export type VoxelWorldOpArgs =
       args: { world: string; command: VoxelEditCommand };
     }
   | {
-      op: 'undoVoxels';
-      /** Takes back the world's newest edit still in this backend's undo history. */
-      args: { world: string };
-    }
-  | {
       op: 'writeKitTestScene';
       /**
        * Writes the kit test scene (@thirdlight/voxel `kitTestScene`: every
@@ -116,7 +114,7 @@ export type VoxelWorldOpArgs =
        * a column a case) into the box from `origin` (world cells, its lowest
        * corner), emptying the box first; every built cell in `material` (a
        * kit's bound material, so the kit's pieces draw). One change: one
-       * `undoVoxels` takes it back. The answer's `scene` labels each
+       * `undo` takes it back. The answer's `scene` labels each
        * exhibit's centre with its role, case and run section.
        */
       args: { world: string; origin: [number, number, number]; material: number };
@@ -124,6 +122,8 @@ export type VoxelWorldOpArgs =
 
 /** Answers kept per world for request ids sent again. */
 const ANSWERS_KEPT = 256;
+/** Refusals of a step that mean the world no longer holds its strokes. */
+const STROKES_LOST = new Set(['world_changed', 'world_not_found', 'world_unreadable', 'project_not_found']);
 
 /** The folder of a grid's region files inside a world's folder. */
 export function gridFolder(gridId: number): string {
@@ -234,6 +234,9 @@ export interface VoxelWorldError {
   readonly cls: 'validation' | 'conflict' | 'not_found' | 'internal';
   readonly message: string;
   readonly path?: string;
+  /** `revision_conflict`: the revision the command expected and the world's. */
+  readonly expectedRevision?: number;
+  readonly currentRevision?: number;
 }
 
 /** A world's manifest and its listed region files with their tags (null: listed, but missing or unreadable). */
@@ -293,7 +296,8 @@ async function waitAtMost(p: Promise<unknown>, ms: number): Promise<void> {
 /** What an applied voxel command answers. */
 export interface VoxelCommandApplied {
   readonly ok: true;
-  readonly op: VoxelWorldOp;
+  /** The op applied: a forward op, or `undo` / `redo` of one of the world's strokes ({@link VoxelWorlds.step}). */
+  readonly op: VoxelWorldOp | VoxelStepDirection;
   readonly requestId: string | null;
   readonly world: string;
   /** The world's revision after the change. */
@@ -331,6 +335,10 @@ export interface VoxelCommandApplied {
   readonly files: ReadonlyArray<{ readonly name: string; readonly etag: string | null }>;
   /** Edits that can still be undone. */
   readonly undoable: number;
+  /** Edits undone that can be applied again. */
+  readonly redoable: number;
+  /** The stroke the command made (a forward op) or took back or applied again (a step): what the project's undo timeline names. */
+  readonly stroke: number;
   /** True when this answers a request id seen before (nothing was applied again). */
   readonly duplicated: boolean;
   /** Milliseconds: the apply, and the region and manifest writes. */
@@ -341,8 +349,16 @@ export interface VoxelCommandApplied {
 
 export type VoxelCommandResult = VoxelCommandApplied | { ok: false; error: VoxelWorldError };
 
-/** One edit in a world's history: its undo record's id, the cells it changed, the box it could change and the derived parts it made stale. */
+/** Which way {@link VoxelWorlds.step} goes: take a stroke back, or apply an undone one again. */
+export type VoxelStepDirection = 'undo' | 'redo';
+
+/**
+ * One edit in a world's history: its stroke (an id unique in this process, kept through undo and redo), the id of
+ * the record that steps it (undo: what it changed, as it was before; redo: what the undo found), the cells it
+ * changed, the box it could change and the derived parts it made stale.
+ */
 interface HistoryEntry {
+  readonly stroke: number;
   readonly id: number;
   readonly cells: number;
   readonly box: Readonly<CellBox>;
@@ -358,6 +374,8 @@ interface WorldState {
   world: RegionWorld;
   undo: UndoStore;
   history: HistoryEntry[];
+  /** Strokes undone, newest last: a redo applies the last again; a new edit drops them all. */
+  redo: HistoryEntry[];
   /**
    * File stamps (inode, size, change times) of the manifest and every listed
    * region file, by path ('absent' for a missing one): a file whose stamp
@@ -459,6 +477,8 @@ export class VoxelWorlds {
   /** Per project, the bake level each world its scenes name asks, as last seen ({@link scenesChanged}). */
   private readonly bakeAsked = new Map<string, Map<string, number>>();
   private readonly farJobs: FarCacheJobs;
+  /** The next stroke id: unique in this process, so a stroke named after its world was read again is never another's. */
+  private nextStroke = 1;
 
   constructor(private readonly opts: VoxelWorldsOptions) {
     this.farJobs = opts.farJobs ?? inProcessFarJobs();
@@ -517,7 +537,7 @@ export class VoxelWorlds {
     const spillDir = join(projectDir, 'cache', 'voxel-undo', name);
     rmSync(spillDir, { recursive: true, force: true });
     mkdirSync(spillDir, { recursive: true });
-    return { manifest, manifestHash, world, undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], stamps };
+    return { manifest, manifestHash, world, undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], redo: [], stamps };
   }
 
   /**
@@ -928,8 +948,9 @@ export class VoxelWorlds {
 
   /**
    * Applies a voxel command envelope (`op`, `projectId`, optional
-   * `requestId` and `origin`, `args`: `{ world, command }` for an edit, `{ world }` for
-   * an undo). A command that changes nothing is refused with `no_change`.
+   * `requestId`, `origin` and `expectedRevision`, `args`: `{ world, command }` for an edit). A command that changes
+   * nothing is refused with `no_change`; one whose `expectedRevision` is not the world's revision is refused with
+   * `revision_conflict` (the world's current revision named), the way project commands are.
    */
   async command(projectId: string, envelope: Record<string, unknown>): Promise<VoxelCommandResult> {
     const op = envelope.op;
@@ -941,16 +962,65 @@ export class VoxelWorlds {
       const origin = parseOrigin(envelope.origin);
       if (!origin.ok) return refuse('invalid_request', 'validation', origin.error.message, origin.error.path ?? '/origin');
     }
+    const expected = envelope.expectedRevision;
+    if (expected !== undefined && (typeof expected !== 'number' || !Number.isSafeInteger(expected) || expected < 0)) return refuse('invalid_request', 'validation', "expectedRevision is the world's revision (a whole number ≥ 0)", '/expectedRevision');
     const args = envelope.args;
     if (typeof args !== 'object' || args === null || Array.isArray(args)) return refuse('invalid_request', 'validation', 'args must be an object', '/args');
     const a = args as Record<string, unknown>;
-    const allowed = op === 'editVoxels' ? ['world', 'command'] : op === 'writeKitTestScene' ? ['world', 'origin', 'material'] : ['world'];
+    const allowed = op === 'editVoxels' ? ['world', 'command'] : ['world', 'origin', 'material'];
     const extra = Object.keys(a).find((k) => !allowed.includes(k));
     if (extra !== undefined) return refuse('invalid_request', 'validation', `unknown field ${extra}`, `/args/${extra}`);
     if (typeof a.world !== 'string') return refuse('invalid_request', 'validation', 'args.world names the voxel world', '/args/world');
     const w = await this.load(projectId, a.world);
     if ('ok' in w) return w;
-    return this.queued(w, () => this.apply(w, op, a, rid ?? null));
+    return this.queued(w, () => this.apply(w, op, a, rid ?? null, expected as number | undefined));
+  }
+
+  /**
+   * Takes back (`undo`) or applies again (`redo`) one of a world's strokes: `stroke` must be the newest of the
+   * world's undoable strokes (undo) or of its undone ones (redo); anything else, or a stroke whose record is lost,
+   * is refused `history_gone` (the world was read again, closed or deleted since, or the stroke was stepped by
+   * someone else), so a caller holding an order of strokes can skip it. Derived data follows as for an edit: the
+   * answer names the stroke's chunks, box, parts and material changes.
+   */
+  async step(projectId: string, world: string, direction: VoxelStepDirection, stroke: number, requestId: string | null): Promise<VoxelCommandResult> {
+    const w = await this.load(projectId, world);
+    const r = 'ok' in w ? w : await this.queued(w, () => this.apply(w, direction, {}, requestId, undefined, stroke));
+    // A world deleted, unreadable or changed on disk (read again: its history cleared) holds none of its strokes now.
+    if (!r.ok && STROKES_LOST.has(r.error.code)) return refuse('history_gone', 'conflict', `stroke ${stroke} of voxel world ${world} cannot be ${direction === 'undo' ? 'undone' : 'redone'}: ${r.error.message}`);
+    return r;
+  }
+
+  /**
+   * Where a stroke stands in a world this process has open: `undo` while it can be undone, `redo` while it is undone
+   * and can be applied again, null when the world holds it no longer (read again, closed, or never). Read without
+   * waiting for the world's queue: a step under way may have taken it off one stack and not put it on the other yet.
+   */
+  strokeSide(projectId: string, world: string, stroke: number): VoxelStepDirection | null {
+    const w = this.openNow(projectId, world);
+    if (w === null) return null;
+    if (w.history.some((e) => e.stroke === stroke)) return 'undo';
+    return w.redo.some((e) => e.stroke === stroke) ? 'redo' : null;
+  }
+
+  /** The stroke a step of a world this process has open would take next: its newest undoable one, or the last undone (null: none, or not open). */
+  newestStroke(projectId: string, world: string, side: VoxelStepDirection = 'undo'): number | null {
+    const w = this.openNow(projectId, world);
+    return (side === 'undo' ? w?.history : w?.redo)?.at(-1)?.stroke ?? null;
+  }
+
+  /** Drops a world's undone strokes (a new edit elsewhere in the project's one timeline ends their redo). */
+  clearRedo(projectId: string, world: string): Promise<void> {
+    const w = this.openNow(projectId, world);
+    if (w === null) return Promise.resolve();
+    return this.queued(w, async () => {
+      for (const e of w.redo.splice(0)) await w.undo.drop(e.id);
+    });
+  }
+
+  private openNow(projectId: string, world: string): OpenWorld | null {
+    const p = this.open.get(`${projectId}\u0000${world}`);
+    return p === undefined ? null : (this.known.get(p) ?? null);
   }
 
   /** The refusal of a command that met files someone else changed: the world is read again first. */
@@ -959,7 +1029,7 @@ export class VoxelWorlds {
     return refuse('world_changed', 'conflict', `voxel world ${w.name} changed on disk outside this backend (${shown}); reloaded at revision ${w.manifest.revision}, undo history cleared: read the world again, then send the edit again`);
   }
 
-  private async apply(w: OpenWorld, op: VoxelWorldOp, a: Record<string, unknown>, requestId: string | null): Promise<VoxelCommandResult> {
+  private async apply(w: OpenWorld, op: VoxelWorldOp | VoxelStepDirection, a: Record<string, unknown>, requestId: string | null, expectedRevision?: number, stroke?: number): Promise<VoxelCommandResult> {
     if (requestId !== null) {
       const seen = w.answers.get(requestId);
       if (seen !== undefined) return { ...seen, duplicated: true };
@@ -967,16 +1037,23 @@ export class VoxelWorlds {
     const fresh = await this.refresh(w);
     if (!Array.isArray(fresh)) return fresh;
     if (fresh.length > 0) return this.changedRefusal(w, fresh);
+    if (expectedRevision !== undefined && expectedRevision !== w.manifest.revision) {
+      return { ok: false, error: { code: 'revision_conflict', cls: 'conflict', message: `voxel world ${w.name} is at revision ${w.manifest.revision}, not ${expectedRevision}: read the world again, then send the edit again`, expectedRevision, currentRevision: w.manifest.revision } };
+    }
     const t0 = performance.now();
     let record: readonly ChunkUndo[];
     let cells: number;
     let box: Readonly<CellBox>;
     let parts: number;
     let materialSwaps: readonly number[];
-    let undone: HistoryEntry | null = null;
+    /** The stroke a step takes from one stack to the other (null: a forward op). */
+    let stepped: HistoryEntry | null = null;
     let scene: VoxelCommandApplied['scene'];
-    /** The undone chunks as the undo found them: written back if the undo cannot be saved. */
-    let redo: ChunkUndo[] = [];
+    /** A step's chunks as it found them: the other way's record, and written back if the step cannot be saved. */
+    let inverse: ChunkUndo[] = [];
+    const isStep = op === 'undo' || op === 'redo';
+    const from = op === 'undo' ? w.history : w.redo;
+    const to = op === 'undo' ? w.redo : w.history;
     if (op === 'editVoxels') {
       try {
         const cmd = canonicalEditCommand(a.command);
@@ -999,18 +1076,24 @@ export class VoxelWorlds {
       ({ record, cells, box, parts, materialSwaps } = made);
       scene = made.scene;
     } else {
-      undone = w.history.pop() ?? null;
-      if (undone === null) return refuse('nothing_to_undo', 'validation', `voxel world ${w.name} has no edit to undo`);
-      record = await w.undo.take(undone.id);
+      const top = from[from.length - 1];
+      if (top === undefined || top.stroke !== stroke) return refuse('history_gone', 'conflict', `voxel world ${w.name} holds no stroke ${stroke} to ${op} (the world was read again since, or the stroke was stepped by another command)`);
+      from.pop();
+      try {
+        record = await w.undo.take(top.id);
+      } catch (e) {
+        return refuse('history_gone', 'conflict', `voxel world ${w.name}: the record of stroke ${stroke} is lost (${e instanceof Error ? e.message : String(e)}); it cannot be ${op === 'undo' ? 'undone' : 'redone'}`);
+      }
+      stepped = top;
       await w.world.ensure(record);
       const store = w.world.store;
-      redo = record.map((u) => ({ grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz, before: { kind: 'image', bytes: store.encodeChunk(u.cx, u.cy, u.cz) } }));
+      inverse = record.map((u) => ({ grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz, before: { kind: 'image', bytes: store.encodeChunk(u.cx, u.cy, u.cz) } }));
       w.world.undo(record);
-      cells = undone.cells;
-      box = undone.box;
-      parts = undone.parts;
-      // Undoing a change takes each cell back from the material it took to the one it left.
-      materialSwaps = undone.materialSwaps.map((sw) => materialSwap(swapTo(sw), swapFrom(sw))).sort((x, y) => x - y);
+      cells = top.cells;
+      box = top.box;
+      parts = top.parts;
+      // Undoing a change takes each cell back from the material it took to the one it left; a redo makes it again.
+      materialSwaps = op === 'undo' ? top.materialSwaps.map((sw) => materialSwap(swapTo(sw), swapFrom(sw))).sort((x, y) => x - y) : top.materialSwaps;
     }
     const t1 = performance.now();
     const saved = this.save(w);
@@ -1024,23 +1107,32 @@ export class VoxelWorlds {
     }
     if (!saved.ok && saved.kind === 'failed') {
       // Nothing was written: memory and history go back to what the files hold (the chunks stay dirty; the next save rewrites them as they are).
-      if (op !== 'undoVoxels') w.world.undo(record);
+      if (stepped === null) w.world.undo(record);
       else {
-        w.world.undo(redo);
-        w.history.push({ ...undone!, id: await w.undo.put(record) });
+        w.world.undo(inverse);
+        from.push({ ...stepped, id: await w.undo.put(record) });
       }
       return refuse('write_failed', 'internal', `voxel world ${w.name}: ${saved.why}`);
     }
     // Written in full, or in part: memory keeps the change, which the files written hold.
-    if (op !== 'undoVoxels') w.history.push({ id: await w.undo.put(record), cells, box, parts, materialSwaps });
+    let made: number;
+    if (stepped !== null) {
+      to.push({ ...stepped, id: await w.undo.put(inverse) });
+      made = stepped.stroke;
+    } else {
+      made = this.nextStroke++;
+      w.history.push({ stroke: made, id: await w.undo.put(record), cells, box, parts, materialSwaps });
+      // A new edit ends the redo of what was undone before it.
+      for (const e of w.redo.splice(0)) await w.undo.drop(e.id);
+    }
     if (!saved.ok) {
-      return refuse('write_partial', 'internal', `voxel world ${w.name}: ${saved.why}. The ${op === 'undoVoxels' ? 'undo' : 'edit'} is applied in this backend and in ${saved.written.join(', ') || 'no file'}; ${saved.notWritten.join(', ') || 'no file'} still hold${saved.notWritten.length === 1 ? 's' : ''} the state before it, rewritten by the next save that succeeds`);
+      return refuse('write_partial', 'internal', `voxel world ${w.name}: ${saved.why}. The ${isStep ? op : 'edit'} is applied in this backend and in ${saved.written.join(', ') || 'no file'}; ${saved.notWritten.join(', ') || 'no file'} still hold${saved.notWritten.length === 1 ? 's' : ''} the state before it, rewritten by the next save that succeeds`);
     }
     // A scene's record names a chunk once an edit of it: each chunk is answered once.
     const chunks = [...new Map(record.map((u) => [`${u.cx},${u.cy},${u.cz}`, [u.cx, u.cy, u.cz] as const])).values()];
     const far = await this.farAfter(w, w.manifest.revision - 1, chunks);
     const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: saved.tags.get(name) ?? w.world.files.get(name)?.hash ?? null }));
-    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, far, cells, chunks, box, parts, materialSwaps, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 }, ...(scene !== undefined ? { scene } : {}) };
+    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, far, cells, chunks, box, parts, materialSwaps, files, undoable: w.history.length, redoable: w.redo.length, stroke: made, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 }, ...(scene !== undefined ? { scene } : {}) };
     if (requestId !== null) {
       w.answers.set(requestId, answer);
       if (w.answers.size > ANSWERS_KEPT) w.answers.delete(w.answers.keys().next().value!);

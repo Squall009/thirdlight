@@ -91,7 +91,7 @@ import { expect, test, type Page } from './pw';
 import { exportedContent, serveDir, startBackend, type E2EBackend } from './backend';
 import { consoleErrors } from './console-errors';
 import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
-import { chooseItem, inspector } from './ui';
+import { chooseItem, closeMenu, inspector, menuItem } from './ui';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-sets';
@@ -1384,13 +1384,15 @@ async function sceneViewStill(page: Page, name: string): Promise<ReturnType<type
 
 interface SceneViewVoxels { worlds: Record<string, { chunks: number; triangles: number; meshBuilds: number; kitInstances: number; tableUploads: number; tableMs: number }>; replaced: number; states: Record<string, { revision: number; settled: boolean; resident: number }>; problems: Record<string, string> }
 
-test("Scene view: a voxelWorld object's world streams round the editor camera and draws; an edit and a kit slot filled through the command route show without a reload", async ({ page }) => {
-  test.setTimeout(120_000);
+test("Scene view: a voxelWorld object's world streams round the editor camera and draws; an edit and a kit slot filled through the command route show without a reload; one undo steps scene edits and the stroke in order", async ({ page }) => {
+  test.setTimeout(150_000);
   await page.setViewportSize({ width: 1280, height: 720 });
   const errors = consoleErrors(page);
   const [ox, oy, oz] = scene;
   // The object stands at the scene's centre (metres: cells × 0.5); the world's cell 0 is the world origin.
   const id = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Slice world', transform: { position: [ox / 2, oy / 2, oz / 2] } }))['createdId']);
+  // An object the editor moves for the one undo, far out of the view (its selection draws nothing there).
+  const marker = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Undo marker', transform: { position: [500, 0, 0] } }))['createdId']);
   await page.goto(editorUrlFor(be.editorUrl, 'webgpu'));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const view = page.locator('canvas.tl-viewport');
@@ -1410,15 +1412,69 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
   expect(drawn.problems).toEqual({});
   expect(drawn.worlds['slice']!.kitInstances, 'kit pieces drawn').toBeGreaterThan(5);
 
-  // A 3 m pit dug through the command route (as MCP sends it): the view reads the changed chunks again and shows it.
+  // One undo for scene and voxels: the editor moves the marker (the Inspector), a 3 m pit is dug through the command
+  // route (as MCP sends it: the editor has no voxel brush yet), the editor moves the marker again; Ctrl+Z three times
+  // takes back the move, the pit (the view reads the chunks again and draws the ground as it was) and the first move;
+  // Ctrl+Shift+Z three times does them again in order; a new edit after an undo leaves nothing to redo.
+  const markerRow = page.locator(`.tl-hierarchy__list li[data-entity-id="${marker}"]`);
+  await markerRow.click();
+  const posX = page.locator('.tl-inspector').getByLabel('position x', { exact: true });
+  const moveMarker = async (x: number): Promise<void> => {
+    await posX.fill(String(x));
+    await posX.press('Enter');
+    await expect.poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: marker } })) as { entity: { components: { transform: { position: number[] } } } }).entity.components.transform.position[0]).toBe(x);
+    // Out of the field, so the keys are the editor's (not the field's own text undo).
+    await markerRow.click();
+  };
+  const revisionOf = async (): Promise<number> => (await voxels())?.states['slice']?.revision ?? -1;
   const before = drawn.states['slice']!.revision;
+  /** The Scene view has read the world at `revision` again and drawn it. */
+  const drawnAt = async (revision: number, replaced: number, message: string): Promise<void> => {
+    await expect.poll(async () => { const v = await voxels(); return v?.states['slice']?.revision === revision && v.states['slice']!.settled && v.replaced > replaced; }, { timeout: 30_000, message }).toBe(true);
+  };
+  await moveMarker(501);
+  const clean = await sceneViewStill(page, 'scene-view-before-dig');
+  // A 3 m pit dug through the command route (as MCP sends it): the view reads the changed chunks again and shows it.
   const dig = await be.command({ op: 'editVoxels', projectId: be.projectId, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-scene-view' }, args: { world: 'slice', command: { v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [6, 6, 6], points: [ox, oy, oz], mode: 'dig', smooth: false } } });
   expect(dig['ok'], JSON.stringify(dig)).toBe(true);
   expect(Number(dig['revision'])).toBe(before + 1);
-  await expect.poll(async () => { const v = await voxels(); return v?.states['slice']?.revision === before + 1 && v.states['slice']!.settled && v.replaced > drawn.replaced; }, { timeout: 30_000, message: 'the edit is read again and drawn' }).toBe(true);
-  const dug = await sceneViewStill(page, 'scene-view-dug');
-  expect(changedPixels(world, dug)).toBeGreaterThan(500);
+  await drawnAt(before + 1, drawn.replaced, 'the edit is read again and drawn');
+  const pit = await sceneViewStill(page, 'scene-view-dug');
+  expect(changedPixels(clean, pit)).toBeGreaterThan(500);
   expect(await page.evaluate(() => (window as unknown as { __notReloaded?: boolean }).__notReloaded)).toBe(true);
+  await moveMarker(502);
+  const redoEnabled = async (): Promise<boolean> => (await menuItem(page, 'Edit', 'Redo')).isEnabled().finally(() => closeMenu(page));
+
+  await page.keyboard.press('Control+z');
+  await expect(posX).toHaveValue('501');
+  expect(await revisionOf()).toBe(before + 1);
+  let replaced = (await voxels())!.replaced;
+  await page.keyboard.press('Control+z');
+  await drawnAt(before + 2, replaced, 'the undone stroke is read again and drawn');
+  const undone = await sceneViewStill(page, 'scene-view-undone');
+  expect(changedPixels(clean, undone), 'the ground as before the dig').toBeLessThan(50);
+  await expect(posX).toHaveValue('501');
+  await page.keyboard.press('Control+z');
+  await expect(posX).toHaveValue('500');
+  expect(await revisionOf()).toBe(before + 2);
+
+  await page.keyboard.press('Control+Shift+z');
+  await expect(posX).toHaveValue('501');
+  replaced = (await voxels())!.replaced;
+  await page.keyboard.press('Control+Shift+z');
+  await drawnAt(before + 3, replaced, 'the redone stroke is read again and drawn');
+  const dug = await sceneViewStill(page, 'scene-view-redone');
+  expect(changedPixels(pit, dug), 'the pit as dug').toBeLessThan(50);
+  await page.keyboard.press('Control+Shift+z');
+  await expect(posX).toHaveValue('502');
+  expect(await redoEnabled()).toBe(false);
+  // Undo once (the move), then a new move: nothing is left to redo.
+  await page.keyboard.press('Control+z');
+  await expect(posX).toHaveValue('501');
+  await expect.poll(redoEnabled, { message: 'Redo enabled after an undo' }).toBe(true);
+  await moveMarker(503);
+  await expect.poll(redoEnabled, { message: 'a new edit ends the redo' }).toBe(false);
+  expect(await revisionOf()).toBe(before + 3);
 
   // A kit slot filled through the command route (as MCP sends it): the view takes the new piece table, the chunks whose
   // pieces it changes derive again, and the slot's pieces (the stone walls' top edges) draw without a reload; set back, they go.
@@ -1473,6 +1529,7 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
   // The object goes: so does the world's draw (and the project is as the other tests left it; Play's world, 8 km out
   // and all air round this view, may still stream).
   await playCmd('deleteEntity', { entityId: id });
+  await playCmd('deleteEntity', { entityId: marker });
   await expect.poll(async () => { const v = await voxels(); return v === null || (v.worlds['slice'] === undefined && v.states['slice'] === undefined); }, { timeout: 10_000 }).toBe(true);
   console.log(`[voxel-scene-view] drawn ${JSON.stringify(drawn.worlds)}`);
   expect(errors).toEqual([]);

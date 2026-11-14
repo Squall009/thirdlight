@@ -158,7 +158,6 @@ interface MutationFailure {
 | [`setUiTheme`](ops-detail.md#op-setUiTheme) | { theme: UiTheme } | `uiThemes` |
 | [`setVoxelKit`](ops-detail.md#op-setVoxelKit) | { kit: VoxelKit } | `voxelKits` |
 | [`undo`](ops-detail.md#op-undo) | EmptyArgs |  |
-| [`undoVoxels`](ops-detail.md#op-undoVoxels) | { world: string } |  |
 | [`unpackPrefab`](ops-detail.md#op-unpackPrefab) | UnpackPrefabArgs |  |
 | [`updateEntity`](ops-detail.md#op-updateEntity) | UpdateEntityArgs |  |
 | [`updatePrefab`](ops-detail.md#op-updatePrefab) | UpdatePrefabArgs | `prefabs` |

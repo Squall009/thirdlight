@@ -217,7 +217,11 @@ level geometry") and changes nothing. The history is the project's, shared
 with MCP and other tools: an undo pressed before the view shows another
 tool's latest edit is refused (the status bar says "undo refused … press
 Ctrl+Z again") and not sent again, so it never takes back an edit you have
-not seen; press it again once the view shows the edit. Rules about what a game needs to
+not seen; press it again once the view shows the edit. Voxel strokes are on
+the same line: Undo and Redo (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) step the
+newest edit whether it moved an object or dug a voxel world, in the order
+the edits were made, and a new edit of either kind ends the redo of both
+(see [One undo for scene and voxels](voxel-worlds.md#one-undo-for-scene-and-voxels)). Rules about what a game needs to
 start (a camera live, one player) are not checked per edit: Play and the
 export check them (see [The view, cameras and kept objects](scenes-and-cameras.md#the-view-cameras-and-kept-objects)).
 

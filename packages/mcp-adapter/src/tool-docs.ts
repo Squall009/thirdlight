@@ -491,12 +491,13 @@ export const TOOL_DETAILS = {
     'Easing (linear|step|easeIn|easeOut|easeInOut) shapes the move from the previous key. Scripts: ctx.timeline.play(id, {slot: entityId}) → handle, pause/resume/stop/skip (every track\'s end state)/seek, state/time/isPlaying, events() (started, ended, marker; next step), ended(h), marker(name). ' +
     'They are in tl_content_query target="game" (timelines); tl_game_observe reports timeline {screen {fade, opacity, letterbox}, playing, events}. ' +
     'Voxel worlds (a project\'s folders voxels/<world>/): editVoxels {world, command} applies one stroke (the voxel edit command format: ' +
-    'brush, fill, stamp, set or dig; tl_docs "op.editVoxels" and type.VoxelEditCommand) and undoVoxels {world} takes back the world\'s newest edit' +
+    'brush, fill, stamp, set or dig; tl_docs "op.editVoxels" and type.VoxelEditCommand); ' +
     'writeKitTestScene {world, origin [x, y, z], material} empties a box from origin and builds every case of the kit case catalogue in it from voxels (beams and banisters a row a role, a column a case; the edge, roof-edge and damage cases in a fixed sampler beside them: a notched block, gable, hip and L roofs, a wall with a cell at each damage stage; ' +
-    'one change, one undoVoxels), all built cells in material (a kit\'s bound material draws its pieces); its answer adds scene {min, max, labels [{cell, roleName, caseId, section}]}. ' +
-    'They change the world\'s files, not the project: no expectedRevision (a world keeps its own revision), and the project\'s undo does not take them back. ' +
+    'one change, one undo), all built cells in material (a kit\'s bound material draws its pieces); its answer adds scene {min, max, labels [{cell, roleName, caseId, section}]}. ' +
+    'They change the world\'s files, not the project\'s: a world keeps its own revision, and expectedRevision is optional there (when given, the world\'s revision: a stale one is refused revision_conflict with currentRevision). ' +
+    'The project\'s one undo and redo take them back and apply them again in order with scene edits: tl_command undo / redo (expectedRevision the project\'s) steps the newest edit of either kind; a voxel step answers {ok, op, revision (the project\'s, unchanged), voxels: the world\'s answer}; a stroke its world no longer holds (the world read again, closed or deleted) is skipped and listed in skipped; a new edit of either kind ends the redo of both. ' +
     'The answer names the world\'s revision, cells changed, the chunks [cx, cy, cz] to read again, the cell box the edit can have touched, the derived parts made stale, ' +
-    'the region files rewritten with their tags and how many edits can still be undone; a request id sent again answers the first answer (duplicated true). ' +
+    'the region files rewritten with their tags, how many of the world\'s edits can be undone and redone, and its stroke id; a request id sent again answers the first answer (duplicated true). ' +
     'The connected editor gets the same as a voxelsChanged event. A stroke over the undo budget of one edit is refused (over_budget: split it), ' +
     'one that changes nothing with no_change, and files changed outside the backend with world_changed (the world is read again; send the edit again). ' +
     'Returns the new revision on success, ' +
@@ -720,7 +721,7 @@ export const TOOL_SUMMARIES: Readonly<Record<ToolName, string>> = {
     'revision and the change, or a structured error (e.g. revision_conflict with currentRevision; refusals name the field). Read-only questions ' +
     'go to tl_inspect / tl_content_query. Each op\'s argument shape: tl_docs topic "op.<op>" (e.g. op.editBlocks, op.setComponent); a ' +
     'component\'s fields: "component.<name>"; how ops behave by area (scenes, terrain, blocks, materials, UI, timelines …): "tool.tl_command" and its sections. ' +
-    'Script source is published with tl_script_publish, not here. Voxel worlds: editVoxels / undoVoxels / writeKitTestScene {world, …} (no expectedRevision).',
+    'Script source is published with tl_script_publish, not here. Voxel worlds: editVoxels / writeKitTestScene {world, …} (expectedRevision optional: the world\'s); undo / redo step the newest edit, scene or voxel.',
   tl_content_query:
     'Bounded, read-only content queries: target="assets" | "asset" | "prefabs" | "behaviors" | "integrity" (check=true syncs the catalog with the game folder) | ' +
     '"game" (the content.game block; includeDescriptors adds every field\'s type, range and default, ~120 KB — tl_docs "component.<name>" is smaller) | ' +
@@ -810,7 +811,7 @@ const COMMAND_AREAS: readonly { id: string; title: string; from: string }[] = [
   { id: 'dialogue', title: 'Dialogue', from: 'Text widgets may also take content' },
   { id: 'game-modes', title: 'Game modes and behavior groups', from: 'Game modes: setModes' },
   { id: 'timelines', title: 'Timelines', from: 'Timelines (sequencer' },
-  { id: 'voxel-worlds', title: 'Voxel worlds: editVoxels, undoVoxels, writeKitTestScene', from: 'Voxel worlds (a project' },
+  { id: 'voxel-worlds', title: 'Voxel worlds: editVoxels, writeKitTestScene, one undo', from: 'Voxel worlds (a project' },
   { id: 'result', title: 'What it returns', from: 'Returns the new revision on success' },
 ];
 

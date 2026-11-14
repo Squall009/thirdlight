@@ -10,10 +10,15 @@
  * tl_docs, which answers from the manual the build copied to dist/docs.
  * The project organized over MCP (createFolder, moveResources, renameFolder,
  * each one undo): the files move on disk, ids stay, the index and the
- * editor's project window follow.
+ * editor's project window follow. The project's one undo over MCP: a move,
+ * a voxel stroke and a move undone in reverse order and redone in order
+ * (positions read with tl_inspect, the world's region files compared byte
+ * for byte), and a new edit after an undo ends the redo.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { chunkGrid, createWorldStore, VOXEL_ROLE } from '@thirdlight/voxel';
+import { writeVoxelWorld } from '@thirdlight/workspace';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -193,6 +198,58 @@ test('an MCP agent files entities into folders and sets folder flags (the editor
     expect(await pathOf('material', 'mcp-stone')).toBe('assets/materials/mcp-stone.material.json');
     expect(onDisk('assets/materials/mcp-stone.material.json')).toBe(true);
     await expect(page.locator('.tl-assets__list li[data-folder="art"]')).toBeVisible();
+  }
+
+  // One undo for scene and voxels: a move, a stroke in a voxel world and a move, undone in reverse order and redone
+  // in order through tl_command; the world's voxels are its region files (canonical bytes), compared byte for byte.
+  {
+    const worldDir = join(be.projectDir, 'voxels', 'mcp');
+    mkdirSync(worldDir, { recursive: true });
+    const ground = createWorldStore(chunkGrid(32));
+    for (let x = -8; x < 8; x++) for (let z = -8; z < 8; z++) for (let y = 0; y < 4; y++) ground.setVoxel(x, y, z, { material: 2, role: VOXEL_ROLE.terrain, shape: 15, wetness: 0 });
+    writeVoxelWorld(worldDir, { worldId: '0123456789abcdef0123456789abcdef', edge: 32, layout: 'stacked', footprint: 512 }, ground);
+    const voxels = (): string => readdirSync(join(worldDir, 'grid-0')).sort().map((f) => `${f}:${readFileSync(join(worldDir, 'grid-0', f)).toString('base64')}`).join('|');
+    const x = async (): Promise<number> => ((await call('tl_inspect', { target: 'entity', entityId: player.id })).body as { entity: { components: { transform: { position: number[] } } } }).entity.components.transform.position[0]!;
+    const send = async (op: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const r = await call('tl_command', { op, ...(op === 'editVoxels' ? {} : { expectedRevision: await rev() }), args: args ?? {} });
+      expect(r.isError, JSON.stringify(r.body)).toBe(false);
+      return r.body;
+    };
+    const depths = async (): Promise<unknown> => (await call('tl_inspect', { target: 'project' })).body.history;
+    const x0 = await x();
+    const clean = voxels();
+    await send('setTransform', { entityId: player.id, transform: { position: [x0 + 1, before[1], before[2]] } });
+    const dug = await send('editVoxels', { world: 'mcp', command: { v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: [0, 3, 0], mode: 'dig', smooth: false } });
+    expect(dug).toMatchObject({ ok: true, op: 'editVoxels', revision: 1, undoable: 1 });
+    const after = voxels();
+    expect(after).not.toBe(clean);
+    await send('setTransform', { entityId: player.id, transform: { position: [x0 + 2, before[1], before[2]] } });
+
+    expect(await send('undo')).not.toHaveProperty('voxels');
+    expect([await x(), voxels() === after]).toEqual([x0 + 1, true]);
+    expect(await send('undo')).toMatchObject({ ok: true, op: 'undo', voxels: { op: 'undo', world: 'mcp', revision: 2, cells: dug.cells, chunks: dug.chunks } });
+    expect([await x(), voxels() === clean]).toEqual([x0 + 1, true]);
+    expect(await send('undo')).not.toHaveProperty('voxels');
+    expect(await x()).toBe(x0);
+
+    await send('redo');
+    expect([await x(), voxels() === clean]).toEqual([x0 + 1, true]);
+    expect(await send('redo')).toMatchObject({ ok: true, op: 'redo', voxels: { op: 'redo', revision: 3, cells: dug.cells } });
+    // The exact voxels the undo took: the region files' bytes as after the stroke.
+    expect([await x(), voxels() === after]).toEqual([x0 + 1, true]);
+    await send('redo');
+    expect(await x()).toBe(x0 + 2);
+
+    // A new edit after an undo ends the redo (of both kinds: the stroke's too).
+    await send('undo');
+    await send('undo');
+    expect(voxels()).toBe(clean);
+    await send('setTransform', { entityId: player.id, transform: { position: [x0 + 3, before[1], before[2]] } });
+    expect(await depths()).toMatchObject({ redoDepth: 0 });
+    const none = await call('tl_command', { op: 'redo', expectedRevision: await rev(), args: {} });
+    expect(none.isError).toBe(true);
+    expect(JSON.stringify(none.body)).toContain('history_empty');
+    expect(voxels()).toBe(clean);
   }
 });
 

@@ -122,7 +122,7 @@ hour, before and after; compare draws, triangles, main-thread ms and missed fram
 | 46f.1 | Done 2026-11-13. a: spans on every thread, `__tlProfiler.read()`, budget table per tier, 10 slices from one arbiter. b: editor Profiler tab (timeline, frame breakdown, budget, counters, spikes, captures), overlay Shift+F3, capture file v1, `tl_diagnostics` profile digest. 150 m/s A/B: HEAD 43.9–50.5 ms inside base 42.0–53.9; spike settle fixed. |
 | 46f.2 | Done 2026-11-13: `camera-window.ts` (wind rebuilt on it), wind sample public, `interactor` (schema 8 step from `foliageBend`), interaction field 256² × 0.25 m (one compute pass, any number of stamps) read by foliage; WebGL 2 no bend. E2e: 8 objects bend, recover, export. Meadow low 30 Hz: page +0.03–0.14 ms, pass 0.1 (1) / 0.8 ms (8) at ~520 MHz. |
 | 46f.3 | Done 2026-11-14: stored copies (a) and point-set ground cover (b) are culled-table rows on WebGPU (level + hysteresis + fade, thinning, frustum, pyramid in compute); one level helper. b, walking slab A/B: GPU frame 6.0→3.6 ms at full clock, page +0.15 ms; meadow (terrain texel cover) unchanged. WebGL 2 keeps vertex paths; texel cover retires in 48. |
-| 46f.4 | not started |
+| 46f.4 | Done 2026-11-14: one undo line per project in the backend (workspace `undo-timeline.ts`): `undo`/`redo` step scene entries and voxel strokes in order, redo across kinds cleared by any new edit; voxel redo (exact bytes); gone strokes skipped and named; optional world `expectedRevision`; `undoVoxels` removed (bench Z = one undo). |
 | 46f.5 | not started |
 | 46f.6 | not started |
 
@@ -510,6 +510,51 @@ by its own size (the shared rule, as placed models and stored copies), so the bo
 either side. Thinning, density and the wall look the same. `before/slab-*.png` (the perf slab). Not looked at: the
 cross-fade's stipple in motion (pixels only), cover casting shadows (no rule here casts).
 
+### 46f.4 — one undo for scene and voxels
+
+**Built.** workspace `undo-timeline.ts`: `UndoTimeline`, one line per project in the backend: each undoable edit as
+a project entry (its request id) or a voxel stroke (world, stroke id), a cursor, steps one at a time per project, a
+request id answered once (256 kept). `undo` / `redo` (the existing project ops, the same envelope with the project's
+`expectedRevision`) step the newest applied step (or the next undone one) through its own store: a project entry
+through the project pipeline as before (groups still taken whole), a stroke through `VoxelWorlds.step` (refused
+`revision_conflict` against the project's revision as a project entry is). The two stores stay apart: the project
+history (`history.ts`) is not changed; the line is brought level with it before each use by request id (entries it
+gained are new edits: the line's redo tail of both kinds goes; a history started afresh keeps the strokes). A stroke
+through the line drops the project's redo tail (`dropRedoTail`, new in `service-history.ts`, where the service's
+history functions moved out of `buildService`). Voxel worlds: every history entry has a stroke id (unique in the
+process); a **redo stack**; an undo writes back the stroke's record and keeps the chunks it found (images) as the
+redo record in the same `UndoStore` (same 64 MiB budget, spilled past it; no count); a redo writes that back (the
+exact voxels, no brush re-run) and keeps what it found as the next undo record; a new stroke drops the redo; derived
+data follows through the edit path (the answer's chunks, box, parts, material swaps; far cache rebuilt by
+`farAfter`; the feed's `voxelsChanged`). A stroke whose world no longer holds it (read again after a change on disk,
+closed with its project, deleted, record lost: `history_gone`) is left out and named in the answer's `skipped` and
+on the Problems list; the next step goes on. `editVoxels` / `writeKitTestScene` take an optional `expectedRevision`
+(the world's; stale → `revision_conflict` with `currentRevision`). Backend: voxel commands go through the line;
+`undo`/`redo` answer a stroke's step as `{ok, op, requestId, revision (the project's), duplicated, voxels, skipped?}`;
+`queryProject` and the session's start answer the line's depths. Editor: depths re-read on `voxelsChanged`; a stroke
+step's answer moves no own revision; skipped steps shown in the status line. `undoVoxels` removed (catalogue, MCP
+enum and docs, reference regenerated); the voxel world page's Z sends the one undo. Manual: editor, voxel worlds
+("One undo for scene and voxels"), MCP docs.
+
+**Tested.** vitest, real service and worlds on disk (`undo-timeline.test.ts`): move, stroke, move undone in reverse
+and redone in order, the region files' bytes after redo equal to after the stroke, twice; a new edit of either kind
+clears both kinds' redo (the other world's redo records dropped); a checkout and a deleted world skipped and named,
+the next step taken; history started afresh keeps the stroke; a resent undo steps once; stale project and world
+revisions refused. `voxel-worlds.test.ts`, far-cache tests (`voxel-far-jobs`, `voxel-far-fine`, `far-world`)
+through `step`. HTTP (`tests/integration/voxel-world`): undo/redo as commands (world answer under `voxels`, revision,
+box, chunks, redo's chunks equal the oracle's), a repeat answered once, `history_empty`, world `revision_conflict`,
+skipped strokes after a checkout (2) and a release (4), none after a restart; MCP undo/redo/undo on the feed
+(revisions 1–7), a stale undo refused. Playwright, WebGPU, real backend: `voxel-world.e2e.ts` Scene view test
+(marker moved in the Inspector, a 3 m pit through the command route — the editor has no voxel brush yet —, moved
+again; Ctrl+Z ×3: 501 / ground as before (< 50 px from the picture before the dig) / 500; Ctrl+Shift+Z ×3: 501 / the
+pit (< 50 px from the dug picture) / 502; undo then a new move: Edit → Redo disabled); the bench page's Z (the
+assembly test's undos) on the one undo; `mcp.e2e.ts` (the same interleaving with `tl_command`, positions by
+`tl_inspect`, the world's region files byte for byte, `redoDepth` 0 and `history_empty` after a new edit).
+
+**Looked at** (opened, `~/.cache/thirdlight-phase46f/work/46f.4/shots/`): `scene-view-before-dig.png`,
+`scene-view-dug.png` (the pit and the hole through the wall), `scene-view-undone.png` (the same as before the dig;
+the PNG files are byte-equal), `scene-view-redone.png` (byte-equal to the dug one).
+
 ## 9. Decision log
 
 - 2026-11-13 (plan): the phase is planned from the owner-approved consolidation of 2026-11-12; item order is
@@ -637,6 +682,26 @@ cross-fade's stipple in motion (pixels only), cover casting shadows (no rule her
   own chunk frustum test and block lists are gone there (the frustum is the table's, from `view-cull.ts`'s planes).
   A rule's places are its atlas's capacity (blocks of 256, doubling): free places are copies of no size the pass
   tests and drops; the set is taken again at each doubling (no count cap; 46f.5's one buffer grow can absorb it).
+
+- 2026-11-14 (46f.4, default chosen, owner to confirm): the one undo line lives in the backend, per project, shared
+  by every client (editor tabs, MCP agents), for as long as the backend runs — the rule the project history already
+  had (in memory, per project; a restart starts with nothing to undo). It is not per client.
+- 2026-11-14 (46f.4, default chosen, owner to confirm): the undo of a stroke is checked against the project's
+  revision (the one the editor's undo sends); a stroke moves only its world's revision, so an undo can take back
+  another client's stroke the view has not drawn yet (another client's scene edit still refuses it, as before).
+  Fine for one owner + agents; a per-line sequence number would close it if it matters.
+- 2026-11-14 (46f.4, default chosen, owner to confirm): a stroke its world no longer holds is skipped and named
+  (`skipped`, Problems, the status line) and the undo goes on to the next step, rather than refusing; strokes left
+  out by a read of the line (depths) are named with the next step.
+- 2026-11-14 (46f.4, default chosen, owner to confirm): redo writes back the chunks the undo found (full chunk
+  images in the same TLVU v2 record, not cell deltas), so redo records are larger than undo deltas; both count against
+  the world's 64 MiB undo budget and spill past it. The format spec §3.4 says "Redo re-applies the command": the result
+  is the same voxels (the apply is deterministic), but the text describes the other way; the approved spec is left as
+  it is for the owner to note (no stored format changed).
+- 2026-11-14 (46f.4): `expectedRevision` on voxel ops was cheap (an optional envelope field checked in the world's
+  queue; no stored format, record or command-format change): built. `undoVoxels` had no user left once the bench
+  page's Z went through the one undo: removed. The Edit menu shows "Undo" / "Redo" without what they would take back
+  (it never did); not added.
 
 ## 10. Open questions for the owner
 

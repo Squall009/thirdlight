@@ -139,7 +139,9 @@ export {
   type VoxelWorldManifest,
   type VoxelWorldOpArgs,
   type VoxelWorldsOptions,
+  type VoxelStepDirection,
 } from './voxel-worlds';
+export { UndoTimeline, type SkippedStep, type TimelineEntry, type TimelineStep } from './undo-timeline';
 export {
   buildFarCache,
   FAR_CACHE_MANIFEST,

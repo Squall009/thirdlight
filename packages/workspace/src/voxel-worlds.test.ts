@@ -39,7 +39,7 @@ const AWAY = { v: 2, grid: 0, kind: 'set', cells: [20, 3, 0], voxel: { material:
 let worldCount = 0;
 
 /** A project folder with one world; its writes go through `fault.ops` where that names an operation. */
-function setUp(residentBytes?: number): { worlds: VoxelWorlds; worldDir: string; gridDir: string; fault: { ops: Partial<WriteOps> | null }; send: (op: 'editVoxels' | 'undoVoxels', command?: unknown) => Promise<VoxelCommandResult> } {
+function setUp(residentBytes?: number): { worlds: VoxelWorlds; worldDir: string; gridDir: string; fault: { ops: Partial<WriteOps> | null }; send: (op: 'editVoxels' | 'undo' | 'redo', command?: unknown) => Promise<VoxelCommandResult> } {
   const projectDir = join(root, `p${++worldCount}`);
   const worldDir = join(projectDir, 'voxels', 'w');
   mkdirSync(worldDir, { recursive: true });
@@ -48,7 +48,8 @@ function setUp(residentBytes?: number): { worlds: VoxelWorlds; worldDir: string;
   // Every operation goes through the fault table when one is set; the rest are the real ones.
   const ops = Object.fromEntries(Object.keys(defaultOps).map((k) => [k, (...a: unknown[]) => ((fault.ops?.[k as keyof WriteOps] ?? defaultOps[k as keyof WriteOps]) as (...b: unknown[]) => unknown)(...a)])) as unknown as WriteOps;
   const worlds = new VoxelWorlds({ projectDir: (id) => (id === 'p' ? projectDir : null), writeOps: ops, ...(residentBytes !== undefined ? { residentBytes } : {}) });
-  const send = (op: 'editVoxels' | 'undoVoxels', command?: unknown): Promise<VoxelCommandResult> => worlds.command('p', { op, projectId: 'p', args: op === 'editVoxels' ? { world: 'w', command } : { world: 'w' } });
+  // An undo or redo steps the world's newest stroke that way (what the project's one undo would name).
+  const send = (op: 'editVoxels' | 'undo' | 'redo', command?: unknown): Promise<VoxelCommandResult> => (op === 'editVoxels' ? worlds.command('p', { op, projectId: 'p', args: { world: 'w', command } }) : worlds.step('p', 'w', op, worlds.newestStroke('p', 'w', op) ?? -1, null));
   return { worlds, worldDir, gridDir: join(worldDir, 'grid-0'), fault, send };
 }
 
@@ -101,7 +102,7 @@ describe('voxel world writes that fail', () => {
     // Not a byte changed, no temp file left.
     expect(filesOf(worldDir)).toEqual(before);
     // Memory went back too: undoing the one edit that was written gives the world as first written.
-    const undo = await send('undoVoxels');
+    const undo = await send('undo');
     expect(undo).toMatchObject({ ok: true, cells: 1, undoable: 0, revision: 2 });
     await expectFilesHold(worldDir, groundStore());
     // And the failed edit can be sent again.
@@ -116,7 +117,7 @@ describe('voxel world writes that fail', () => {
     expect(await send('editVoxels', ACROSS)).toMatchObject({ ok: true, revision: 1, cells: out.cells });
     const before = filesOf(worldDir);
     fault.ops = { renameFile: failNth(1, defaultOps.renameFile) };
-    const failed = await send('undoVoxels');
+    const failed = await send('undo');
     fault.ops = null;
     expect(!failed.ok && failed.error.code).toBe('write_failed');
     expect(filesOf(worldDir)).toEqual(before);
@@ -126,11 +127,11 @@ describe('voxel world writes that fail', () => {
     applyEdit({ store: () => edited }, canonicalEditCommand(AWAY));
     await expectFilesHold(worldDir, edited);
     // The undo is still there, and undoes the same cells.
-    expect(await send('undoVoxels')).toMatchObject({ ok: true, cells: 1, undoable: 1, revision: 3 });
-    const undo = await send('undoVoxels');
+    expect(await send('undo')).toMatchObject({ ok: true, cells: 1, undoable: 1, revision: 3 });
+    const undo = await send('undo');
     expect(undo).toMatchObject({ ok: true, cells: out.cells, undoable: 0, revision: 4 });
     await expectFilesHold(worldDir, groundStore());
-    expect(!((await send('undoVoxels')) as { ok: boolean }).ok).toBe(true);
+    expect(!((await send('undo')) as { ok: boolean }).ok).toBe(true);
   });
 
   it('a rename failing midway names the files it reached; memory keeps the edit and the next save writes the rest', async () => {
@@ -159,8 +160,8 @@ describe('voxel world writes that fail', () => {
     expect(await send('editVoxels', AWAY)).toMatchObject({ ok: true, revision: 1, undoable: 2 });
     await expectFilesHold(worldDir, oracle);
     // Both edits undo, newest first, back to the world as first written.
-    expect(await send('undoVoxels')).toMatchObject({ ok: true, cells: 1 });
-    expect(await send('undoVoxels')).toMatchObject({ ok: true, undoable: 0 });
+    expect(await send('undo')).toMatchObject({ ok: true, cells: 1 });
+    expect(await send('undo')).toMatchObject({ ok: true, undoable: 0 });
     await expectFilesHold(worldDir, groundStore());
   });
 
@@ -217,8 +218,8 @@ describe('a voxel world served on demand', () => {
     applyEdit({ store: () => oracle }, canonicalEditCommand(AWAY));
     await expectFilesHold(worldDir, oracle);
     // An undo reads its chunks' file back before writing the old cells into it.
-    expect(await send('undoVoxels')).toMatchObject({ ok: true, cells: 1, revision: 3 });
-    expect(await send('undoVoxels')).toMatchObject({ ok: true, revision: 4, undoable: 0 });
+    expect(await send('undo')).toMatchObject({ ok: true, cells: 1, revision: 3 });
+    expect(await send('undo')).toMatchObject({ ok: true, revision: 4, undoable: 0 });
     await expectFilesHold(worldDir, groundStore());
     expect(worlds.residency('p', 'w')).toMatchObject({ residentBytes: 0, loaded: 0 });
     // A file an edit creates (a region nothing was in) is counted once written, and dropped as any clean file is.
@@ -237,7 +238,7 @@ describe('a voxel world served on demand', () => {
     // A file an edit creates counts its bytes once written.
     expect(await send('editVoxels', { ...AWAY, cells: [700, 3, 0], voxel: { material: 2, role: VOXEL_ROLE.terrain, wetness: 0, shape: 15 } })).toMatchObject({ ok: true });
     expect(worlds.residency('p', 'w')!.residentBytes).toBeGreaterThan(kept.residentBytes);
-    expect(await send('undoVoxels')).toMatchObject({ ok: true });
+    expect(await send('undo')).toMatchObject({ ok: true });
     expect(await send('editVoxels', { ...AWAY, cells: [21, 3, 0] })).toMatchObject({ ok: true });
     expect(worlds.residency('p', 'w')!.loads).toBe(1);
     // A file nobody loaded yet replaced on disk: the next command finds the stamp moved and reads the world again first.

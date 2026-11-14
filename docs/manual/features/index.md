@@ -43,7 +43,7 @@ The pages, and the Deployment sections each took:
 | [ui.md](ui.md) | Project UI (UI documents), The UI document editor | done |
 | [game-modes.md](game-modes.md) | Game modes | done |
 | [dialogue.md](dialogue.md) | Dialogue | done |
-| [voxel-worlds.md](voxel-worlds.md) | — (new: voxel worlds, the `voxelWorld` component, streaming and its budget, the Scene view, `editVoxels`/`undoVoxels`, what is not built yet) | growing |
+| [voxel-worlds.md](voxel-worlds.md) | — (new: voxel worlds, the `voxelWorld` component, streaming and its budget, the Scene view, `editVoxels`, one undo for scene and voxels, what is not built yet) | growing |
 | [migration.md](migration.md) | Migration notes | done |
 
 Deployment keeps running the server: requirements, starting, the service,
