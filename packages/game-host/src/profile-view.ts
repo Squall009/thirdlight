@@ -13,6 +13,7 @@
 import { SPAN_CATEGORIES, type ProfileFrame, type SpanCategory } from '@thirdlight/shared';
 
 import type { ProfileBudgetRow, ProfileReport, ProfileSpike } from './page-profile';
+import type { GpuMeasureState } from './gpu-measure';
 
 /** One colour a category, told apart on the editor's dark panels (and in the overlay's box). */
 export const PROFILE_CATEGORY_COLOURS: Readonly<Record<SpanCategory, string>> = Object.freeze({
@@ -232,13 +233,48 @@ export function profileOverlayLines(r: ProfileReport, now: number = r.at): strin
   }
   const over = r.budget.rows.filter((x) => x.use !== null && x.use > 1);
   if (over.length > 0) lines.push(`over   ${over.map((x) => `${x.thread}/${PROFILE_CATEGORY_LABELS[x.category]} ${Math.round(x.use! * 100)}%`).join('  ')}`);
-  lines.push(`gpu    ${r.gpu.shares !== null ? `render ${Math.round(r.gpu.shares.render * 100)}%  compute ${Math.round(r.gpu.shares.compute * 100)}% (shares, not ms)` : 'not measured (no timestamps; room: headroom meter)'}`);
+  lines.push(`gpu    ${r.gpu.shares !== null ? `render ${Math.round(r.gpu.shares.render * 100)}%  compute ${Math.round(r.gpu.shares.compute * 100)}% (shares, not ms)` : 'no timestamps (ms: Measure GPU)'}`);
+  if (r.gpu.measure !== undefined) lines.push(...gpuMeasureLines(r.gpu.measure));
   const last = r.spikes.at(-1);
   if (last !== undefined) {
     const spans = last.threads.page.flatMap((f) => f.spans).sort((a, b) => b.ms - a.ms).slice(0, 2);
     lines.push(`spike  ${last.ms.toFixed(1)} ms (${last.reason}) ${((now - last.at) / 1000).toFixed(0)} s ago${spans.length > 0 ? `: ${spans.map((s) => `${s.name} ${s.ms.toFixed(1)}`).join(', ')}` : ''}`);
   } else lines.push('spike  none kept');
   return lines;
+}
+
+/** A GPU measurement in a few numbers (MCP's `gpu` part, the profile digest): per category ms or below resolution, the budget rows. */
+export function gpuMeasureDigest(st: GpuMeasureState): Record<string, unknown> {
+  if (st.state === 'idle' || st.state === 'unavailable') return { ...st };
+  if (st.state === 'running') return { state: 'running', step: st.step, steps: st.steps, doing: st.doing, runningS: Math.round((Date.now() - st.startedAt) / 1000), last: st.last === null ? null : gpuResultDigest(st.last) };
+  if (st.state === 'failed') return { state: 'failed', error: st.error, last: st.last === null ? null : gpuResultDigest(st.last) };
+  return { state: 'done', ...gpuResultDigest(st.result) };
+}
+
+function gpuResultDigest(m: import('./gpu-measure').GpuMeasurement): Record<string, unknown> {
+  return {
+    agoS: Math.round((Date.now() - m.at) / 1000),
+    seconds: m.seconds,
+    intervalMs: m.intervalMs,
+    resolutionMs: m.resolutionMs,
+    frameMs: m.frameMs,
+    ballast: m.ballast,
+    categories: m.categories.map((c) => ({ category: c.category, ms: c.ms, medianMs: c.medianMs, spreadMs: c.spreadMs, belowResolution: c.belowResolution, lowerBound: c.lowerBound, passes: c.passes })),
+    absent: m.absent,
+    budget: m.budget,
+  };
+}
+
+/** The overlay's lines for a GPU measurement (its progress, or each category's ms against its budget row). */
+export function gpuMeasureLines(st: GpuMeasureState): string[] {
+  if (st.state === 'idle') return ['gpu ms  not measured (Measure GPU: about two minutes, loads the GPU)'];
+  if (st.state === 'unavailable') return [`gpu ms  not available: ${st.reason}`];
+  if (st.state === 'running') return [`gpu ms  measuring ${st.step}/${st.steps}: ${st.doing}`];
+  if (st.state === 'failed') return [`gpu ms  failed: ${st.error}`];
+  const m = st.result;
+  const cats = m.categories.map((c) => `${c.category} ${c.ms === null ? `<${Math.max(c.spreadMs, m.resolutionMs).toFixed(1)}` : `${c.ms.toFixed(1)}±${c.spreadMs.toFixed(1)}`}`);
+  const rows = m.budget.rows.filter((b) => b.categories.some((c) => m.categories.some((x) => x.category === c))).map((b) => `${PROFILE_CATEGORY_LABELS[b.budget]} ${b.ms === null ? '—' : b.ms.toFixed(1)}/${b.budgetMs.toFixed(1)}`);
+  return [`gpu ms  ${cats.join('  ')} (resolution ${m.resolutionMs.toFixed(1)} ms)`, `gpu bud ${rows.join('  ')}`];
 }
 
 /** The digest's bound: it rides inside the Play diagnostics' 16 KiB answer with the other parts. */
@@ -270,7 +306,7 @@ export interface ProfileDigest {
     /** MiB resident and budgeted per memory budget ([resident (null: no count), budget]); each side's [resident, budget, target] (absent: an older capture). */
     readonly memoryMiB?: { readonly rows: Readonly<Record<string, readonly [number | null, number | null]>>; readonly page: readonly [number | null, number | null, number | null]; readonly gpu: readonly [number | null, number | null, number | null] };
   };
-  readonly gpu: ProfileReport['gpu'];
+  readonly gpu: Omit<ProfileReport['gpu'], 'measure'> & { readonly measure?: Record<string, unknown> };
   readonly spikes: { readonly kept: number; readonly worst: null | { readonly reason: ProfileSpike['reason']; readonly ms: number; readonly thresholdMs: number; readonly agoS: number; readonly top: Readonly<Record<ProfileLane, readonly { readonly name: string; readonly category: SpanCategory; readonly ms: number }[]>> } };
   readonly cost: ProfileReport['cost'];
 }
@@ -319,7 +355,7 @@ export function profileDigest(r: ProfileReport, now: number = r.at, maxBytes = P
         queues: r.counters.queues,
         ...(r.counters.memory !== undefined ? { memoryMiB: memoryDigest(r.counters.memory) } : {}),
       },
-      gpu: r.gpu,
+      gpu: { timestamps: r.gpu.timestamps, shares: r.gpu.shares, room: r.gpu.room, ...(r.gpu.measure !== undefined ? { measure: gpuMeasureDigest(r.gpu.measure) } : {}) },
       spikes: {
         kept: r.spikes.length,
         worst: worst === null ? null : { reason: worst.reason, ms: r3(worst.ms), thresholdMs: r3(worst.thresholdMs), agoS: Math.round((now - worst.at) / 100) / 10, top: { page: topOf(worst.threads.page), sim: topOf(worst.threads.sim), jobs: topOf(worst.threads.jobs) } },

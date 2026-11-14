@@ -1090,6 +1090,50 @@ async function profilerPanel(page: Page, pr: ProfileE2e, readProfile: () => Prom
   await panel.getByRole('button', { name: 'Back to live' }).click();
   await panel.getByRole('button', { name: 'Resume' }).click();
   await expect(panel).toHaveAttribute('data-mode', 'live');
+}
+
+/** The page's GPU measurement as the e2e reads it (game-host gpu-measure.ts `GpuMeasureState`, the fields checked). */
+interface GpuReadingE2e { category: string; ms: number | null; medianMs: number; spreadMs: number; belowResolution: boolean; samples: number[] }
+type GpuStateE2e = { state: 'idle' | 'running' | 'unavailable' | 'failed' | 'done'; error?: string; reason?: string; result?: { categories: GpuReadingE2e[]; resolutionMs: number; seconds: number; absent: string[]; budget: { rows: Array<{ budget: string; budgetMs: number; ms: number | null }> } } };
+
+/**
+ * GPU ms per pass in the Profiler (the panel open on Budget, live): Measure GPU starts the play page's measurement
+ * (its progress shows in the bar) and Stop ends it with everything shown again; then two short runs of the far
+ * category through the page's global, the far field drawn and then switched off by the page's own switch: drawn
+ * it reads a number above the routine's resolution, switched off it reads less by more than both spreads. The
+ * last run's rows fill the Budget tab's GPU table.
+ */
+async function gpuMeasurePanel(page: Page, canvas: Locator): Promise<void> {
+  const panel = page.locator('.tl-prof');
+  await panel.getByRole('tab', { name: 'Budget' }).click();
+  await expect(panel.getByTestId('profiler-gpu')).toHaveAttribute('data-state', 'idle');
+  await panel.getByTestId('profiler-measure-gpu').click();
+  await expect(panel.getByTestId('profiler-gpu-note')).toHaveAttribute('data-state', 'running', { timeout: 5_000 });
+  await expect(panel.getByTestId('profiler-gpu-note')).toContainText('measuring the GPU');
+  await panel.getByTestId('profiler-measure-gpu').click();
+  await expect(panel.getByTestId('profiler-gpu-note')).toHaveAttribute('data-state', 'failed', { timeout: 15_000 });
+  const gpu = (call: 'start' | 'state', options?: unknown): Promise<GpuStateE2e> =>
+    canvas.evaluate((_c, a) => { const g = (window as unknown as { __tlProfiler: { gpu: { start(o: unknown): GpuStateE2e; state(): GpuStateE2e } } }).__tlProfiler.gpu; return a.call === 'start' ? g.start(a.options) : g.state(); }, { call, options });
+  const run = async (): Promise<NonNullable<GpuStateE2e['result']>> => {
+    expect((await gpu('start', { only: ['far'], repeats: 3, windowS: 0.7, settleS: 0.25 })).state).toBe('running');
+    let st: GpuStateE2e = { state: 'running' };
+    await expect.poll(async () => (st = await gpu('state')).state, { timeout: 60_000, intervals: [1000], message: 'the GPU measurement ends' }).not.toBe('running');
+    expect(st.state, JSON.stringify(st)).toBe('done');
+    return st.result!;
+  };
+  const shown = await run();
+  await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: { showFar(on: boolean): void } }).__tlVoxelPlay.showFar(false));
+  const off = await run().finally(() => canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: { showFar(on: boolean): void } }).__tlVoxelPlay.showFar(true)));
+  const far = (r: NonNullable<GpuStateE2e['result']>): GpuReadingE2e => r.categories.find((c) => c.category === 'far')!;
+  console.log(`[voxel-play] GPU far drawn ${JSON.stringify(far(shown))} (${shown.seconds} s, resolution ${shown.resolutionMs}); switched off ${JSON.stringify(far(off))} (resolution ${off.resolutionMs})`);
+  expect(far(shown).ms, 'the far field drawn reads above resolution').not.toBeNull();
+  expect(far(shown).ms!).toBeGreaterThan(0);
+  expect(far(shown).medianMs - far(off).medianMs, 'drawn reads more than switched off, past both spreads').toBeGreaterThan(Math.max(far(shown).spreadMs, far(off).spreadMs));
+  // The panel shows the last run: its far row and the GPU budget's render row.
+  const table = panel.getByTestId('profiler-gpu-table');
+  await expect(table.locator('tr[data-category="far"]')).toBeVisible({ timeout: 5_000 });
+  await expect(panel.getByTestId('profiler-gpu-budget').locator('tr[data-budget="render"]')).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('profiler-gpu-1280.png') });
   await page.locator('.tl-dock--bottom > [role=tablist] [role=tab]', { hasText: 'Project' }).click();
 }
 
@@ -1297,6 +1341,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     const perThread = (frames: readonly ProfileFrameE2e[]): string => (frames.length === 0 ? '-' : `${(categorySum(frames) / frames.length).toFixed(2)} ms/frame over ${frames.length}`);
     console.log(`[voxel-play] ${renderer} profile: page ${perThread(pr.threads.page)} (busy ${(pageBusy * 100).toFixed(1)} %), sim ${perThread(pr.threads.sim)} (busy ${(simBusy * 100).toFixed(1)} %), jobs ${perThread(pr.threads.jobs)}; ${pr.cost.pageSpansPerFrame.toFixed(1)} page spans a frame at ${pr.cost.nsPerSpan.toFixed(0)} ns; spikes ${pr.spikes.length}; rows ${JSON.stringify(pr.budget.rows.filter((r) => r.meanMs > 0).map((r) => `${r.thread}/${r.category} ${r.meanMs.toFixed(2)}/${r.budgetMs.toFixed(1)}`))}`);
     await profilerPanel(page, pr, readProfile);
+    await gpuMeasurePanel(page, canvas);
     // The character falls into the pit (its collider went with the swap that drew the hole).
     await expect.poll(async () => standing.y - ((await observe()).player?.y ?? standing.y), { timeout: 10_000, message: 'the character falls into the pit' }).toBeGreaterThan(1);
     const after = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('after.png') }));

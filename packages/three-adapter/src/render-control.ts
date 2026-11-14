@@ -59,6 +59,12 @@ export interface RenderControl {
   /** New settings of the project's or a player's layer (the default; unset parts keep their value). */
   set(next: RenderSettingsLike, layer?: 'project' | 'player'): void;
   /**
+   * A measurement's hold over the player's layer (null: let go, the layers
+   * below as they were): the GPU measurement holds the scale and turns
+   * dynamic resolution off, which would draw smaller under its load.
+   */
+  hold(settings: RenderSettingsLike | null): void;
+  /**
    * The quality level's settings (in place of the last level's; what a level
    * leaves out is the project's), and `defaults`: settings that apply only
    * where the project sets none (the engine's levels' scale and dynamic
@@ -110,9 +116,10 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
   let level: RenderSettingsLike = {};
   let under: RenderSettingsLike = {};
   let player: RenderSettingsLike = {};
+  let held: RenderSettingsLike = {};
   const pinned: RenderSettingsLike = defined(opts.pinned ?? {});
   const fixed: RenderSettingsLike = opts.fixedScale === true ? { renderScale: RENDER_SCALE_MAX, dynamicResolution: false } : {};
-  const resolved = (): RenderSettingsLike => ({ ...under, ...project, ...level, ...player, ...pinned, ...fixed });
+  const resolved = (): RenderSettingsLike => ({ ...under, ...project, ...level, ...player, ...held, ...pinned, ...fixed });
   const first = resolved();
   let ao: 'off' | 'ssao' | 'gtao' = first.ambientOcclusion ?? AMBIENT_OCCLUSION_DEFAULT;
   let renderScale = renderScaleOf(first.renderScale) ?? RENDER_SCALE_MAX;
@@ -147,6 +154,10 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
     set(next, layer = 'player') {
       if (layer === 'project') project = { ...project, ...defined(next) };
       else player = { ...player, ...defined(next) };
+      update();
+    },
+    hold(settings) {
+      held = settings === null ? {} : defined(settings);
       update();
     },
     setLevel(next, defaults) {

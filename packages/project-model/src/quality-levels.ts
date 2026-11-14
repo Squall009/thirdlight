@@ -447,6 +447,23 @@ export function frameBudgetMs(budget: FrameBudget, thread: 'page' | 'sim' | 'job
   return (budget[thread][category] ?? 0) * budget.intervalMs;
 }
 
+/**
+ * The GPU's passes as the measured GPU time names them: each is read by
+ * hiding every pass registered under it (three-adapter gpu-pass-hides.ts).
+ * Near and far are the voxel worlds' draws, shadows the shadow maps, lighting
+ * the live light's compute (the surface light, probes, tracer), post the post
+ * stack, effects the particles and the interaction field.
+ */
+export const GPU_PASS_CATEGORIES = ['near', 'far', 'shadows', 'lighting', 'post', 'effects'] as const;
+export type GpuPassCategory = (typeof GPU_PASS_CATEGORIES)[number];
+
+/**
+ * The GPU budget row (`FrameBudget.gpu`) each measured category is held
+ * against: the draws are render, shadows join the lighting (a shadow is direct
+ * light, and the lighting choice is judged by both), the post stack is other.
+ */
+export const GPU_PASS_BUDGET: Readonly<Record<GpuPassCategory, SpanCategory>> = Object.freeze({ near: 'render', far: 'render', shadows: 'lighting', lighting: 'lighting', post: 'other', effects: 'effects' });
+
 const MIB = 1024 * 1024;
 
 /**

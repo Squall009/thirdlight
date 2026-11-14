@@ -17,7 +17,8 @@
  *   stopped) shows it from the start.
  * - The overlay's frame profiler view (the export): hidden at the start and
  *   reading nothing; Shift+F3 shows a line a thread (page, simulation, job
- *   workers) against the tier's budget, and its Save capture button writes a
+ *   workers) against the tier's budget, its Measure GPU button starts the page's GPU measurement (a line shows
+ *   its progress), and its Save capture button writes a
  *   version 1 capture file.
  */
 import { randomUUID } from 'node:crypto';
@@ -201,6 +202,11 @@ test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no 
     const capture = JSON.parse(readFileSync(file, 'utf8')) as { version: number; header: { source: string }; report: { threads: { page: unknown[] } } };
     expect([capture.version, capture.header.source]).toEqual([1, 'export']);
     expect(capture.report.threads.page.length).toBeGreaterThan(0);
+    // Measure GPU: the page's GPU measurement starts (WebGL 2 says why it cannot) and its progress is a line of the view.
+    await expect(prof).toContainText(/gpu ms +not measured/);
+    await prof.getByRole('button', { name: 'Measure GPU' }).click();
+    await expect(prof).toContainText(/gpu ms +(measuring \d+\/\d+|not available: )/, { timeout: 5_000 });
+    await exported.evaluate(() => (window as unknown as { __tlProfiler: { gpu: { cancel(): void } } }).__tlProfiler.gpu.cancel());
     // Shift+F3 again hides the view, and the reads stop.
     await exported.keyboard.press('Shift+F3');
     await expect(prof).toHaveAttribute('data-shown', 'false');

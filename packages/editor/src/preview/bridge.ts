@@ -259,9 +259,9 @@ export class Bridge {
    * The profiler panel's poll (editor side): the page's frame profile, only
    * what it took in since `after` (the cursor the last answer carried).
    */
-  requestProfile(playSessionId: string, relayId: string, after?: { page: number; sim: number; spikes: number }): void {
+  requestProfile(playSessionId: string, relayId: string, after?: { page: number; sim: number; spikes: number }, gpu?: 'measure' | 'cancel'): void {
     if (this.direction !== 'editor') throw new Error('requestProfile is editor-side only');
-    this.postLocal({ v: 2, type: 'tl.profile.request', playSessionId, relayId, ...(after !== undefined ? { after: { page: after.page, sim: after.sim, spikes: after.spikes } } : {}) });
+    this.postLocal({ v: 2, type: 'tl.profile.request', playSessionId, relayId, ...(after !== undefined ? { after: { page: after.page, sim: after.sim, spikes: after.spikes } } : {}), ...(gpu !== undefined ? { gpu } : {}) });
   }
 
   /** Answer a profile request (preview side). */

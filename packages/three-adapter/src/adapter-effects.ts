@@ -15,6 +15,8 @@ import type { MaterialLibrary } from './material-library';
 import { objectResidentBytes } from './resource-bytes';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import type { SceneAdapterOptions } from './adapter-types';
+import { gpuPassHides } from './gpu-pass-hides';
+import type { InteractorView } from './interactors';
 
 /** What a particle material holder wears until the project material library dresses it. */
 const EFFECT_MATERIAL_PLACEHOLDER = new THREE.MeshBasicMaterial();
@@ -37,6 +39,7 @@ export class AdapterEffects {
   private readonly entities = new Set<string>();
   private lastNow: number | null = null;
   private mark = '';
+  private unregisterGpu: (() => void) | null = null;
 
   constructor(
     scene: THREE.Scene,
@@ -156,7 +159,26 @@ export class AdapterEffects {
     return this.player?.diagnostics() ?? null;
   }
 
+  /**
+   * The effects' GPU work in the page's GPU measurement: the particles (their
+   * compute and draws) and the interaction field's pass, hidden together.
+   */
+  registerGpuHide(interactors: InteractorView): void {
+    this.unregisterGpu?.();
+    this.unregisterGpu = gpuPassHides.register({
+      category: 'effects',
+      name: 'particles and the interaction field',
+      present: () => (this.player?.diagnostics().playing ?? 0) > 0 || interactors.fieldLive(),
+      hide: (h) => {
+        this.player?.setShown(!h);
+        interactors.gpuHidden = h;
+      },
+    });
+  }
+
   dispose(): void {
+    this.unregisterGpu?.();
+    this.unregisterGpu = null;
     this.player?.dispose();
     this.textures?.releaseHolder('effects');
     this.resources.releaseHolder(EFFECTS_HOLDER);

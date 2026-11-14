@@ -38,7 +38,7 @@ import {
   simDelayFromUrl,
 } from '@thirdlight/game-host';
 import { GamePageError, startGamePage, type GamePageHandle, type GamePageManifest } from '@thirdlight/game-host/game-page';
-import { profileDigest, rendererOf } from '@thirdlight/game-host/profile-view';
+import { gpuMeasureDigest, profileDigest, rendererOf } from '@thirdlight/game-host/profile-view';
 import type { SceneAdapter } from '@thirdlight/three-adapter';
 import type { InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
@@ -260,6 +260,21 @@ interface PreviewM3PageConfig {
   manifestPath: string;
 }
 
+/** The GPU measurement a profile read asks for, started (or stopped) before the read so its answer already says it runs. */
+function askGpu(host: M3PreviewHandle['host'], ask: 'measure' | 'cancel' | undefined): void {
+  if (ask === 'measure') host.measureGpu?.();
+  else if (ask === 'cancel') host.cancelGpuMeasure?.();
+}
+
+/** The diagnostics' GPU parts asked by name: `gpuMeasure` starts a measurement (unless one runs), each answers its state. */
+function gpuParts(host: M3PreviewHandle['host'], sections: readonly string[] | undefined): Record<string, unknown> {
+  const none = { state: 'unavailable', reason: 'this host has no GPU measurement' } as const;
+  const out: Record<string, unknown> = {};
+  if (sections?.includes('gpuMeasure') === true) out['gpuMeasure'] = gpuMeasureDigest(host.measureGpu?.() ?? none);
+  if (sections?.includes('gpu') === true) out['gpu'] = gpuMeasureDigest(host.gpuMeasureState?.() ?? none);
+  return out;
+}
+
 /**
  * The v3 preview page entry (the locator's `game.js` for a v3 play — the same
  * role as the M2 `preview.js`/`preview-bootstrap.ts`): read the page config,
@@ -408,8 +423,9 @@ export function bootstrapPreviewM3(): void {
 
   // The editor's profiler panel: the page's frame profile since its last read, and what its capture header names.
   bridge.on('tl.profile.request', (m) => {
-    const body = m as { relayId: string; after?: { page: number; sim: number; spikes: number } };
+    const body = m as { relayId: string; after?: { page: number; sim: number; spikes: number }; gpu?: 'measure' | 'cancel' };
     const h = handle;
+    if (h !== null) askGpu(h.host, body.gpu);
     const report = h?.host.profile?.(body.after);
     if (h === null || report === undefined) {
       bridge.sendProfileResult(playId, body.relayId, notReady);
@@ -502,6 +518,8 @@ export function bootstrapPreviewM3(): void {
           saves: savesStorageOf(h.host.projectSaves ?? null),
           // The frame profile's digest, only when asked by name (the read makes the profile's frames into objects).
           ...(body.sections?.includes('profile') === true && h.host.profile !== undefined ? { profile: profileDigest(h.host.profile()) } : {}),
+          // The GPU measurement: started only by `gpuMeasure` (it runs a minute or two and loads the GPU), read by `gpu` or `gpuMeasure`.
+          ...gpuParts(h.host, body.sections),
         }, body.sections)),
       });
     });

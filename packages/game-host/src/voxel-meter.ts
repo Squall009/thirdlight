@@ -3,7 +3,9 @@
  * (`__tlVoxelPlay.meter`): a measuring run (`tools/voxel-bench`, the
  * `headroom` bench) loads the GPU through the scene adapter's load
  * (three-adapter gpu-headroom.ts) until the frames at the display's cap start
- * to miss, and hides a pass to read its share.
+ * to miss, and hides the near or far field for a picture without it. The
+ * GPU time per pass category is the page's GPU measurement (gpu-measure.ts),
+ * not this.
  *
  * Each `set` replaces the whole setting: what it leaves out goes back to the
  * page's own (no ballast, no copies, everything shown, the post stack drawn).
@@ -21,7 +23,7 @@ interface MeterDraws<R> {
 
 /** What of the scene adapter the meter drives (its GPU load and the player's render settings). */
 interface MeterAdapter<R> {
-  gpuLoad?(): { set(s: { ballast: number; copies: number; copyOf: () => readonly R[]; hideShadows: boolean; bypassPost: boolean }): void; state(): object; record(seconds: number): Promise<number[]> };
+  gpuLoad?(): { set(s: { ballast: number; copies: number; copyOf: () => readonly R[] }): void; state(): object; record(seconds: number, clock?: 'presented' | 'gpu'): Promise<number[]> };
   setRenderSettings?(settings: { renderScale?: number; dynamicResolution?: boolean }, layer?: 'project' | 'player'): void;
 }
 
@@ -34,7 +36,7 @@ export interface VoxelMeterSettings {
   /** Extra draws a frame of one pass's drawables. */
   readonly copies?: number;
   readonly copy?: VoxelMeterPass;
-  readonly hide?: { readonly near?: boolean; readonly far?: boolean; readonly shadows?: boolean; readonly post?: boolean };
+  readonly hide?: { readonly near?: boolean; readonly far?: boolean };
   /** The render scale (0.5–1) the player's layer pins, with dynamic resolution as given (default off). */
   readonly renderScale?: number;
   readonly dynamicResolution?: boolean;
@@ -44,8 +46,8 @@ export interface VoxelMeter {
   set(s: VoxelMeterSettings): boolean;
   /** The load's state (three-adapter's GpuLoadState) with the settings given; null without a load. */
   state(): (object & { readonly settings: VoxelMeterSettings }) | null;
-  /** The intervals (ms) between the frames the page presents over the next `seconds` (a capped page skips animation frames); empty without a load. */
-  record(seconds: number): Promise<number[]>;
+  /** The intervals (ms) between the frames the page presents (`clock` 'gpu': the GPU finished) over the next `seconds` (a capped page skips animation frames); empty without a load. */
+  record(seconds: number, clock?: 'presented' | 'gpu'): Promise<number[]>;
 }
 
 export function voxelMeter<R>(draws: MeterDraws<R>, adapter: () => MeterAdapter<R> | null): VoxelMeter {
@@ -62,8 +64,6 @@ export function voxelMeter<R>(draws: MeterDraws<R>, adapter: () => MeterAdapter<
         ballast: s.ballast ?? 0,
         copies: s.copy === undefined ? 0 : (s.copies ?? 0),
         copyOf: s.copy === 'far' ? () => draws.roots().far : () => draws.roots().near,
-        hideShadows: s.hide?.shadows === true,
-        bypassPost: s.hide?.post === true,
       });
       if (s.renderScale !== undefined || s.dynamicResolution !== undefined) a.setRenderSettings?.({ ...(s.renderScale !== undefined ? { renderScale: s.renderScale } : {}), dynamicResolution: s.dynamicResolution === true }, 'player');
       return true;
@@ -72,8 +72,8 @@ export function voxelMeter<R>(draws: MeterDraws<R>, adapter: () => MeterAdapter<
       const load = adapter()?.gpuLoad?.() ?? null;
       return load === null ? null : { ...load.state(), settings };
     },
-    record(seconds) {
-      return adapter()?.gpuLoad?.()?.record(seconds) ?? Promise.resolve([]);
+    record(seconds, clock) {
+      return adapter()?.gpuLoad?.()?.record(seconds, clock) ?? Promise.resolve([]);
     },
   };
 }

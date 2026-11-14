@@ -15,8 +15,9 @@
  *   reported them.
  * - **GPU.** Pass shares where timestamps resolve (render against compute),
  *   never their milliseconds at a frame-rate cap: there the GPU's clock
- *   follows its load, so the GPU's room is measured by the headroom meter on
- *   demand (`__tlVoxelPlay.meter`, `tools/voxel-bench` headroom).
+ *   follows its load. Milliseconds per pass category come from the GPU
+ *   measurement run on demand (gpu-measure.ts: `measureGpu()`, the
+ *   global's `gpu.start()`), its progress and last result in `gpu.measure`.
  * - **Budget.** The tier's frame budget per thread and category, beside each
  *   category's use over the kept frames, and the frame arbiter's slices.
  * - **Spikes.** A frame whose interval passes {@link PROFILE_SPIKE_FACTOR}
@@ -30,6 +31,7 @@ import { FRAME_BUDGET_BY_TIER, frameBudgetMs, type BehaviorStats, type FrameBudg
 import { frameArbiter, PROFILE_FRAMES, residentBytes, SPAN_CATEGORIES, SpanRecorder, threadProfiler, wallClock, type FrameSliceReading, type PackedProfile, type ProfileFrame, type ResidentReading, type SpanCategory } from '@thirdlight/shared';
 import type { PoolQueues } from '@thirdlight/voxel';
 import { memoryReport, type ProfileMemory } from './page-memory';
+import { GpuMeasureRun, type GpuMeasureOptions, type GpuMeasureState, type GpuMeasureTarget } from './gpu-measure';
 
 /**
  * A frame is a spike when the time since the last one passes this many frame intervals (a frame at the cap
@@ -56,6 +58,8 @@ export interface ProfileSources {
   voxels?(): ProfileVoxels | null;
   /** Whether the page has the GPU headroom meter (a voxel page). */
   meter?(): boolean;
+  /** What the GPU measurement drives on this page's renderer (null: none). */
+  gpuMeasure?(): GpuMeasureTarget | null;
 }
 
 export interface ProfileVoxels {
@@ -164,6 +168,8 @@ export interface ProfileReport {
     readonly shares: { readonly render: number; readonly compute: number } | null;
     /** Room at the cap: never from timestamps; the headroom meter measures it on demand where the page has it. */
     readonly room: 'headroom meter' | 'not measurable here';
+    /** The GPU measurement per pass category: idle, running (its progress), done (its result) (absent in older captures). */
+    readonly measure?: GpuMeasureState;
   };
   readonly budget: {
     readonly tier: FrameBudget['tier'];
@@ -251,12 +257,34 @@ export class PageProfile {
   private intervalMs: number = FRAME_BUDGET_BY_TIER.medium.intervalMs;
   private budget: FrameBudget = FRAME_BUDGET_BY_TIER.medium;
   private cap: number | null = null;
+  private readonly gpu = new GpuMeasureRun(() => ({ target: this.sources.gpuMeasure?.() ?? null, intervalMs: this.intervalMs, budget: this.budget }));
 
   /** Sources a host or its page gives (laid over the ones given before: a new host's replace the last one's). */
   attach(sources: ProfileSources): void {
     this.sources = { ...this.sources, ...sources };
     // A page with a host is read through its global (Play, an export, the benches and tests).
-    (globalThis as Record<string, unknown>)[PROFILE_HOOK] ??= { read: (after?: ProfileCursor) => this.read(after) };
+    (globalThis as Record<string, unknown>)[PROFILE_HOOK] ??= {
+      read: (after?: ProfileCursor) => this.read(after),
+      gpu: { start: (o?: GpuMeasureOptions) => this.measureGpu(o), state: () => this.gpuState(), cancel: () => this.cancelGpu() },
+    };
+  }
+
+  /**
+   * Starts the GPU measurement (unless one runs): it takes a minute or two and
+   * loads the GPU past its cap while it runs. The state now.
+   */
+  measureGpu(options?: GpuMeasureOptions): GpuMeasureState {
+    return this.gpu.start(options);
+  }
+
+  /** The GPU measurement's progress, or its last result. */
+  gpuState(): GpuMeasureState {
+    return this.gpu.state();
+  }
+
+  /** A running GPU measurement stops at its next window. */
+  cancelGpu(): void {
+    this.gpu.cancel();
   }
 
   /** The frame rate and tier the page draws at: the interval frames are judged by, and the slices the page's arbiter hands out. */
@@ -492,6 +520,7 @@ export class PageProfile {
         timestamps: passes !== null,
         shares: passes !== null && total > 0 ? { render: passes.renderMs / total, compute: (passes.computeMs ?? 0) / total } : null,
         room: this.sources.meter?.() === true ? 'headroom meter' : 'not measurable here',
+        measure: this.gpu.state(),
       },
       budget: { tier: this.budget.tier, hz: this.budget.hz, intervalMs: this.budget.intervalMs, rows: this.budgetRows(all), gpu: this.budget.gpu },
       slices: frameArbiter.read(),

@@ -6,9 +6,10 @@
  * of frames against the cap, the selected frame's breakdown, the tier's
  * budget table with the frame arbiter's slices, counters and the kept long
  * frames. Pause freezes the view; Save capture writes the profile as a file
- * (`version: 1`) and Open capture shows one again, marked as a file. The
- * GPU's real room at the cap is the headroom bench's (it runs for minutes
- * and loads the GPU), not this panel's.
+ * (`version: 1`) and Open capture shows one again, marked as a file.
+ * Measure GPU starts the play page's GPU measurement (game-host
+ * gpu-measure.ts: about two minutes, the GPU loaded past its cap); its
+ * progress shows in the bar and its ms per pass category in Budget.
  *
  * Browser-only (React).
  */
@@ -30,14 +31,14 @@ import {
   type ProfileSpike,
 } from '@thirdlight/game-host/profile-view';
 
-import { BudgetTable, Counters, FrameBreakdown, ProfilerLegend, SpikeList } from './ProfilerDetails';
+import { BudgetTable, Counters, FrameBreakdown, gpuMeasureNote, ProfilerLegend, SpikeList } from './ProfilerDetails';
 import { ProfilerTimeline } from './ProfilerTimeline';
 
 interface Props {
   /** The running Play (null: none). */
   playSessionId: string | null;
-  /** One read of the Play's profile since `after` (the play session's bridge poll). */
-  readProfile: (after?: ProfileCursor) => Promise<Record<string, unknown> | null>;
+  /** One read of the Play's profile since `after` (the play session's bridge poll); `gpu` starts or stops the GPU measurement with it. */
+  readProfile: (after?: ProfileCursor, gpu?: 'measure' | 'cancel') => Promise<Record<string, unknown> | null>;
 }
 
 const POLL_MS = 500;
@@ -75,6 +76,8 @@ export function ProfilerPanel({ playSessionId, readProfile }: Props): JSX.Elemen
   const fileInput = useRef<HTMLInputElement | null>(null);
   const busy = useRef(false);
   const session = useRef<string | null>(null);
+  /** A GPU measurement start or stop the next read carries. */
+  const gpuAsk = useRef<'measure' | 'cancel' | null>(null);
 
   // A new Play starts a new profile.
   useEffect(() => {
@@ -92,7 +95,9 @@ export function ProfilerPanel({ playSessionId, readProfile }: Props): JSX.Elemen
     busy.current = true;
     try {
       const cursor = acc.current.cursor;
-      const r = await readProfile(cursor ?? undefined);
+      const ask = gpuAsk.current;
+      gpuAsk.current = null;
+      const r = await readProfile(cursor ?? undefined, ask ?? undefined);
       if (session.current !== playSessionId) return;
       const report = r?.['report'] as ProfileReport | undefined;
       if (report === undefined || typeof report !== 'object' || report === null || !('seq' in report)) {
@@ -116,6 +121,12 @@ export function ProfilerPanel({ playSessionId, readProfile }: Props): JSX.Elemen
   }, [playSessionId, paused, file, poll]);
 
   const base = file !== null ? file.capture.report : live;
+  const gpuState = base?.gpu.measure;
+  const measuring = file === null && gpuState?.state === 'running';
+  const askGpu = (what: 'measure' | 'cancel'): void => {
+    gpuAsk.current = what;
+    void poll();
+  };
   const shown = base !== null && spike !== null ? profileOfSpike(base, spike) : base;
   const columns = useMemo(() => (shown === null ? [] : profileColumns(shown)), [shown]);
   const selectedIndex = useMemo(() => {
@@ -175,6 +186,11 @@ export function ProfilerPanel({ playSessionId, readProfile }: Props): JSX.Elemen
           </span>
         )}
         {status !== '' && <span className="tl-prof__status" role="status">{status}</span>}
+        {gpuMeasureNote(gpuState) !== '' && (
+          <span className="tl-prof__dim" data-testid="profiler-gpu-note" data-state={gpuState?.state ?? 'idle'}>
+            {gpuMeasureNote(gpuState)}
+          </span>
+        )}
         <span className="tl-prof__actions">
           {file === null ? (
             <button className="tl-btn tl-btn--small" disabled={playSessionId === null} onClick={() => setPaused((p) => !p)} title={paused ? 'Read the Play again' : 'Freeze the view to inspect it'}>
@@ -183,6 +199,17 @@ export function ProfilerPanel({ playSessionId, readProfile }: Props): JSX.Elemen
           ) : (
             <button className="tl-btn tl-btn--small" onClick={() => setFile(null)} title="Back to the running Play's profile">
               Back to live
+            </button>
+          )}
+          {file === null && (
+            <button
+              className="tl-btn tl-btn--small"
+              disabled={playSessionId === null}
+              data-testid="profiler-measure-gpu"
+              onClick={() => askGpu(measuring ? 'cancel' : 'measure')}
+              title={measuring ? 'Stop the GPU measurement' : 'Measure each pass\'s GPU ms: loads the GPU past its cap for about two minutes (WebGPU)'}
+            >
+              {measuring ? 'Stop measuring' : 'Measure GPU'}
             </button>
           )}
           <button className="tl-btn tl-btn--small" disabled={base === null} onClick={save} title="Save the profile as a capture file (JSON, version 1)">

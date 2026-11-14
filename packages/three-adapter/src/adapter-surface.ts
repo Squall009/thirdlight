@@ -14,6 +14,8 @@ import type { SceneAdapter } from './adapter-types';
 import { createFrameCapture } from './capture';
 import type { QualityLevel } from './environment';
 import { ENV_STALE } from './environment-look';
+import { gpuMeasureTarget, type GpuMeasureTargetLike } from './gpu-measure-target';
+import { gpuPassHides } from './gpu-pass-hides';
 import type { LightingBakeLike, LightmapSet } from './lightmaps';
 import { EntityNode } from './render-graph';
 import type { ScenePreparations } from './scene-preparation';
@@ -61,6 +63,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
   const projectScratch = new THREE.Vector3();
   const projectWorld: number[] = [0, 0, 0];
   const projectScratch2 = new THREE.Vector3();
+  let measureTarget: GpuMeasureTargetLike | undefined;
   const { captureScreenshot, captureThumbnail } = createFrameCapture({ canvas: p.renderer.canvas, drawFrame: () => frame.draw(true), skipped: () => frame.skipped });
 
   function dispose(): { ok: true; alreadyDisposed?: true } {
@@ -137,6 +140,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
     takeGpuTime: () => p.gpuTiming.take(),
     gpuPasses: () => p.gpuTiming.lastPasses(),
     gpuLoad: () => p.gpuLoad,
+    gpuMeasure: () => (measureTarget ??= gpuMeasureTarget(p.gpuLoad, gpuPassHides, p.renderControl, () => p.renderer.current(), () => state.disposed || p.renderer.starting())),
     projectToScreen(target, out): boolean {
       const camera = state.camera;
       if (state.disposed || camera === null) return false;

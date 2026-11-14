@@ -516,6 +516,8 @@ export interface SceneAdapter {
   gpuPasses?(): { renderMs: number; computeMs: number | null } | null;
   /** A measuring run's GPU load added to every frame (gpu-headroom.ts): ballast, copies of chosen roots, shadows hidden, the post stack bypassed. */
   gpuLoad?(): import('./gpu-headroom').GpuLoad;
+  /** What the page's GPU measurement drives (game-host gpu-measure.ts): ballast, GPU frame times, the passes' hides, the scale's hold. */
+  gpuMeasure?(): import('./gpu-measure-target').GpuMeasureTargetLike;
   /**
    * Show an environment preset blend instead of the running
    * game's (an editor preview; null: the game's again).

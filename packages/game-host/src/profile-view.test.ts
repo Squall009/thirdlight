@@ -114,7 +114,8 @@ describe('the profile views', () => {
     expect(lines.find((l) => l.startsWith('page'))).toMatch(/page +\d+\.\d\d ms +render \d+\.\d\d\/8\.3/);
     expect(lines.find((l) => l.startsWith('sim'))).toMatch(/scripts 2\.00\//);
     expect(lines.find((l) => l.startsWith('jobs'))).toMatch(/voxel meshing/);
-    expect(lines.find((l) => l.startsWith('gpu'))).toMatch(/not measured/);
+    expect(lines.find((l) => l.startsWith('gpu '))).toMatch(/no timestamps/);
+    expect(lines.find((l) => l.startsWith('gpu ms'))).toMatch(/not measured/);
     expect(lines.at(-1)).toMatch(/^spike +\d+\.\d ms \(interval\)/);
   });
 });

@@ -10,7 +10,10 @@
  * report's `problems`, exit code 1). With each shot: the frame profile's page and simulation ms a frame and its
  * budget rows (the `lighting` category among them), and its resident-bytes table. After the shots, `--edits`
  * runtime digs in front of the street camera, each timed from the edit to the first frame that draws it
- * (`__tlVoxelPlay.edits()`).
+ * (`__tlVoxelPlay.edits()`). With `--gpu`, at each camera after its pictures the page's GPU measurement
+ * (game-host gpu-measure.ts: ms per pass category, the Profiler's "Measure GPU") runs and goes into the shot's
+ * `gpu`, and a third picture after it (`<name>-after-gpu.png`) is compared with the first: a measurement must
+ * leave the scene drawing what it drew (`afterGpuShare`, refused over the street's own run-to-run change).
  *
  * Set-up, each run (what the generated world lacks): the two looks as environment presets (`bench-noon`,
  * `bench-night`; kept in the project), the cave as one `editVoxels` dig stroke (kept in the world: a second
@@ -23,6 +26,7 @@
  *   --only LIST   cameras by name (default all five)   --query Q   more of the editor page's query (Play is
  *                 passed its flags: a later item's lighting arrangement), starting with `&`
  *   --hold S (default 3)  --timeout S a camera (default 180)  --edits N (default 3, 0: none)
+ *   --gpu         the GPU measurement at each camera (about two minutes each)   --gpu-repeats N (default 5)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
  *
  * How to (staging running, nothing else on the GPU):
@@ -43,6 +47,7 @@ import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
 import { BENCH_LAMP_LIGHT, BENCH_LAMPS, caveStroke, changedShare, EDIT_DIGS, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems } from './lighting-cameras';
+import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from './gpu-measure-page';
 import { openPlay, type PlayGame } from './travel-page';
 import { settleAfter, type CountSample } from './travel';
 
@@ -60,6 +65,11 @@ const FAR_STILL = { share: 0.02, abs: 2 };
 const COUNTS = ['chunks', 'l0', 'l1', 'l2', 'kits', 'farNodes', 'farBricks'] as const;
 /** After the settle: a second for the temporal upscale to converge on the still view. */
 const CONVERGE_MS = 1500;
+/**
+ * The share of a picture that may differ after a GPU measurement from before it: the street's two baseline runs
+ * 40 min apart differed by 0.21 % (sky and far shimmer); more means the measurement left something hidden or changed.
+ */
+const AFTER_GPU_SHARE = 0.005;
 
 interface WorldStats {
   chunks: number;
@@ -167,6 +177,22 @@ async function main(): Promise<void> {
       const hidden = decodePng(await game.screenshot(hiddenFile));
       await meterSet(game, {});
       const voxelShare = changedShare(shown, hidden);
+      let gpu: unknown = null;
+      let afterGpuShare: number | null = null;
+      if (O.gpu) {
+        try {
+          const g = await measureGpuOnPage((call, options) => game.frame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: O.gpuRepeats });
+          gpu = g;
+          console.log(`${cam.name}: ${gpuMeasureSummary(g)}`);
+          // The meter's pin again (the measurement let go of its own hold), then the same view once more.
+          await meterSet(game, {});
+          await page.waitForTimeout(CONVERGE_MS);
+          afterGpuShare = changedShare(shown, decodePng(await game.screenshot(join(OUT, `${cam.name}-after-gpu.png`))));
+          if (afterGpuShare > AFTER_GPU_SHARE) problems.push(`${cam.name}: the picture after the GPU measurement differs from before it in ${(afterGpuShare * 100).toFixed(2)} % of its pixels`);
+        } catch (e) {
+          problems.push(`${cam.name}: GPU measurement: ${String(e).slice(0, 200)}`);
+        }
+      }
       const c = s.counts ?? {};
       const shotProblemsFound = shotProblems({ settled: s.settledS !== null, chunks: c['chunks'] ?? 0, l0: c['l0'] ?? 0, farBricks: c['farBricks'] ?? 0, voxelShare, near: cam.near });
       for (const p of shotProblemsFound) problems.push(`${cam.name}: ${p}`);
@@ -187,6 +213,7 @@ async function main(): Promise<void> {
         problems: shotProblemsFound,
         profile: report === null ? null : profileSummary(report),
         memory: report?.counters.memory ?? null,
+        ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)) } : {}),
         at: host(),
       });
       console.log(`${cam.name}: settled ${s.settledS ?? 'never'} s, ${JSON.stringify(s.counts)}, voxels change ${(voxelShare * 100).toFixed(1)} % of the picture${shotProblemsFound.length > 0 ? `; REFUSED: ${shotProblemsFound.join('; ')}` : ''}; profile ${JSON.stringify(report === null ? null : profileSummary(report).msPerFrame)}`);

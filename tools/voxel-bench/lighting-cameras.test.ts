@@ -125,7 +125,9 @@ describe('the light-shots options', () => {
   });
   it('pass a query through and pick cameras by name', () => {
     const o = parseLightShotsArgs(['--quality', 'medium', '--query', '&voxelShadows=static', '--only', 'cave,far-view', '--out', 'x', '--edits', '0']);
-    expect([o.quality, o.query, o.only, o.out, o.edits]).toEqual(['medium', '&voxelShadows=static', ['cave', 'far-view'], 'x', 0]);
+    expect([o.quality, o.query, o.only, o.out, o.edits, o.gpu]).toEqual(['medium', '&voxelShadows=static', ['cave', 'far-view'], 'x', 0, false]);
+    expect([parseLightShotsArgs(['--gpu']).gpu, parseLightShotsArgs(['--gpu', '--gpu-repeats', '7']).gpuRepeats]).toEqual([true, 7]);
+    expect(() => parseLightShotsArgs(['--gpu-repeats', '1'])).toThrow(/--gpu-repeats/);
   });
   it('refuse bad values, naming the option', () => {
     expect(() => parseLightShotsArgs(['--quality', 'ultra'])).toThrow(/--quality/);

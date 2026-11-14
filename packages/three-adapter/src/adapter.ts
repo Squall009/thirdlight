@@ -137,7 +137,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   });
   const effects = new AdapterEffects(scene, resources, opts, materialLibrary);
   const gpuTiming = createGpuTiming();
-  const gpuLoad = new GpuLoad();
+  const gpuLoad = new GpuLoad(scene, () => environment.renderer !== null);
   // AO kind, render scale and dynamic resolution, applied to the environment renderer.
   const renderControl = createRenderControl(opts.render);
   // Where the view starts (the runtime's camera brain resolved it before the first frame; the shots move it from there).
@@ -183,6 +183,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     realization: () => models.realization, lightmaps: () => state.lightmaps, staticShadows, batcher, viewCull, renderer: () => renderer.current(), lights,
     precompile: () => precompile, startModelsIn: () => models.startIn, interactors: () => entities.interactorsNow(),
   });
+  effects.registerGpuHide(level.interactors);
   const entities = new AdapterEntities(entityDocs, {
     graph, lights, blockView: level.blockView, terrains: level.terrains, splines: level.splines, architecture: level.architecture, cover: level.scatter.sink !== undefined ? level.scatter.cover : null, clipped: level.clipped, voxelDecals: level.voxelDecals, effects, materials,
     lightmaps: () => state.lightmaps, realization: () => models.realization, unitBox, vertexPaint: opts.vertexPaint !== false, terrain: opts.terrain !== false,

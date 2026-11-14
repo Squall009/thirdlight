@@ -27,6 +27,10 @@ export const PLAY_DIAGNOSTICS_SECTIONS = [
   // The frame profile's digest (each thread's ms a frame by category against the tier's budget, counters, the worst
   // spike's spans): only when named, as reading it makes the profile's frames into objects.
   'profile',
+  // The GPU measurement per pass category: `gpu` reads its state or last result; `gpuMeasure` starts one (unless one
+  // runs: it takes a minute or two and loads the GPU past its cap) and answers its state. Only when named.
+  'gpu',
+  'gpuMeasure',
 ] as const;
 
 /** The top-level parts of a game observation besides its header (`GAME_OBSERVATION_HEADER`). */

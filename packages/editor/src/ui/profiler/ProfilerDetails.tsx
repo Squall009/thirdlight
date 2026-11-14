@@ -6,7 +6,7 @@
  */
 import type { JSX } from 'react';
 
-import { PROFILE_CATEGORY_COLOURS, PROFILE_CATEGORY_LABELS, PROFILE_LANE_LABELS, PROFILE_LANES, type ProfileBreakdown, type ProfileReport, type ProfileSpike } from '@thirdlight/game-host/profile-view';
+import { PROFILE_CATEGORY_COLOURS, PROFILE_CATEGORY_LABELS, PROFILE_LANE_LABELS, PROFILE_LANES, type GpuMeasureState, type ProfileBreakdown, type ProfileReport, type ProfileSpike } from '@thirdlight/game-host/profile-view';
 
 const ms = (v: number): string => v.toFixed(2);
 const mib = (b: number | null | undefined): string => (typeof b === 'number' && b >= 0 ? `${(b / 1048576).toFixed(1)} MiB` : '—');
@@ -76,6 +76,92 @@ export function FrameBreakdown({ breakdown, frame }: { breakdown: ProfileBreakdo
   );
 }
 
+/** How the GPU measurement stands, in a few words (the bar's status). */
+export function gpuMeasureNote(st: GpuMeasureState | undefined): string {
+  if (st === undefined || st.state === 'idle') return '';
+  if (st.state === 'running') return `measuring the GPU ${st.step}/${st.steps}: ${st.doing}`;
+  if (st.state === 'unavailable') return `GPU: ${st.reason}`;
+  if (st.state === 'failed') return `GPU measurement failed: ${st.error}`;
+  return `GPU measured ${new Date(st.result.at).toLocaleTimeString()} in ${Math.round(st.result.seconds)} s`;
+}
+
+/**
+ * The GPU's measured ms per pass category (the last "Measure GPU"): each
+ * category's median with its spread, or "below resolution", beside the GPU
+ * budget row it is held against; then each budget row's sum.
+ */
+export function GpuTable({ measure }: { measure: GpuMeasureState | undefined }): JSX.Element {
+  const m = measure?.state === 'done' ? measure.result : measure?.state === 'running' || measure?.state === 'failed' ? measure.last : null;
+  if (m === null) {
+    return (
+      <div className="tl-prof__caption" data-testid="profiler-gpu" data-state={measure?.state ?? 'idle'}>
+        GPU ms per pass: not measured yet. Measure GPU loads the GPU past its cap for about two minutes and reads what each pass costs by hiding it (Play on WebGPU).
+      </div>
+    );
+  }
+  return (
+    <div data-testid="profiler-gpu" data-state={measure?.state ?? 'idle'}>
+      <div className="tl-prof__caption">
+        GPU ms a frame per pass, at the busy clock past the cap ({m.intervalMs.toFixed(1)} ms frames, {m.options.repeats} interleaved repeats, {Math.round(m.seconds)} s); resolution {m.resolutionMs.toFixed(2)} ms
+        {m.frameMs !== null ? ` · the whole frame ${m.frameMs.toFixed(1)} ms` : ''}
+        {measure?.state !== 'done' ? ' · the last result' : ''}
+      </div>
+      <table className="tl-prof__table" aria-label="GPU per pass" data-testid="profiler-gpu-table">
+        <thead>
+          <tr>
+            <th className="tl-prof__name">pass</th>
+            <th>budget row</th>
+            <th className="tl-prof__num">ms</th>
+            <th className="tl-prof__num">spread</th>
+          </tr>
+        </thead>
+        <tbody>
+          {m.categories.map((c) => (
+            <tr key={c.category} data-category={c.category} data-ms={c.ms === null ? '' : String(c.ms)} data-below={c.belowResolution ? 'true' : 'false'}>
+              <td className="tl-prof__name" title={c.passes.join(', ')}>{c.category}</td>
+              <td className="tl-prof__dim">{PROFILE_CATEGORY_LABELS[m.budget.rows.find((b) => b.categories.includes(c.category))?.budget ?? 'other']}</td>
+              <td className="tl-prof__num">{c.ms === null ? <span className="tl-prof__dim">below resolution</span> : `${c.lowerBound ? '≥ ' : ''}${ms(c.ms)}`}</td>
+              <td className="tl-prof__num">±{ms(c.spreadMs)}</td>
+            </tr>
+          ))}
+          {m.absent.length > 0 && (
+            <tr>
+              <td colSpan={4} className="tl-prof__none">no pass here: {m.absent.join(', ')}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <table className="tl-prof__table" aria-label="GPU budget" data-testid="profiler-gpu-budget">
+        <thead>
+          <tr>
+            <th className="tl-prof__name">GPU budget</th>
+            <th className="tl-prof__num">budget</th>
+            <th className="tl-prof__num">measured</th>
+            <th className="tl-prof__use">use</th>
+          </tr>
+        </thead>
+        <tbody>
+          {m.budget.rows.map((b) => {
+            const use = b.ms === null || b.budgetMs <= 0 ? null : b.ms / b.budgetMs;
+            const over = use !== null && use > 1;
+            return (
+              <tr key={b.budget} className={over ? 'is-over' : undefined} data-budget={b.budget}>
+                <td className="tl-prof__name">
+                  <Swatch category={b.budget} />
+                  {PROFILE_CATEGORY_LABELS[b.budget]} <span className="tl-prof__dim">({b.categories.join(', ') || '—'})</span>
+                </td>
+                <td className="tl-prof__num">{ms(b.budgetMs)}</td>
+                <td className="tl-prof__num">{b.ms === null ? '—' : ms(b.ms)}</td>
+                <td className="tl-prof__use">{use === null ? <span className="tl-prof__dim">—</span> : `${Math.round(use * 100)} %${over ? ' over' : ''}`}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** The tier's budget per thread and category beside the use over the kept frames; over-budget rows marked. Then the arbiter's slices. */
 export function BudgetTable({ report }: { report: ProfileReport }): JSX.Element {
   const b = report.budget;
@@ -129,8 +215,9 @@ export function BudgetTable({ report }: { report: ProfileReport }): JSX.Element 
         ))}
       </table>
       <div className="tl-prof__caption">
-        GPU plan (shares of a frame, compared with pass shares): {Object.entries(b.gpu).map(([c, v]) => `${PROFILE_CATEGORY_LABELS[c as keyof typeof PROFILE_CATEGORY_LABELS] ?? c} ${Math.round((v ?? 0) * 100)} %`).join(' · ')}
+        GPU plan (shares of a frame): {Object.entries(b.gpu).map(([c, v]) => `${PROFILE_CATEGORY_LABELS[c as keyof typeof PROFILE_CATEGORY_LABELS] ?? c} ${Math.round((v ?? 0) * 100)} %`).join(' · ')}
       </div>
+      <GpuTable measure={report.gpu.measure} />
       <table className="tl-prof__table" aria-label="frame arbiter slices" data-testid="profiler-slices">
         <thead>
           <tr>
@@ -175,7 +262,7 @@ export function Counters({ report }: { report: ProfileReport }): JSX.Element {
     ['ground cover as table rows', c.coverRows == null || c.coverRows.sets === 0 ? 'off' : `${count(c.coverRows.sets)} rules · ${count(c.coverRows.rows)} rows · ${count(c.coverRows.inView)} points in view of ${count(c.coverRows.points)} places · ${count(c.coverRows.drawn)} drawn`],
     ['interaction field', c.interaction == null ? 'off' : `${count(c.interaction.stamps)} stamps · ${c.interaction.live ? 'read' : 'idle'} · ${mib(c.interaction.bytes)}`],
     ['job queues', c.queues === null ? '—' : `${c.queues.workers} workers · ${c.queues.queued} queued · ${c.queues.backgroundQueued} background · ${c.queues.inFlight} running`],
-    ['GPU room', report.gpu.room === 'headroom meter' ? 'measured by the headroom bench (node tools/voxel-bench/run.mjs headroom): it takes minutes and loads the GPU' : 'not measurable on this page'],
+    ['GPU room', report.gpu.room === 'headroom meter' ? 'measured by the headroom bench (node tools/voxel-bench/run.mjs headroom): it takes minutes and loads the GPU; ms per pass: Measure GPU (Budget)' : 'ms per pass: Measure GPU (Budget)'],
     ['profiler cost', `${report.cost.pageSpansPerFrame.toFixed(1)} page spans a frame at ${Math.round(report.cost.nsPerSpan)} ns`],
   ];
   return (

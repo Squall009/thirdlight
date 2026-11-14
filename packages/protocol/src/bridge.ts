@@ -303,8 +303,8 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       return { ok: true };
     }
     case 'tl.profile.request': {
-      // `after`: the cursor the last answer carried (absent: everything the page keeps).
-      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'after']);
+      // `after`: the cursor the last answer carried (absent: everything the page keeps); `gpu`: start or stop the page's GPU measurement.
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'after', 'gpu']);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
@@ -314,6 +314,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
           return { ok: false, reason: `after must be { ${PROFILE_CURSOR_KEYS.join(', ')} } counts`, path: '/after' };
         }
       }
+      if (m['gpu'] !== undefined && m['gpu'] !== 'measure' && m['gpu'] !== 'cancel') return { ok: false, reason: 'gpu must be "measure" or "cancel"', path: '/gpu' };
       return { ok: true };
     }
     case 'tl.ping': {

@@ -16,19 +16,15 @@
  *    would draw smaller under the load) and a window with no load;
  * 2. the edge: the ballast copies the frame holds before it misses (doubling,
  *    then halving the gap; the room, in ballast units);
- * 3. past the edge, where the GPU sets the interval: a load doubled from 4
- *    times the edge until the mean interval is ~30 ms, and windows at half and
- *    three quarters of it; the line through their mean intervals gives a ballast
- *    copy's ms (slope) and the frame's GPU ms (intercept), checked against the
- *    budget less the room (they agree when the interval is the GPU's time);
- * 4. at that load, each pass in `--hide` (near, far, shadows, post)
- *    hidden and each in `--copies` (near, far) drawn once more: the interval
- *    it moves is its ms, over the slope its units, and 1 + room / units how
- *    many times it could be drawn (headroom ×);
- * 5. the copies of each pass the frame holds at no load (a direct check), and
- *    at no load each pass hidden: whether the frame then holds and its stalls
- *    (frames over 100 ms) go;
- * 6. `--scales`: a window at no load at each render scale.
+ * 3. the page's GPU measurement (game-host gpu-measure.ts, the same routine
+ *    the Profiler tab's "Measure GPU" runs, through `__tlProfiler.gpu`): GPU
+ *    ms per pass category (near, far, shadows, lighting, post, effects) past
+ *    the cap, each category's median and spread over interleaved repeats, a
+ *    category under the routine's resolution reported as such, and the
+ *    frame's GPU ms at the busy clock;
+ * 4. the copies of each pass in `--copies` the frame holds at no load (how
+ *    many times it could be drawn);
+ * 5. `--scales`: a window at no load at each render scale.
  *
  * Frames are timed as the page presents them (the meter's record), not by
  * animation frames: under a 30 cap on a 60 Hz display every other callback
@@ -43,7 +39,7 @@
  *   --cap FPS            the frame-rate cap measured against (default the level's `frameRateCap`, else 60)
  *   --window S           seconds a window (default 3)   --settle S (default 1)
  *   --copies LIST        passes drawn again (default near,far; `none`)
- *   --hide LIST          passes hidden (default near,far,shadows,post; `none`)
+ *   --repeats N          the GPU measurement's interleaved repeats (default 5)   --gpu-window S (default 1.5)
  *   --scales LIST        render scales at no load (default low 0.833,1; medium 0.75,0.833,0.917,1; high 0.9,0.8,0.667; `none`)
  *   --query Q            more of the editor page's query (`&voxelShadows=static`: page flags Play is passed)
  *   --orbit R,W          the camera R m from the town square at W rad/s (default 12,0.15; e.g. 60,0.25 moves the eye 15 m/s)
@@ -55,9 +51,9 @@
  *     env HOME=$HOME PATH=$PATH TMPDIR=$HOME/.cache/tmp/headroom node tools/voxel-bench/run.mjs headroom --quality medium --rounds 2
  *
  * (`MemoryMax=7G` for `--quality high`). A round takes ~5 min after the fill.
- * Read the JSON's `rounds[].rows` (ms a pass, past the edge), `edge` (the
- * room, in ballast copies), `frameGpu` (whether the line and the edge agree:
- * if not, quote units and ms past the edge only) and `spread` (rounds).
+ * Read the JSON's `rounds[].rows` `rounds[].gpu` (the measurement: per category
+ * `ms` or below resolution, `resolutionMs`, `frameMs`), `edge` (the room, in
+ * ballast copies) and `spread` (rounds).
  * A later item measures before and after its change with the same command
  * in the same hour. Not part of `npm test`.
  */
@@ -70,7 +66,9 @@ import { DEFAULT_QUALITY_LEVELS, LOW_MEMORY_BUDGET_MIB } from '@thirdlight/proje
 import { profileSummary, type ProfileReport } from '@thirdlight/game-host';
 import { launchGpuBrowser, parseViewport } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
-import { FarSettle, fitLine, frameCap, frameGpu, frameWindow, misses, passShare, searchLimit, spread, type FrameWindow, type LimitResult, type LineFit, type PassRow } from './headroom';
+import type { GpuMeasurement } from '@thirdlight/game-host';
+import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from './gpu-measure-page';
+import { FarSettle, frameCap, frameWindow, misses, searchLimit, spread, type FrameWindow, type LimitResult } from './headroom';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -87,7 +85,8 @@ const ROUNDS = Number(arg('rounds', '1'));
 const WINDOW_S = Number(arg('window', '3'));
 const SETTLE_S = Number(arg('settle', '1'));
 const COPIES = list(arg('copies', 'near,far')) as Array<'near' | 'far'>;
-const HIDE = list(arg('hide', 'near,far,shadows,post')) as Array<'near' | 'far' | 'shadows' | 'post'>;
+const REPEATS = Number(arg('repeats', '5'));
+const GPU_WINDOW_S = Number(arg('gpu-window', '1.5'));
 const SCALES = list(arg('scales', QUALITY === 'high' ? '0.9,0.8,0.667' : QUALITY === 'medium' ? '0.75,0.833,0.917,1' : QUALITY === 'low' ? '0.833,1' : 'none')).map(Number);
 const VIEWPORT = parseViewport(arg('viewport', '1280x720'));
 const QUERY = arg('query', '');
@@ -164,12 +163,11 @@ interface MeterSettings {
   ballast?: number;
   copies?: number;
   copy?: 'near' | 'far';
-  hide?: { near?: boolean; far?: boolean; shadows?: boolean; post?: boolean };
   renderScale?: number;
   dynamicResolution?: boolean;
 }
 interface Hook {
-  meter: { set(s: MeterSettings): boolean; state(): { copyCpuMs: number; lightsHidden: number; frames: number; size: number[] } | null; record(seconds: number): Promise<number[]> };
+  meter: { set(s: MeterSettings): boolean; state(): { copyCpuMs: number; lightsHidden: number; frames: number; size: number[]; completions?: unknown } | null; record(seconds: number, clock?: 'presented' | 'gpu'): Promise<number[]> };
   stats(): { worlds: Record<string, { far: { nodes: number; bricks: number } ; chunks: number }> };
 }
 
@@ -265,8 +263,8 @@ async function main(): Promise<void> {
       const ok = await canvas.evaluate((_c, v) => (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay.meter.set(v), { renderScale: TIER_SCALE, dynamicResolution: false, ...s });
       if (!ok) throw new Error('the page has no GPU load (adapter without gpuLoad)');
       await page.waitForTimeout(SETTLE_S * 1000);
-      // A pass hidden or shown again builds its programs again: wait for a second without a stall (≤ 12 s).
-      if (JSON.stringify(was.hide ?? {}) !== JSON.stringify(s.hide ?? {}) || was.renderScale !== s.renderScale || (was.copy !== s.copy && s.copy !== undefined)) {
+      // A new scale or copy builds its programs again: wait for a second without a stall (≤ 12 s).
+      if (was.renderScale !== s.renderScale || (was.copy !== s.copy && s.copy !== undefined)) {
         for (let i = 0; i < 12; i++) if ((await frames(1)).stalls === 0) break;
       }
     };
@@ -276,10 +274,9 @@ async function main(): Promise<void> {
       await set(s);
       return frames(WINDOW_S);
     };
-    const meterState = async (key: 'copyCpuMs' | 'lightsHidden'): Promise<number | null> => (await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay.meter.state()))?.[key] ?? null;
-    const cpuMs = (): Promise<number | null> => meterState('copyCpuMs');
+    const cpuMs = async (): Promise<number | null> => (await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay.meter.state()))?.copyCpuMs ?? null;
     // Programs built once for every kind of load before anything is timed.
-    for (const s of [{ ballast: 1 }, ...COPIES.map((p) => ({ copies: 1, copy: p })), ...HIDE.map((p) => ({ hide: { [p]: true } }))] as MeterSettings[]) await probe(s);
+    for (const s of [{ ballast: 1 }, ...COPIES.map((p) => ({ copies: 1, copy: p }))] as MeterSettings[]) await probe(s);
 
     for (let round = 0; round < ROUNDS; round++) {
       const r: Record<string, unknown> = { round, start: host() };
@@ -291,53 +288,22 @@ async function main(): Promise<void> {
       const edge: LimitResult = await searchLimit((n) => probe({ ballast: n }), { max: BALLAST_LIMIT, start: 4, precision: 0.1, cap: CAP });
       r['edge'] = edge;
       const room = Math.max(0, edge.held);
-      // Past the edge, where the GPU sets the interval: from 4 times the edge, doubling until the mean interval is
-      // the cap's deep interval (a pass of several ms hidden must leave the frame past the edge), then the line through the half,
-      // three quarters and the whole of that load (longer windows: stalls weigh on a mean).
-      const deep = async (s: MeterSettings): Promise<FrameWindow> => {
-        await set(s);
-        return frames(WINDOW_S * 2);
-      };
-      let top = Math.min(BALLAST_LIMIT, 4 * Math.max(4, edge.missedAt ?? BALLAST_LIMIT / 4));
-      let topWindow = await deep({ ballast: top });
-      while (topWindow.meanMs < CAP.deepMs && top < BALLAST_LIMIT) topWindow = await deep({ ballast: (top = Math.min(BALLAST_LIMIT, top * 2)) });
-      const past = [];
-      for (const n of [Math.round(top / 2), Math.round((top * 3) / 4)]) past.push({ n, window: await deep({ ballast: n }) });
-      past.push({ n: top, window: topWindow });
-      const line: LineFit | null = fitLine(past.map((p) => ({ n: p.n, ms: p.window.meanMs })));
-      r['pastEdge'] = past;
-      r['line'] = line;
-      if (line !== null) r['frameGpu'] = frameGpu(line, edge.held, edge.missedAt, CAP);
-      // Each pass at the top load: hidden, or drawn once more; the frame as it is measured before and after.
-      const at = top;
-      const base = [topWindow.meanMs];
-      const rows: PassRow[] = [];
-      const shares: Record<string, FrameWindow> = {};
-      for (const pass of HIDE) {
-        shares[`hidden ${pass}`] = await deep({ ballast: at, hide: { [pass]: true } });
-        if (pass === 'shadows') r['lightsHidden'] = await meterState('lightsHidden');
-      }
+      // GPU ms per pass category: the page's own measurement (its load and hides; the meter's load set back first).
+      await set({});
+      // The GPU's completion times at no load (the clock the measurement reads), beside the page's presented ones.
+      r['noLoadGpuClock'] = frameWindow(await canvas.evaluate((_c, s) => (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay.meter.record(s, 'gpu'), WINDOW_S), CAP);
+      r['completions'] = (await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay.meter.state()))?.completions ?? null;
+      console.log(`  GPU clock at no load: ${JSON.stringify(r['noLoadGpuClock'])}; completions ${JSON.stringify(r['completions'])}`);
+      const gameFrame = await (await canvas.elementHandle())!.ownerFrame();
+      if (gameFrame === null) throw new Error('the canvas has no frame');
+      r['gpu'] = await measureGpuOnPage((call, options) => gameFrame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: REPEATS, windowS: GPU_WINDOW_S });
+      // The copies the frame holds at no load (how many times each pass could be drawn).
+      const copies: Record<string, LimitResult> = {};
       for (const pass of COPIES) {
-        shares[`copy ${pass}`] = await deep({ ballast: at, copies: 1, copy: pass });
+        copies[pass] = await searchLimit((n) => probe({ copies: n, copy: pass }), { max: COPY_LIMIT, start: 1, precision: 0.25, cap: CAP });
         r[`copyCpuMs ${pass}`] = await cpuMs();
       }
-      base.push((await deep({ ballast: at })).meanMs);
-      const baseMs = (base[0]! + base[1]!) / 2;
-      r['base'] = { ballast: at, meanMs: base };
-      if (line !== null) {
-        for (const pass of HIDE) rows.push(passShare(pass, 'hidden', baseMs, shares[`hidden ${pass}`]!, line.slope, room, CAP));
-        for (const pass of COPIES) rows.push(passShare(pass, 'copy', baseMs, shares[`copy ${pass}`]!, line.slope, room, CAP));
-      }
-      r['shares'] = shares;
-      r['rows'] = rows;
-      // The copies the frame holds at no load (a direct check on headroom ×).
-      const copies: Record<string, LimitResult> = {};
-      for (const pass of COPIES) copies[pass] = await searchLimit((n) => probe({ copies: n, copy: pass }), { max: COPY_LIMIT, start: 1, precision: 0.25, cap: CAP });
       r['copies'] = copies;
-      // At no load: does the frame hold the cap with a pass hidden, and do its stalls go?
-      const noLoadHidden: Record<string, FrameWindow> = {};
-      for (const pass of HIDE) noLoadHidden[pass] = await probe({ hide: { [pass]: true } });
-      r['noLoadHidden'] = noLoadHidden;
       const scales: Record<string, FrameWindow> = {};
       for (const s of SCALES) scales[String(s)] = await probe({ renderScale: s });
       r['scales'] = scales;
@@ -347,11 +313,13 @@ async function main(): Promise<void> {
       console.log(summary(r));
     }
     const rounds = out['rounds'] as Array<Record<string, unknown>>;
+    const gpuOf = (r: Record<string, unknown>): GpuMeasurement | null => (r['gpu'] as GpuMeasurement | null) ?? null;
     out['spread'] = {
       edgeHeld: spread(rounds.map((r) => (r['edge'] as LimitResult).held)),
-      ballastMs: spread(rounds.map((r) => (r['line'] as LineFit | null)?.slope ?? Number.NaN)),
-      frameGpuFromLine: spread(rounds.map((r) => (r['line'] as LineFit | null)?.intercept ?? Number.NaN)),
-      ...Object.fromEntries([...HIDE.map((p) => `hidden ${p}`), ...COPIES.map((p) => `copy ${p}`)].map((key) => [key, spread(rounds.map((r) => (r['rows'] as PassRow[]).find((x) => `${x.by} ${x.pass}` === key)?.ms ?? Number.NaN))])),
+      ballastMs: spread(rounds.map((r) => gpuOf(r)?.ballast.msPerUnit ?? Number.NaN)),
+      frameGpu: spread(rounds.map((r) => gpuOf(r)?.frameMs ?? Number.NaN)),
+      resolution: spread(rounds.map((r) => gpuOf(r)?.resolutionMs ?? Number.NaN)),
+      ...Object.fromEntries(['near', 'far', 'shadows', 'lighting', 'post', 'effects'].map((c) => [`median ${c}`, spread(rounds.map((r) => gpuOf(r)?.categories.find((x) => x.category === c)?.medianMs ?? Number.NaN))])),
     };
     out['errors'] = errors.slice(0, 5);
     await control({ command: 'stop' }).catch(() => undefined);
@@ -371,14 +339,12 @@ async function main(): Promise<void> {
 function summary(r: Record<string, unknown>): string {
   const w = r['noLoad'] as FrameWindow;
   const e = r['edge'] as LimitResult;
-  const line = r['line'] as LineFit | null;
+  const g = r['gpu'] as GpuMeasurement | null;
   const lines = [
     ...(r['profile'] !== undefined ? [`  profile at no load: ${JSON.stringify((r['profile'] as { msPerFrame: unknown }).msPerFrame)} ms a frame, busy ${JSON.stringify((r['profile'] as { busy: unknown }).busy)}`] : []),
     `round ${String(r['round'])} at ${CAP.fps} Hz: no load ${w.missed}/${w.frames} missed, ${w.stalls} stalls (mean ${w.meanMs} ms, ${misses(w, CAP) ? 'misses' : 'holds'}); ballast held ${e.held}, missed at ${String(e.missedAt)}`,
-    `  past the edge: ${JSON.stringify((r['pastEdge'] as { n: number; window: FrameWindow }[]).map((p) => [p.n, p.window.meanMs]))}; a ballast copy ${String(line?.slope)} ms (worst residual ${String(line?.worstResidual)}); frame GPU ${JSON.stringify(r['frameGpu'])}`,
-    ...(r['rows'] as PassRow[]).map((p) => `  ${p.by} ${p.pass}: ${p.lowerBound ? '≥ ' : ''}${p.ms} ms = ${p.units} units, headroom ×${p.lowerBound ? '≤ ' : ''}${String(p.headroomX)}`),
+    `  ${g === null ? 'GPU measurement: none' : gpuMeasureSummary(g)}`,
     ...Object.entries(r['copies'] as Record<string, LimitResult>).map(([k, v]) => `  ${k} copies at no load: held ${v.held}, missed at ${String(v.missedAt)} (CPU a frame ${String(r[`copyCpuMs ${k}`])} ms for one)`),
-    ...Object.entries(r['noLoadHidden'] as Record<string, FrameWindow>).map(([k, v]) => `  ${k} hidden at no load: ${v.missed}/${v.frames} missed, ${v.stalls} stalls, mean ${v.meanMs}`),
     ...Object.entries(r['scales'] as Record<string, FrameWindow>).map(([k, v]) => `  scale ${k}: ${v.missed}/${v.frames} missed, ${v.stalls} stalls, mean ${v.meanMs}`),
   ];
   return lines.join('\n');

@@ -64,6 +64,8 @@ export class InteractorView {
   private at: number | null = null;
   /** WebGL 2's subjects (updated only there). */
   private readonly subjectBend: SubjectBendView;
+  /** A GPU measurement hides the field: its pass is not run (foliage reads the field as it last was). */
+  gpuHidden = false;
 
   constructor(
     private readonly d: InteractorDeps,
@@ -75,6 +77,11 @@ export class InteractorView {
   /** The objects pressing now, with their ease (diagnostics; on WebGL 2 the subjects bent round). */
   objects(): { id: string; ease: number }[] {
     return [...[...this.pressing.entries()].map(([id, p]) => ({ id, ease: p.ease })), ...this.subjectBend.subjects()];
+  }
+
+  /** Whether the field's pass runs (WebGPU, something read it). */
+  fieldLive(): boolean {
+    return this.field?.isLive() === true;
   }
 
   /** This frame's stamps (after `update`). */
@@ -91,7 +98,7 @@ export class InteractorView {
       return;
     }
     this.gather(dt);
-    if (this.field === null) return;
+    if (this.field === null || this.gpuHidden) return;
     const e = camera.matrixWorld.elements;
     if (this.field.update(renderer, this.stamps(), [e[12]!, e[13]!, e[14]!], now / 1000, dt)) this.d.onChange?.();
   }

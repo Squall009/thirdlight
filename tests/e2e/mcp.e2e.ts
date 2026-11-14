@@ -112,8 +112,16 @@ test('an MCP agent inspects the selection, plays, observes, moves and captures t
   expect(digest.threads.page.meanMs).toBeGreaterThan(0);
   expect(digest.threads.page.categories.find((c) => c.category === 'render')?.budgetMs).toBeGreaterThan(0);
   expect(digest.counters.drawCalls).toBeGreaterThan(0);
-  // Without the name, the answer has no profile.
-  expect(((await call('tl_diagnostics', { playSessionId })).body.diagnostics as Record<string, unknown>)['profile']).toBeUndefined();
+  // Without the name, the answer has no profile (nor the GPU measurement's parts).
+  const whole = (await call('tl_diagnostics', { playSessionId })).body.diagnostics as Record<string, unknown>;
+  expect([whole['profile'], whole['gpu'], whole['gpuMeasure']]).toEqual([undefined, undefined, undefined]);
+  // The GPU measurement: `gpu` reads it and starts nothing; `gpuMeasure` starts it (or says why it cannot), and `gpu` then reads the same run.
+  const gpuPart = async (section: string): Promise<{ state: string; step?: number }> => ((await call('tl_diagnostics', { playSessionId, sections: [section] })).body.diagnostics as Record<string, { state: string; step?: number }>)[section]!;
+  expect((await gpuPart('gpu')).state).toBe('idle');
+  expect((await gpuPart('gpu')).state).toBe('idle');
+  const started = await gpuPart('gpuMeasure');
+  expect(['running', 'unavailable']).toContain(started.state);
+  expect((await gpuPart('gpu')).state).toBe(started.state);
 
   expect((await call('tl_play_stop', { playSessionId })).isError).toBe(false);
   await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0);

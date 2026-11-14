@@ -5,7 +5,10 @@
  * overlay uses. Pure data and code; the host composition stays behind `.`.
  */
 export { makeProfileCapture, parseProfileCapture, rendererOf, profileCaptureFileName, profileCaptureText, ProfileAccumulator, PROFILE_CAPTURE_KIND, PROFILE_CAPTURE_VERSION, type ProfileCapture, type ProfileCaptureHeader, type ProfileCaptureSource } from './profile-capture';
+export type { GpuBudgetReading, GpuCategoryReading, GpuMeasureState, GpuMeasurement } from './gpu-measure';
 export {
+  gpuMeasureDigest,
+  gpuMeasureLines,
   profileBar,
   profileBreakdown,
   profileColumnAt,

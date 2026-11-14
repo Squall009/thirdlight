@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CAP_MS, FarSettle, frameCap, fitLine, frameGpu, frameWindow, misses, passShare, saturated, searchLimit, spread, type FrameWindow } from './headroom';
+import { CAP_MS, FarSettle, frameCap, frameWindow, misses, searchLimit, spread, type FrameWindow } from './headroom';
 
 /**
  * A GPU at a 60 Hz cap: a frame of `work` ms within the budget shows one
@@ -35,9 +35,7 @@ describe('the headroom meter’s arithmetic', () => {
     // Two missed frames in 180 (1.1 %) hold the cap; four (2.2 %) miss it.
     expect(misses(capped(10, 180, 2))).toBe(false);
     expect(misses(capped(10, 180, 4))).toBe(true);
-    expect(saturated(capped(30))).toBe(true);
     expect(misses(capped(17.2))).toBe(true);
-    expect(saturated(capped(10, 180, 4))).toBe(false);
   });
 
   it('finds the load at which the frames start to miss within its precision, in few windows', async () => {
@@ -66,40 +64,15 @@ describe('the headroom meter’s arithmetic', () => {
     expect(room).toMatchObject({ held: 64, missedAt: null });
   });
 
-  it('recovers the unit’s ms and the frame’s GPU ms from windows past the edge, and a copy’s ms from its own window', () => {
-    const unit = 0.37;
-    const base = 6.2;
-    const pts = [60, 90, 120].map((n) => ({ n, ms: capped(base + n * unit).meanMs }));
-    const line = fitLine(pts)!;
-    expect(line.slope).toBeCloseTo(unit, 2);
-    expect(line.intercept).toBeCloseTo(base, 0);
-    expect(line.worstResidual).toBeLessThan(0.2);
-    expect(fitLine([{ n: 5, ms: 20 }, { n: 5, ms: 21 }])).toBeNull();
-    // The frame's GPU ms from the edge (26 units of room) and from the line agree.
-    const g = frameGpu(line, 26, 27);
-    expect(g.agree).toBe(true);
-    expect(g.fromEdge![0]).toBeLessThan(base + 0.6);
-    expect(frameGpu({ ...line, intercept: 17 }, 26, 27).agree).toBe(false);
-    expect(frameGpu(line, -1, 0)).toMatchObject({ fromEdge: null, agree: false });
-    // A pass of 2.5 ms, hidden or copied once more, past the edge at 90 units.
-    const at = capped(base + 90 * unit).meanMs;
-    const hidden = passShare('far', 'hidden', at, capped(base - 2.5 + 90 * unit), line.slope, 26);
-    expect(hidden.ms).toBeCloseTo(2.5, 0);
-    expect(hidden.units).toBeCloseTo(2.5 / unit, -1);
-    expect(hidden.headroomX).toBeCloseTo(1 + (26 * unit) / 2.5, 0);
-    expect(hidden.lowerBound).toBe(false);
-    expect(passShare('near', 'copy', at, capped(base + 2.5 + 90 * unit), line.slope, 0)).toMatchObject({ headroomX: null, lowerBound: false });
-    // Hidden, a 20 ms pass takes the frame under the cap: the share is only a lower bound.
-    expect(passShare('post', 'hidden', at, capped(base - 20 + 90 * unit), line.slope, 26)).toMatchObject({ lowerBound: true });
+  it('gives the spread of repeated values', () => {
     expect(spread([3.1, 2.9, Number.NaN, 3.4])).toEqual({ min: 2.9, max: 3.4, range: 0.5 });
     expect(spread([])).toBeNull();
   });
 
-  it('measures against a 30 Hz cap: a frame of two vsyncs holds it, three miss it; the budget sets the edge and the deep load', () => {
+  it('measures against a 30 Hz cap: a frame of two vsyncs holds it, three miss it', () => {
     const cap = frameCap(30);
     expect(cap.budgetMs).toBeCloseTo(33.333, 3);
     expect(cap.missMs).toBeCloseTo(41.667, 3);
-    expect(cap.deepMs).toBeCloseTo(60, 9);
     expect(frameCap(60).missMs).toBeCloseTo(25, 9);
     // 30 Hz pacing on a 60 Hz display: every drawn frame two vsyncs apart, with jitter.
     const held = frameWindow(Array.from({ length: 90 }, (_, i) => 33.3 + (i % 3) * 0.1), cap);
@@ -107,11 +80,6 @@ describe('the headroom meter’s arithmetic', () => {
     // A frame that took three vsyncs (50 ms) missed the 30 cap; four in 90 miss the window.
     const late = frameWindow(Array.from({ length: 90 }, (_, i) => (i % 22 === 0 ? 50 : 33.3)), cap);
     expect([late.missed, misses(late, cap)]).toEqual([5, true]);
-    expect(saturated(frameWindow(Array.from({ length: 30 }, () => 45), cap), cap)).toBe(true);
-    expect(saturated(frameWindow(Array.from({ length: 30 }, () => 34), cap), cap)).toBe(false);
-    // The frame's GPU ms from the edge is the 30 Hz budget less the room.
-    const line = fitLine([{ n: 100, ms: 40 }, { n: 200, ms: 50 }])!;
-    expect(frameGpu(line, 150, 160, cap).fromEdge).toEqual([17.33, 18.33]);
   });
 });
 

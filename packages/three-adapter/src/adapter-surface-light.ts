@@ -43,6 +43,7 @@ import { runSurfaceBake, type BakePart, type SurfaceBakeOptions, type SurfaceBak
 import { AdapterSavedLight, LOOKUP_MS, type SavedLightDiagnostics, type SurfaceBakeLike } from './adapter-saved-light';
 import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
 import { AdapterLightingViews, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
+import { gpuPassHides } from './gpu-pass-hides';
 
 /** How often (ms) the debug look is drawn again while texels change. */
 const VIEW_MS = 200;
@@ -141,6 +142,13 @@ export class AdapterSurfaceLight {
   private readonly changed: () => void;
   /** The rooms and stale-pages debug views (the cache and probe views are this page's own). */
   private readonly views: AdapterLightingViews;
+  /**
+   * A GPU measurement hides the live light: its light, probe and reflection
+   * passes are not dispatched (the work stays planned, the light computed so
+   * far is still read), so the frame's saving is their GPU time.
+   */
+  private gpuHidden = false;
+  private readonly unregister: () => void;
 
   constructor(private readonly host: SurfaceCacheHost, private readonly scene: THREE.Scene, docs: ReadonlyMap<string, EntityDoc>, graph: RenderGraph, probes: ProbeLightingHost | null = null, lighting: { bakes: Readonly<Record<string, { surface?: SurfaceBakeLike } | undefined>> | null; loadBytes?: ((assetId: string) => Promise<Uint8Array>) | undefined; changed?: () => void } = { bakes: null }) {
     this.lights = new SurfaceLights(docs, graph);
@@ -155,6 +163,7 @@ export class AdapterSurfaceLight {
     const read = q.get(SURFACE_READ_URL_PARAM);
     this.readOn = read !== '0';
     this.readKinds = surfaceReadKinds(read);
+    this.unregister = gpuPassHides.register({ category: 'lighting', name: 'surface light, probes and reflection tracer', present: () => this.runtime !== null, hide: (h) => void (this.gpuHidden = h) });
   }
 
   /** Before the frame's programs are built (ahead of the probes' frame): whether the light is live with probes, so the probe light joins before the programs are built. */
@@ -185,7 +194,7 @@ export class AdapterSurfaceLight {
     if (device !== this.device || (device !== null && this.host.cache.budgetBytes !== this.budgetFor)) this.drop(device, renderer);
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
     if (this.runtime !== null) this.runtime.drawnSuns = this.lights.drawnSuns;
-    this.runtime?.frame(lights);
+    if (!this.gpuHidden) this.runtime?.frame(lights);
     this.syncRead(lights, renderer);
     // Until the light is live (WebGL 2, a level without a live budget, a live light still starting) the saved light is drawn.
     if (this.runtime === null && this.readOn) this.saved.frame();
@@ -194,7 +203,7 @@ export class AdapterSurfaceLight {
       // Live: the saved light is where it starts.
       this.saved.seed();
     }
-    this.liveProbes?.frame(renderer, this.runtime);
+    if (!this.gpuHidden) this.liveProbes?.frame(renderer, this.runtime);
     this.drawView();
     this.views.frame();
   }
@@ -331,7 +340,7 @@ export class AdapterSurfaceLight {
         this.host.setLive(true);
         // Reflection rays that leave the screen are traced here, on the same device.
         const tracer: ReflectionTracer = {
-          trace: (rays, out, count) => rt.traceReflections(rays as GpuBuffer, out as GpuBuffer, count),
+          trace: (rays, out, count) => !this.gpuHidden && rt.traceReflections(rays as GpuBuffer, out as GpuBuffer, count),
           msPerRay: () => rt.reflectionPass.msPerRay,
           last: () => ({ ms: rt.reflectionPass.lastMs, rays: rt.reflectionPass.lastRays }),
         };
@@ -475,6 +484,7 @@ export class AdapterSurfaceLight {
   }
 
   dispose(): void {
+    this.unregister();
     this.clearView();
     this.views.dispose();
     this.saved.drop();

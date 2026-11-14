@@ -151,7 +151,7 @@ export function ProfilerTimeline({ report, columns, selected, onSelect, onHover,
       g.fillStyle = t.lane;
       g.fillRect(GUTTER, gy, plotW, GPU_H);
       g.fillStyle = t.faint;
-      g.fillText('pass shares: not measured here (no GPU timestamps); room: the headroom bench', GUTTER + 6, gy + GPU_H / 2);
+      g.fillText('pass shares: no GPU timestamps here; ms per pass: Measure GPU (Budget)', GUTTER + 6, gy + GPU_H / 2);
     }
   }, [report, columns, selected, width, height, plotW, slotW, offset]);
 

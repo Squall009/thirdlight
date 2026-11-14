@@ -1008,11 +1008,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
 
     // The page's profile reads this host's stats and adapter.
-    pageProfile.attach({ stats: () => hostStats.snapshot(), diagnostics: () => adapter?.diagnostics?.(), gpuPasses: () => adapter?.gpuPasses?.() ?? null });
+    pageProfile.attach({ stats: () => hostStats.snapshot(), diagnostics: () => adapter?.diagnostics?.(), gpuPasses: () => adapter?.gpuPasses?.() ?? null, gpuMeasure: () => adapter?.gpuMeasure?.() ?? null });
     // The document the overlays (letterbox bars, fade, UI documents) are made in.
     hostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? null;
     const dom: HostDom = hostDom ?? { createElement: () => { throw new Error('no document available for the overlays'); } };
-    if (statsOverlayModeOf(config.settings) !== 'off' && hostDom !== null) statsOverlay = createStatsOverlay({ dom: hostDom, container: config.container, shown: statsOverlayModeOf(config.settings) === 'shown', profile: { read: () => pageProfile.read(), capture: () => profileCapture(config.buildId, () => adapter) } });
+    if (statsOverlayModeOf(config.settings) !== 'off' && hostDom !== null) statsOverlay = createStatsOverlay({ dom: hostDom, container: config.container, shown: statsOverlayModeOf(config.settings) === 'shown', profile: { read: () => pageProfile.read(), capture: () => profileCapture(config.buildId, () => adapter), measureGpu: () => void pageProfile.measureGpu() } });
     if (config.debugConsole === true) {
       const rt0 = res.runtime;
       debugConsole = createDebugConsole({
@@ -1420,7 +1420,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     uiElements: (max?: number) => uiLayer?.elements(max) ?? [],
     uiFontRules: () => uiLayer?.fontRules() ?? Promise.resolve(''),
     frameStats: () => hostStats.snapshot(),
-    profile: (after) => pageProfile.read(after),
+    profile: (after) => pageProfile.read(after), measureGpu: (o) => pageProfile.measureGpu(o), gpuMeasureState: () => pageProfile.gpuState(), cancelGpuMeasure: () => pageProfile.cancelGpu(),
     get statsOverlay(): StatsOverlay | null {
       return statsOverlay;
     },

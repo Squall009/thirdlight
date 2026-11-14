@@ -153,6 +153,11 @@ export interface EffectsPlayer {
   request(req: EffectRequestLike, objectOf: (entityId: string) => THREE.Object3D | undefined): void;
   /** Step every playing effect by the frame's seconds and prepare its draw (before the scene renders). */
   update(frameSeconds: number, camera: THREE.Camera, worldTime?: number): void;
+  /**
+   * Hidden (a GPU measurement): nothing is stepped, dispatched or drawn; shown
+   * again, every play goes on from where it stood.
+   */
+  setShown(on: boolean): void;
   /** Whether something plays (the caller keeps drawing frames while true). */
   readonly active: boolean;
   diagnostics(): EffectsDiagnostics;
@@ -214,7 +219,7 @@ function originOf(rec: Pick<Playing, 'object' | 'offset' | 'position'>, out: THR
 export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlayer {
   const scene = options.scene;
   let defs = new Map(options.defs.map((d) => [d.effectId, d]));
-  let renderer: THREE.WebGPURenderer | null = null;
+  let [renderer, shown]: [THREE.WebGPURenderer | null, boolean] = [null, true];
   let api: 'webgpu' | 'webgl2' | null = null;
   const playing: Playing[] = [];
   const pool = new Map<string, Playing[]>();
@@ -314,7 +319,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
     }
     if (rec === null) return null;
     playing.push(rec);
-    scene.add(rec.group);
+    scene.add(Object.assign(rec.group, { visible: shown }));
     return rec;
   }
 
@@ -387,7 +392,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   scene.userData[EFFECTS_CPU_KEY] = cpuStat;
 
   function update(frameSeconds: number, camera: THREE.Camera, worldTime?: number): void {
-    if (renderer === null) return;
+    if (renderer === null || !shown) return;
     const started = performance.now();
     try {
       updatePlays(frameSeconds, camera, worldTime);
@@ -573,6 +578,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       p.position.set(req.position[0] ?? 0, req.position[1] ?? 0, req.position[2] ?? 0);
     },
     update,
+    setShown: (on) => void ((shown = on), playing.forEach((rec) => void (rec.group.visible = on))),
     get active(): boolean {
       return playing.length > 0;
     },

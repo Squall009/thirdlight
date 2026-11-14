@@ -128,9 +128,10 @@ export function usePlaySession(
    * since `after` (the cursor of the last answer; absent: all it keeps), with
    * the build and renderer a capture's header names — over the preview
    * bridge, answered by the play page; null when nothing answers in 2 s.
+   * `gpu` starts (or stops) the page's GPU measurement with the read.
    */
   const profilePlay = useCallback(
-    (after?: { page: number; sim: number; spikes: number }): Promise<Record<string, unknown> | null> =>
+    (after?: { page: number; sim: number; spikes: number }, gpu?: 'measure' | 'cancel'): Promise<Record<string, unknown> | null> =>
       new Promise((resolve) => {
         const b = bridgeRef.current;
         if (b === null || playInfo === null) {
@@ -139,7 +140,7 @@ export function usePlaySession(
         }
         const relayId = localRelayId();
         debugWaitersRef.current.set(relayId, resolve);
-        b.requestProfile(playInfo.playSessionId, relayId, after);
+        b.requestProfile(playInfo.playSessionId, relayId, after, gpu);
         window.setTimeout(() => {
           if (debugWaitersRef.current.delete(relayId)) resolve(null);
         }, 2000);

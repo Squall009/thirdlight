@@ -134,6 +134,8 @@ export interface HostRenderAdapter {
   lastFrame?(): { drawCalls: number; triangles: number };
   /** GPU ms of the render and compute passes the last timestamp resolve measured (null: none); a reader that takes nothing. */
   gpuPasses?(): { renderMs: number; computeMs: number | null } | null;
+  /** What the page's GPU measurement drives (gpu-measure.ts; the three-adapter `SceneAdapter` makes it). */
+  gpuMeasure?(): import('./gpu-measure').GpuMeasureTarget | null;
   /** A player's render settings (AO kind, render scale, dynamic resolution; unset parts keep their value). */
   setRenderSettings?(settings: { readonly ambientOcclusion?: 'off' | 'ssao' | 'gtao'; readonly renderScale?: number; readonly dynamicResolution?: boolean }): void;
 }
@@ -505,6 +507,12 @@ export interface GameHost {
   frameStats?(): BehaviorStats | null;
   /** The page's frame profile (page-profile.ts): every thread's recent frames, counters, the tier's budget, spikes (`after`: only what arrived since that cursor). */
   profile?(after?: import('./page-profile').ProfileCursor): import('./page-profile').ProfileReport;
+  /** Starts the page's GPU measurement per pass category (gpu-measure.ts; a minute or two, the GPU loaded past its cap) unless one runs; its state. */
+  measureGpu?(options?: import('./gpu-measure').GpuMeasureOptions): import('./gpu-measure').GpuMeasureState;
+  /** The GPU measurement's progress or last result. */
+  gpuMeasureState?(): import('./gpu-measure').GpuMeasureState;
+  /** A running GPU measurement stops at its next window. */
+  cancelGpuMeasure?(): void;
   /** The built-in stats overlay (null: the project's stats_overlay setting is off). */
   readonly statsOverlay?: StatsOverlay | null;
 }

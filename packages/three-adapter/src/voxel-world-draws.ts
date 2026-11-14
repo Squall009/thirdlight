@@ -89,6 +89,7 @@ import type { VoxelFarView } from './voxel-far-mesh';
 import { farVisibilityFromUrl } from './voxel-far-visibility';
 import { fineTextureFromUrl } from './voxel-far-fine-shade';
 import { pageSearch } from './renderer-factory';
+import { gpuPassHides } from './gpu-pass-hides';
 
 /** One edit's way to the screen, as this page saw it (ms). */
 export interface VoxelEditToScreen {
@@ -270,7 +271,14 @@ export class VoxelWorldDraws {
   private displace = true;
   private readonly focus = new THREE.Vector3();
 
+  /** The near and far draws' entries in the page's GPU measurement (taken out on dispose). */
+  private readonly unregister: (() => void)[] = [];
+
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
+    this.unregister.push(
+      gpuPassHides.register({ category: 'near', name: 'voxel near surfaces and kit pieces', present: () => [...this.worlds.values()].some((w) => w.view.count > 0), hide: (h) => this.showNear(!h) }),
+      gpuPassHides.register({ category: 'far', name: 'voxel far field', present: () => [...this.worlds.values()].some((w) => w.view.far.nodes > 0), hide: (h) => this.showFar(!h) }),
+    );
     this.setKits(opts.kits ?? null);
     if (opts.materials !== undefined) this.setMaterials(opts.materials);
   }
@@ -576,6 +584,7 @@ export class VoxelWorldDraws {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    for (const off of this.unregister.splice(0)) off();
     if (this.raf !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.raf);
     this.kitLoaded?.();
     this.kitLoaded = null;

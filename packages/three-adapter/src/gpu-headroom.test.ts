@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three/webgpu';
 
 import { BALLAST_MAX, BALLAST_SIZE, BALLAST_STEPS, GpuLoad, HEADROOM_LAYER, type GpuLoadRenderer } from './gpu-headroom';
+import { gpuPassHides } from './gpu-pass-hides';
 import { fragmentWgslOf, wgslRenderer } from './test-wgsl';
 
 /** A renderer that records what each render call drew: the camera's layer mask, the target and what was visible to it. */
@@ -119,28 +120,32 @@ describe('GpuLoad: the headroom meter’s load on a frame', () => {
     expect(wgsl).toMatch(/sin\(/);
   });
 
-  it('stops the shadow-casting lights casting while shadows are hidden and gives them back after', () => {
+  it('stops the shadow-casting lights casting while the shadows category is hidden and gives them back when shown', () => {
     const { scene, sun, camera } = testScene();
     const r = recordingRenderer();
-    const load = new GpuLoad();
-    load.set({ hideShadows: true });
+    const load = new GpuLoad(scene);
+    expect(gpuPassHides.present().shadows).toEqual(['shadow maps']);
+    gpuPassHides.set(['shadows']);
+    expect(load.active).toBe(true);
     load.afterDraw(r, scene, camera, 1280, 720);
     expect(sun.castShadow).toBe(false);
     expect(load.state().lightsHidden).toBe(1);
-    // Nothing is drawn for a hide alone.
+    // Still present while hidden (the measurement reads it), and nothing is drawn for a hide alone.
+    expect(gpuPassHides.present().shadows).toEqual(['shadow maps']);
     expect(r.calls).toHaveLength(0);
-    load.set({});
-    expect(load.active).toBe(true);
-    load.afterDraw(r, scene, camera, 1280, 720);
+    gpuPassHides.set([]);
     expect(sun.castShadow).toBe(true);
     expect(load.active).toBe(false);
+    load.dispose();
+    expect(gpuPassHides.present().shadows).toBeUndefined();
   });
 
   it('draws the frame without the post stack into a target of the stack’s size and copies it to the canvas', () => {
     const { scene, camera } = testScene();
     const r = recordingRenderer();
-    const load = new GpuLoad();
-    load.set({ bypassPost: true });
+    const load = new GpuLoad(scene, () => true);
+    expect(gpuPassHides.present().post).toEqual(['post stack']);
+    gpuPassHides.set(['post']);
     expect(load.bypassesPost).toBe(true);
     // The canvas copy is a three QuadMesh: its render goes through the same renderer.
     load.drawPlain(r, scene, camera, 853, 480);
@@ -148,7 +153,27 @@ describe('GpuLoad: the headroom meter’s load on a frame', () => {
     expect(r.calls[0]!.scene).toBe(scene);
     expect([r.calls[0]!.target!.width, r.calls[0]!.target!.height]).toEqual([853, 480]);
     expect(r.calls[1]!.target).toBeNull();
+    gpuPassHides.set([]);
     load.dispose();
     expect(load.active).toBe(false);
+  });
+
+  it('times frames by the GPU’s completions on WebGPU, in frame order', async () => {
+    const load = new GpuLoad();
+    let finish: (() => void)[] = [];
+    const renderer = { backend: { isWebGPUBackend: true, device: { queue: { onSubmittedWorkDone: () => new Promise<void>((done) => finish.push(done)) } } } };
+    const rec = load.record(0.05, 'gpu');
+    for (let i = 0; i < 3; i++) load.presented(i, renderer);
+    // Nothing is stamped until the GPU says the frame is done.
+    for (const f of finish) f();
+    finish = [];
+    const intervals = await rec;
+    expect(intervals).toHaveLength(2);
+    expect(intervals.every((d) => d >= 0)).toBe(true);
+    // WebGL 2 has no completions: a GPU-clock recording stamps nothing.
+    const none = load.record(0.02, 'gpu');
+    for (let i = 0; i < 3; i++) load.presented(i, { backend: { isWebGPUBackend: false } });
+    expect(await none).toEqual([]);
+    load.dispose();
   });
 });

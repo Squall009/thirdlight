@@ -82,6 +82,8 @@ export interface StatsOverlayProfile {
   read(): ProfileReport;
   /** A capture file of the profile now (the host's build and renderer in its header). */
   capture(): ProfileCapture;
+  /** Starts the page's GPU measurement (absent: the overlay has no Measure GPU button). */
+  measureGpu?(): void;
 }
 
 /** Saves a capture as a file the browser downloads (an object URL on a link; nothing leaves the page). */
@@ -127,6 +129,8 @@ export function createStatsOverlay(deps: { readonly dom: HostDom; readonly conta
   const profileBox = deps.profile !== undefined ? dom.createElement('div') : null;
   const profileText = profileBox !== null ? dom.createElement('div') : null;
   const save = profileBox !== null ? dom.createElement('button') : null;
+  // Measure GPU: the page's GPU measurement (a minute or two); its progress and result show in the lines as they are read.
+  const measure = profileBox !== null && deps.profile?.measureGpu !== undefined ? dom.createElement('button') : null;
   let profileShown = false;
   /** Profile reads the view made (tests: none while it is hidden). */
   let profileReads = 0;
@@ -143,6 +147,18 @@ export function createStatsOverlay(deps: { readonly dom: HostDom; readonly conta
     });
     profileBox.appendChild(profileText);
     profileBox.appendChild(save);
+    if (measure !== null) {
+      measure.textContent = 'Measure GPU';
+      measure.setAttribute?.('class', 'tl-stats__save');
+      measure.setAttribute?.('type', 'button');
+      measure.setAttribute?.('data-tl-measure-gpu', '');
+      measure.addEventListener?.('click', () => {
+        if (disposed) return;
+        deps.profile?.measureGpu?.();
+        showProfile();
+      });
+      profileBox.appendChild(measure);
+    }
     root.appendChild(profileBox);
   }
   deps.container.appendChild(root);

@@ -17,10 +17,16 @@
  *   near surfaces, its far field) drawn again `copies` times into a target of
  *   the scene pass's size, with the same camera, lights and materials (their
  *   CPU time is measured: a copy that costs more CPU than GPU says so);
- * - **hide shadows**: the shadow-casting lights stop casting (programs are
- *   built again once each way; a run waits for that);
- * - **bypass post**: the scene drawn into a target of the size the post
- *   stack draws it at, then copied to the canvas, instead of the stack.
+ * - **shadows** (category `shadows` of gpu-pass-hides.ts): the
+ *   shadow-casting lights stop casting (programs are built again once each
+ *   way; a run waits for that);
+ * - **post** (category `post`): the scene drawn into a target of the size the
+ *   post stack draws it at, then copied to the canvas, instead of the stack.
+ *
+ * Frames are timed when the page presents them, or when the GPU finished
+ * them (`record(seconds, 'gpu')`: WebGPU's `onSubmittedWorkDone` after each
+ * frame), which past the cap is even where the page's submissions come in
+ * bursts.
  *
  * None of it is on unless a host sets it; with everything off the frame is
  * untouched.
@@ -29,6 +35,7 @@ import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
+import { gpuPassHides } from './gpu-pass-hides';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -57,10 +64,21 @@ export interface GpuLoadSettings {
   readonly copies?: number;
   /** The roots whose drawables the copies draw, asked each frame (drawables arriving later are drawn too). */
   readonly copyOf?: () => readonly THREE.Object3D[];
-  /** The shadow-casting lights stop casting. */
-  readonly hideShadows?: boolean;
-  /** The scene is drawn without the post stack, at the stack's size. */
-  readonly bypassPost?: boolean;
+}
+
+/** Which clock a recording times frames by: when the page presented them, or when the GPU finished them (WebGPU). */
+export type GpuLoadClock = 'presented' | 'gpu';
+
+/** What of a WebGPU renderer the GPU clock reads (three's backend keeps its device as `backend.device`). */
+interface QueueRenderer {
+  backend?: { isWebGPUBackend?: boolean; device?: { queue?: { onSubmittedWorkDone?(): Promise<unknown> } } | null } | null;
+}
+
+/** The renderer's queue's completion promise (null: not WebGPU). */
+export function gpuDone(renderer: unknown): (() => Promise<unknown>) | null {
+  const b = (renderer as QueueRenderer | null)?.backend;
+  const q = b?.isWebGPUBackend === true ? b.device?.queue : undefined;
+  return typeof q?.onSubmittedWorkDone === 'function' ? () => q.onSubmittedWorkDone!() : null;
 }
 
 export interface GpuLoadState {
@@ -75,6 +93,8 @@ export interface GpuLoadState {
   readonly size: readonly [number, number];
   /** Frames the load was applied to since it was last set. */
   readonly frames: number;
+  /** GPU completions asked for and answered so far (the `gpu` clock's frame times). */
+  readonly completions: { readonly asked: number; readonly done: number; readonly failed: number };
 }
 
 /** What of three's renderer the load drives (WebGPURenderer on either backend). */
@@ -142,8 +162,12 @@ export class GpuLoad {
   private frames = 0;
   private copyCpuMs = 0;
   private size: [number, number] = [0, 0];
-  /** The times (ms) of the frames presented while a {@link record} runs (null: none runs). */
+  /** The times (ms) of the frames presented, or finished by the GPU, while a {@link record} runs (null: none runs). */
   private stamps: number[] | null = null;
+  private clock: GpuLoadClock = 'presented';
+  private readonly completions = { asked: 0, done: 0, failed: 0 };
+  /** The registry entries of the two passes this load hides (taken out on dispose). */
+  private readonly unregister: (() => void)[] = [];
   /** Lights this load stopped casting (given back when shadows are shown again). */
   private readonly hidden = new Set<THREE.Light>();
   /** Roots and lights put in {@link HEADROOM_LAYER}, taken out when the copies stop. */
@@ -157,29 +181,81 @@ export class GpuLoad {
   private blit: THREE.QuadMesh | null = null;
   private blitMaterial: THREE.MeshBasicNodeMaterial | null = null;
 
+  /**
+   * `scene`: whose shadow-casting lights the `shadows` category stops;
+   * `post`: whether frames draw through the post stack now (the `post`
+   * category is present only then).
+   */
+  constructor(scene: THREE.Scene | null = null, post: () => boolean = () => false) {
+    this.unregister.push(
+      gpuPassHides.register({
+        category: 'shadows',
+        name: 'shadow maps',
+        present: () => {
+          if (this.hidden.size > 0) return true;
+          let casts = false;
+          scene?.traverse((o) => void (isShadowLight(o) && o.castShadow && o.visible && (casts = true)));
+          return casts;
+        },
+        hide: (h) => {
+          this.hideShadows = h;
+          // Shown again: the lights cast from the next frame even with no other load on.
+          if (!h && scene !== null) this.applyShadows(scene);
+        },
+      }),
+      gpuPassHides.register({ category: 'post', name: 'post stack', present: () => this.bypassPost || post(), hide: (h) => void (this.bypassPost = h) }),
+    );
+  }
+
   set(s: GpuLoadSettings): void {
     this.ballast = Math.max(0, Math.min(BALLAST_MAX, Math.floor(s.ballast ?? 0)));
     this.copies = Math.max(0, Math.floor(s.copies ?? 0));
     if (s.copyOf !== undefined) this.copyOf = s.copyOf;
-    this.hideShadows = s.hideShadows === true;
-    this.bypassPost = s.bypassPost === true;
     this.frames = 0;
   }
 
-  /** A frame was presented at `t` (ms, `performance.now()`): every frame the page draws, load or not. */
-  presented(t: number): void {
-    this.stamps?.push(t);
+  /** Only the ballast changed (copies kept). */
+  setBallast(n: number): void {
+    this.ballast = Math.max(0, Math.min(BALLAST_MAX, Math.floor(n)));
+    this.frames = 0;
   }
 
   /**
-   * The intervals (ms) between the frames presented over the next `seconds`.
-   * A page under a frame-rate cap skips animation frames, so a meter times
-   * the frames it draws, not the browser's callbacks (at a 30 cap on a 60 Hz
-   * display every other one draws nothing).
+   * A frame was presented at `t` (ms, `performance.now()`): every frame the
+   * page draws, load or not; `renderer` (WebGPU) times its end on the GPU
+   * while a GPU-clock recording runs.
    */
-  record(seconds: number): Promise<number[]> {
+  presented(t: number, renderer?: unknown): void {
+    const stamps = this.stamps;
+    if (stamps === null) return;
+    if (this.clock === 'presented') {
+      stamps.push(t);
+      return;
+    }
+    const done = gpuDone(renderer);
+    if (done === null) return;
+    this.completions.asked += 1;
+    // Completions resolve in submission order, so the stamps stay in frame order.
+    done().then(
+      () => {
+        this.completions.done += 1;
+        if (this.stamps === stamps) stamps.push(performance.now());
+      },
+      () => void (this.completions.failed += 1),
+    );
+  }
+
+  /**
+   * The intervals (ms) between the frames presented (or, `clock` 'gpu',
+   * finished by the GPU) over the next `seconds`. A page under a frame-rate
+   * cap skips animation frames, so a meter times the frames it draws, not the
+   * browser's callbacks (at a 30 cap on a 60 Hz display every other one draws
+   * nothing).
+   */
+  record(seconds: number, clock: GpuLoadClock = 'presented'): Promise<number[]> {
     const stamps: number[] = [];
     this.stamps = stamps;
+    this.clock = clock;
     return new Promise((done) => {
       setTimeout(() => {
         if (this.stamps === stamps) this.stamps = null;
@@ -199,7 +275,7 @@ export class GpuLoad {
   }
 
   state(): GpuLoadState {
-    return { ballast: this.ballast, copies: this.copies, copyCpuMs: this.copyCpuMs, lightsHidden: this.hidden.size, bypassPost: this.bypassPost, size: [this.size[0], this.size[1]], frames: this.frames };
+    return { ballast: this.ballast, copies: this.copies, copyCpuMs: this.copyCpuMs, lightsHidden: this.hidden.size, bypassPost: this.bypassPost, size: [this.size[0], this.size[1]], frames: this.frames, completions: { ...this.completions } };
   }
 
   /**
@@ -317,7 +393,9 @@ export class GpuLoad {
   }
 
   dispose(): void {
+    for (const off of this.unregister.splice(0)) off();
     this.set({});
+    this.hideShadows = this.bypassPost = false;
     for (const l of this.hidden) l.castShadow = true;
     this.hidden.clear();
     this.untag();

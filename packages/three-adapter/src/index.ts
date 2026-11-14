@@ -429,4 +429,6 @@ export { phaseTileMetres, voxelLooksKey, voxelRecordLooks, voxelRecordTextures, 
 export { capVoxelArrays, voxelTexelDensityAt, VoxelWorldDraws, type VoxelEditToScreen, type VoxelTextureResidency, type VoxelWorldDrawStats, type VoxelWorldDrawsOptions } from './voxel-world-draws';
 // GPU time per frame from timestamp queries (where the renderer records them).
 export { createGpuTiming, measuresGpuTime, type GpuTiming } from './gpu-timing';
-export { BALLAST_MAX, BALLAST_SIZE, BALLAST_STEPS, GpuLoad, HEADROOM_LAYER, type GpuLoadSettings, type GpuLoadState } from './gpu-headroom';
+export { BALLAST_MAX, BALLAST_SIZE, BALLAST_STEPS, GpuLoad, HEADROOM_LAYER, type GpuLoadClock, type GpuLoadSettings, type GpuLoadState } from './gpu-headroom';
+export { gpuPassHides, GpuPassHides, type GpuPassHide } from './gpu-pass-hides';
+export type { GpuMeasureTargetLike } from './gpu-measure-target';

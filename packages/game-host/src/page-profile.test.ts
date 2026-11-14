@@ -46,7 +46,7 @@ describe('the page profile', () => {
     expect(r.counters.queues?.queued).toBe(3);
     expect(r.counters.frames.at(-1)).toMatchObject({ drawCalls: 10, triangles: 1000 });
     expect(r.slices.find((x) => x.id === 'voxelBatch')!.msNow).toBeCloseTo(0.25 * (1000 / 30), 6);
-    expect(r.gpu).toEqual({ timestamps: false, shares: null, room: 'not measurable here' });
+    expect(r.gpu).toEqual({ timestamps: false, shares: null, room: 'not measurable here', measure: { state: 'idle' } });
     expect(r.cost.nsPerSpan).toBeGreaterThan(0);
     expect(JSON.parse(JSON.stringify(r))).toEqual(r);
   });
@@ -102,7 +102,32 @@ describe('the page profile', () => {
   it('shows the GPU as pass shares, never as milliseconds', () => {
     const p = new PageProfile();
     p.attach({ gpuPasses: () => ({ renderMs: 6, computeMs: 2 }), meter: () => true });
-    expect(p.read().gpu).toEqual({ timestamps: true, shares: { render: 0.75, compute: 0.25 }, room: 'headroom meter' });
+    expect(p.read().gpu).toEqual({ timestamps: true, shares: { render: 0.75, compute: 0.25 }, room: 'headroom meter', measure: { state: 'idle' } });
+  });
+
+  it('runs the GPU measurement on demand through its source and reports its progress and result in the read', async () => {
+    const p = new PageProfile();
+    expect(p.measureGpu()).toEqual({ state: 'unavailable', reason: 'no renderer on this page' });
+    let ballast = 0;
+    let hidden: readonly string[] = [];
+    p.attach({
+      gpuMeasure: () => ({
+        unavailable: () => null,
+        present: () => ({ far: ['far field'] }),
+        hide: (c) => void (hidden = c),
+        ballast: (n) => void (ballast = n),
+        ballastMax: 4096,
+        hold: () => undefined,
+        // A GPU at the medium tier's 60 Hz: the far field 3 ms, a ballast copy 0.1 ms.
+        record: async (s) => Array.from({ length: Math.round(s * 60) }, () => Math.max(1000 / 60, 5 + (hidden.includes('far') ? 0 : 3) + ballast * 0.1)),
+      }),
+    });
+    expect(p.measureGpu({ windowS: 0.5, settleS: 0, repeats: 3 }).state).toBe('running');
+    expect(p.read().gpu.measure?.state).toBe('running');
+    await expect.poll(() => p.gpuState().state).toBe('done');
+    const m = p.read().gpu.measure;
+    expect(m?.state === 'done' ? m.result.categories[0] : null).toMatchObject({ category: 'far', ms: 3 });
+    expect(JSON.parse(JSON.stringify(p.read().gpu))).toEqual(p.read().gpu);
   });
 
   it('counts the interaction field from the adapter\'s diagnostics (none: null)', () => {
