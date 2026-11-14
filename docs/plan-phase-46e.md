@@ -398,6 +398,10 @@ light too; the GPU check above; a click right after the camera's jump digs the w
 mismatches; a WGSL that did not compile hung the check's read back (found so: `from` is reserved in WGSL) and is now
 said on the console. The Play test 90 s → 84–86 s alone (the GPU check 25–50 ms).
 
+**Gate.** At 43e8af8b: `gate-fast-20261114-192922` (every area: `shared` changed) red on two watched tests under the
+all-areas load, block-editor's Paint step (D412) and shadows' cached map (D645), both green in
+`gate-rerun-20261114-200347` (village perf at 60 Hz 0/360 missed, main 6.16 ms); the voxel area 216 s (216 s before).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
