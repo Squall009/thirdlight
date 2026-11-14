@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MEMORY_BUDGET_BY_TIER } from '@thirdlight/project-model';
+import { MEMORY_BUDGET_BY_TIER } from '@thirdlight/runtime';
 import { MEMORY_BUDGET_IDS } from '@thirdlight/shared';
 import { memoryReport } from './page-memory';
 

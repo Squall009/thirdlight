@@ -62,7 +62,7 @@ export const STEP_PAIR_STRIDE = 2 * TRANSFORM_STRIDE;
 export const CAMERA_POSE_FLOATS = 11;
 
 /** The physics memory cap (an entry of the memory budget table). */
-export { PHYSICS_MEMORY_CAP_BYTES } from '@thirdlight/project-model';
+export { PHYSICS_MEMORY_CAP_BYTES } from '@thirdlight/runtime';
 
 /** Main → worker: compose the simulation. */
 export interface SimInitMessage {

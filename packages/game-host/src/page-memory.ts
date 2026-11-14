@@ -10,7 +10,9 @@
  * bytes from the voxel draws. A budget whose system keeps no count on the
  * page reads null, never a guess.
  */
-import { MEMORY_BUDGET_BY_TIER, type LightingTier, type MemoryBudgetEntry } from '@thirdlight/project-model';
+import { MEMORY_BUDGET_BY_TIER, type FrameBudget, type MemoryBudgetEntry } from '@thirdlight/runtime';
+
+type LightingTier = FrameBudget['tier'];
 import type { MemoryBudgetId, ResidentReading } from '@thirdlight/shared';
 
 /** One budget's row. */
