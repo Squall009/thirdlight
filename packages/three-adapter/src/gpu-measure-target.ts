@@ -31,6 +31,7 @@ export function gpuMeasureTarget(load: GpuLoad, hides: GpuPassHides, control: Re
     ballastMax: BALLAST_MAX,
     record: (seconds) => load.record(seconds, 'gpu'),
     hold: (on) => {
+      load.measuring = on;
       if (!on) {
         control.hold(null);
         return;

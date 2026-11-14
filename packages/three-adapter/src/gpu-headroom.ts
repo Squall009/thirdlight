@@ -235,6 +235,9 @@ export class GpuLoad {
     return Math.min(BALLAST_MAX, this.ballast + (this.known !== null && !this.known.hidden ? this.known.units : 0));
   }
 
+  /** Whether a GPU measurement holds the page (what is drawn does not decide what streams meanwhile). */
+  measuring = false;
+
   /** Only the ballast changed (copies kept). */
   setBallast(n: number): void {
     this.ballast = Math.max(0, Math.min(BALLAST_MAX, Math.floor(n)));

@@ -180,6 +180,8 @@ export interface LightShotsOptions {
   /** `--gpu`: the page's GPU measurement at each camera (ms per pass category), with its interleaved repeats. */
   readonly gpu: boolean;
   readonly gpuRepeats: number;
+  /** `--gpu-only LIST`: only these categories (default every one present). */
+  readonly gpuOnly: readonly string[] | null;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -222,6 +224,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     edits: num('edits', EDIT_DIGS.length, 0, EDIT_DIGS.length),
     gpu: argv.includes('--gpu'),
     gpuRepeats: num('gpu-repeats', 5, 3, 15),
+    gpuOnly: arg('gpu-only')?.split(',').filter((x) => x !== '') ?? null,
     viewport: { width: Number(m[1]), height: Number(m[2]) },
   };
 }

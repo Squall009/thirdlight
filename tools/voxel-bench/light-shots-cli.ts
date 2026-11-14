@@ -27,6 +27,7 @@
  *                 passed its flags: a later item's lighting arrangement), starting with `&`
  *   --hold S (default 3)  --timeout S a camera (default 180)  --edits N (default 3, 0: none)
  *   --gpu         the GPU measurement at each camera (about two minutes each)   --gpu-repeats N (default 5)
+ *   --gpu-only LIST  only these categories (near,far,shadows,lighting,post,effects)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
  *
  * How to (staging running, nothing else on the GPU):
@@ -70,6 +71,8 @@ const CONVERGE_MS = 1500;
  * 40 min apart differed by 0.21 % (sky and far shimmer); more means the measurement left something hidden or changed.
  */
 const AFTER_GPU_SHARE = 0.005;
+/** The second picture after a GPU measurement, this long after the first. */
+const AFTER_GPU_LATER_MS = 10_000;
 
 interface WorldStats {
   chunks: number;
@@ -179,16 +182,20 @@ async function main(): Promise<void> {
       const voxelShare = changedShare(shown, hidden);
       let gpu: unknown = null;
       let afterGpuShare: number | null = null;
+      let afterGpuLaterShare: number | null = null;
       if (O.gpu) {
         try {
-          const g = await measureGpuOnPage((call, options) => game.frame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: O.gpuRepeats });
+          const g = await measureGpuOnPage((call, options) => game.frame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: O.gpuRepeats, ...(O.gpuOnly !== null ? { only: O.gpuOnly } : {}) });
           gpu = g;
           console.log(`${cam.name}: ${gpuMeasureSummary(g)}`);
           // The meter's pin again (the measurement let go of its own hold), then the same view once more.
           await meterSet(game, {});
           await page.waitForTimeout(CONVERGE_MS);
           afterGpuShare = changedShare(shown, decodePng(await game.screenshot(join(OUT, `${cam.name}-after-gpu.png`))));
-          if (afterGpuShare > AFTER_GPU_SHARE) problems.push(`${cam.name}: the picture after the GPU measurement differs from before it in ${(afterGpuShare * 100).toFixed(2)} % of its pixels`);
+          // And again later: what a measurement changed that the page gives back by itself (texture residency, history).
+          await page.waitForTimeout(AFTER_GPU_LATER_MS);
+          afterGpuLaterShare = changedShare(shown, decodePng(await game.screenshot(join(OUT, `${cam.name}-after-gpu-later.png`))));
+          if (afterGpuLaterShare > AFTER_GPU_SHARE) problems.push(`${cam.name}: the picture after the GPU measurement differs from before it in ${(afterGpuShare * 100).toFixed(2)} % of its pixels, ${(afterGpuLaterShare * 100).toFixed(2)} % ${AFTER_GPU_LATER_MS / 1000} s later`);
         } catch (e) {
           problems.push(`${cam.name}: GPU measurement: ${String(e).slice(0, 200)}`);
         }
@@ -213,7 +220,7 @@ async function main(): Promise<void> {
         problems: shotProblemsFound,
         profile: report === null ? null : profileSummary(report),
         memory: report?.counters.memory ?? null,
-        ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)) } : {}),
+        ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
         at: host(),
       });
       console.log(`${cam.name}: settled ${s.settledS ?? 'never'} s, ${JSON.stringify(s.counts)}, voxels change ${(voxelShare * 100).toFixed(1)} % of the picture${shotProblemsFound.length > 0 ? `; REFUSED: ${shotProblemsFound.join('; ')}` : ''}; profile ${JSON.stringify(report === null ? null : profileSummary(report).msPerFrame)}`);

@@ -356,9 +356,11 @@ export class AdapterFrame {
     if (current.x !== w || current.y !== h || p.renderer.canvas?.width !== Math.floor(w * renderer.getPixelRatio())) renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    // What the camera sees decides which texture mips stream in or out (presentation only).
+    // What the camera sees decides which texture mips stream in or out (presentation only). Not while a GPU
+    // measurement runs: a hidden pass's textures would be let go and read again, their uploads landing in the
+    // measured frames.
     P.begin(FS.textures);
-    p.opts.textureStreamer?.update(p.scene, camera, h * renderer.getPixelRatio(), false, graph.parkedObjects());
+    if (!p.gpuLoad.measuring) p.opts.textureStreamer?.update(p.scene, camera, h * renderer.getPixelRatio(), false, graph.parkedObjects());
     P.end(FS.textures);
     P.begin(FS.decals);
     this.decalsBeforeFrame(renderer);
