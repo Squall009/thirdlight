@@ -134,10 +134,11 @@ export class VoxelLightFeed implements SurfaceVoxelSource {
     for (const [mesh, c] of this.chunksBy) if (c.key.startsWith(`${world}/`)) this.chunksBy.delete(mesh);
   }
 
-  /** The page goes: the cache lets the worlds go. */
+  /** The page goes, or the store is no longer the cache: the cache lets the worlds go, their surfaces read it no more. */
   unlink(): void {
     this.linked?.voxels?.(null);
     this.linked = null;
+    for (const mesh of this.chunksBy.keys()) delete mesh.userData[SURFACE_READ_KEY];
     this.chunksBy.clear();
   }
 

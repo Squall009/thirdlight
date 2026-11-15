@@ -360,6 +360,9 @@ export class SurfaceCacheHost {
         this.relight.setBudget(ms, this.live);
       },
       touch: () => this.touch(),
+      // Charted already: made at once, and asked for anew (the listing that saw it has passed).
+      want: (tile) => this.want(new Set(), tile.key, tile.version, tile.min, tile.max, () => tile, true),
+      versionOf: (key) => this.pending.get(key)?.version ?? this.ready.get(key)?.version,
       ready: () => this.ready.values(),
       pending: () => this.pending.values(),
       cache: this.cache,
@@ -620,6 +623,7 @@ export class SurfaceCacheHost {
     this.syncRooms(now);
     this.followRings(eye);
     this.prepare(eye, now);
+    this.voxels.step(eye, now);
     this.stepProbeJob(now);
     // A tile with nothing to light (a chunk of hidden faces only) is made once and never offered.
     if (this.changed) this.offered = [...this.ready.values()].filter((t) => t.charts().length > 0);
@@ -781,7 +785,7 @@ export class SurfaceCacheHost {
       // The cache lets its rings go when it places again.
       this.changed = true;
     }
-    this.voxels.list(seen, (key, v) => this.ready.get(key)?.version === v || this.pending.get(key)?.version === v, (tile) => this.want(seen, tile.key, tile.version, tile.min, tile.max, () => (tile.charts(), tile), true));
+    this.voxels.list(seen);
     for (const a of this.deps.architecture()) {
       this.layersOf.set(a.id, a.layers);
       let version = this.componentVersions.of.get(a.component);

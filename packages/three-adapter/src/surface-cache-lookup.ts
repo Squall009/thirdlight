@@ -30,7 +30,7 @@
  *   the cache holds it at) and facing, found in the set's hash.
  *
  * - Voxel worlds: the pixel's cell (its point a little behind the face its
- *   triangle faces: the flat normal) and face, in one hash of every resident
+ *   normal faces most, else the next axis's) and face, in one hash of every resident
  *   voxel chunk's keyed faces (`surface-cache-voxels.ts`), keyed by the cell
  *   (x, z | y, face), so a pixel's first read is its slot; the slot holds
  *   its chart's place and its column in the chart.
@@ -96,7 +96,7 @@ import { surfelLevelFor } from './surface-cache-atlas';
 import type { ArchTile, BlockTile, ModelTile, SurfaceScene } from './surface-cache-scene';
 import { TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { Words, invertAffine } from './tracer-words';
-import { VOXEL_FRAME_WORDS, VOXEL_KEY_BEHIND, VOXEL_KEY_MARGIN, type VoxelTile } from './surface-cache-voxels';
+import { VOXEL_FRAME_WORDS, VOXEL_KEY_BEHIND, VOXEL_KEY_MARGIN, type VoxelChunkCharts, type VoxelTile } from './surface-cache-voxels';
 import { VOXEL_SIZE_M } from '@thirdlight/voxel';
 
 /** Texels a row of the lookup texture. */
@@ -401,34 +401,26 @@ function surfelHashOf(tile: ModelTile, k: number): SurfelHash {
  */
 function packVoxels(t: Texels, tiles: readonly VoxelTile[], resident: ReadonlyMap<string, Resident>): void {
   const live = tiles.filter((tile) => tile.made !== null && resident.has(tile.key));
+  const entries = live.map((tile) => voxelSlotEntries(tile.made!));
   let n = 0;
-  for (const tile of live) for (const o of tile.made!.offsets) if ((o & VOXEL_KEY_BEHIND) === 0) n += 1;
+  for (const e of entries) n += e.length / 4;
   const cap = n === 0 ? 0 : pow2AtLeast(n * 2);
   const slots = t.alloc(cap);
   // Written through a view of the slots' words (valid while nothing more is allocated).
   const u = t.w.views(slots * 4, cap * 4).u;
   let probe = 0;
-  for (const tile of live) {
-    const m = tile.made!;
+  live.forEach((tile, ti) => {
     const r = resident.get(tile.key)!;
-    const s = m.edge + 2 * VOXEL_KEY_MARGIN;
     // Each chart's place on its page.
     const place = r.charts.map((_, c) => {
       const pl = r.packing.places[c]!;
       const b = r.blocks[pl.block]!;
       return (b.page | ((b.x + pl.x + SURFACE_CHART_BORDER) << 12) | ((b.y + pl.y + SURFACE_CHART_BORDER) << 20) | (r.level << 28)) >>> 0;
     });
-    for (let i = 0; i < m.keys.length; i += 1) {
-      const o = m.offsets[i]!;
-      if ((o & VOXEL_KEY_BEHIND) !== 0) continue;
-      const key = m.keys[i]!;
-      const face = key % 6;
-      const lc = Math.floor(key / 6);
-      const x = (lc % s) - VOXEL_KEY_MARGIN + m.cell0[0];
-      const z = (Math.floor(lc / s) % s) - VOXEL_KEY_MARGIN + m.cell0[2];
-      const y = Math.floor(lc / (s * s)) - VOXEL_KEY_MARGIN + m.cell0[1];
-      const k0 = (((x + 32768) & 0xffff) | (((z + 32768) & 0xffff) << 16)) >>> 0;
-      const k1 = (((y + 32768) & 0xffff) | ((face + 1) << 16)) >>> 0;
+    const e = entries[ti]!;
+    for (let i = 0; i < e.length; i += 4) {
+      const k0 = e[i]!;
+      const k1 = e[i + 1]!;
       let at = voxelSlotHash(k0, k1, cap);
       let tries = 0;
       let taken = false;
@@ -442,17 +434,38 @@ function packVoxels(t: Texels, tiles: readonly VoxelTile[], resident: ReadonlyMa
       }
       if (taken) continue;
       probe = Math.max(probe, tries);
-      const c = m.chartOf[i]!;
-      const f = c * VOXEL_FRAME_WORDS;
       u[at * 4] = k0;
       u[at * 4 + 1] = k1;
-      u[at * 4 + 2] = place[c]!;
-      u[at * 4 + 3] = ((o & 0x7fff) | (m.frames[f + 3]! << 16) | (m.frames[f + 4]! << 24)) >>> 0;
+      u[at * 4 + 2] = place[e[i + 2]!]!;
+      u[at * 4 + 3] = e[i + 3]!;
     }
-  }
+  });
   t.setU(2, 0, cap);
   t.setU(2, 1, slots);
   t.setU(2, 2, probe);
+}
+
+/** A chunk's keyed faces a pixel can lie on, as slot entries (k0, k1, chart, the slot's last word), made once with its charts. */
+const slotEntries = new WeakMap<VoxelChunkCharts, Uint32Array>();
+
+function voxelSlotEntries(m: VoxelChunkCharts): Uint32Array {
+  let out = slotEntries.get(m);
+  if (out !== undefined) return out;
+  const s = m.edge + 2 * VOXEL_KEY_MARGIN;
+  const list: number[] = [];
+  for (let i = 0; i < m.keys.length; i += 1) {
+    const o = m.offsets[i]!;
+    if ((o & VOXEL_KEY_BEHIND) !== 0) continue;
+    const key = m.keys[i]!;
+    const lc = Math.floor(key / 6);
+    const [k0, k1] = voxelSlotKeys((lc % s) - VOXEL_KEY_MARGIN + m.cell0[0], Math.floor(lc / (s * s)) - VOXEL_KEY_MARGIN + m.cell0[1], (Math.floor(lc / s) % s) - VOXEL_KEY_MARGIN + m.cell0[2], key % 6);
+    const c = m.chartOf[i]!;
+    const f = c * VOXEL_FRAME_WORDS;
+    list.push(k0, k1, c, ((o & 0x7fff) | (m.frames[f + 3]! << 16) | (m.frames[f + 4]! << 24)) >>> 0);
+  }
+  out = Uint32Array.from(list);
+  slotEntries.set(m, out);
+  return out;
 }
 
 /** Static models' slots and records: per slot (one placed piece) its placement and surfels or UV1 chart. */
@@ -754,33 +767,37 @@ export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: r
   return rect === null ? null : archPlace(u, f, rect, p, n);
 }
 
-/** A voxel pixel's place: its cell (behind the face its flat normal `n` faces) and face in the voxel hash, its column's place on the chart's page. */
+/** A voxel pixel's place: its cell (behind the face its normal `n` faces most, else the next axis's) and face in the voxel hash, its column's place on the chart's page. */
 function lookupVoxelCpu(u: Uint32Array, p: readonly number[], n: readonly number[]): LookedUp | null {
   const cap = u[8]!;
   if (cap === 0) return null;
-  const face = facingOf(n);
-  const axis = face >> 1;
-  const q = p.map((v) => v / VOXEL_SIZE_M);
-  q[axis]! -= (face & 1 ? -1 : 1) * BLOCK_INSET;
-  const cell = q.map(Math.floor);
-  const [k0, k1] = voxelSlotKeys(cell[0]!, cell[1]!, cell[2]!, face);
-  for (let s = voxelSlotHash(k0, k1, cap), tries = 0; tries <= u[10]!; s = (s + 1) & (cap - 1), tries += 1) {
-    const w = (u[9]! + s) * 4;
-    if (u[w + 1] === 0) return null;
-    if (u[w] !== k0 || u[w + 1] !== k1) continue;
-    const a = u[w + 2]!;
-    const b = u[w + 3]!;
-    const level = a >>> 28;
-    const wc = (b >>> 16) & 255;
-    const hc = b >>> 24;
-    const iw = areaTexels(wc * VOXEL_SIZE_M, level);
-    const ih = areaTexels(hc * VOXEL_SIZE_M, level);
-    const [pu, pv] = FACE_PLANE_AXES[axis]!;
-    const fu = Math.min(1, Math.max(0, q[pu]! - cell[pu]!));
-    const fv = Math.min(1, Math.max(0, q[pv]! - cell[pv]!));
-    const x = ((a >>> 12) & 255) + Math.min(iw - 0.5, Math.max(0.5, (((b & 255) + fu) / wc) * iw));
-    const y = ((a >>> 20) & 255) + Math.min(ih - 0.5, Math.max(0.5, ((((b >>> 8) & 255) + fv) / hc) * ih));
-    return { texture: 'atlas', layer: a & 0xfff, x, y };
+  const an = n.map(Math.abs);
+  const first = an[0]! >= an[1]! && an[0]! >= an[2]! ? 0 : an[1]! >= an[2]! ? 1 : 2;
+  const second = first === 0 ? (an[1]! >= an[2]! ? 1 : 2) : first === 1 ? (an[0]! >= an[2]! ? 0 : 2) : an[0]! >= an[1]! ? 0 : 1;
+  for (const axis of [first, second]) {
+    const face = axis * 2 + (n[axis]! < 0 ? 1 : 0);
+    const q = p.map((v) => v / VOXEL_SIZE_M);
+    q[axis]! -= (face & 1 ? -1 : 1) * BLOCK_INSET;
+    const cell = q.map(Math.floor);
+    const [k0, k1] = voxelSlotKeys(cell[0]!, cell[1]!, cell[2]!, face);
+    for (let s = voxelSlotHash(k0, k1, cap), tries = 0; tries <= u[10]!; s = (s + 1) & (cap - 1), tries += 1) {
+      const w = (u[9]! + s) * 4;
+      if (u[w + 1] === 0) break;
+      if (u[w] !== k0 || u[w + 1] !== k1) continue;
+      const a = u[w + 2]!;
+      const b = u[w + 3]!;
+      const level = a >>> 28;
+      const wc = (b >>> 16) & 255;
+      const hc = b >>> 24;
+      const iw = areaTexels(wc * VOXEL_SIZE_M, level);
+      const ih = areaTexels(hc * VOXEL_SIZE_M, level);
+      const [pu, pv] = FACE_PLANE_AXES[axis]!;
+      const fu = Math.min(1, Math.max(0, q[pu]! - cell[pu]!));
+      const fv = Math.min(1, Math.max(0, q[pv]! - cell[pv]!));
+      const x = ((a >>> 12) & 255) + Math.min(iw - 0.5, Math.max(0.5, (((b & 255) + fu) / wc) * iw));
+      const y = ((a >>> 20) & 255) + Math.min(ih - 0.5, Math.max(0.5, ((((b >>> 8) & 255) + fv) / hc) * ih));
+      return { texture: 'atlas', layer: a & 0xfff, x, y };
+    }
   }
   return null;
 }

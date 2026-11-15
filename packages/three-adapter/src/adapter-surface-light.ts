@@ -19,6 +19,7 @@
  * first lookup is up.
  */
 import * as THREE from 'three';
+import { threadProfiler } from '@thirdlight/shared';
 
 import { pageSearch, type AnyRenderer } from './renderer-factory';
 import type { EntityDoc } from './adapter-entities';
@@ -45,6 +46,9 @@ import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections
 import { AdapterLightingViews, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 import { gpuPassHides } from './gpu-pass-hides';
 import type { SurfaceCacheVoxelLink } from './voxel-world-light';
+
+/** The live light's parts on the page, each its own span (under the frame's 'surface light'). */
+const SPANS = { residency: threadProfiler.span('surface cache residency', 'lighting'), light: threadProfiler.span('surface light pass', 'lighting'), lookup: threadProfiler.span('surface lookup packed', 'lighting') };
 
 /** How often (ms) the debug look is drawn again while texels change. */
 const VIEW_MS = 200;
@@ -189,7 +193,9 @@ export class AdapterSurfaceLight {
     this.allLights = all;
     const lights = this.part === null ? all : savedLights(all, this.part);
     this.host.setLights(lights);
+    threadProfiler.begin(SPANS.residency);
     this.host.update(eye);
+    threadProfiler.end(SPANS.residency);
     const gpu = deviceOf(renderer);
     const device = this.failed || this.host.relightBudgetMs <= 0 ? null : gpu;
     if (device !== this.device || (device !== null && this.host.cache.budgetBytes !== this.budgetFor)) this.drop(device, renderer);
@@ -199,7 +205,9 @@ export class AdapterSurfaceLight {
       // The voxel worlds lit here: their occupancy is traced with the rest.
       this.runtime.pass.tracer.setVoxelWalk(this.host.voxels.walk());
     }
+    threadProfiler.begin(SPANS.light);
     if (!this.gpuHidden) this.runtime?.frame(lights);
+    threadProfiler.end(SPANS.light);
     this.syncRead(lights, renderer);
     // Until the light is live (WebGL 2, a level without a live budget, a live light still starting) the saved light is drawn.
     if (this.runtime === null && this.readOn) this.saved.frame();
@@ -250,7 +258,9 @@ export class AdapterSurfaceLight {
     const key = `${this.host.traceVersion}/${this.host.residencyVersion}/${this.host.modelSlots.version}`;
     const now = performance.now();
     if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
+      threadProfiler.begin(SPANS.lookup);
       tex.setTable(packSurfaceLookup(this.host.resolveScene().scene, this.host.cache, (tileKey) => this.host.modelSlots.peek(tileKey)));
+      threadProfiler.end(SPANS.lookup);
       this.lookupFor = key;
       this.lookupAt = now;
     }

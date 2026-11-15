@@ -222,6 +222,9 @@ export interface VoxelWorldDrawStats {
 
 interface WorldDraw {
   readonly view: VoxelChunkView;
+  /** Its chunks' edge (cells), and whether its draws are WebGPU's (the cache lights only those). */
+  readonly edge: number;
+  readonly webgpu: boolean;
   readonly surface: VoxelSurface;
   /** The nodes' and seams' GPU bytes last reported, and the kits'. */
   coarse: number;
@@ -298,7 +301,7 @@ export class VoxelWorldDraws {
   /** Each world's sky heights by chunk column, as the batches bring them (every renderer: plain arrays). */
   private readonly skies = new Map<string, SkyColumns>();
   /** The page's lighting store, and the surface cache's feed when it is the cache (made with the first world on WebGPU). */
-  readonly lightStore: VoxelLightStore;
+  lightStore: VoxelLightStore;
   private light: VoxelLightFeed | null = null;
   /** The scene shadow link whose ground this page tells (taken back on dispose). */
   private groundLink: SceneShadowLink | null = null;
@@ -598,12 +601,7 @@ export class VoxelWorldDraws {
     scene.add(view.root);
     const decals = voxelWorldDecalsOf(scene);
     view.setDecalLayers(decals?.layersOf(name));
-    if (webgpu && voxelStoreUsesCache(this.lightStore)) {
-      // The surface cache hears of the level-0 surfaces beside the decals.
-      this.light ??= new VoxelLightFeed({ buffers: (world) => this.walks.get(world)?.buffers() ?? null, source: (world) => this.walks.get(world)?.table.source() ?? null, worlds: () => this.walks.keys() }, () => this.opts.residency?.level() ?? null);
-      view.setDecalSurfaces(this.light.surfaces(name, edge, decals?.surfaces ?? null));
-      this.light.link(scene);
-    } else view.setDecalSurfaces(decals?.surfaces ?? null);
+    this.lightWorld(name, view, edge, webgpu, scene);
     // The world's object changed its layers or blend: both are draw data (no remesh; the blend a uniform).
     const unlink = decals?.onChange((world) => {
       if (world !== name) return;
@@ -611,7 +609,7 @@ export class VoxelWorldDraws {
       surface.setBlendMetres(decals.blendOf(name));
       this.opts.applied?.();
     }) ?? ((): void => undefined);
-    this.worlds.set(name, (w = { view, surface, coarse: 0, kits: 0, relief: null, unlink }));
+    this.worlds.set(name, (w = { view, edge, webgpu, surface, coarse: 0, kits: 0, relief: null, unlink }));
     return w;
   }
 
@@ -631,6 +629,35 @@ export class VoxelWorldDraws {
       if (h !== null && h > SKY_NONE && (top === null || h * VOXEL_SIZE_M > top)) top = h * VOXEL_SIZE_M;
     }
     return top;
+  }
+
+  /** Who hears of a world's level-0 surfaces: its decals, and with the cache store on WebGPU the surface cache beside them. */
+  private lightWorld(name: string, view: VoxelChunkView, edge: number, webgpu: boolean, scene: THREE.Scene): void {
+    const decals = voxelWorldDecalsOf(scene)?.surfaces ?? null;
+    if (!webgpu || !voxelStoreUsesCache(this.lightStore)) {
+      view.setDecalSurfaces(decals);
+      return;
+    }
+    this.light ??= new VoxelLightFeed({ buffers: (world) => this.walks.get(world)?.buffers() ?? null, source: (world) => this.walks.get(world)?.table.source() ?? null, worlds: () => this.walks.keys() }, () => this.opts.residency?.level() ?? null);
+    view.setDecalSurfaces(this.light.surfaces(name, edge, decals));
+    this.light.link(scene);
+  }
+
+  /**
+   * The lighting store from now on (the page's query sets the first): drawn worlds' surfaces go to the surface
+   * cache or leave it (a bench or a check compares the stores on one page without loading it again).
+   */
+  setLightStore(store: VoxelLightStore): void {
+    if (this.opts.lighting !== true || store === this.lightStore) return;
+    const was = voxelStoreUsesCache(this.lightStore);
+    this.lightStore = store;
+    const scene = this.opts.scene();
+    if (scene === null || was === voxelStoreUsesCache(store)) return;
+    if (was) {
+      this.light?.unlink();
+      this.light = null;
+    }
+    for (const [name, w] of this.worlds) this.lightWorld(name, w.view, w.edge, w.webgpu, scene);
   }
 
   /** The surface cache's feed of the worlds' surfaces (null: the store is not the cache, or not WebGPU). */

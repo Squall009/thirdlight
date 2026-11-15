@@ -274,3 +274,121 @@ const BAND_MIN_PX = 20;
  */
 const FAR_SHADOW_MIN_PX = 300;
 const SEAM_MAX_STEP = 0.03;
+
+/** What the surface cache holds of the voxel worlds (the page's `__tlVoxelPlay.light.cache()`; null: the store is not the cache). */
+interface CacheStats {
+  readonly tiles: number;
+  readonly resident: number;
+  readonly residentTexels: number;
+  readonly litTexels: number;
+  readonly staleUnits: number;
+  readonly waiting: number;
+  readonly texelsWritten: number;
+  readonly live: boolean;
+  readonly read: boolean;
+}
+
+/**
+ * The surface cache lighting the voxel surfaces (WebGPU, the page's lighting store switched at run time, as
+ * `?voxelLight=cache` sets it at the start): a red lamp east of the script's wall, a pillar a cell square between them.
+ * The store off, the page has no cache tiles. Switched to the cache, its voxel texels are lit (a counter from the page,
+ * waited for), the lamp lights the wall and the grass by the cache's light, and the pillar's traced shadow keeps it off
+ * the wall and grass behind (red the lamp adds there without the pillar, which the pillar takes away). Switched off
+ * again, the picture is the store-off picture as it was.
+ */
+export async function voxelCacheLightChecks(o: ShadowCheckSetup): Promise<void> {
+  const { ids, away } = o;
+  const { frame, control, counter, rel, place, still } = driver(o);
+  const hook = async <T>(f: string, arg?: unknown): Promise<T> => (await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate((_, a) => {
+    const l = (window as unknown as { __tlVoxelPlay: { light: Record<string, (x?: unknown) => unknown> } }).__tlVoxelPlay.light;
+    return l[a.f]!(a.arg);
+  }, { f, arg })) as T;
+  const lamp = rel(-0.75, 1.25, -1.5);
+  await control('wall');
+  await control('pillar');
+  await expect.poll(async () => [await counter('wallBuilt'), await counter('pillarBuilt')], { timeout: 10_000 }).toEqual([3, 1]);
+  await place(ids.lamp, lamp);
+  expect(await hook<string>('store')).toBe('off');
+  expect(await hook<CacheStats | null>('cache'), 'no cache tiles while the store is off').toBeNull();
+  const off = await still('cache-off-lamp');
+  // The cache: its voxel texels lit, nothing stale or waiting, the surfaces reading it.
+  await hook('setStore', 'cache');
+  let stats: CacheStats | null = null;
+  const settled = async (what: string): Promise<void> => {
+    await expect.poll(async () => {
+      stats = await hook<CacheStats | null>('cache');
+      return stats !== null && stats.live && stats.read && stats.resident > 0 && stats.litTexels > 0 && stats.texelsWritten > 0 && stats.waiting === 0 && stats.staleUnits === 0;
+    }, { timeout: 60_000, intervals: [250], message: `${what}: the cache's voxel texels are lit` }).toBe(true);
+  };
+  const t0 = Date.now();
+  await settled('the store switched');
+  const litMs = Date.now() - t0;
+  const pillarLamp = await still('cache-pillar-lamp');
+  await place(ids.lamp, away);
+  await settled('the lamp away');
+  const pillarDark = await still('cache-pillar-dark');
+  await control('unpillar');
+  await expect.poll(() => counter('pillarDug'), { timeout: 10_000 }).toBe(1);
+  await settled('the pillar dug');
+  const openDark = await still('cache-open-dark');
+  await place(ids.lamp, lamp);
+  await settled('the lamp back');
+  const openLamp = await still('cache-open-lamp');
+  const lit = redAdded(openDark, openLamp, LAMP_ADD_MIN);
+  const shadow = pillarShadowed(pillarDark, pillarLamp, openDark, openLamp, LAMP_ADD_MIN, LAMP_KEEP);
+  const changed = changedPixels(off, pillarLamp, () => true, 20);
+  const cs = stats as CacheStats | null;
+  // Off again, the pillar back: the picture is the store-off one.
+  await control('pillar');
+  await expect.poll(() => counter('pillarBuilt'), { timeout: 10_000 }).toBe(2);
+  await hook('setStore', 'off');
+  await expect.poll(() => hook<CacheStats | null>('cache'), { timeout: 10_000 }).toBeNull();
+  const offAgain = await still('cache-off-again');
+  const same = changedPixels(off, offAgain, () => true, 20);
+  await place(ids.lamp, away);
+  await control('unpillar');
+  await control('unwall');
+  await expect.poll(() => counter('wallDug'), { timeout: 10_000 }).toBe(3);
+  console.log(`[voxel-play] surface cache: lit ${litMs} ms after the switch (${JSON.stringify(cs)}); the lamp adds red to ${lit} px; the pillar's shadow ${shadow} px; the cache's picture differs from the store-off one in ${changed} px, the store-off one before and after in ${same} px`);
+  expect(lit, 'the lamp lights the wall and grass by the cache').toBeGreaterThan(CACHE_LIT_MIN_PX);
+  expect(shadow, "the pillar's traced shadow keeps the lamp off what is behind it").toBeGreaterThan(CACHE_SHADOW_MIN_PX);
+  expect(changed, 'the cache changes the picture').toBeGreaterThan(CACHE_CHANGED_MIN_PX);
+  expect(same, 'switched off, the picture is the store-off one').toBeLessThan(CACHE_SAME_MAX_PX);
+}
+
+/**
+ * Pixels the pillar keeps the lamp's light off (wall or grass): red the lamp adds there without the pillar (`openLamp` −
+ * `openDark`) of at least `minAdd`, of which the view with the pillar keeps less than `keep`; the pillar's own pixels
+ * (where the two dark views differ) left out.
+ */
+function pillarShadowed(pillarDark: Png, pillarLamp: Png, openDark: Png, openLamp: Png, minAdd: number, keep: number): number {
+  let n = 0;
+  for (let y = 0; y < openDark.height; y++) for (let x = 0; x < openDark.width; x++) {
+    const a = pillarDark.pixel(x, y);
+    const b = openDark.pixel(x, y);
+    if (Math.abs(a[0]! - b[0]!) + Math.abs(a[1]! - b[1]!) + Math.abs(a[2]! - b[2]!) > 30) continue;
+    const add = openLamp.pixel(x, y)[0]! - b[0]!;
+    const kept = pillarLamp.pixel(x, y)[0]! - a[0]!;
+    if (add >= minAdd && kept < keep * add) n += 1;
+  }
+  return n;
+}
+
+/** Pixels to which `lit` adds at least `min` red over `dark`. */
+function redAdded(dark: Png, lit: Png, min: number): number {
+  let n = 0;
+  for (let y = 0; y < dark.height; y++) for (let x = 0; x < dark.width; x++) if (lit.pixel(x, y)[0]! - dark.pixel(x, y)[0]! >= min) n += 1;
+  return n;
+}
+
+/**
+ * The cache checks' bounds, from the readings of the first green run (high tier, the preview's 670 × 253 picture): the
+ * lamp adds red ≥ 30 to 28,835 pixels by the cache (bound 8,000); the pillar keeps it off 554 pixels behind it (bound
+ * 250); the cache's picture differs from the store-off one in 1,793 pixels (bound 500: the cache's traced soft shadows
+ * and texels for the per-pixel light and atlas shadow); off again, the same picture to 0 pixels (bound 40). The cache
+ * lit 29.5 s after the switch (351 chunks charted in the 1 ms slice).
+ */
+const CACHE_LIT_MIN_PX = 8000;
+const CACHE_SHADOW_MIN_PX = 250;
+const CACHE_CHANGED_MIN_PX = 500;
+const CACHE_SAME_MAX_PX = 40;

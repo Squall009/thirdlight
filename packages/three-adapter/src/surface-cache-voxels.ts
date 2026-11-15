@@ -224,6 +224,18 @@ export function walkSolidAt(src: WalkSource): (x: number, y: number, z: number) 
  * nowhere.
  */
 export function voxelChunkCharts(positions: ArrayLike<number>, indices: ArrayLike<number>, cell0: readonly [number, number, number], edge: number, solidAt?: (x: number, y: number, z: number) => boolean | null): VoxelChunkCharts {
+  const steps = voxelChunkChartsSteps(positions, indices, cell0, edge, solidAt);
+  for (;;) {
+    const r = steps.next();
+    if (r.done === true) return r.value;
+  }
+}
+
+/** Triangles, columns and chart seeds a step of {@link voxelChunkChartsSteps} takes before it yields. */
+const CHART_STEP_ITEMS = 256;
+
+/** {@link voxelChunkCharts} in steps (a few hundred triangles, columns or charts each), for charting over frames. */
+export function* voxelChunkChartsSteps(positions: ArrayLike<number>, indices: ArrayLike<number>, cell0: readonly [number, number, number], edge: number, solidAt?: (x: number, y: number, z: number) => boolean | null): Generator<void, VoxelChunkCharts> {
   // Samples (a triangle over a column): their bucket (face and column, from BUCKET_BIAS before the corner), height, spread and triangle.
   const S = new Samples();
   const normals: number[] = [];
@@ -231,6 +243,7 @@ export function voxelChunkCharts(positions: ArrayLike<number>, indices: ArrayLik
   const tri = [0, 0, 0, 0, 0, 0];
   const w = [0, 0, 0] as [number, number, number];
   for (let t = 0; t + 2 < indices.length; t += 3) {
+    if ((t / 3) % CHART_STEP_ITEMS === CHART_STEP_ITEMS - 1) yield;
     for (let k = 0; k < 3; k += 1) {
       const v = indices[t + k]! * 3;
       for (let a = 0; a < 3; a += 1) P[k]![a] = cell0[a]! + positions[v + a]! / VOXEL_SIZE_M;
@@ -281,7 +294,9 @@ export function voxelChunkCharts(positions: ArrayLike<number>, indices: ArrayLik
   const columns = new Map<number, Layer[]>();
   const order = S.byBucket();
   const front = [0, 0, 0];
+  let buckets = 0;
   for (let a = 0; a < order.length; ) {
+    if (++buckets % CHART_STEP_ITEMS === 0) yield;
     const key = S.key[order[a]!]!;
     let b = a + 1;
     while (b < order.length && S.key[order[b]!] === key) b += 1;
@@ -348,7 +363,9 @@ export function voxelChunkCharts(positions: ArrayLike<number>, indices: ArrayLik
     }
     return best;
   };
+  let seeded = 0;
   for (const key of seeds) {
+    if (++seeded % CHART_STEP_ITEMS === 0) yield;
     const face = Math.floor(key / 65536);
     const lu0 = (key >> 8) & 255;
     const lv0 = key & 255;

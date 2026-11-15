@@ -45,7 +45,7 @@ import { texelTexture } from './texel-texture-node';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Break, Fn, If, Loop, abs, attribute, bool, clamp, cross, dFdx, dFdy, dot, float, floor, int, ivec2, max, mix, normalWorldGeometry, positionWorld, property, select, texture, uint, uintBitsToFloat, uniform, uniformArray, uv: uvOf, varying, vec2, vec3 } = TSL;
+const { Break, Fn, If, Loop, abs, attribute, bool, clamp, cross, dot, float, floor, int, ivec2, max, mix, normalWorldGeometry, positionWorld, property, select, texture, uint, uintBitsToFloat, uniform, uniformArray, uv: uvOf, varying, vec2, vec3 } = TSL;
 
 /** Rows of the lookup texture at first (it doubles when a scene's lookup outgrows it). */
 const TABLE_ROWS = 16;
@@ -538,34 +538,42 @@ function archLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, chartAt: (c0:
 }
 
 /**
- * A voxel pixel's place (`lookupVoxelCpu`'s twin): the face its triangle
- * faces (the flat normal from the position's derivatives, turned to the
- * geometry's side: a smooth vertex normal may lean past 45° to another face
- * than its triangle's, whose charts hold it), its cell a little behind that
- * face, its slot from the cell's home in the voxel hash, probing on at most
- * the hash's longest probe; the slot names the chart's place and the
- * pixel's column in it.
+ * A voxel pixel's place (`lookupVoxelCpu`'s twin): the face its surface
+ * faces most (the geometry's normal's main axis), its cell a little behind
+ * that face, its slot from the cell's home in the voxel hash, probing on at
+ * most the hash's longest probe; the slot names the chart's place and the
+ * pixel's column in it. A smooth normal leaning past 45° may face another
+ * axis than its triangle's charts: not found there, the next axis is tried.
+ * (A flat normal from the position's derivatives found the triangle's face
+ * at once, but across a triangle's edge the derivatives mix two triangles,
+ * so edge pixels changed face from frame to frame under the upscale's
+ * jitter.)
  */
 function voxelLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, layer: N, uv: N, found: N): void {
   const p = positionWorld;
-  const fn = cross(dFdx(p), dFdy(p));
-  const flat = select(dot(fn, normalWorldGeometry).lessThan(0), fn.negate(), fn).toVar('tlVoxelFlat');
-  const an = abs(flat);
-  const axis = int(0).toVar('tlVoxelAxis');
-  axis.assign(select(an.x.greaterThanEqual(an.y).and(an.x.greaterThanEqual(an.z)), int(0), select(an.y.greaterThanEqual(an.z), int(1), int(2))));
+  const n = normalWorldGeometry.toVar('tlVoxelNormal');
+  const an = abs(n);
   const comp = (v: N, a: N): N => select(a.equal(int(0)), v.x, select(a.equal(int(1)), v.y, v.z));
-  const neg = comp(flat, axis).lessThan(0);
-  const face = uint(axis.mul(2)).add(select(neg, uint(1), uint(0))).toVar('tlVoxelFace');
-  const sgn = select(neg, float(-1), float(1));
-  const inset = vec3(select(axis.equal(int(0)), sgn, float(0)), select(axis.equal(int(1)), sgn, float(0)), select(axis.equal(int(2)), sgn, float(0)));
-  const q = p.div(VOXEL_SIZE_M).sub(inset.mul(BLOCK_INSET)).toVar('tlVoxelQ');
-  const cell = TSL.ivec3(floor(q)).toVar('tlVoxelCell');
-  const k0 = uint(cell.x.add(32768)).bitAnd(uint(0xffff)).bitOr(uint(cell.z.add(32768)).bitAnd(uint(0xffff)).shiftLeft(uint(16))).toVar('tlVoxelK0');
-  const k1 = uint(cell.y.add(32768)).bitAnd(uint(0xffff)).bitOr(face.add(uint(1)).shiftLeft(uint(16))).toVar('tlVoxelK1');
+  // The main axis, then the larger of the other two.
+  const first = int(0).toVar('tlVoxelAxis0');
+  first.assign(select(an.x.greaterThanEqual(an.y).and(an.x.greaterThanEqual(an.z)), int(0), select(an.y.greaterThanEqual(an.z), int(1), int(2))));
+  const second = int(0).toVar('tlVoxelAxis1');
+  second.assign(select(first.equal(int(0)), select(an.y.greaterThanEqual(an.z), int(1), int(2)), select(first.equal(int(1)), select(an.x.greaterThanEqual(an.z), int(0), int(2)), select(an.x.greaterThanEqual(an.y), int(0), int(1)))));
   const cap = uint(tex.voxels.x);
   const hit = bool(false).toVar('tlVoxelHit');
   const got = TSL.uvec4(0).toVar('tlVoxelSlot');
-  If(cap.notEqual(uint(0)), () => {
+  const gq = vec3(0).toVar('tlVoxelQ');
+  const gcell = TSL.ivec3(0).toVar('tlVoxelCell');
+  const gaxis = int(0).toVar('tlVoxelAxis');
+  const tryAxis = (axis: N): void => {
+    const neg = comp(n, axis).lessThan(0);
+    const face = uint(axis.mul(2)).add(select(neg, uint(1), uint(0)));
+    const sgn = select(neg, float(-1), float(1));
+    const inset = vec3(select(axis.equal(int(0)), sgn, float(0)), select(axis.equal(int(1)), sgn, float(0)), select(axis.equal(int(2)), sgn, float(0)));
+    const q = p.div(VOXEL_SIZE_M).sub(inset.mul(BLOCK_INSET)).toVar();
+    const cell = TSL.ivec3(floor(q)).toVar();
+    const k0 = uint(cell.x.add(32768)).bitAnd(uint(0xffff)).bitOr(uint(cell.z.add(32768)).bitAnd(uint(0xffff)).shiftLeft(uint(16))).toVar();
+    const k1 = uint(cell.y.add(32768)).bitAnd(uint(0xffff)).bitOr(face.add(uint(1)).shiftLeft(uint(16))).toVar();
     const h0 = k0.mul(uint(0x9e3779b1)).bitXor(k1.mul(uint(0x85ebca6b))).toVar();
     h0.assign(h0.bitXor(h0.shiftRight(uint(16))).mul(uint(0x7feb352d)));
     const s = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(cap.sub(uint(1))).toVar();
@@ -578,6 +586,9 @@ function voxelLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, layer: N, uv
         done.assign(true);
         hit.assign(true);
         got.assign(slot);
+        gq.assign(q);
+        gcell.assign(cell);
+        gaxis.assign(axis);
       });
     };
     look();
@@ -590,6 +601,12 @@ function voxelLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, layer: N, uv
         });
       });
     });
+  };
+  If(cap.notEqual(uint(0)), () => {
+    tryAxis(first);
+    If(hit.not(), () => {
+      tryAxis(second);
+    });
   });
   If(hit, () => {
     const level = got.z.shiftRight(uint(28));
@@ -599,10 +616,10 @@ function voxelLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, layer: N, uv
     const span = (cells: N): N => float(TSL.min(uint(SURFACE_PAGE_TEXELS - 2 * SURFACE_CHART_BORDER), max(uint(1), cells.mul(uint(VOXEL_CELL_TEXELS)).add(uint(1).shiftLeft(level)).sub(uint(1)).shiftRight(level))));
     const iw = span(wc);
     const ih = span(hc);
-    const pu = select(axis.equal(int(0)), int(2), int(0));
-    const pv = select(axis.equal(int(1)), int(2), int(1));
-    const fu = clamp(comp(q, pu).sub(float(comp(cell, pu))), float(0), float(1));
-    const fv = clamp(comp(q, pv).sub(float(comp(cell, pv))), float(0), float(1));
+    const pu = select(gaxis.equal(int(0)), int(2), int(0));
+    const pv = select(gaxis.equal(int(1)), int(2), int(1));
+    const fu = clamp(comp(gq, pu).sub(float(comp(gcell, pu))), float(0), float(1));
+    const fv = clamp(comp(gq, pv).sub(float(comp(gcell, pv))), float(0), float(1));
     const x = float(got.z.shiftRight(uint(12)).bitAnd(uint(255))).add(clamp(float(got.w.bitAnd(uint(255))).add(fu).div(float(wc)).mul(iw), float(0.5), iw.sub(0.5)));
     const y = float(got.z.shiftRight(uint(20)).bitAnd(uint(255))).add(clamp(float(got.w.shiftRight(uint(8)).bitAnd(uint(255))).add(fv).div(float(hc)).mul(ih), float(0.5), ih.sub(0.5)));
     layer.assign(got.z.bitAnd(uint(0xfff)));

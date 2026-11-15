@@ -98,7 +98,7 @@ import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-
 import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
-import { voxelFarLightChecks, voxelShadowChecks } from './voxel-shadows';
+import { voxelCacheLightChecks, voxelFarLightChecks, voxelShadowChecks } from './voxel-shadows';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -1022,6 +1022,10 @@ async function playProject(): Promise<[number, number, number]> {
     '    const wall = box(-3, 0, -2, -2.5, 4, 0.5);',
     `    for (const _ of ctx.debug.command('wall')) ctx.game.add(v.set(wall, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'wallBuilt' : 'wallRefused', 1);`,
     "    for (const _ of ctx.debug.command('unwall')) ctx.game.add(v.dig(wall).ok ? 'wallDug' : 'wallRefused', 1);",
+    // A pillar a cell square and 3 m tall between the wall and a lamp east of it: the surface cache's lamp shadow.
+    '    const pillar = box(-2, 0, -1.75, -1.5, 3, -1.25);',
+    `    for (const _ of ctx.debug.command('pillar')) ctx.game.add(v.set(pillar, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'pillarBuilt' : 'pillarRefused', 1);`,
+    "    for (const _ of ctx.debug.command('unpillar')) ctx.game.add(v.dig(pillar).ok ? 'pillarDug' : 'pillarRefused', 1);",
     // A long wall 8 m tall from 4 m to 38 m ahead of the character: its sun shadow runs out past the key light's map.
     '    const longWall = box(-3, 0, -38, -2, 8, -4);',
     `    for (const _ of ctx.debug.command('longwall')) ctx.game.add(v.set(longWall, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'longWallBuilt' : 'longWallRefused', 1);`,
@@ -1429,6 +1433,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     expect(wc.mismatches, JSON.stringify(wc.examples)).toBe(0);
     await voxelShadowChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
     await voxelFarLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
+    await voxelCacheLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);

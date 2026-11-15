@@ -36,7 +36,7 @@ import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSetting
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { fineBricksFromUrl, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, walkBenchRays, type GlbLoaderPort, type WalkBenchKind, type WalkGpuRay, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLookRecord } from '@thirdlight/three-adapter';
+import { fineBricksFromUrl, VOXEL_LIGHT_STORES, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, walkBenchRays, type GlbLoaderPort, type WalkBenchKind, type WalkGpuRay, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLightStore, type VoxelLookRecord } from '@thirdlight/three-adapter';
 import type { ShippedVoxelWorld } from './voxel-shipped';
 import { voxelMeter } from './voxel-meter';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
@@ -711,6 +711,8 @@ function staticShadowDraws(adapter: SceneAdapter | null): number | null {
 function voxelLightHooks(draws: VoxelWorldDraws) {
   return {
     store: () => draws.lightStore,
+    /** Another store from now on (`off`, `cache`, …): the drawn worlds' surfaces join the cache or leave it. */
+    setStore: (store: string) => draws.setLightStore((VOXEL_LIGHT_STORES as readonly string[]).includes(store) ? (store as VoxelLightStore) : 'off'),
     cache: () => draws.lightFeed()?.diagnostics() ?? null,
     check: (at: number[], n: number) => draws.lightFeed()?.check(at, n) ?? Promise.resolve(null),
   };

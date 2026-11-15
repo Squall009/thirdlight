@@ -98,6 +98,7 @@ interface CacheStats {
   residentTexels: number;
   litTexels: number;
   staleUnits: number;
+  waiting: number;
   texelsWritten: number;
   bytes: number;
   live: boolean;
@@ -105,9 +106,9 @@ interface CacheStats {
 }
 
 /** The longest a shot waits for the surface cache to light what is resident (a store that is not the cache: not at all). */
-const CACHE_TIMEOUT_MS = 60_000;
+const CACHE_TIMEOUT_MS = 120_000;
 
-/** Waits until the surface cache's voxel texels are lit (nothing stale, texels written, held a second); how long it took and the stats then. */
+/** Waits until the surface cache's voxel texels are lit (every chunk charted, nothing stale, texels written, held a second); how long it took and the stats then. */
 async function cacheLit(game: PlayGame): Promise<{ litS: number | null; cache: CacheStats | null }> {
   const t0 = Date.now();
   let calm = 0;
@@ -115,7 +116,7 @@ async function cacheLit(game: PlayGame): Promise<{ litS: number | null; cache: C
   for (;;) {
     last = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.cache() ?? null).catch(() => null)) as CacheStats | null;
     if (last === null) return { litS: null, cache: null };
-    calm = last.live && last.resident > 0 && last.staleUnits === 0 && last.texelsWritten > 0 ? calm + 1 : 0;
+    calm = last.live && last.resident > 0 && last.waiting === 0 && last.staleUnits === 0 && last.texelsWritten > 0 ? calm + 1 : 0;
     if (calm >= 4) return { litS: Number(((Date.now() - t0) / 1000).toFixed(1)), cache: last };
     if (Date.now() - t0 > CACHE_TIMEOUT_MS) return { litS: null, cache: last };
     await game.page.waitForTimeout(250);
@@ -201,6 +202,25 @@ function regionSpans(r: ProfileReport | null): Record<string, number> | null {
   return out;
 }
 
+/** The page's lighting spans: own ms a frame (mean, worst) of the surface cache's parts and the other lighting work. */
+const LIGHTING_SPANS = ['surface light', 'surface cache residency', 'surface light pass', 'surface lookup packed', 'lights, shadows and environment', 'voxel sun heights'];
+function lightingSpans(r: ProfileReport | null): Record<string, { mean: number; worst: number }> | null {
+  if (r === null) return null;
+  const frames = r.threads.page;
+  if (frames.length === 0) return null;
+  const sum: Record<string, number> = {};
+  const worst: Record<string, number> = {};
+  for (const f of frames) {
+    const own: Record<string, number> = {};
+    for (const sp of f.spans) if (LIGHTING_SPANS.includes(sp.name)) own[sp.name] = (own[sp.name] ?? 0) + sp.selfMs;
+    for (const [k, v] of Object.entries(own)) {
+      sum[k] = (sum[k] ?? 0) + v;
+      worst[k] = Math.max(worst[k] ?? 0, v);
+    }
+  }
+  return Object.fromEntries(Object.keys(sum).map((k) => [k, { mean: Number((sum[k]! / frames.length).toFixed(3)), worst: Number(worst[k]!.toFixed(2)) }]));
+}
+
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   const b = benchApi({ origin: O.origin, token: TOKEN, project: O.project, clientId: 'voxel-bench-light-shots' });
@@ -276,6 +296,7 @@ async function main(): Promise<void> {
       (out['shots'] as unknown[]).push({
         region,
         spans: regionSpans(report),
+        lightingSpans: lightingSpans(report),
         name: cam.name,
         file,
         hiddenFile,
@@ -300,6 +321,7 @@ async function main(): Promise<void> {
         ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
         at: host(),
       });
+      console.log(`${cam.name}: lighting spans ${JSON.stringify(lightingSpans(report))}`);
       console.log(`${cam.name}: settled ${s.settledS ?? 'never'} s, ${JSON.stringify(s.counts)}, voxels change ${(voxelShare * 100).toFixed(1)} % of the picture${shotProblemsFound.length > 0 ? `; REFUSED: ${shotProblemsFound.join('; ')}` : ''}; profile ${JSON.stringify(report === null ? null : profileSummary(report).msPerFrame)}; sun field ${JSON.stringify(sun)}`);
     }
     if (O.edits > 0) {

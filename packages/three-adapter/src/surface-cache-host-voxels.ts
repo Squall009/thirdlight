@@ -4,11 +4,18 @@
  * is the cache, listed as tiles with the host's other surfaces, the live
  * light's budget where the tier gives none, and what the cache holds of them.
  *
+ * A chunk's charts take milliseconds to make (thousands of triangles), so
+ * they are made in steps, nearest chunk first, within the frame arbiter's
+ * `surfacePrepare` slice (what the host's other surfaces have left of it);
+ * a chunk drawn again keeps its old tile until its new charts are made.
+ *
  * Pure (no three.js, no device).
  */
+import { frameSliceMs } from '@thirdlight/shared';
+
 import type { SurfaceCache, SurfaceTile } from './surface-cache';
 import type { SurfaceRelight } from './surface-relight';
-import { voxelChunkTile, type VoxelTile, type VoxelTileMesh } from './surface-cache-voxels';
+import { voxelChunkChartsSteps, voxelChunkTile, type VoxelChunkCharts, type VoxelTile, type VoxelTileMesh } from './surface-cache-voxels';
 import type { VoxelWalkBuffers } from './tracer-gpu';
 
 /** A voxel world's level-0 chunk as drawn: its key (world and chunk), its mesh's version, its corner cell and edge, and its mesh (null: gone). */
@@ -46,6 +53,10 @@ export interface SurfaceVoxelDiagnostics {
   readonly levels: readonly number[];
   /** Bytes of pages the resident voxel tiles hold. */
   readonly bytes: number;
+  /** Chunks whose charts are still being made or wait to be listed, chunks charted so far, and the longest frame's charting (ms). */
+  readonly waiting: number;
+  readonly charted: number;
+  readonly chartMs: number;
 }
 
 /** What it reads of its host. */
@@ -57,14 +68,28 @@ export interface HostVoxelsDeps {
   ready(): Iterable<SurfaceTile>;
   pending(): Iterable<{ readonly voxel?: boolean }>;
   readonly cache: SurfaceCache;
+  /** A charted tile goes to the host's listing (made at once). */
+  want(tile: VoxelTile): void;
+  /** The version of a tile the host holds or waits on (undefined: none). */
+  versionOf(key: string): number | undefined;
   /** A resident tile's units' keys. */
   units(key: string): readonly string[];
   readonly relight: SurfaceRelight;
 }
 
+/** A chunk being charted: its tile, the steps, and where it is (for nearest first). */
+interface Charting {
+  readonly tile: VoxelTile;
+  readonly steps: Generator<void, VoxelChunkCharts>;
+  readonly centre: readonly number[];
+}
+
 export class HostVoxels {
   private source: SurfaceVoxelSource | null = null;
   private applied = -1;
+  private charting = new Map<string, Charting>();
+  /** The longest frame's share spent charting since last read (ms), and the chunks charted. */
+  readonly stats = { chartMs: 0, charted: 0 };
 
   constructor(private readonly host: HostVoxelsDeps) {}
 
@@ -94,18 +119,57 @@ export class HostVoxels {
     return this.source?.walk() ?? null;
   }
 
-  /** The listing's part: each chunk drawn is seen; one not known at its version waits to be charted (`want`). */
-  list(seen: Set<string>, known: (key: string, version: number) => boolean, want: (tile: VoxelTile) => void): void {
+  /** The listing's part: each chunk drawn is seen; one not held at its version is charted (the old one kept meanwhile). */
+  list(seen: Set<string>): void {
     const src = this.source;
+    const was = this.charting;
+    this.charting = new Map();
     if (src === null) return;
     const solidAt = src.solidAt?.bind(src);
     for (const c of src.chunks()) {
-      if (known(c.key, c.version)) {
-        seen.add(c.key);
+      const held = this.host.versionOf(c.key);
+      if (held !== undefined) seen.add(c.key);
+      if (held === c.version) continue;
+      const job = was.get(c.key);
+      if (job !== undefined && job.tile.version === c.version) {
+        this.charting.set(c.key, job);
         continue;
       }
-      want(voxelChunkTile(c.key, c.version, c.cell0, c.edge, () => c.mesh(), solidAt));
+      const mesh = c.mesh();
+      const tile = voxelChunkTile(c.key, c.version, c.cell0, c.edge, () => c.mesh(), solidAt);
+      const steps = voxelChunkChartsSteps(mesh?.positions ?? [], mesh?.indices ?? [], c.cell0, c.edge, solidAt);
+      this.charting.set(c.key, { tile, steps, centre: [0, 1, 2].map((a) => (tile.min[a]! + tile.max[a]!) / 2) });
     }
+  }
+
+  /** Chunks still being charted. */
+  get waiting(): number {
+    return this.charting.size;
+  }
+
+  /** Charts chunks, nearest `eye` first, until the frame's slice (from `t0`) is spent; each done goes to the host. */
+  step(eye: ArrayLike<number>, t0: number): void {
+    if (this.charting.size === 0) return;
+    const slice = frameSliceMs('surfacePrepare');
+    const start = performance.now();
+    const d = (j: Charting): number => (j.centre[0]! - eye[0]!) ** 2 + (j.centre[1]! - eye[1]!) ** 2 + (j.centre[2]! - eye[2]!) ** 2;
+    const order = [...this.charting.values()].sort((a, b) => d(a) - d(b));
+    for (const job of order) {
+      for (;;) {
+        if (performance.now() - t0 >= slice) {
+          this.stats.chartMs = Math.max(this.stats.chartMs, performance.now() - start);
+          return;
+        }
+        const r = job.steps.next();
+        if (r.done !== true) continue;
+        job.tile.made = r.value;
+        this.charting.delete(job.tile.key);
+        this.stats.charted += 1;
+        this.host.want(job.tile);
+        break;
+      }
+    }
+    this.stats.chartMs = Math.max(this.stats.chartMs, performance.now() - start);
   }
 
   /** What the cache holds of the voxel worlds now. */
@@ -114,6 +178,7 @@ export class HostVoxels {
     const isVoxel = (t: unknown): boolean => (t as { kind?: string } | undefined)?.kind === 'voxels';
     let tiles = 0;
     let chunks = 0;
+    let waiting = this.charting.size;
     const ready = new Map<string, SurfaceTile>();
     for (const t of h.ready()) {
       if (!isVoxel(t)) continue;
@@ -121,7 +186,11 @@ export class HostVoxels {
       chunks += 1;
       if (t.charts().length > 0) tiles += 1;
     }
-    for (const p of h.pending()) if (p.voxel === true) chunks += 1;
+    for (const p of h.pending()) if (p.voxel === true) {
+      chunks += 1;
+      waiting += 1;
+    }
+    chunks += this.charting.size;
     let resident = 0;
     let charts = 0;
     let residentTexels = 0;
@@ -142,6 +211,8 @@ export class HostVoxels {
         else litTexels += n;
       }
     });
-    return { chunks, tiles, resident, charts, residentTexels, litTexels, staleUnits, levels: Array.from({ length: levels.length }, (_, l) => levels[l] ?? 0), bytes };
+    const chartMs = this.stats.chartMs;
+    this.stats.chartMs = 0;
+    return { chunks, tiles, resident, charts, residentTexels, litTexels, staleUnits, levels: Array.from({ length: levels.length }, (_, l) => levels[l] ?? 0), bytes, waiting, charted: this.stats.charted, chartMs };
   }
 }
