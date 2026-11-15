@@ -23,9 +23,12 @@
  *   the bricks that enter and leave.
  */
 import type { ScalarOps } from '@thirdlight/shared';
-import { OCCUPANCY, type WalkBlockView, type WalkSource } from '@thirdlight/voxel';
+import { OCCUPANCY, VOXEL_SIZE_M, type WalkBlockView, type WalkSource } from '@thirdlight/voxel';
 
-/** `material.userData[VOLUME_READ_KEY]`: the material's draws read the light volume where it holds light (the voxel surfaces). */
+/**
+ * `material.userData[VOLUME_READ_KEY] = false`: the material's draws do not read the light volume. Every other lit draw
+ * on a page the volume lights reads it (voxel surfaces, kit pieces, props, moving objects): one light for all.
+ */
 export const VOLUME_READ_KEY = 'tlVoxelLightVolume';
 
 /** Cells a brick spans along each axis, and its log2. */
@@ -50,6 +53,28 @@ export const VOLUME_WINDOW_BRICKS: readonly [number, number, number] = [48, 24, 
 const BLOCK_CELLS = 32;
 const BLOCK_BRICKS = BLOCK_CELLS / VOLUME_BRICK_CELLS;
 
+/**
+ * Levels of the volume: 0 the 0.5 m cells beside surfaces; 1, 2 and 3 coarser cells of 1, 2 and 4 m (a level's cell
+ * is 2^level level-0 cells a side, as the voxel mips) for open air, where a reader finds no 0.5 m cell holding light.
+ */
+export const VOLUME_LEVELS = 4;
+/**
+ * Each level's window of bricks (4³ of its cells) round the camera: level 0 as {@link VOLUME_WINDOW_BRICKS}; the coarse
+ * levels a clipmap of 12 × 6 × 12 bricks, each reaching twice as far as the last (1 m cells over 48 × 24 × 48 m, 2 m
+ * over 96 × 48 × 96 m, 4 m over 192 × 96 × 192 m).
+ */
+export const VOLUME_LEVEL_WINDOWS: readonly (readonly [number, number, number])[] = [VOLUME_WINDOW_BRICKS, [12, 6, 12], [12, 6, 12], [12, 6, 12]];
+/** The index texture's row width (a level-0 window row of bricks across, by its depth): every level's rows fit in it. */
+export const VOLUME_INDEX_WIDTH = VOLUME_WINDOW_BRICKS[0] * VOLUME_WINDOW_BRICKS[2];
+/** The index texture's first row of each level (the levels' windows stacked by rows), and its rows. */
+export const VOLUME_INDEX_ROW_BASE: readonly number[] = VOLUME_LEVEL_WINDOWS.map((_, l) => VOLUME_LEVEL_WINDOWS.slice(0, l).reduce((s, d) => s + d[1], 0));
+export const VOLUME_INDEX_ROWS = VOLUME_LEVEL_WINDOWS.reduce((s, d) => s + d[1], 0);
+
+/** Metres a cell of `level` spans. */
+export function volumeCellM(level: number): number {
+  return VOXEL_SIZE_M * 2 ** level;
+}
+
 /** A cell's place in its brick (0 … 63): x, then y, then z. */
 export function volumeCellIndex(lx: number, ly: number, lz: number): number {
   return lx + VOLUME_BRICK_CELLS * (ly + VOLUME_BRICK_CELLS * lz);
@@ -67,9 +92,15 @@ export function volumeIndexTexel(bx: number, by: number, bz: number, dims: reado
   return [m(bx, dims[0]!) + dims[0]! * m(bz, dims[2]!), m(by, dims[1]!)];
 }
 
-/** A world brick's key (bricks within ±8192 across, ±2048 up). */
-export function volumeBrickKey(bx: number, by: number, bz: number): number {
-  return ((bx + 8192) * 4096 + (by + 2048)) * 16384 + (bz + 8192);
+/** A brick of `level`'s place in the index texture (its level's window, wrapped, in that level's rows). */
+export function volumeLevelIndexTexel(level: number, bx: number, by: number, bz: number): [number, number] {
+  const [x, y] = volumeIndexTexel(bx, by, bz, VOLUME_LEVEL_WINDOWS[level]!);
+  return [x, VOLUME_INDEX_ROW_BASE[level]! + y];
+}
+
+/** A world brick's key (bricks of its level within ±8192 across, ±2048 up). */
+export function volumeBrickKey(bx: number, by: number, bz: number, level = 0): number {
+  return ((bx + 8192) * 4096 + (by + 2048)) * 16384 + (bz + 8192) + level * 2 ** 40;
 }
 
 /** The face (0 … 5) whose surface faces along axis `axis` (0 x, 1 y, 2 z) toward `sign`. */
@@ -177,6 +208,44 @@ export function volumeReadAt(p: readonly number[], n: readonly number[], cellM: 
   return { light: wsum > 0 ? [sum[0] / wsum, sum[1] / wsum, sum[2] / wsum] : [0, 0, 0], weight: wsum };
 }
 
+/** A level's read weight at which it takes all of what is left (a smooth step from 0 up to it). */
+export const VOLUME_FULL_WEIGHT = 0.25;
+/** What is left below this share is not read from coarser levels (the surfaces' read skips them). */
+export const VOLUME_LEFT_MIN = 1e-3;
+
+/** A level's share of what is left from its read's weight: a smooth step from 0 to {@link VOLUME_FULL_WEIGHT}. */
+export function volumeWeightShare(w: number): number {
+  const t = Math.min(Math.max(w / VOLUME_FULL_WEIGHT, 0), 1);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Which levels a point reads, and the light (the CPU reference of the surfaces' read): level 0 first, then each coarser
+ * level for what the finer ones left: a level's read (`volumeReadAt` with its cell size) takes its weight's share
+ * ({@link volumeWeightShare}) of what is left, so a point beside a surface reads its 0.5 m cells, a point in open air
+ * (a character's head over a field, the middle of a room) the first coarse level holding light round it, and a point
+ * no level holds keeps its flat term (weight 0). `faces(level, x, y, z)`: a cell of that level's six faces, or null.
+ */
+export function volumeReadLevels(p: readonly number[], n: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>): { light: [number, number, number]; weight: number; shares: number[] } {
+  let left = 1;
+  const acc = [0, 0, 0];
+  const shares: number[] = [];
+  for (let level = 0; level < VOLUME_LEVELS; level++) {
+    if (left <= VOLUME_LEFT_MIN) {
+      shares.push(0);
+      continue;
+    }
+    const r = volumeReadAt(p, n, volumeCellM(level), (x, y, z) => faces(level, x, y, z), o);
+    const a = volumeWeightShare(r.weight);
+    for (let k = 0; k < 3; k++) acc[k]! += left * a * r.light[k]!;
+    shares.push(left * a);
+    left *= 1 - a;
+  }
+  const weight = 1 - left;
+  const d = Math.max(weight, 1e-4);
+  return { light: [acc[0]! / d, acc[1]! / d, acc[2]! / d], weight, shares };
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Which cells and bricks hold light
 
@@ -252,6 +321,63 @@ export function volumeBrickKept(blocks: VolumeBlockLookup, bx: number, by: numbe
   return brickBit(blocks, bx + 1, by, bz, 'some') || brickBit(blocks, bx - 1, by, bz, 'some') || brickBit(blocks, bx, by + 1, bz, 'some') || brickBit(blocks, bx, by - 1, bz, 'some') || brickBit(blocks, bx, by, bz + 1, 'some') || brickBit(blocks, bx, by, bz - 1, 'some');
 }
 
+/**
+ * Whether a cell of a coarse `level` (≥ 1) stops light, as the voxel mips decide: some level-0 cell inside it does (by
+ * the walk's level-0 blocks: a cell's bits at 1 m, the walk's 2 m bricks' bits at 2 and 4 m). Where no level-0 block is
+ * known it is open, as the level-0 cells are. Level 0: the cell itself. The update's WGSL `volume_coarse_solid`.
+ */
+export function volumeCoarseSolid(src: WalkSource, level: number, x: number, y: number, z: number): boolean {
+  if (level === 0) return volumeSolidAt(src, x, y, z);
+  const n = 1 << level;
+  const f = [x * n, y * n, z * n];
+  const v = src.block(0, f[0]! >> 5, f[1]! >> 5, f[2]! >> 5, 'light');
+  if (v === null || v.flag === OCCUPANCY.empty) return false;
+  if (v.flag === OCCUPANCY.solid) return true;
+  const l = f.map((c) => c & 31);
+  if (n >= VOLUME_BRICK_CELLS) {
+    const m = n / VOLUME_BRICK_CELLS;
+    const b = l.map((c) => c / VOLUME_BRICK_CELLS);
+    for (let i = 0; i < m; i++) for (let k = 0; k < m; k++) for (let j = 0; j < m; j++) if (v.brick(blockBrickIndex(b[0]! + i, b[1]! + j, b[2]! + k)) !== OCCUPANCY.empty) return true;
+    return false;
+  }
+  for (let i = 0; i < n; i++) for (let k = 0; k < n; k++) for (let j = 0; j < n; j++) if (v.cell(((l[0]! + i) * BLOCK_CELLS + l[2]! + k) * BLOCK_CELLS + l[1]! + j)) return true;
+  return false;
+}
+
+/** Whether a cell of `level` holds light: level 0 by {@link volumeCellHolds}; a coarse cell wherever it is open (open air too). */
+export function volumeLevelCellHolds(src: WalkSource, level: number, x: number, y: number, z: number): boolean {
+  return level === 0 ? volumeCellHolds(src, x, y, z) : !volumeCoarseSolid(src, level, x, y, z);
+}
+
+/**
+ * Whether a brick of `level` is kept: level 0 by {@link volumeBrickKept}; a coarse brick, made of 2^level level-0 bricks a
+ * side, by the same rule over them (not every one of them solid through, and some light-stopping cell in it or in a
+ * coarse brick across one of its faces), so a coarse level is kept near what is solid and not in the open sky.
+ */
+export function volumeLevelBrickKept(blocks: VolumeBlockLookup, level: number, bx: number, by: number, bz: number): boolean {
+  if (level === 0) return volumeBrickKept(blocks, bx, by, bz);
+  const n = 1 << level;
+  const some = (cx: number, cy: number, cz: number): boolean => {
+    if (n === BLOCK_BRICKS) return blocks(cx, cy, cz)?.some.some((w) => w !== 0) ?? false;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) if (brickBit(blocks, cx * n + i, cy * n + j, cz * n + k, 'some')) return true;
+    return false;
+  };
+  // No open cell in it: at 2 m and up a cell is one level-0 brick or more, so some light-stopping cell in each of its
+  // cells (exact); at 1 m by its level-0 bricks solid through (a brick partly solid may still close every 1 m cell).
+  const per = n / 4 > 1 ? n / 4 : 1;
+  const all = (cx: number, cy: number, cz: number): boolean => {
+    const which = level === 1 ? 'all' : 'some';
+    for (let i = 0; i < n; i += per) for (let j = 0; j < n; j += per) for (let k = 0; k < n; k += per) {
+      let closed = false;
+      for (let a = 0; a < per && !closed; a++) for (let b = 0; b < per && !closed; b++) for (let c = 0; c < per && !closed; c++) closed = brickBit(blocks, cx * n + i + a, cy * n + j + b, cz * n + k + c, which);
+      if (!closed) return false;
+    }
+    return true;
+  };
+  if (all(bx, by, bz)) return false;
+  return some(bx, by, bz) || some(bx + 1, by, bz) || some(bx - 1, by, bz) || some(bx, by + 1, bz) || some(bx, by - 1, bz) || some(bx, by, bz + 1) || some(bx, by, bz - 1);
+}
+
 /** The bricks of a block whose light-stopping cells differ between two pages' views (an edit's or an arrival's bricks). */
 export function volumeChangedBricks(before: WalkBlockView | null, after: WalkBlockView | null): number[] {
   const out: number[] = [];
@@ -291,9 +417,9 @@ export const VOLUME_MARK_NEAR_BRICKS = 2;
  * can reach: from nothing within {@link VOLUME_MARK_NEAR_BRICKS} of them, at most half of `settle` within the reach,
  * null (untouched) past it. The distance is the largest of the axes' gaps (a ray's reach along any axis).
  */
-export function volumeMarkedUpdates(b: readonly number[], lo: readonly number[], hi: readonly number[], updates: number, reachBricks: number, settle: number): number | null {
+export function volumeMarkedUpdates(b: readonly number[], lo: readonly number[], hi: readonly number[], updates: number, reachBricks: number, settle: number, nearBricks = VOLUME_MARK_NEAR_BRICKS): number | null {
   const gap = (a: number): number => (b[a]! < lo[a]! ? lo[a]! - b[a]! : b[a]! > hi[a]! ? b[a]! - hi[a]! : 0);
   const d = Math.max(gap(0), gap(1), gap(2));
   if (d > reachBricks) return null;
-  return d <= VOLUME_MARK_NEAR_BRICKS ? 0 : Math.min(updates, settle >> 1);
+  return d <= nearBricks ? 0 : Math.min(updates, settle >> 1);
 }

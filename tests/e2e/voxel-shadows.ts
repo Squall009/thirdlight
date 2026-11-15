@@ -457,13 +457,56 @@ function greenOverRed(img: Png, walls: Png): { ratio: number; n: number } {
   return { ratio: r === 0 ? 0 : g / r, n };
 }
 
+/** Pixels of `img` that `test` takes, as a mask (the place a test object shows, found in one picture and read in others). */
+function maskOf(img: Png, test: (p: readonly number[]) => boolean): boolean[] {
+  const m: boolean[] = [];
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) m.push(test(img.pixel(x, y)));
+  return m;
+}
+
+/** The mean brightness of `img` over a mask's pixels, and how many. */
+function meanOver(img: Png, mask: readonly boolean[]): { lum: number; n: number } {
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    if (!mask[y * img.width + x]) continue;
+    sum += lum(img.pixel(x, y));
+    n++;
+  }
+  return { lum: n === 0 ? 0 : sum / n, n };
+}
+
+/** The test kit's sheet on its pieces as lit in the hut: violet (red and blue well over green; 157, 102, 191 by the flat term). */
+const magenta = (p: readonly number[]): boolean => p[0]! > 60 && p[0]! > 1.3 * p[1]! && p[2]! > 1.5 * p[1]!;
+
 /**
- * The voxel light volume (the store `volume`), on the hut the probe checks use: the store off, the shut hut's walls
- * by the flat term; switched to the volume and settled, darker (sky occluded); the volume's cells read back from the
- * GPU round the hut against the CPU's rule (which cells hold light), a cell over the roof under open sky against the
- * sky term, a cell inside the shut hut near none; the roof opened, brighter once settled again; the floor repainted
- * green under the open roof, the walls greener by its bounce than over the plaster floor; off again, the picture is
- * the store-off one.
+ * The red over green the volume holds round the script's wall where the lamp's light bounces (cells between it and the
+ * pillar's place, up its east face): the lamp is red, the sun's and the sky's bounce near grey, so red over green is the
+ * lamp's bounce. Summed over the faces of the cells holding light.
+ */
+function lampBounce(cells: readonly VolumeCell[]): { red: number; n: number } {
+  let red = 0;
+  let n = 0;
+  for (const c of cells) {
+    if (!c.faces.some((f) => f !== null)) continue;
+    n++;
+    for (const f of c.faces) if (f !== null) red += Math.max(0, f[0]! - f[1]!);
+  }
+  return { red, n };
+}
+
+/**
+ * The voxel light volume (the store `volume`), on the hut the probe checks use, with a stone stub in it (the test kit's
+ * pieces at its edges) and the blue box on its floor: the store off, the shut hut, its stub's kit pieces and the box by
+ * the flat term; switched to the volume and settled, all three darker (sky occluded: the walls by their 0.5 m cells,
+ * the kit pieces by the cells beside the stub, the box mostly by the 1 m level); the volume's cells read back from the
+ * GPU round the hut against the CPU's rule (which cells hold light), at 0.5 m and at 1 m, a cell over the roof under
+ * open sky against the sky term, cells inside the shut hut near none; the roof opened, brighter once settled again; the
+ * floor repainted green under the open roof, the walls greener by its bounce than over the plaster floor (the open
+ * picture). Then outside, the hut dug: the box 1.7 m over the pad, in the open, about as bright by the volume as by the
+ * flat term (the coarse levels' sky); the script's wall built and a red lamp east of it, the pillar built between them
+ * takes the lamp's bounce off the cells up the wall's lit face, dug again it comes back. Off again, the picture is the
+ * store-off one.
  */
 export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   const { ids, away } = o;
@@ -490,62 +533,132 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
     await control(cmd);
     await expect.poll(() => counter(name), { timeout: 10_000 }).toBe(n + 1);
   };
+  const staleSoon = async (what: string): Promise<void> => {
+    await expect.poll(async () => (await hook<VolumeProgress | null>('progress'))?.staleUnits ?? 0, { timeout: 10_000, intervals: [50], message: `${what} makes bricks stale` }).toBeGreaterThan(0);
+  };
   expect(await hook<string>('store')).toBe('off');
   await place(ids.lamp, away);
   const offBefore = await still('volume-off-before');
   const eye = rel(0, 2.2, 9.5);
+  // The box mid-room, 1.2–2 m up and 0.8 m or more from the walls, floor and ceiling: no 0.5 m cell beside its faces in
+  // view holds light, so it reads the 1 m level.
+  const box = rel(0.8, 1.6, 6.5);
   await counted('hut', 'hutBuilt');
+  await counted('hutstone', 'stubBuilt');
   await place(o.camera, eye);
+  await place(ids.blue, box);
   const hutOff = await still('volume-hut-off');
   await hook('setStore', 'volume');
   const litMs = await settled('the store switched');
   const shut = await still('volume-hut-shut');
-  // The cells round the hut read back from the GPU, the CPU's rule beside each.
+  // The cells round the hut read back from the GPU, the CPU's rule beside each: 0.5 m, then 1 m.
   const pts: number[][] = [];
   for (let x = -3; x <= 3; x += 0.5) for (let y = -0.5; y <= 4; y += 0.5) for (let z = 1.5; z <= 11; z += 0.5) pts.push(rel(x + 0.25, y + 0.25, z + 0.25));
   const cells = (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? [];
   const updated = cells.filter((c) => c.updates > 0);
   const holdsGpu = updated.filter((c) => c.faces.some((f) => f !== null)).length;
   const differ = updated.filter((c) => c.holds !== c.faces.some((f) => f !== null));
+  const coarse = (await hook<VolumeCell[] | null>('volumeCells', { points: pts, level: 1 })) ?? [];
+  const coarseUpdated = coarse.filter((c) => c.updates > 0);
+  const coarseHolds = coarseUpdated.filter((c) => c.faces.some((f) => f !== null)).length;
+  const coarseDiffer = coarseUpdated.filter((c) => c.holds !== c.faces.some((f) => f !== null));
   const [inside, roof] = (await hook<VolumeCell[] | null>('volumeCells', [rel(0.25, 0.75, 6.25), rel(0.25, 3.75, 6.25)])) ?? [];
+  const [midRoom] = (await hook<VolumeCell[] | null>('volumeCells', { points: [rel(0, 1.5, 7)], level: 1 })) ?? [];
   const sky = ((await hook<{ skyUp: number[] } | null>('volume'))?.skyUp ?? [0, 0, 0]) as number[];
+  await place(ids.blue, away);
   const t0 = Date.now();
+  await counted('unstone', 'stubDug');
   await counted('hutopen', 'hutOpened');
-  await expect.poll(async () => (await hook<VolumeProgress | null>('progress'))?.staleUnits ?? 0, { timeout: 10_000, intervals: [50], message: 'the opened roof makes bricks stale' }).toBeGreaterThan(0);
+  await staleSoon('the opened roof');
   await settled('the hut opened');
   const openMs = Date.now() - t0;
   const open = await still('volume-hut-open');
-  // The floor repainted green under the open roof, then plaster again: the walls' bounce takes its colour.
+  // The floor repainted green under the open roof: the walls' bounce takes its colour (against the open picture's
+  // plaster floor).
   await counted('hutgreen', 'hutGreen');
-  await expect.poll(async () => (await hook<VolumeProgress | null>('progress'))?.staleUnits ?? 0, { timeout: 10_000, intervals: [50], message: 'the repainted floor makes bricks stale' }).toBeGreaterThan(0);
+  await staleSoon('the repainted floor');
   await settled('the floor green');
   const green = await still('volume-hut-green');
-  await counted('hutplain', 'hutPlain');
-  await expect.poll(async () => (await hook<VolumeProgress | null>('progress'))?.staleUnits ?? 0, { timeout: 10_000, intervals: [50], message: 'the floor plaster again makes bricks stale' }).toBeGreaterThan(0);
-  await settled('the floor plaster');
-  const plain = await still('volume-hut-plain');
+  const plain = open;
   const stats = await hook('volume');
-  await counted('hutshut', 'hutShut');
-  await hook('setStore', 'off');
-  await expect.poll(() => hook('volume'), { timeout: 10_000 }).toBeNull();
+  // Outside: the hut gone, the box 1.7 m over the pad in the open, by the volume; a red lamp east of the script's
+  // wall (the pillar built between them, then dug: the lamp's bounce up the wall's lit face).
   await place(o.camera, o.cameraAt);
   await counted('unhut', 'hutDug');
+  const boxOut = rel(-1.9, 1.7, -0.75);
+  await place(ids.blue, boxOut);
+  await settled('the hut dug');
+  const outVolume = await still('volume-box-out');
+  await place(ids.blue, away);
+  await counted('wall', 'wallBuilt');
+  await place(ids.lamp, rel(-0.75, 1.25, -1.5));
+  await settled('the wall and the lamp');
+  const facePts: number[][] = [];
+  // The cells between the wall and the pillar's place, where its shadow falls on the wall (z −2 … −1, up to 3 m).
+  for (let y = 0; y < 3; y += 0.5) for (let z = -2; z < -1; z += 0.5) facePts.push(rel(-2.25, y + 0.25, z + 0.25));
+  const bounce = async (): Promise<{ red: number; n: number }> => lampBounce((await hook<VolumeCell[] | null>('volumeCells', facePts)) ?? []);
+  const lit = await bounce();
+  const tBuild = Date.now();
+  await counted('pillar', 'pillarBuilt');
+  await staleSoon('the pillar built');
+  await settled('the pillar built between the lamp and the wall');
+  const builtMs = Date.now() - tBuild;
+  const shaded = await bounce();
+  const tDig = Date.now();
+  await counted('unpillar', 'pillarDug');
+  await staleSoon('the pillar dug');
+  await settled('the pillar dug');
+  const dugMs = Date.now() - tDig;
+  const relit = await bounce();
+  // The store off: the box outside by the flat term, then the picture as before.
+  await hook('setStore', 'off');
+  await expect.poll(() => hook('volume'), { timeout: 10_000 }).toBeNull();
+  await place(ids.lamp, away);
+  await counted('unwall', 'wallDug');
+  await place(ids.blue, boxOut);
+  const outOff = await still('volume-box-out-off');
+  await place(ids.blue, away);
   const offAfter = await still('volume-off-after');
   const same = changedPixels(offBefore, offAfter, () => true, 20);
   const walls = { off: meanLum(hutOff, WALL_ROWS), shut: meanLum(shut, WALL_ROWS), open: meanLum(open, WALL_ROWS) };
   const tint = { green: greenOverRed(green, green), plain: greenOverRed(plain, green) };
-  console.log(`[voxel-play] light volume: settled ${litMs} ms after the switch (${JSON.stringify(stats).slice(0, 900)}); hut walls off ${walls.off.toFixed(1)}, shut ${walls.shut.toFixed(1)}, open ${walls.open.toFixed(1)} (roof opened → settled ${openMs} ms); walls' green/red over the green floor ${tint.green.ratio.toFixed(4)} against ${tint.plain.ratio.toFixed(4)} over plaster (${tint.green.n} px); cells round the hut ${cells.length}, updated ${updated.length}, holding light on the GPU ${holdsGpu}, differing from the CPU's rule ${differ.length}; inside the shut hut ${JSON.stringify(inside?.faces)}; over its roof ${JSON.stringify(roof?.faces)} against the sky's ${JSON.stringify(sky)}; off before and after ${same} px apart`);
+  // The box and the kit pieces where the store-off pictures show them, read there in the volume's.
+  const boxMask = maskOf(hutOff, blueBox);
+  const kitMask = maskOf(hutOff, magenta);
+  const boxIn = { off: meanOver(hutOff, boxMask), volume: meanOver(shut, boxMask) };
+  const kit = { off: meanOver(hutOff, kitMask), volume: meanOver(shut, kitMask) };
+  const outMask = maskOf(outOff, blueBox);
+  const boxOpen = { off: meanOver(outOff, outMask), volume: meanOver(outVolume, outMask) };
+  const chunkOf = (p: readonly number[]): string => p.map((v) => Math.floor(v / 16)).join(',');
+  const across = chunkOf(rel(-1.75, 1, -1.5)) !== chunkOf(rel(-2.25, 1, -1.5));
+  console.log(`[voxel-play] light volume: settled ${litMs} ms after the switch (${JSON.stringify(stats).slice(0, 900)}); hut walls off ${walls.off.toFixed(1)}, shut ${walls.shut.toFixed(1)}, open ${walls.open.toFixed(1)} (roof opened → settled ${openMs} ms); walls' green/red over the green floor ${tint.green.ratio.toFixed(4)} against ${tint.plain.ratio.toFixed(4)} over plaster (${tint.green.n} px); cells round the hut ${cells.length}, updated ${updated.length}, holding light on the GPU ${holdsGpu}, differing from the CPU's rule ${differ.length}; 1 m cells updated ${coarseUpdated.length}, holding ${coarseHolds}, differing ${coarseDiffer.length}; inside the shut hut ${JSON.stringify(inside?.faces)}, its 1 m cell mid-room ${JSON.stringify(midRoom?.faces)}; over its roof ${JSON.stringify(roof?.faces)} against the sky's ${JSON.stringify(sky)}; off before and after ${same} px apart`);
+  console.log(`[voxel-play] light volume readers: the blue box in the shut hut ${boxIn.volume.lum.toFixed(1)} against ${boxIn.off.lum.toFixed(1)} by the flat term (${boxIn.off.n} px); the kit pieces on the stub ${kit.volume.lum.toFixed(1)} against ${kit.off.lum.toFixed(1)} (${kit.off.n} px); the box 1.7 m over the pad ${boxOpen.volume.lum.toFixed(1)} against ${boxOpen.off.lum.toFixed(1)} (${boxOpen.off.n} px)`);
+  console.log(`[voxel-play] light volume edit: the lamp's red bounce up the wall's face ${lit.red.toFixed(3)} (${lit.n} cells), the pillar built ${shaded.red.toFixed(3)} (settled ${builtMs} ms after the command), dug ${relit.red.toFixed(3)} (${dugMs} ms); the pillar and the face's cells ${across ? 'in two chunks' : 'in one chunk'}`);
   expect(updated.length, 'cells round the hut were updated').toBeGreaterThan(200);
   expect(holdsGpu, 'cells round the hut hold light on the GPU').toBeGreaterThan(100);
   expect(differ.length, JSON.stringify(differ.slice(0, 3))).toBe(0);
+  expect(coarseHolds, '1 m cells round the hut hold light on the GPU').toBeGreaterThan(20);
+  expect(coarseDiffer.length, JSON.stringify(coarseDiffer.slice(0, 3))).toBe(0);
   expect(inside?.holds, 'the cell over the shut hut floor holds light').toBe(true);
   expect(Math.max(...(inside?.faces ?? []).map(clum)), 'inside the shut hut the volume holds next to no light').toBeLessThan(VOLUME_DARK_SHARE * clum(sky));
+  expect(midRoom?.holds, "the 1 m cell in the shut hut's middle holds light").toBe(true);
+  expect(Math.max(...(midRoom?.faces ?? []).map(clum)), "the 1 m cell in the shut hut's middle holds next to no light").toBeLessThan(VOLUME_DARK_SHARE * clum(sky));
   expect(clum(roof?.faces[2] ?? null), "over the roof, the up face holds about the sky's light").toBeGreaterThan(VOLUME_SKY_SHARE[0] * clum(sky));
   expect(clum(roof?.faces[2] ?? null), "over the roof, the up face holds about the sky's light").toBeLessThan(VOLUME_SKY_SHARE[1] * clum(sky));
   expect(walls.shut, 'the shut hut is darker inside by the volume than by the flat ambient term').toBeLessThan(HUT_DARK_SHARE * walls.off);
+  expect(boxIn.off.n, 'the blue box is in view inside').toBeGreaterThan(100);
+  expect(boxIn.volume.lum, 'the moving box inside reads the volume: darker than by the flat term').toBeLessThan(HUT_DARK_SHARE * boxIn.off.lum);
+  expect(kit.off.n, 'the kit pieces are in view inside').toBeGreaterThan(50);
+  expect(kit.volume.lum, 'the kit pieces inside read the volume: darker than by the flat term').toBeLessThan(HUT_DARK_SHARE * kit.off.lum);
+  expect(boxOpen.off.n, 'the blue box is in view over the pad').toBeGreaterThan(100);
+  expect(boxOpen.volume.lum, 'the box in the open is lit by the sky the coarse levels hold').toBeGreaterThan(VOLUME_OPEN_SHARE * boxOpen.off.lum);
   expect(walls.open, 'the roof opened, the hut is brighter inside').toBeGreaterThan(HUT_OPEN_FACTOR * walls.shut);
   expect(tint.green.n, 'the walls are in view').toBeGreaterThan(5000);
   expect(tint.green.ratio, "the walls take the green floor's bounce").toBeGreaterThan(VOLUME_TINT_FACTOR * tint.plain.ratio);
+  expect(lit.n, 'cells up the wall hold light').toBeGreaterThan(10);
+  expect(lit.red, "the lamp's bounce reaches the wall's face").toBeGreaterThan(0);
+  expect(shaded.red, "the pillar built between them takes the lamp's bounce off").toBeLessThan(VOLUME_EDIT_SHADED_SHARE * lit.red);
+  expect(relit.red, 'dug again, the bounce comes back').toBeGreaterThan(VOLUME_EDIT_BACK_SHARE * lit.red);
   expect(same, 'switched off, the picture is the store-off one').toBeLessThan(CACHE_SAME_MAX_PX);
 }
 
@@ -710,3 +823,12 @@ const RESOLVE_MISMATCH_MAX = 0;
 const VOLUME_DARK_SHARE = 0.05;
 const VOLUME_SKY_SHARE: readonly [number, number] = [0.6, 1.3];
 const VOLUME_TINT_FACTOR = 1.02;
+/**
+ * Set before the first run (not from a reading): the box 1.7 m over the open pad keeps at least 0.7 of its brightness by
+ * the flat term (the sun is per pixel on both; the volume's sky over it is open but for the ground below); the pillar
+ * built between the lamp and the wall leaves at most 0.7 of the lamp's red bounce up the wall's face (it shades the
+ * part of the face behind it), dug again at least 0.8 comes back (32 rays a face: noise).
+ */
+const VOLUME_OPEN_SHARE = 0.7;
+const VOLUME_EDIT_SHADED_SHARE = 0.7;
+const VOLUME_EDIT_BACK_SHARE = 0.8;

@@ -46,6 +46,7 @@ import { texelTexture } from './texel-texture-node';
 import { faceOfCode, INSIDE_FACE_CODE, type FarBrickTextures } from './voxel-far-brick-field';
 import { farFragmentDepth, type FarCover } from './voxel-far-common';
 import type { FarFineShade } from './voxel-far-fine-shade';
+import { VOLUME_READ_KEY } from './voxel-light-volume-layout';
 import { SUN_FIELD_NORMAL_KEY } from './voxel-sun-field';
 
 const TSL: N = TSLTyped;
@@ -252,6 +253,9 @@ export class FarVisibility {
     // from the hit's own normal.
     m.receivedShadowPositionNode = hitWorld;
     m.userData[SUN_FIELD_NORMAL_KEY] = hitNormalWorld;
+    // Not the voxel light volume's read: it finds cells by the geometry's position (a quad's here), and past the
+    // volume's windows it would keep the flat term anyway.
+    m.userData[VOLUME_READ_KEY] = false;
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), m);
     quad.name = 'voxel-far shade';
     quad.frustumCulled = false;

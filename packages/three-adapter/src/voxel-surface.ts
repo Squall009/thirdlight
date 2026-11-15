@@ -136,7 +136,6 @@ import { addHeaviest, heaviestTwo, NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, te
 import { seamBlendMetres, type BlendCell } from './voxel-surface-blend';
 import { heightBlend, WET_DARKEN, WET_WATER_ROUGHNESS, wetLook } from './voxel-surface-wetness';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
-import { VOLUME_READ_KEY } from './voxel-light-volume-layout';
 
 const TSL: N = TSLTyped;
 const { Fn, attribute, clamp, faceDirection, float, floor, int, ivec2, ivec3, log2, max, min, mix, mod, modelWorldMatrix, normalLocal, normalView, positionGeometry, positionLocal, positionView, positionWorld, property, select, smoothstep, sqrt, texture, transformNormalToView, uniform, varying, vec2, vec3, vec4 } = TSL;
@@ -933,8 +932,6 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   // (or, compared as its own caster, casts as a moving one): what this material draws into a shadow map changes
   // only when a draw is replaced, which the chunk view reports. The variants share this userData.
   material.userData[STEADY_SHAPE_KEY] = true;
-  // Its draws read the voxel light volume where a page lights its worlds by it (the variants share this userData).
-  material.userData[VOLUME_READ_KEY] = true;
   /** The texture arrays bound (none: the neutral values). */
   let bound: THREE.Texture[] = [];
   const mapTextures = (): void => void (material.userData[WORLD_MAPPED_TEXTURES_KEY] = worldMapped(tdata, ids, bound));

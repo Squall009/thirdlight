@@ -723,8 +723,8 @@ function voxelLightHooks(draws: VoxelWorldDraws) {
     },
     /** What the light volume holds (null: the store is not the volume). */
     volume: () => draws.lightVolume()?.diagnostics() ?? null,
-    /** Cells of the light volume read back from the GPU at world points (metres), the CPU's rule beside each. */
-    volumeCells: (points: number[][]) => draws.lightVolume()?.cells(points) ?? Promise.resolve(null),
+    /** Cells of the light volume read back from the GPU at world points (metres; or a level's cells, `{ points, level }`), the CPU's rule beside each. */
+    volumeCells: (at: number[][] | { points: number[][]; level: number }) => (Array.isArray(at) ? draws.lightVolume()?.cells(at) : draws.lightVolume()?.cells(at.points, at.level)) ?? Promise.resolve(null),
     check: (at: number[], n: number) => draws.lightFeed()?.check(at, n) ?? Promise.resolve(null),
     /** The resolve pass's voxel texels for traced rays against its CPU twin's (the probes' bounce reads them). */
     resolveCheck: (at: number[], n = 1200) => draws.lightFeed()?.resolveCheck(at, n) ?? Promise.resolve(null),

@@ -7,7 +7,20 @@ import { describe, expect, it } from 'vitest';
 import { CPU_SCALAR_OPS } from '@thirdlight/shared';
 import { OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView, type WalkSource } from '@thirdlight/voxel';
 
-import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeCellHolds, volumeChangedBricks, volumeDecode, volumeEncode, volumeIndexTexel, volumeMarkedUpdates, volumeReadAt, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkedUpdates, volumeReadAt, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
+
+/** A cached brick lookup over a walk source's level-0 blocks (as the volume keeps them). */
+function brickLookup(tsrc: WalkSource): (bx: number, by: number, bz: number) => VolumeBlockBricks | null {
+  const blocks = new Map<string, VolumeBlockBricks | null>();
+  return (bx, by, bz) => {
+    const k = `${bx},${by},${bz}`;
+    if (!blocks.has(k)) {
+      const v = tsrc.block(0, bx, by, bz, 'light');
+      blocks.set(k, v === null ? null : volumeBlockBricks(v));
+    }
+    return blocks.get(k)!;
+  };
+}
 
 /** A level-0 source of 32³ blocks over a cell predicate (light and solid alike), known in `[lo, hi)` blocks. */
 function predicateSource(solid: (x: number, y: number, z: number) => boolean, lo: readonly number[], hi: readonly number[]): WalkSource {
@@ -227,5 +240,154 @@ describe('the light volume layout', () => {
     expect(f.light).toEqual([3, 3, 3]);
     // Past every cell holding light, no weight: the reader keeps its flat term.
     expect(volumeReadAt([40, 40, 40], [0, 1, 0], cellM, () => null, CPU_SCALAR_OPS).weight).toBe(0);
+  });
+});
+
+/** Ground below y 0 (cells), and a closed room: 0.5 m walls round an inside of 16 × 6 × 16 cells (8 × 3 × 8 m) from cell (0, 0, 0). */
+function roomCell(x: number, y: number, z: number): boolean {
+  if (y < 0) return true;
+  const inX = x >= -1 && x <= 16;
+  const inZ = z >= -1 && z <= 16;
+  if (!inX || !inZ || y > 6) return false;
+  return x === -1 || x === 16 || z === -1 || z === 16 || y === 6;
+}
+
+describe('the light volume coarse levels', () => {
+  it('addressing: each level its own rows of the index, a brick and its neighbours apart, keys apart across levels', () => {
+    expect(VOLUME_INDEX_ROW_BASE).toEqual([0, 24, 30, 36]);
+    expect(VOLUME_INDEX_ROWS).toBe(42);
+    expect(VOLUME_LEVEL_WINDOWS.map((d, l) => d.map((n) => n * 4 * volumeCellM(l)))).toEqual([[96, 48, 96], [48, 24, 48], [96, 48, 96], [192, 96, 192]]);
+    const seen = new Set<string>();
+    for (let level = 0; level < VOLUME_LEVELS; level++) {
+      const [W, H, D] = VOLUME_LEVEL_WINDOWS[level]!;
+      for (const o of [[0, 0, 0], [-37, -5, 1201]]) {
+        const here = new Set<string>();
+        for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) for (let z = 0; z < D; z++) {
+          if (level === 0 && (x % 3 !== 0 || z % 3 !== 0)) continue;
+          const t = volumeLevelIndexTexel(level, o[0]! + x, o[1]! + y, o[2]! + z);
+          expect(t[0]).toBeGreaterThanOrEqual(0);
+          expect(t[0]).toBeLessThan(level === 0 ? VOLUME_INDEX_WIDTH : W * D);
+          expect(t[1]).toBeGreaterThanOrEqual(VOLUME_INDEX_ROW_BASE[level]!);
+          expect(t[1]).toBeLessThan(VOLUME_INDEX_ROW_BASE[level]! + H);
+          here.add(t.join(','));
+          if (o[0] === 0) seen.add(`${level}:${t.join(',')}`);
+        }
+        expect(here.size, `level ${level}: distinct places in its window`).toBe(level === 0 ? Math.ceil(W / 3) * H * Math.ceil(D / 3) : W * H * D);
+      }
+      // The level-0 rows are the update's own index (the same texel as before the coarse levels).
+      if (level === 0) expect(volumeLevelIndexTexel(0, 5, 1, 7)).toEqual(volumeIndexTexel(5, 1, 7));
+    }
+    // No two levels share a texel.
+    const texels = [...seen].map((k) => k.split(':')[1]);
+    expect(new Set(texels).size).toBe(texels.length);
+    expect(new Set([0, 1, 2, 3].map((l) => volumeBrickKey(-3, 2, 9, l))).size).toBe(4);
+  });
+
+  it('which coarse cells stop light (some level-0 cell in them does) and which coarse bricks are kept, against a cell-by-cell reference', () => {
+    const src = predicateSource(townCell, LO, HI);
+    const tsrc = tableOf(src, LO, HI).source();
+    const lookup = brickLookup(tsrc);
+    const known = (cx: number, cy: number, cz: number): boolean => cx >= LO[0]! * 32 && cy >= LO[1]! * 32 && cz >= LO[2]! * 32 && cx < HI[0]! * 32 && cy < HI[1]! * 32 && cz < HI[2]! * 32;
+    for (let level = 1; level < VOLUME_LEVELS; level++) {
+      const n = 1 << level;
+      const solidRef = (x: number, y: number, z: number): boolean => {
+        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) {
+          const c = [x * n + i, y * n + j, z * n + k];
+          if (known(c[0]!, c[1]!, c[2]!) && townCell(c[0]!, c[1]!, c[2]!)) return true;
+        }
+        return false;
+      };
+      const span = 64 / n;
+      let solid = 0;
+      let open = 0;
+      for (let x = -span; x < span; x++) for (let y = -16 / n; y < 24 / n; y++) for (let z = -span; z < span; z++) {
+        const ref = solidRef(x, y, z);
+        expect(volumeCoarseSolid(tsrc, level, x, y, z), `level ${level} cell ${x},${y},${z}`).toBe(ref);
+        expect(volumeLevelCellHolds(tsrc, level, x, y, z)).toBe(!ref);
+        if (ref) solid++;
+        else open++;
+      }
+      expect(solid).toBeGreaterThan(50);
+      expect(open).toBeGreaterThan(50);
+      // Kept bricks: always one with an open cell and a solid one in it or a brick across a face; never one with no solid
+      // cell near. One with no open cell is kept unless all its level-0 bricks are solid through (the rule reads the
+      // bricks' bits, not the cells'): a few, counted.
+      const brickCells = (bx: number, by: number, bz: number): { open: number; solid: number } => {
+        let o = 0;
+        let sd = 0;
+        for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) if (solidRef(bx * 4 + i, by * 4 + j, bz * 4 + k)) sd++;
+        else o++;
+        return { open: o, solid: sd };
+      };
+      const bspan = Math.ceil(span / 4);
+      let kept = 0;
+      let closed = 0;
+      for (let bx = -bspan; bx < bspan; bx++) for (let by = -1; by < 2; by++) for (let bz = -bspan; bz < bspan; bz++) {
+        const c = brickCells(bx, by, bz);
+        const k = volumeLevelBrickKept(lookup, level, bx, by, bz);
+        if (c.open === 0 && k) closed++;
+        const near = c.solid > 0 || [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => brickCells(bx + dx!, by + dy!, bz + dz!).solid > 0);
+        if (c.open > 0 && near) expect(k, `level ${level} brick ${bx},${by},${bz}`).toBe(true);
+        if (!near) expect(k).toBe(false);
+        if (k) kept++;
+      }
+      expect(kept).toBeGreaterThan(0);
+      expect(closed, `level ${level}: kept bricks with no open cell`).toBeLessThan(0.25 * kept);
+      console.log(`[light volume] level ${level} (${volumeCellM(level)} m): ${solid} cells stop light, ${open} open; ${kept} bricks kept, ${closed} of them with no open cell`);
+    }
+  });
+
+  it('which level a point reads: level 0 beside a surface, a coarse level 1.7 m over open ground and in a room\'s middle, the flat term nowhere', () => {
+    const src = predicateSource(roomCell, [-2, -1, -2], [2, 1, 2]);
+    const tsrc = tableOf(src, [-2, -1, -2], [2, 1, 2]).source();
+    // Each held cell's faces as its level + 1 inside the room and 10 × that outside: the read shows which level and side it took.
+    const inside = (level: number, x: number, y: number, z: number): boolean => {
+      const n = 1 << level;
+      return x * n >= 0 && (x + 1) * n <= 16 && y * n >= 0 && (y + 1) * n <= 6 && z * n >= 0 && (z + 1) * n <= 16;
+    };
+    const faces = (level: number, x: number, y: number, z: number): number[][] | null => {
+      if (!volumeLevelCellHolds(tsrc, level, x, y, z)) return null;
+      const v = (level + 1) * (inside(level, x, y, z) ? 1 : 10);
+      return Array.from({ length: 6 }, () => [v, v, v]);
+    };
+    const read = (p: number[], n: number[]): ReturnType<typeof volumeReadLevels> => volumeReadLevels(p, n, faces, CPU_SCALAR_OPS);
+    // Beside the room's floor, its wall and on the street's ground: the 0.5 m cells alone.
+    for (const [p, n, v] of [[[3.1, 0, 4.2], [0, 1, 0], 1], [[0, 1.3, 2.7], [1, 0, 0], 1], [[-6.3, 0, 2.2], [0, 1, 0], 10]] as const) {
+      const r = read([...p], [...n]);
+      expect(r.shares[0], `beside a surface at ${p.join(',')}`).toBeCloseTo(1, 9);
+      expect(r.shares.slice(1)).toEqual([0, 0, 0]);
+      expect(r.light[0]).toBeCloseTo(v, 9);
+    }
+    // 1.7 m over the open ground outside: no 0.5 m cell holds light there, the 1 m level does (the street's light).
+    for (const n of [[1, 0, 0], [0, 1, 0], [0, 0, -1], [-0.6, 0.8, 0]]) {
+      const r = read([-6.2, 1.7, 3.3], n);
+      expect(r.shares[0]).toBe(0);
+      expect(r.shares[1], 'a character\'s head over a field reads the 1 m level').toBeGreaterThan(0.5);
+      expect(r.weight).toBeGreaterThan(0.99);
+      expect(r.light[0]).toBeCloseTo(20, 9);
+    }
+    // The middle of the room, 1.5 m up: the 1 m cells inside the room, none of the street's across its 0.5 m walls.
+    for (const n of [[1, 0, 0], [0, -1, 0], [0, 0, 1]]) {
+      const r = read([4.1, 1.5, 3.9], n);
+      expect(r.shares[0]).toBe(0);
+      expect(r.shares[1]).toBeGreaterThan(0.5);
+      expect(r.light[0], 'no light from across the walls').toBeCloseTo(2, 9);
+    }
+    // A point whose 1 m cells are out of their window (none held there): the 2 m level takes it.
+    const far = volumeReadLevels([-6.2, 1.7, 3.3], [0, 1, 0], (l, x, y, z) => (l === 1 ? null : faces(l, x, y, z)), CPU_SCALAR_OPS);
+    expect(far.shares[1]).toBe(0);
+    expect(far.shares[2]).toBeGreaterThan(0.5);
+    // No level holds light: weight 0, the flat term stays.
+    expect(volumeReadLevels([40, 40, 40], [0, 1, 0], () => null, CPU_SCALAR_OPS).weight).toBe(0);
+    // The shares: each a level's weight's smooth step of what the finer ones left (against the steps written out).
+    const r = read([0.2, 0.3, 0.6], [0.3, 0.9, -0.3]);
+    let left = 1;
+    for (let level = 0; level < VOLUME_LEVELS; level++) {
+      const w = volumeReadAt([0.2, 0.3, 0.6], [0.3, 0.9, -0.3], volumeCellM(level), (x, y, z) => faces(level, x, y, z), CPU_SCALAR_OPS).weight;
+      const want = left > 1e-3 ? left * volumeWeightShare(w) : 0;
+      expect(r.shares[level]).toBeCloseTo(want, 12);
+      left -= want;
+    }
+    expect(r.weight).toBeCloseTo(1 - left, 12);
   });
 });

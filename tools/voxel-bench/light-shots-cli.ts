@@ -393,10 +393,14 @@ async function main(): Promise<void> {
         });
         try {
           const before = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null);
+          // The light volume's own reading of its pass (timestamps: ms and bricks timed so far) beside the measurement's.
+          const volumeDiag = (): Promise<unknown> => game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.volume?.() ?? null).catch(() => null);
+          const volumeBefore = await volumeDiag();
           const g = await measureGpuOnPage((call, options) => game.frame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: O.gpuRepeats, ...(O.gpuOnly !== null ? { only: O.gpuOnly } : {}) });
           const after = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null);
           const staleProfile = await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null);
-          gpuStale = { measure: g, before, after, lightingSpans: lightingSpans(staleProfile as ProfileReport | null), profile: staleProfile === null ? null : profileSummary(staleProfile as ProfileReport) };
+          const volumeAfter = await volumeDiag();
+          gpuStale = { measure: g, before, after, volumeBefore, volumeAfter, lightingSpans: lightingSpans(staleProfile as ProfileReport | null), profile: staleProfile === null ? null : profileSummary(staleProfile as ProfileReport) };
           console.log(`${cam.name}: while relighting ${gpuMeasureSummary(g)}; texels written ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
         } catch (e) {
           problems.push(`${cam.name}: GPU measurement while relighting: ${String(e).slice(0, 200)}`);

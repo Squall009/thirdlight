@@ -17,7 +17,14 @@
  *
  * The estimate (π × the rays' mean radiance) is blended into the face's old
  * light with the brick's weight (1 / its updates), so a brick settles over
- * its first few updates.
+ * its first few updates. A face's rays over its updates are consecutive
+ * points of one low-discrepancy sequence (the brick's own count of rays
+ * cast), so its first settle's rays cover the hemisphere evenly.
+ *
+ * A brick of a coarse level (1, 2 or 4 m cells) is updated the same way
+ * from its cells' centres; such a cell holds light wherever it is open
+ * (no level-0 cell in it stops light), and its rays' bounces read the
+ * level-0 cells at their hits.
  */
 import { WALK_GPU_MAX_STEPS, voxelWalkWgsl } from './voxel-walk-wgsl';
 import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
@@ -70,6 +77,31 @@ fn volume_solid(c: vec3<i32>) -> bool {
 fn volume_holds(c: vec3<i32>) -> bool {
   if (volume_solid(c)) { return false; }
   return volume_solid(c + vec3<i32>(1, 0, 0)) || volume_solid(c - vec3<i32>(1, 0, 0)) || volume_solid(c + vec3<i32>(0, 1, 0)) || volume_solid(c - vec3<i32>(0, 1, 0)) || volume_solid(c + vec3<i32>(0, 0, 1)) || volume_solid(c - vec3<i32>(0, 0, 1));
+}
+
+/** Whether cell cc of a coarse level stops light: some level-0 cell inside it does (the CPU twin is volumeCoarseSolid). */
+fn volume_coarse_solid(level: u32, cc: vec3<i32>) -> bool {
+  let n = 1 << level;
+  let f = cc * n;
+  let v = walk_value(0u, f >> vec3<u32>(5u));
+  if (v == WALK_NONE) { return false; }
+  let flag = (v >> 2u) & 3u;
+  if (flag == 1u) { return true; }
+  if (flag != 2u) { return false; }
+  let l = f - (f >> vec3<u32>(5u)) * 32;
+  let page = (v >> 4u) * WALK_PAGE_WORDS;
+  if (n >= 4) {
+    let m = n / 4;
+    let b = l / 4;
+    for (var i = 0; i < m; i++) { for (var k = 0; k < m; k++) { for (var j = 0; j < m; j++) {
+      if (walk_bit(page + WALK_BRICK_WORDS, u32(((b.x + i) * 8 + b.z + k) * 8 + b.y + j))) { return true; }
+    } } }
+    return false;
+  }
+  for (var i = 0; i < n; i++) { for (var k = 0; k < n; k++) { for (var j = 0; j < n; j++) {
+    if (walk_bit(page + 2u * WALK_BRICK_WORDS + WALK_CELL_WORDS, u32(((l.x + i) * 32 + l.z + k) * 32 + l.y + j))) { return true; }
+  } } }
+  return false;
 }
 
 /** The slot + 1 of the brick holding cell c (0: none resident there). */
@@ -187,10 +219,13 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
   let b = bricks[2u * wid.x];
   let info = bricks[2u * wid.x + 1u];
   let face = wid.y;
+  let level = u32(info.z);
   let l = vec3<i32>(i32(lid & 3u), i32((lid >> 2u) & 3u), i32(lid >> 4u));
   let c = b.xyz * 4 + l;
   let at = pool_at(u32(b.w), lid, face);
-  if (!volume_holds(c)) {
+  var holds = false;
+  if (level == 0u) { holds = volume_holds(c); } else { holds = !volume_coarse_solid(level, c); }
+  if (!holds) {
     textureStore(pool, at, vec4<u32>(0u));
     return;
   }
@@ -198,9 +233,9 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
   let sgn = select(1.0, -1.0, (face & 1u) == 1u);
   let t1 = (axis + 1u) % 3u;
   let t2 = (axis + 2u) % 3u;
-  let origin = (vec3<f32>(c) + 0.5) * CELL_M;
+  let origin = (vec3<f32>(c) + 0.5) * (CELL_M * f32(1 << level));
   let rays = u32(params.dims.w);
-  let h = hash3(c, face);
+  let h = hash3(c, face + 8u * level);
   let j = vec2<f32>(f32(h & 0xffffu), f32(h >> 16u)) / 65536.0;
   var sum = vec3<f32>(0.0);
   for (var r = 0u; r < rays; r++) {

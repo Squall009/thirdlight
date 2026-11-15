@@ -1037,9 +1037,12 @@ async function playProject(): Promise<[number, number, number]> {
     "    for (const _ of ctx.debug.command('hutopen')) ctx.game.add(v.dig(hutRoof).ok ? 'hutOpened' : 'hutRefused', 1);",
     `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(hutRoof, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
     "    for (const _ of ctx.debug.command('unhut')) ctx.game.add(v.dig(box(-2.5, 0, 2, 2.5, 3.5, 10.5)).ok ? 'hutDug' : 'hutRefused', 1);",
+    // A stone stub in the hut (the test kit's material): kit pieces stand at its free ends' edges, indoors.
+    "    const stub = box(-1.5, 0.5, 5, -0.5, 2.5, 5.5);",
+    `    for (const _ of ctx.debug.command('hutstone')) ctx.game.add(v.set(stub, { material: ${MAT.stone}, role: ${VOXEL_ROLE.wall} }).ok ? 'stubBuilt' : 'hutRefused', 1);`,
+    "    for (const _ of ctx.debug.command('unstone')) ctx.game.add(v.dig(stub).ok ? 'stubDug' : 'hutRefused', 1);",
     // The hut's floor slab repainted (its shape as it was): the light volume's bounce takes the floor's colour.
     `    for (const _ of ctx.debug.command('hutgreen')) ctx.game.add(v.set(box(-2, 0, 2.5, 2, 0.5, 10), { material: ${MAT.grass}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutGreen' : 'hutRefused', 1);`,
-    `    for (const _ of ctx.debug.command('hutplain')) ctx.game.add(v.set(box(-2, 0, 2.5, 2, 0.5, 10), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutPlain' : 'hutRefused', 1);`,
     "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
     '    if (state.rooms) {',
     "      const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));",
