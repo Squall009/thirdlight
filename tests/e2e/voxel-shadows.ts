@@ -347,15 +347,24 @@ export async function voxelCacheLightChecks(o: FarLightSetup): Promise<void> {
   const shadow = pillarShadowed(pillarDark, pillarLamp, openDark, openLamp, LAMP_ADD_MIN, LAMP_KEEP);
   // An edit under the lit lamp: the pillar built between it and the lit wall, the texels behind it relit dark once the
   // light settles; dug again, lit again.
+  // Each edit waits for its change to reach the cache's light (texels written after the command), then for the settle.
+  const written = async (): Promise<number> => (await hook<{ texelsWritten: number } | null>('progress'))?.texelsWritten ?? 0;
+  const reached = async (what: string, from: number): Promise<void> => {
+    await expect.poll(written, { timeout: 30_000, intervals: [50], message: `${what}: the cache relights texels for it` }).toBeGreaterThan(from);
+  };
   const tBuild = Date.now();
+  let w0 = await written();
   await control('pillar');
   await expect.poll(() => counter('pillarBuilt'), { timeout: 10_000 }).toBe(2);
+  await reached('the pillar built under the lamp', w0);
   await settled('the pillar built under the lamp');
   const builtMs = Date.now() - tBuild;
   const pillarEdit = await still('cache-pillar-edit');
   const tDig = Date.now();
+  w0 = await written();
   await control('unpillar');
   await expect.poll(() => counter('pillarDug'), { timeout: 10_000 }).toBe(2);
+  await reached('the pillar dug under the lamp', w0);
   await settled('the pillar dug under the lamp');
   const dugMs = Date.now() - tDig;
   const openEdit = await still('cache-open-edit');
