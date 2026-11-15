@@ -214,7 +214,7 @@ below, near and far absent; 131 s.
 | 46e.2 | Done 2026-11-14 (f17f4a48…): one 6-connected walk (CPU; WGSL from the same steps) over level 0 and mips (the CPU also far nodes; the GPU not: D662); `ctx.voxels.raycast`; picks walk it; GPU = CPU 0 of 1,200 differ; rays/ms worker 360–430 / 170–215 / 19–20, GPU 28k / 17k / 1.6k (short, medium, long; §8a); D662–D664 |
 | 46e.3 | Done 2026-11-15 (531a2d5b, 5bf24807): open regions derived per section (v32, spec entry), stitched where the world runs, `ctx.voxels.regionAt`, voxel page overlay, sky heights to the page; town 120 enclosed / 3,181 portals; derive 7 % of a section; stitch 1.4 ms/frame loading, 0 settled; edit → answer 91 ms; 150 m/s sim spikes 1 → 14 (D667); D665–D669 |
 | 46e.4 | a done 2026-11-15 (cd2ce0ac): near-field voxel surfaces and kit pieces cast and receive via the cached sun map, the dynamic map and the atlas; edits redraw only what they reach; sun square on the voxel ground; low shadows 0.21–0.47 vs off below resolution; edit → shadow 63–87 ms; D670–D672. b next (far shade at the hit, far sun march) |
-| 46e.5 | a done 2026-11-15 (19992ba8, 3be854df, 2b11b6ec): `?voxelLight=cache` lights level-0 voxel meshes in phase 42's cache (page-side charts, tracer walks the voxels, read by hash); town ring fits 32 MiB (≤ 24 MB); GPU lighting below res. still, orbit unresolved; page 4–11 ms (D676–D678); lit 29 s after Play; D676–D680. b next |
+| 46e.5 | a, b done 2026-11-15 (b: 2d8c4763, 833b9065): live probes over voxel charts, voxel hits resolved on the GPU (= CPU, 0 of 1,200), probes hold the ambient: room 120 → 10 mean, cave darkens inward; low GPU lighting below res. settled, page 0.4–1.0 ms; probes 4–14 MB + resolve 9–17 MB; D680 fixed, D681–D683. c next |
 | 46e.6 | not started |
 | 46e.7 | not started |
 | 46e.8 | not started |
@@ -806,6 +806,101 @@ lit/stale, waiting) for `light-shots`' wait (`cacheLit`) and record, the tracer-
 and its page spans (the bench's `LIGHTING_SPANS`). `light-shots --query '&voxelLight=volume'` and `run.mjs headroom
 --query …` take it as they take the cache.
 
+### 46e.5b — live probes over voxels (a candidate, behind the same switch)
+
+**Built.** Phase 42's live probes standing over voxel worlds, with `?voxelLight=cache` (WebGPU), and nothing else of
+phase 42's indirect light: bricks only (no room grids, no cut-away or audio rooms), one update path (the probe pass),
+read through the probe lighting every lit material already takes.
+
+- **Placement** (`probe-geometry.ts` `voxelTileMarks`, `probeSolid`'s `voxels`; `SurfaceCacheHost.probeGeometry`):
+  each charted level-0 chunk's charts mark the bricks: a flat construction chart as a plane (level 0 where planes meet,
+  else 1, as block faces), a curved one its box (level 1 when its mean normal faces up, else 0: cave walls and roofs).
+  A probe is valid where the walk's blocks on the page say its cell is open (`walkSolidAt` through the feed's
+  `solidAt`); one in a body is dropped. Less than phase 42 does on terrain: no probe is moved onto voxel ground.
+  Placement re-runs in steps within the `probePlace` slice as tiles come and change, as for the old kinds.
+- **The resolve learns the voxel hit (D680).** `packResolveTable` adds one hash of the resident chunks' keyed faces
+  (header words 14–15; the hit's cell and face, behind keys included); `resolveVoxelCpu` and the WGSL's
+  `resolveVoxels` take the hit's face, then the cell's others, and find the texel in whole numbers (255ths of a cell),
+  so GPU and CPU agree exactly. A probe ray that meets a voxel reads that texel's direct light and colour and the
+  probes' light there (bounce builds over updates); one that meets nothing sees the sky. The sun's share at a hit is
+  the texel's own (traced through the walk by the cache's light pass): `SunField.lit` was not needed.
+- **Sky light.** On a voxel page lit by the cache the probes hold the scene's ambient and hemisphere lights
+  (`AdapterLiveProbes.holdAmbient`): their sky carries that light, the flat term goes inside bricks and stays outside
+  them. Probes under a roof or in the cave see the walk's hits, not the sky.
+- **Leaks.** The bricks' own wall rule (axis rays cut edges; `probeSamplePoint` keeps a sample on its side): no rooms,
+  no region map carried to the page. At the room camera the 0.5 m walls hold: no outdoor light seen through them.
+- **Readers.** Voxel surfaces, kit pieces and moving objects all read the probes through the probe light (per pixel
+  brick lookup); the voxel surfaces' read of the cache's direct light (46e.5a) is unchanged. `?voxelLight=off`: no
+  voxel source, no probes, nothing held: the Play e2e's store-off picture before and after is 0 px apart.
+- **GPU measurement:** nothing new to register: phase 42's `lighting` registration hides the probe pass.
+- **Readings:** `__tlVoxelPlay.light.cache().probes` (count, lit, stale, settled, drawn, behind, bricks, bytes,
+  albedo cells drawn) and `__tlVoxelPlay.light.resolveCheck(at, n)` (GPU against CPU resolve); `light-shots` waits for
+  the probes.
+
+**Measured** 2026-11-15 11:09–11:21 UTC at 90f60c4a (built), Iris Xe, WebGPU, 1280 × 720, low, 30 Hz cap, alone
+(`thirdlight-gate` inactive), the brief's 10G scope; uptime 22.8 d, load (1 min) 1.0–2.5. Raw: `~/.cache/thirdlight-
+phase46e/work/46e.5b/` (`measure.sh`, `shots/`, `shots2/`, `*.uptime`). Interim; the full table is 46e.5c's.
+
+| What | Street / room / cave / night / far | Against |
+|---|---|---|
+| GPU `lighting`, settled (`light-shots --gpu`) | below resolution at all five (no stale work: nothing dispatched) | 46e.5a below |
+| GPU `shadows` | street not measured (the ballast line failed), 1.18 / 1.17 / 2.21 / 0.76 ms | 46e.5a 0.61 / 0.42 / 1.10 / 0.55: higher, not explained by this item (no shadow work added); one run |
+| GPU while settling (stale > 0) at the room camera | **not measured** (the bench measures settled pictures only): 46e.5c | |
+| Page `lighting` (profile, settled) | 0.87 / 1.03 / 0.76 / 0.99 / 0.36 ms (worst 12 / 8 / 10 / 7 / 3) of 2.0 | 46e.5a page lighting 4–11 (D676/D677 while settling) |
+| Play → cache and probes settled | 30 s (street, first); later cameras 2–15 s after their jump; room first in `shots2`: 37 s | 46e.5a night 29 s |
+| Probes | 32 k / 35 k / 29 k / 28 k / 12 k placed, 27 k / 30 k / 16 k / 24 k / 10 k lit; bricks 741 / 164 / 28 by level (street) | |
+| Probe bytes | page 4.9 / 5.4 / 4.4 / 4.3 / 1.8 MB; GPU (records + tiles) 8.1 / 13.3 / 8.0 / 7.7 / 6.1 MB, of `probes` 128 MiB; the memory table's `probes` row reads no value (the live tiles are not reported there) | |
+| Resolve table (probe and reflection rays) | 17.1 / 17.1 / 8.6 / 17.1 / 8.5 MB (D681) | |
+| Surface cache | 23.5 / 23.1 / 12.7 / 23.6 / 3.2 MB of 32 MiB | 46e.5a the same |
+| GPU = CPU resolve (Play e2e, 1,200 rays in the hut) | 673 voxel hits, 673 resolved, 673 lit, **0 mismatches**; the scene's own CPU way (nearest charted point) puts 14 in another texel | |
+
+**The five pictures** (`46e.5b/shots/`, looked at beside `46e.0/shots/` and `46e.4b/shots/`; mean brightness 46e.4b →
+now; pixels differing by > 10 a channel): `room-window.png` — 120 → 9.5: the room is dark, the wall under the left
+windows and the floor near them lit by the sun band's bounce, the far wall and the ceiling near black, the stairs'
+kit pieces dark like the walls (kit pieces read the probes); the windows show the bright street. `cave.png` — 122 →
+65: the tube darkens inward, the floor at the mouth stays bright, dark blotches about a cell across on the floor and
+two thin black slits on the right wall (D683). `night-lamps.png` — 12.9 → 13.7 (17,800 px): the lamps' light bounces
+onto the brick gable and the house fronts a little; unlit fronts stay near black. `street-noon.png` — 120 → 99: the
+windows and doors are dark inside, soft shade under the eaves; the outdoors is darker overall (the probes see
+ground below them where the flat term lit every face alike); a black sliver along the right brick house's edge (D683).
+`far-view.png` — 102 → 98: the near houses' windows dark, the far field unchanged: **the cached light ends with the
+level-0 chunks** (the probes' bricks stand only over charted chunks, ~45 m round the eye at low), and past them the
+probe light fades out over a probe spacing to the flat ambient term; no seam seen at this camera. Run to run (`shots`
+against `shots2`, a few minutes apart): room 4.7 % of pixels differ (the probes' turned rays settle within 5 %),
+cave 0.2 %; frame-to-frame flicker unverified.
+
+**Tested.** vitest `tools/voxel-bench/surface-voxels.test.ts` (town / caves: bricks 205/25/7 and 622/36/8 by level,
+probes lit 7,486 / 13,194, dropped inside bodies 608 / 9,553, none lit inside a body, 192 / 184 lit under a roof and
+walled within 8 m, every brick near a chart); `packages/three-adapter/src/surface-cache-voxels.test.ts` (the resolve
+table's voxel hits against the scene's resolve: none unresolved, > 99 % the same texel; an unkeyed face resolves to
+nothing; the host places probes over a chunk, none lit under the ground). Playwright `voxel-world.e2e.ts` Play (high,
+`voxel-shadows.ts` `probeHutChecks`): a hut on the pad, the camera inside: shut, its walls 6.3 by the probes against
+118.9 by the flat term (bound share 0.5), the blue box 5.6 against 19.1; the roof opened by an edit, the probes go
+stale and settle again in 4.9 s, walls 77.7 (bound 3 × shut); the GPU/CPU resolve check above. **Broken:** the voxel
+resolve returning nothing (both sides, run once: `e2e-broken-resolve/`): resolved 0, the test fails at "voxel hits
+resolve"; the pictures still pass (open walls 75.4 against 77.7: the bounce is ~3 % of the open hut's light).
+Probes unplaced: the wait for probes lit times out (not run). Readers not wired (no probe light): the shut hut reads
+the flat term (as the store-off picture: 118.9), failing the 0.5 share (not run). The coloured bounce (a floor of
+another colour tinting the walls) is not seen (D682); the Play test 2.4–2.6 → 2.9 min alone.
+
+**Gate.** `gate-fast-20261115-104943` at 90f60c4a red on `shadows.e2e.ts` 'Play after the steps' (worst 40 against
+≤ 32: D645, on watch), green in `gate-rerun-20261115-110734` (village perf 0/360 missed, main 6.25 ms); the voxel area
+311 s (238 s at 46e.4b; 46e.5a's run not recorded here), lighting 173 s.
+
+**Notes for 46e.5c.** Costs seen: the resolve table packed whole with its voxel hash on every residency change (D681,
+up to 17 MB beside the lookup's D677); probe placement 38–68 ms of main thread a placement in `probePlace` steps;
+page lighting settled 0.4–1.0 ms, its worst frames 7–12 ms (residency 4–8, surface light 3–4). Edits enter as a new
+tile version (geometry box → relight marks → `probes.markBox`); the hut's roof edit reached settled probes in 4.9 s
+(Play, high). To measure: GPU `lighting` while stale (room camera, first settle), edit → light time at low, the probe
+update's share of the 6.67 ms row, the memory table's `probes` row (wire the live tiles), D682's cause.
+
+**For 46e.6 (the volume), the same depth at each camera:** room — clearly darker than the street (mean ~10 of 255
+here, against 120 with the flat term), light near the windows from the sun band; cave — darker inward from the mouth,
+the mouth's floor bright; night — some lamp light bounced onto the brick gable and fronts; street — dark window and
+door interiors, soft shade under eaves; far view — the far field as before (the cache ends at the level-0 ring), the
+near houses' windows dark. Read by voxel surfaces, kit pieces (the room's stairs) and a moving object (the e2e's box
+inside the shut hut, 5.6 against 19.1). An edit opening a roof brightens the room after it settles.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -919,6 +1014,24 @@ and its page spans (the bench's `LIGHTING_SPANS`). `light-shots --query '&voxelL
   tracer twin has no voxel kind (the page's check walks the same rays on the CPU walk instead).
 - 2026-11-15 (46e.5a, default chosen, owner to confirm): a voxel pixel finds its face by the geometry normal's main
   axis, else the next axis (a flat normal from derivatives flickered at triangle edges under the upscale's jitter).
+
+- 2026-11-15 (46e.5b, default chosen, owner to confirm): the live probes over voxels are phase 42's bricks, marked from
+  the cache's voxel charts (a flat construction chart is a plane: level 0 where planes meet, else 1; a curved chart its
+  box, level 1 when its mean normal faces up (y ≥ 0.5: ground), else 0: a cave's walls and roof, an overhang), valid
+  where the walk's blocks on the page say a cell is open; a probe in a body is dropped, never moved (no virtual offset
+  onto voxel ground). No rooms: the bricks' own wall rule (the axis rays' edge cuts) keeps light on its side.
+- 2026-11-15 (46e.5b, default chosen, owner to confirm): on a page whose voxel worlds the cache lights, the live probes
+  hold the scene's realtime ambient and hemisphere lights (their sky holds that light, as a bake's mixed mode does),
+  so the flat ambient term is replaced by the probes inside their bricks and kept outside them; given back when the
+  probes leave (`?voxelLight=off` draws as before).
+- 2026-11-15 (46e.5b, default chosen, owner to confirm): the sun's share at a probe ray's voxel hit is the texel's own
+  (the cache's light pass traces it through the walk), not `SunField.lit`: the texel holds the sun with its traced
+  shadow, which is what phase 42 reads for its other kinds.
+- 2026-11-15 (46e.5b, default chosen, owner to confirm): the resolve table holds its own hash of the resident voxel
+  chunks' keyed faces (the walk's hit cell and face, behind keys included), at most 3/4 full, and finds the texel in
+  whole numbers so the GPU and its CPU twin agree exactly; the materials' lookup keeps its own (no shared buffer).
+- 2026-11-15 (46e.5b, default chosen, owner to confirm): `light-shots` and the Play e2e count the cache settled only
+  with its probes lit, none stale, drawn and nothing held back (`__tlVoxelPlay.light.cache().probes`).
 
 ## 10. Open questions for the owner (asked with the plan)
 
