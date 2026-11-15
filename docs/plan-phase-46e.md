@@ -191,7 +191,7 @@ below, near and far absent; 131 s.
 | 46e.3 | **Open regions.** Connected non-solid cells labelled per chunk in the derive workers and stitched across chunk faces as chunks arrive: face connectivity (R97), sky columns (R98), regions with an enclosed flag, volume and portals from the opening role (R101); rebuilt for one chunk on an edit; `ctx.voxels.regionAt`; a tint overlay to see them. A derived output: an add-only note in the format spec (§8, owner). |
 | 46e.4 | Done 2026-11-15 (cd2ce0ac; a3a8f2cf, 76f3ef48): near voxel draws and kit pieces in the sun's cached map and the atlas; past the map sun heights (sky heights, far bricks' tops) marched in compute into shade lines, faded in at its edge; far shade lit at the hit; low shadows 0.63 vs 0.43 ms off; edit → field 0.6–1.2 s; D607, D670 fixed, D671 narrowed, D673–D675 |
 | 46e.5 | **The surface cache on voxels.** Phase 42's cache fed by voxel surfaces: a voxel tile source (charts over the mesher's faces by their main axis, as block chunk columns and terrain rings are charted today), the tracer walking voxel occupancy as a scene kind (46e.2's walk), direct light and live probes over it, edits marking tiles stale. A candidate, built only as far as a fair measurement needs. |
-| 46e.6 | **The voxel light volume.** R104's volume on the same town: air-side cells beside surfaces with six directional values, the 1/2/4 m levels for open air, sky and sun by the walk, one bounce, local lights; read by voxel surfaces, kit pieces and moving objects. A candidate, to the same depth. |
+| 46e.6 | Done 2026-11-15 (a; b: e3d86ffb, 4d04a538): coarse 1/2/4 m levels, read by every lit draw (kit pieces, moving objects); one pool (stale bindings: D691 fixed); settled no GPU, updating 8.9–11.2 ms (D690), orbit 5.9–6.5; near +1.3–4.8 read or not (D693); 29.8 MB; edit → light 0.07–0.11 s, settled 0.5–1.7 s; Play → settled ≈ 20 s (§8a 46e.6b) |
 | 46e.7 | **The lighting storage A/B (R110), same scene, same cameras.** Three arrangements on the town inside the 8 km world: the cache alone, the volume alone, and the cache near with the volume beyond a distance (the owner's hybrid, the hand-over distance a setting); §4's table and pictures for each, on the low tier at the cap, with medium and high as shares. |
 | 46e.8 | Close of 46e-a: the gate, the independent review, fixes, results, an acceptance page (pictures of the three side by side, at most five questions, the lead's recommendation by "performance first"), STATUS. **Stop for the owner.** |
 
@@ -1180,6 +1180,167 @@ probes past d keep the volume); the cache's tiles past d need not exist (its res
 window need not hold bricks inside d − w (kept from d − w out: fewer bricks, less update). Both read by voxel surfaces
 per pixel, so the hand-over is a per-pixel blend with no seam of geometry.
 
+### 46e.6b — the volume's coarse levels and readers, its wiring artefacts taken out, and its column measured
+
+**Built.** The rest of the contract, and the wiring found while measuring; nothing tuned past 46e.6a's defaults (4 rays
+a face, 8 updates to settle, 24 m reach).
+
+- **Coarse levels for open air** (`voxel-light-volume-layout.ts`: `VOLUME_LEVELS`, `VOLUME_LEVEL_WINDOWS`,
+  `volumeCoarseSolid`, `volumeLevelBrickKept`, `volumeReadLevels`). Levels 1, 2, 3 hold cells of 1, 2 and 4 m (2^level
+  level-0 cells a side, as the voxel mips) in bricks of 4³ in the same pool, each in its own rows of the one index
+  texture (2,304 × 42), as a clipmap round the eye: 12 × 6 × 12 bricks a level, **reach 48 × 24 × 48 m at 1 m, 96 × 48 ×
+  96 m at 2 m, 192 × 96 × 192 m at 4 m** (level 0 stays 96 × 48 × 96 m). A coarse cell **stops light where some level-0
+  cell in it does** (by the walk's level-0 blocks: cell bits at 1 m, the 2 m bricks' bits at 2 and 4 m; unknown space is
+  open, as at level 0), and **holds light wherever it is open** (open air too); a coarse brick is kept where it holds an
+  open cell and it or a brick across a face holds a light-stopping cell (by the level-0 bricks' bits; exact at 2 and 4
+  m, at 1 m a brick partly solid may still be kept with no open cell: 60 of 543 in the vitest town scrap). The update
+  is the same pass: a coarse cell casts its rays from its centre, its hits bounce the level-0 cells' light and colour.
+  Kept at the cameras: 213–401 bricks at 1 m, 179–379 at 2 m, 209–291 at 4 m (0 at 1 m at the far view, 40 m up);
+  **bytes** 1,792 a brick as at level 0, so ≤ 864 bricks a level = ≤ 1.5 MB a coarse level, 1.2–2.0 MB the three at the
+  cameras.
+- **Which level a point reads.** Level 0 first; each coarser level takes the smooth step of its own weight (to 0.25) of
+  what the finer ones left, and is not read once less than 1/1000 is left; no level holding light keeps the flat term
+  (TSL `volumeReadLevels`, its CPU reference the same name in the layout file). A surface beside its 0.5 m cells reads
+  only them; a point 1.7 m over a field or in a room's middle reads the 1 m level (vitest).
+- **Every lit draw reads it** (`VOLUME_READ_KEY` is now `false` to opt out): voxel surfaces, kit pieces, props and moving
+  objects, in place of the held ambient, hemisphere and environment diffuse light. The far field's shade opts out (it
+  finds cells by its quad's position). `off` makes no volume and draws as before (the Play e2e's store-off pictures
+  before and after equal, 0 px).
+
+**Wiring artefacts (B).**
+
+- **The pool is made once** (16,384 slots, 29.8 MB, within the 160 MiB budget). With the pool grown by copy, draws made
+  before the copy kept reading the old texture (three refreshes a texture node's binding for one draw of the program,
+  not every draw's group; disposing the old texture two frames later did not help: walls half lit, the moving box flat;
+  never resized: right). That is **D691's cause** at the far view (the near houses' chunks were drawn before the pool
+  grew), and why "the texture never shrinks" is gone: it neither grows nor shrinks. Bricks past it wait for a slot to
+  free (nearest first). D696 for the other stores swapped the same way.
+- **Pacing past a stalled stamp (D690, part).** In the Play e2e a one-brick update read 6.3–7.0 ms by its timestamps
+  every other frame (the pass's first stamp written while the GPU still drew the last frame), so the running mean went
+  to 1.3 ms a brick and the update fell to one brick a frame (never settled in 60 s). A reading past twice the least of
+  the last 16 is now taken at that; with it the e2e settles in 13–14 s.
+- **A face's rays are one sequence** over its updates (the brick's own count, never reset), not jumps of the frame
+  count: its first 32 rays are consecutive points of the R2 sequence. The blotches stayed (D692 below).
+- **The pass is present for the measurement while the volume exists**, as the cache's: a moving eye leaves bricks
+  stale between windows, and at 4d04a538's predecessor the orbit's update was read as absent (orbit rows below are from
+  the run after it).
+- Not changed: chunks drawn before a run-time switch to the volume still bounce the default grey until drawn again (the
+  grids are on the GPU only; reading them back is more than a small fix; the A/B opens pages with the store in the URL).
+
+**Measured** 2026-11-15 19:10–20:34 UTC at e3d86ffb (built), the orbit again 20:35–20:56 UTC at 4d04a538 (built), Iris Xe,
+WebGPU, 1280 × 720, low, 30 Hz cap, each run alone (`thirdlight-gate` inactive), the brief's 10G scope; uptime 23.1–23.2
+d, load (1 min) 0.9–2.1. Raw: `~/.cache/thirdlight-phase46e/work/46e.6b/` (`measure.sh`, `measure2.sh`, `summ.py`;
+`shots/`, `shots-off/`, `shots2/`, `shots-off2/`, `shots-noread/`, `room-first/`, `m-*`, `orbit1/` (the first orbit),
+`cov-150-*`, `*.uptime`). The cache's `measure.sh` with the query swapped; the cameras this time **A B A B** (volume,
+off, volume, off) and the volume lit but unread (`&surfaceRead=0`); the cache's cameras were one run each. Cameras in
+order street / room / cave / night / far.
+
+| What | Volume | Off / unread | Note |
+|---|---|---|---|
+| GPU settled, `lighting` | nothing dispatched (no brick stale): absent at e3d86ffb, below resolution since | — | cache 0.12 / below ×4 |
+| GPU settled, `near` (run 1, run 2) | — (ballast line failed) / 1.29 / 2.93 / 4.77 / 4.82; 3.64 / 1.52 / 2.95 / 4.75 / 4.93 | off below ×3 / 0.16 / 1.93; below ×3 / 0.05 / 1.84. Unread 3.61 / 1.63 / 3.00 / 4.73 / 4.79 | **+1.3–4.8 ms on**, the same with the read off (within 0.15): the read's own cost is below resolution at the cameras; the rise comes with the store (D693; the cache's column shows the same, +0.5–3.7) |
+| GPU settled, `shadows` | —, 0.88 / 0.69, 0.74 / 0.50, 0.46 / 1.09, 1.08 / 0.56, 0.56 | off 0.67, 0.56 / 0.46, 0.50 / 0.37, 0.31 / 0.97, 0.88 / 0.55, 0.52 | +0.1–0.3 |
+| GPU settled, frame (ballast line) | 14.2 / 10.2, 10.0 / 9.7, 9.4 / 12.9, 13.0 / 12.7, 12.6 | off 4.8, 10.7 / 5.9, 5.8 / 5.1, 5.3 / 8.5, 8.2 / 9.6, 9.8 | |
+| GPU while updating (every brick stale every 0.5 s), `lighting` | **10.14 / 11.17 / 9.64 / 8.91** / not read (ballast line failed) | — | over its 6.67 ms row; its own stamps read 5.2–8.6 ms a dispatch (D690) |
+| GPU, 8 km town orbit (moving eye) | room at the cap 60 / 44 ballast copies (r1 / r2), no load 0 / 1 of 89 missed; `lighting` **6.12 ± 0.34** (r1; r2 the ballast line failed), `near` 4.38 ± 0.66, frame 6.7; resolution 1.5 ms | off: room 30 / 26 copies, 1 / 1 missed; near 2.02 / 1.84, far 3.43 / 3.39, shadows 0.59 / 0.53, frame 9.1 / 7.6 (res 0.1). Unread: room 60 / 76; `lighting` 6.50 / 5.87, near 5.44 / 5.06 (res 3.9 / 1.9) | the moving eye keeps bricks entering: the update holds its row (~6 ms) all the time; the read's own cost is under the orbit's noise (unread near ≥ read near): not resolved. The first orbit (at e3d86ffb, `orbit1/`) read `lighting` absent and near 4.6–6.9 |
+| Page ms a frame, settled (profile) | 6.60 / 4.55 / 2.93 / 4.43 / 4.45; `lighting` 0.33 / 0.21 / 0.18 / 0.21 / 0.22 (worst 3.2 / 0.6 / 0.7 / 0.6 / 1.1); span `voxel light volume` 0.05–0.08 (worst 0.3–1.4) | off 5.90 / 4.56 / 2.95 / 4.25 / 4.01; 0.28 / 0.15 / 0.15 / 0.16 / 0.14 | of 2.0: under |
+| Page while updating | 4.54 / 5.11 / 2.62 / 4.48 / —; `lighting` 0.60 / 0.81 / 0.42 / 0.69; span 0.44 / 0.66 / 0.30 / 0.54 (worst ≤ 1.2) | — | under 2.0 (cache 2.6–12.3) |
+| Page on the orbit | 7.14 / 6.97; `lighting` 0.93 / 0.82 (worst 4.0 / 4.4) | off 6.71 / 6.90; 0.18 / 0.17 | |
+| Memory, GPU | pool, colours, index **29.8 MB fixed** (16,384 slots); table rows `surfaceCache` 28.4 of 32 MiB, `probes` 0 of 128 | — | of 160 MiB; cache 3–22.5 + probes 5.8–12.7 + hashes 12–33 MB |
+| Memory, page | 8.0–12.0 MB (grids kept for colours, brick records, the index) in `voxelStream` | — | cache's hashes 25–68 MB |
+| Kept bricks (level 0 / 1 / 2 / 4 m) | 6,994 / 348 / 340 / 291; 8,846 / 401 / 375 / 288; 3,726 / 213 / 182 / 215; 8,275 / 353 / 379 / 264; 3,161 / 0 / 179 / 209 | | 4.3–9.9 k of 16,384 slots |
+| Page heap / GPU process, orbit | 624 / 646 MiB; 1,002 / 1,007 MiB | off 578 / 591; 942 / 942 | |
+| Edit → light: a window dug in the room's wall | reached 93 ms, first light 112 ms, settled **1.74 s** | — | 4.8 M cell faces written; 13.9 % of the picture changed |
+| Edit → light: a wall between lamp 3 and the fronts (night), then dug | built: 61 / 85 ms / **0.51 s**; dug: 44 / 73 ms / **0.61 s** | — | 2.9 M cell faces each; 16.2 / 10.5 % of the picture |
+| Play start → settled | street first ≈ 19.8 s, room first ≈ 19.6 s (the scene's own settle 3 s at the camera, then the volume 0.8 s) | — | cache 18.9 / 19.1 s |
+| Meanwhile (`room-first/`, `shots/`) | 2 s after arriving: 3.2–7.4 k bricks stale (room first 6.8 k), blocks waiting; the room already dark (most bricks updated once); 10 s: settled (street 66 stale) | — | cache: the flat term at 2 s |
+| 150 m/s, export, low, one round each | longest **293 ms** (a page frame of 266 ms `voxel draws made` at the flight's start: D694), 1 > 100, missed 6.4 a min, detail 9.4 s, pending 13.7 s, falls 0/34, holes 0 | off 57.8 ms, 0, 10.1, 6.9 s, 12.3 s, 0/34, 0 | |
+| Medium / high, one run each (unverified on target hardware) | medium: 6 of 179 missed at no load, room 3 copies; near 5.18, far 4.12, lighting 3.83 ms (frame 16.3). High: 37 of 108 missed at no load; near 11.1, far 9.2, shadows 1.8, lighting 3.4 ms | — | |
+
+**The volume's column for 46e.7**
+
+- GPU settled at the five cameras: `lighting` nothing dispatched (below resolution); `near` 1.3–4.8 ms over off, the same with the read off; frame 9.4–14.2 ms (off 4.8–10.7).
+- GPU while updating: `lighting` 8.9–11.2 ms at four cameras against its 6.67 ms row.
+- GPU on the moving orbit: room at the cap with no load (44–60 copies; off 26–30); `lighting` 5.9–6.5 ms (the update at its row all the time); `near` 4.4 ms (off 1.8–2.0), the read's share not resolved.
+- Page a frame: settled 2.9–6.6 ms, `lighting` 0.18–0.33 (worst 3.2) of 2.0; updating `lighting` 0.42–0.81; orbit 7.0–7.1 ms, `lighting` 0.82–0.93 (worst 4.4).
+- Memory: volume 29.8 MB GPU fixed (of 160 MiB: `surfaceCache` 28.4 of 32, `probes` 0 of 128); page 8–12 MB; orbit +50 MiB page heap, +62 MiB GPU process.
+- Edit → light: first light 0.07–0.11 s, settled 0.51–1.74 s.
+- Play start → settled: ≈ 19.8 s (street), ≈ 19.6 s (room).
+- Travel 150 m/s: longest 293 ms (off 58), missed 6.4 a min (off 10.1), detail 9.4 s (off 6.9).
+
+**What is left is the volume's own cost** (performance first, for the A/B): (1) the update while it has work, 8.9–11.2 ms
+of GPU against its 6.67 ms row: paced by its own stamps, which read it 1.3–1.7× short at the cap (D690: the pass's
+cost outside its stamps, the pool's barrier and the reads waiting on it, is the volume's); (2) open air: the coarse
+levels are 864 bricks a level of cells that all cast rays, so a settle from nothing takes 13–14 s in the e2e (10 s
+without them in 46e.6a); (3) `near` +1.3–4.8 ms with the store on, read or not (D693); (4) a fixed 29.8 MB pool;
+(5) the look at 32 rays a face: blotches (D692). The wiring costs are gone: the pool's stale bindings, the stalled
+stamps, the presence for the measurement.
+
+**Pictures** (`shots/`, looked at beside `46e.5c/shots/` (the cache) and `46e.6a/shots/`; mean brightness volume /
+46e.6a / cache): `room-window.png` 5.3 / 5.9 / 10.0 — the room dark, **the stairs' kit pieces dark now** (46e.6a: lit
+by the flat term), the soft cell-to-metre blotches on the walls round the windows still there (D692); the cache's dim
+grey walls and lit band at the west wall's foot are its own. `street-noon.png` 98.4 / 100.8 / 96.9 — the cache's look
+(dark doors, shade under eaves); the eave pieces lit like the gable where the cache shows a black sliver (D683); the
+white house's window interiors light grey where the cache's are darker; the gable's metre-scale mottling as in
+46e.6a. `cave.png` 62.4 / 63.4 / 65.8 — the tube darkens inward from a bright mouth floor; no black slit (the cache
+has one). `night-lamps.png` 13.9 / 13.7 / 13.6 — the lamps' bounce on the gable and fronts as the cache's. `far-view.png`
+95.2 / 102.1 / 97.9 — the far field as before; at the near houses (`far-crop.png`: 46e.6a, now, the cache) the window
+openings show beige: their frames and reveals, lit by the opening's own cells (they see the street and sky), where the
+cache's openings are black; the gables there carry darker cloud-shaped patches 46e.6a did not show (D695). Settle:
+`room-first/room-window-arrive-2s.png` (already dark, a few stair pieces still lit) and `-10s.png`; edits:
+`shots/edit-window-before.png` / `-after.png` (the hole lights the walls and floor round it), `edit-lamp-*.png`. The
+pictures after each GPU measurement differ by 0.7–5.9 % (D660, as before). Composites: `cmp-*.png`.
+
+**D691, traced.** The flat-lit windows of 46e.6a were draws made before the pool grew, reading the old texture (above).
+With one pool, the near houses read the volume; what the openings show from 40 m up is their frames and reveals in the
+0.5 m wall, whose cells lie in the opening and see the street: the volume's look at an opening (a cell is not inside
+or outside), not a bug. Past its windows (level 0 to ±48 m, the 4 m level to ±96 m) a pixel keeps the flat term,
+faded by the weight: part of the volume's design, and what the hybrid's hand-over meets.
+
+**D692, the bounded look.** Not the accumulation weight (1 / updates is the running mean) and not unjittered
+directions (each cell's own offset); the sequence across updates was broken (above) and is fixed, and the blotches
+stayed: single cells whose few rays find a bright opening. The volume's look at 32 rays a face; more rays or a filter
+cost more (not done).
+
+**Tested.** vitest `voxel-light-volume-layout.test.ts`: the index's rows a level, distinct places in each level's
+window, no texel shared across levels, keys apart; coarse cells' light stop against a cell-by-cell reference (3
+levels, ~80 k cells at 1 m) and kept bricks (every brick with an open cell near a solid one kept, none far from one;
+those kept with no open cell counted: 60 of 543 at 1 m, 0 at 2 and 4 m); the read: beside a floor, a wall and the street
+level 0 alone, 1.7 m over open ground and in a closed room's middle the 1 m level with no light from across the 0.5 m
+walls, the 2 m level where the 1 m has none, no weight where nothing holds light, and each level's share against the
+steps written out. Playwright `voxel-world.e2e.ts` Play (high tier, `voxel-shadows.ts` `voxelVolumeLightChecks`): the
+shut hut's walls 0.5 by the volume against 122.6 by the flat term; **a blue box mid-room** (1.2–2 m up, ≥ 0.8 m from
+walls) **0.0 against 19.1**, **the stone stub's kit pieces 0.0 against 119.7** (2,436 px; bound 0.5 share each); the
+GPU's 1 m cells round the hut against the CPU's rule: 2,600 updated, 1,288 holding light, **0 differ**; the 1 m cell in
+the shut hut's middle holds 0 on every face; outside, the box 1.7 m over the pad 104.6 against 71.6 by the flat term
+(bound 0.7); **a pillar built between a red lamp and the script's wall takes the lamp's red bounce off the cells up the
+wall's lit face (1,917 → 320, bound 0.7), dug it comes back (1,953, bound 0.8)**, each settled 3.6–3.9 s after the
+command; the pillar and those cells lie in one chunk (no chunk boundary falls between them at the test's pad; the
+volume marks by brick distance, so a chunk boundary is no special case); the earlier checks as 46e.6a. **Broken** (run
+once: the coarse levels not read, `e2e-broken-coarse2.log`): the box in the hut 19.1 = the flat term, the test fails
+at "the moving box inside reads the volume"; the box over the pad 67.1 (passes: a sanity bound); with the box at 0.8 m
+over the floor beside it (the first placement, `e2e-broken-coarse.log`) it read 3.9 by the 0.5 m cells and passed, so
+it was moved. Kit pieces with the read off would read the flat term as the box does (not run). The Play test 3.1 → 3.3–3.4
+min alone, 3.3 min in the gate (timeout 240 s, not raised); the 46e.6a hut's plaster-floor step folded into the open
+roof's picture to keep it so.
+
+**Gate.** `gate-fast-20261115-185454` GREEN at e3d86ffb (39 files: core, voxel, rendering, lighting, play; 70 passed;
+village perf at 60 Hz 0/361 missed, main 6.06 ms); voxel area 335 s (325 s at 46e.6a's every-area run). GATE2
+
+**Notes for 46e.7 (the hand-over).** (1) *Skipping bricks inside the hand-over distance d:* the level-0 kept rule
+gets one more condition, the brick's box farther than d − w from the eye horizontally (`lookBrick`'s `keep`; the
+window's follow already re-looks entering blocks; a move of the eye must re-look the ring d − w, cheaply by the blocks
+crossing it); the coarse levels likewise, or kept whole for moving objects near the eye (the cache's probes cover them
+there). (2) *The fade:* the volume's read takes `weight × smoothstep(d − w, d, distance to the eye)`, the cache's
+surface read and probes the complement past d (both are per pixel in the voxel surfaces' programs; the light nodes
+already compose in order: probes, then the volume over what is held). (3) *Measure* the same column for the hybrid,
+plus the update with fewer bricks (the window's level-0 bricks inside d are most of them at the cameras: 7–9 k), and
+`near` with both reads on. (4) *Traps:* with both stores on, the volume and the probes both hold the ambient lights
+(`markProbeHeld`): give back only what each took (the volume tracks its own); both register under `lighting` (the
+measurement hides both at once: register the hybrid's two passes apart or read them together); the fixed pool and a
+texture node swapped by value (D696) — do not grow either store's texture while lit draws bind it; `near` rises with any
+store on (D693), so compare hybrid against both alone, not against off.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -1360,6 +1521,23 @@ per pixel, so the hand-over is a per-pixel blend with no seam of geometry.
   make a volume yet (46e.7).
 - 2026-11-15 (46e.6a): `npm run lint` gives ESLint a 7 GB heap (D688); the Play e2e's timeout 180 → 240 s (both
   lighting stores' checks on one page).
+
+- 2026-11-15 (46e.6b, default chosen, owner to confirm): the volume's coarse levels are three clipmap windows of 12 × 6 ×
+  12 bricks (1 m cells to ±24 m, 2 m to ±48 m, 4 m to ±96 m across) in the same pool and index; a coarse cell stops light
+  where some level-0 cell in it does (the mips' rule, from the walk's level-0 blocks) and holds light wherever it is
+  open; a coarse brick is kept near what is solid (the level-0 kept rule over its bricks), not in the open sky. A point
+  reads level 0, then each coarser level for what it left (a smooth step of its weight to 0.25); none: the flat term.
+- 2026-11-15 (46e.6b, default chosen, owner to confirm): every lit draw on a page the volume lights reads it (voxel
+  surfaces, kit pieces, props, moving objects; `VOLUME_READ_KEY = false` opts out, the far field's shade does), as the
+  live probes are read by every lit draw for the cache.
+- 2026-11-15 (46e.6b, default chosen, owner to confirm): the volume's pool is made once at 16,384 slots (29.8 MB, of the
+  160 MiB budget), not grown by copy (a swapped texture left older draws reading the old one: D691, D696); bricks past
+  it wait for a freed slot. A timestamp reading past twice the least of the last 16 is taken at that (pacing).
+- 2026-11-15 (46e.6b, default chosen, owner to confirm): the volume's GPU pass is present for the measurement while the
+  volume exists (as the cache's), so settled cameras read it below resolution and the moving orbit reads its update.
+- 2026-11-15 (46e.6b): a face's rays over its updates are consecutive points of its sequence (the brick's own count); the
+  defaults stay 4 rays a face, 8 updates, 24 m (no tuning: D692 named). The Play e2e's hut steps: the plaster-floor
+  picture is the open roof's (one edit and settle fewer); its timeout stays 240 s.
 
 ## 10. Open questions for the owner (asked with the plan)
 
