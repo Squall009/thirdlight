@@ -99,6 +99,9 @@ export interface VoxelProbeDiagnostics {
   readonly pageBytes: number;
   readonly gpuBytes: number;
   readonly resolveBytes: number;
+  /** Cells of the surfaces' colours the materials drew, as last read back (null: not yet), and the frames that wrote them. */
+  readonly albedoDrawn: number | null;
+  readonly captures: number;
 }
 
 /** The live light on the page: whether it runs, why not, and the debug look's squares. */
@@ -449,7 +452,9 @@ export class AdapterSurfaceLight {
   private voxelProbes(): VoxelProbeDiagnostics {
     const p = this.host.probes;
     const d = p.diagnostics();
-    return { probes: d.probes, lit: d.lit, stale: d.stale, settled: this.host.probesSettled, drawn: this.liveProbes?.drawing ?? false, behind: this.liveProbes?.behind ?? false, bricks: d.bricks, updates: d.updates, placeMs: d.placeMs, lastSettleMs: d.lastSettleMs, pageBytes: p.bytes, gpuBytes: p.state.byteLength + (this.liveProbes?.tileBytes ?? 0), resolveBytes: this.runtime?.resolveBytes ?? 0 };
+    // The colours the probes bounce: read back now and then (`albedoDrawn`).
+    this.albedoAsked = true;
+    return { albedoDrawn: this.albedoDrawn, captures: this.captures, probes: d.probes, lit: d.lit, stale: d.stale, settled: this.host.probesSettled, drawn: this.liveProbes?.drawing ?? false, behind: this.liveProbes?.behind ?? false, bricks: d.bricks, updates: d.updates, placeMs: d.placeMs, lastSettleMs: d.lastSettleMs, pageBytes: p.bytes, gpuBytes: p.state.byteLength + (this.liveProbes?.tileBytes ?? 0), resolveBytes: this.runtime?.resolveBytes ?? 0 };
   }
 
   /** "Bake lighting": this page's live light run to settled and read back (`adapter-surface-bake.ts`). */
