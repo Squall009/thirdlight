@@ -85,7 +85,7 @@ interface UnitState {
   cursor: number;
 }
 
-function boxDistance(min: readonly number[], max: readonly number[], p: readonly number[]): number {
+export function boxDistance(min: readonly number[], max: readonly number[], p: readonly number[]): number {
   let s = 0;
   for (let a = 0; a < 3; a += 1) {
     const d = Math.max(min[a]! - p[a]!, 0, p[a]! - max[a]!);
@@ -95,12 +95,12 @@ function boxDistance(min: readonly number[], max: readonly number[], p: readonly
 }
 
 /** Whether a flat unit's plane has the point behind it (a small margin keeps a light on the plane). */
-function facesAway(u: RelightUnit, c: readonly number[]): boolean {
+export function facesAway(u: RelightUnit, c: readonly number[]): boolean {
   const p = u.plane;
   return p !== undefined && p[0]! * c[0]! + p[1]! * c[1]! + p[2]! * c[2]! - p[3]! < -1e-3;
 }
 
-function boxesTouch(aMin: readonly number[], aMax: readonly number[], bMin: readonly number[], bMax: readonly number[]): boolean {
+export function boxesTouch(aMin: readonly number[], aMax: readonly number[], bMin: readonly number[], bMax: readonly number[]): boolean {
   for (let k = 0; k < 3; k += 1) if (aMin[k]! > bMax[k]! || aMax[k]! < bMin[k]!) return false;
   return true;
 }
@@ -207,6 +207,33 @@ export class SurfaceRelight {
     const max = c.map((v) => v + r);
     for (const l of this.listeners) l(min, max);
     return n;
+  }
+
+  /**
+   * Every unit `keep` takes is stale; listeners hear of the box round them
+   * (not of the region tested). Returns the units marked.
+   */
+  markWhere(keep: (unit: RelightUnit) => boolean): number {
+    this.marks += 1;
+    let n = 0;
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    for (const s of this.units.values()) {
+      if (!keep(s.unit)) continue;
+      this.stale(s);
+      n += 1;
+      for (let k = 0; k < 3; k += 1) {
+        min[k] = Math.min(min[k]!, s.unit.min[k]!);
+        max[k] = Math.max(max[k]!, s.unit.max[k]!);
+      }
+    }
+    if (n > 0) for (const l of this.listeners) l(min, max);
+    return n;
+  }
+
+  /** Listeners hear of a box whose light may have changed though no unit there is marked (the probes round a changed surface). */
+  notify(min: readonly number[], max: readonly number[]): void {
+    for (const l of this.listeners) l(min, max);
   }
 
   /** Units a light at `c` reaching `r` lights (for the checks). */

@@ -23,7 +23,8 @@
  */
 import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 
-import type { SurfaceRelight } from './surface-relight';
+import { boxDistance, boxesTouch, facesAway, type SurfaceRelight } from './surface-relight';
+import { SUN_DISC_RADIANS } from './surface-light-frame';
 import type { SurfaceRooms } from './surface-rooms';
 import { bounceRayMetres } from './tracer-scene';
 
@@ -265,6 +266,51 @@ export class SurfaceChanges {
   }
 
   /**
+   * Casters in this box came, went or changed (a voxel chunk drawn, drawn
+   * again or let go): what they can change the direct light of is marked,
+   * not every texel a light touching the box reaches: units touching the box,
+   * and those some segment from which to a light (or ray toward a sun) the
+   * box can stand across (`boxShadowsBox`, `boxShadowsBoxFromSun`); the
+   * probes hear of the box and bounced light's reach round it (they bounce
+   * off what is there). Returns the units marked.
+   */
+  castersChanged(min: readonly number[], max: readonly number[], floorY?: number): number {
+    const r = bounceRayMetres(this.probeSpacing);
+    this.relight.notify(min.map((v) => v - r), max.map((v) => v + r));
+    const lights: { l: CacheLight; reach: number; size: number; held: ReturnType<SurfaceRooms['lightMarks']> | null }[] = [];
+    const suns: CacheLight[] = [];
+    let sweepAll = false;
+    for (const l of this.lit.values()) {
+      if (!l.on) continue;
+      if (l.kind === 'directional') {
+        // A sun near the horizon: its sweep as for any geometry (its rays run far along the ground).
+        if ((l.direction[1] ?? 0) < SWEEP_MIN_SINE) sweepAll = true;
+        else suns.push(l);
+        continue;
+      }
+      const reach = lightReach(l);
+      if (boxDistance(min, max, l.position) > reach) continue;
+      lights.push({ l, reach, size: lightRadius(l), held: this.rooms?.lightMarks(l.position, lightRadius(l)) ?? null });
+    }
+    if (sweepAll) {
+      this.geometryChanged(min, max, floorY);
+      return -1;
+    }
+    const rooms = this.rooms;
+    const spread = sunSpread();
+    return this.relight.markWhere((u) => {
+      if (boxesTouch(u.min, u.max, min, max)) return true;
+      for (const s of suns) if (boxShadowsBoxFromSun(s.direction, spread, min, max, u.min, u.max)) return true;
+      for (const { l, reach, size, held } of lights) {
+        if (boxDistance(u.min, u.max, l.position) > reach || facesAway(u, l.position)) continue;
+        if (held !== null && !rooms!.marks(u.min, u.max, held)) continue;
+        if (boxShadowsBox(l.position, size, min, max, u.min, u.max)) return true;
+      }
+      return false;
+    });
+  }
+
+  /**
    * Static geometry in this box changed: the box and bounced light's reach
    * round it, every light touching it (all it reaches), and its shadow's
    * sweep away from each sun down to `floorY`.
@@ -291,6 +337,62 @@ export class SurfaceChanges {
     }
   }
 }
+
+/** s · a ≤ b narrows [lo, hi] (null: no s left). */
+function clipLinear(lo: number, hi: number, a: number, b: number): [number, number] | null {
+  if (a > 0) hi = Math.min(hi, b / a);
+  else if (a < 0) lo = Math.max(lo, b / a);
+  else if (b < 0) return null;
+  return lo <= hi ? [lo, hi] : null;
+}
+
+/**
+ * Whether box `b` can stand between some point of box `u` and a light at `p`
+ * whose light leaves a sphere of radius `r`: some segment from `u` to the
+ * light meets `b`. For each axis the segment's parameters that put its point
+ * inside `b` form an interval, and a box's axes are free of each other, so
+ * the test is exact for a point light; a light's size grows both boxes by it
+ * (a segment to any point of the sphere is one to its centre moved by at most
+ * that).
+ */
+export function boxShadowsBox(p: readonly number[], r: number, bMin: readonly number[], bMax: readonly number[], uMin: readonly number[], uMax: readonly number[]): boolean {
+  let lo = 0;
+  let hi = 1;
+  for (let k = 0; k < 3; k += 1) {
+    const c = p[k]!;
+    // The segment's point c + s (x − c), x in u's extent, lies in b's for some x: s (ux0 − c) ≤ bx1 − c and s (ux1 − c) ≥ bx0 − c.
+    let w = clipLinear(lo, hi, uMin[k]! - r - c, bMax[k]! + r - c);
+    if (w === null) return false;
+    w = clipLinear(w[0], w[1], -(uMax[k]! + r - c), -(bMin[k]! - r - c));
+    if (w === null) return false;
+    [lo, hi] = w;
+  }
+  return true;
+}
+
+/**
+ * Whether box `b` can stand between some point of box `u` and a sun in
+ * direction `d` (toward it): a ray from `u` toward the sun meets `b` (exact
+ * for one direction; `spread` grows `b` by the sun disc's widening over the
+ * longest such ray, which climbs from `u`'s bottom to `b`'s top).
+ */
+export function boxShadowsBoxFromSun(d: readonly number[], spread: number, bMin: readonly number[], bMax: readonly number[], uMin: readonly number[], uMax: readonly number[]): boolean {
+  const t = Math.max(0, bMax[1]! - uMin[1]!) / Math.max(d[1]!, SWEEP_MIN_SINE);
+  const g = spread * t;
+  let lo = 0;
+  let hi = Infinity;
+  for (let k = 0; k < 3; k += 1) {
+    let w = clipLinear(lo, hi, d[k]!, bMax[k]! + g - uMin[k]!);
+    if (w === null) return false;
+    w = clipLinear(w[0], w[1], -d[k]!, uMax[k]! - (bMin[k]! - g));
+    if (w === null) return false;
+    [lo, hi] = w;
+  }
+  return true;
+}
+
+/** How fast (m a metre) a sun shadow's region widens past its caster: the sun's disc and its rays' cone, with room to spare (read when used: the two modules import each other). */
+const sunSpread = (): number => Math.tan(2 * SUN_DISC_RADIANS);
 
 /** Where surfaces' colours changed: a box round every change, or anywhere (`true`). */
 export type ColourChanges = { readonly min: readonly number[]; readonly max: readonly number[] } | true;
