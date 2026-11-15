@@ -701,6 +701,12 @@ function walkHooks(draws: VoxelWorldDraws) {
   };
 }
 
+/** The key light's cached static map draws so far (null: no cached shadow drawn): a bench times an edit's shadow by it. */
+function staticShadowDraws(adapter: SceneAdapter | null): number | null {
+  const d = adapter?.diagnostics();
+  return d?.ok === true ? (d.diagnostics.shadowMaps?.staticTotal ?? null) : null;
+}
+
 /** The test hook on a game page with voxel worlds: what is drawn, each edit's way to the screen, the kit meshes' states, relief drawn flat or moved, the far field shown or hidden, and the GPU headroom meter's knobs (voxel-meter.ts). */
 const VOXEL_PLAY_HOOK = '__tlVoxelPlay';
 
@@ -734,6 +740,8 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
   const kitMeshes = new VoxelKitMeshes();
   if (voxelKitMeshRefs(kits.records).length + voxelKitImageRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader(), undefined, (assetId) => kits.texture(assetId));
   const draws = new VoxelWorldDraws({
+    // Play and exports draw voxel worlds with shadows: cast and received as static casters of the scene's cached maps.
+    shadows: true,
     kits: kitMeshes.world(kits.records, kits.seed),
     // The worlds' material tables from the build's material records.
     materials: materials as readonly VoxelLookRecord[],
@@ -773,7 +781,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     meter: () => true,
   });
-  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws), skyHeight: (world: string, x: number, z: number) => draws.sky(world)?.heightAt(x, z) ?? null, skyColumns: (world: string) => draws.sky(world)?.count ?? 0 };
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws), skyHeight: (world: string, x: number, z: number) => draws.sky(world)?.heightAt(x, z) ?? null, skyColumns: (world: string) => draws.sky(world)?.count ?? 0, shadowDraws: () => staticShadowDraws(adapter()) };
   return {
     draws,
     kitMeshes,

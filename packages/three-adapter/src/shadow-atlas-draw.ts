@@ -34,9 +34,11 @@
  *   terms of their stored depth. A spot projecting a cookie has its record
  *   without a tile too (its projection, no strength).
  * - **Redraws** (`dirty`): the light moved or turned (its camera changed),
- *   the static casters changed (their revision), or something moved within
- *   its reach (the frame's movers). A light seen through faces then draws
- *   only the faces a mover is in or was last drawn in (`FaceRedraws`).
+ *   the static casters changed anywhere (their revision) or within its reach
+ *   (a change reported where it happened: a voxel chunk meshed again, a
+ *   static object listed), or something moved within its reach (the frame's
+ *   movers). A light seen through faces then draws only the faces a mover is
+ *   in or was last drawn in, and those a static change reaches (`FaceRedraws`).
  *
  * Diagnostics: `renderer.shadowAtlas` (side, lights, tiled, waiting, tiles
  * and texels drawn a frame, the share of the atlas in tiles, MiB).
@@ -54,7 +56,7 @@ import { shadowSeesCutaways } from './block-cutaway-view';
 import { objectLightLayers } from './light-layers';
 import { FaceRedraws, ShadowAtlasPlan, shadowRank, type AtlasRequest, type AtlasTile, type ShadowAtlasDiagnostics } from './shadow-atlas';
 import { AREA_BACK_FACE, CUBE_FACES, cubeDepthTerms, placeCubeFace } from './shadow-cube';
-import { isPreCompiling } from './shadow-casters';
+import { isPreCompiling, type LocalShadowChanges } from './shadow-casters';
 
 const TSL: N = TSLTyped;
 const { float, positionGeometry, vec4 } = TSL;
@@ -176,7 +178,10 @@ class AtlasTarget {
         const { tile, camera, mask } = tiles[i]!;
         this.target.viewport.set(tile.x, tile.y, tile.size, tile.size);
         this.target.scissor.set(tile.x, tile.y, tile.size, tile.size);
+        // The view's layers, and what is drawn off the view (a cut-away roof, a room no portal shows, a voxel relief
+        // chunk's plain caster): the shadow cameras see it, as the key light's do.
         camera.layers.mask = view.layers.mask;
+        shadowSeesCutaways(camera);
         this.standIn.shadow.camera = camera;
         this.mask = mask;
         this.wiped = false;
@@ -235,6 +240,11 @@ export interface AtlasFrameDeps {
   movers(): ArrayLike<number>;
   /** The static casters' revision (a change draws every tile again). */
   staticRevision(): number;
+  /**
+   * The static casters' changes reported where they happened since the last frame (a chunk of a voxel world meshed
+   * again, a static object listed): a tile, or a face of one, whose view one reaches is drawn again; `all`: every tile.
+   */
+  staticChanges?(): LocalShadowChanges | null;
 }
 
 interface Kept {
@@ -331,6 +341,9 @@ export class AdapterShadowAtlas {
     const eye = camera.matrixWorld.elements;
     const movers = this.d.movers();
     const revision = this.d.staticRevision();
+    const statics = this.d.staticChanges?.() ?? null;
+    const staticAll = statics?.all === true;
+    const placed = statics?.spheres ?? NO_SPHERES;
     const requests = this.requests;
     requests.length = 0;
     for (const a of lights) {
@@ -347,11 +360,11 @@ export class AdapterShadowAtlas {
       const { rank, fade } = shadowRank(a.reach, dist, seen);
       const c0 = k.cameras[0]!;
       _place.multiplyMatrices(c0.projectionMatrix, c0.matrixWorldInverse);
-      const changed = k.revision !== revision || !k.drawnWith.equals(_place);
-      let near = false;
-      for (let m = 0; !near && m + 3 < movers.length; m += 4) near = Math.hypot(movers[m]! - p.x, movers[m + 1]! - p.y, movers[m + 2]! - p.z) < a.reach + movers[m + 3]!;
-      let dirty = changed || near;
-      if (a.kind !== 'spot') dirty = k.faces.note(changed, near ? moverFaces(k.cameras, this.facesOf(a), movers) : 0) || dirty;
+      const changed = k.revision !== revision || staticAll || !k.drawnWith.equals(_place);
+      const near = spheresReach(movers, p, a.reach);
+      const touched = spheresReach(placed, p, a.reach);
+      let dirty = changed || near || touched;
+      if (a.kind !== 'spot') dirty = k.faces.note(changed, near ? moverFaces(k.cameras, this.facesOf(a), movers) : 0, touched ? moverFaces(k.cameras, this.facesOf(a), placed) : 0) || dirty;
       // A light seen through faces ranks at half weight: its faces cost six views.
       const faces = a.kind === 'spot' ? 1 : this.facesOf(a).length;
       requests.push({ key: a.key, rank: faces > 1 ? rank / 2 : rank, fade, dirty, faces });
@@ -538,7 +551,14 @@ function poseOf(a: AtlasLight, renderer: Pick<AtlasRenderer, 'coordinateSystem' 
   return changed;
 }
 
-/** Face `face`'s camera of a light seen through faces: 90° at its place, turned with it, reaching its range (its reach without one). */
+const NO_SPHERES: ArrayLike<number> = [];
+
+/** Whether one of `spheres` (x, y, z, r) lies within `reach` of `p`. */
+export function spheresReach(spheres: ArrayLike<number>, p: THREE.Vector3, reach: number): boolean {
+  for (let m = 0; m + 3 < spheres.length; m += 4) if (Math.hypot(spheres[m]! - p.x, spheres[m + 1]! - p.y, spheres[m + 2]! - p.z) < reach + spheres[m + 3]!) return true;
+  return false;
+}
+
 /** The bits of `faces`. */
 function faceBits(faces: readonly number[]): number {
   let bits = 0;
@@ -565,6 +585,7 @@ export function moverFaces(cameras: readonly THREE.PerspectiveCamera[], faces: r
   return bits;
 }
 
+/** Face `face`'s camera of a light seen through faces: 90° at its place, turned with it, reaching its range (its reach without one). */
 function placeFaceCamera(camera: THREE.PerspectiveCamera, face: number, a: AtlasLight, renderer: Pick<AtlasRenderer, 'coordinateSystem' | 'reversedDepthBuffer'>): void {
   project(camera, 90, Math.max(SHADOW_CAMERA_NEAR * 2, a.range > 0 ? a.range : a.reach), renderer);
   placeCubeFace(camera, face, a.position, a.turn);

@@ -495,13 +495,14 @@ export class FaceRedraws {
   private lastTiles: readonly AtlasTile[] | null = null;
 
   /**
-   * This frame's news: `changed` (the light or the static casters) and `moverFaces` (bits by face: a mover is in
-   * it now). True when a face must be drawn again though no mover is in it now (one left it).
+   * This frame's news: `changed` (the light or the static casters anywhere), `moverFaces` (bits by face: a mover is
+   * in it now) and `staticFaces` (bits by face: a static caster changed in it, which stays put, so the face holds no
+   * mover once drawn). True when a face must be drawn again though no mover is in it now (one left it).
    */
-  note(changed: boolean, moverFaces: number): boolean {
+  note(changed: boolean, moverFaces: number, staticFaces = 0): boolean {
     if (changed) this.full = true;
     this.now = moverFaces;
-    this.stale |= moverFaces;
+    this.stale |= moverFaces | staticFaces;
     return (this.held & ~moverFaces) !== 0;
   }
 

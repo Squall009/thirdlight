@@ -223,7 +223,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
   const only = (arg('only') ?? LIGHT_SHOT_NAMES.join(',')).split(',').filter((s) => s !== '');
   for (const n of only) if (!(LIGHT_SHOT_NAMES as readonly string[]).includes(n)) throw new Error(`--only: names among ${LIGHT_SHOT_NAMES.join(', ')}, not ${n}`);
   const query = arg('query') ?? '';
-  if (query !== '' && !query.startsWith('&')) throw new Error(`--query: more of the page's query, starting with & (e.g. &voxelShadows=static), not ${query}`);
+  if (query !== '' && !query.startsWith('&')) throw new Error(`--query: more of the page's query, starting with & (e.g. &voxelShadows=off), not ${query}`);
   const vp = arg('viewport') ?? '1280x720';
   const m = /^(\d+)x(\d+)$/.exec(vp);
   if (m === null) throw new Error(`--viewport: WxH, not ${vp}`);
@@ -277,4 +277,22 @@ export function shotProblems(s: { settled: boolean; chunks: number; l0: number; 
   if (s.near && s.l0 === 0) out.push('no level-0 chunk drawn');
   if (!(s.voxelShare >= VOXEL_SHARE_MIN)) out.push(`no voxel surface in the frame (${(s.voxelShare * 100).toFixed(1)} % changed with the voxels hidden)`);
   return out;
+}
+
+/** One animation frame of the edit watch: its time (page ms), the edits drawn so far, the static map's draws so far. */
+export type WatchFrame = [number, number, number | null];
+
+/**
+ * Edit → light, from the frames watched round one dig: the frame its mesh was first drawn in (the edit record's
+ * count rose; its `visibleMs` is the edit → that frame) and the first frame after the dig whose static shadow map
+ * was drawn again. The shadow's ms is the mesh's plus the time between the two frames (0 when the same frame; the
+ * two counts are read once a frame, after whatever callbacks ran before the watch's, so ±1 frame).
+ */
+export function editShadowTiming(frames: readonly WatchFrame[], visibleMs: number): { shadowMs: number | null; shadowFrames: number | null } {
+  if (frames.length === 0) return { shadowMs: null, shadowFrames: null };
+  const [, edits0, draws0] = frames[0]!;
+  const fv = frames.findIndex((f) => f[1] > edits0);
+  const fs = frames.findIndex((f) => f[2] !== null && draws0 !== null && f[2] > draws0);
+  if (fv < 0 || fs < 0) return { shadowMs: null, shadowFrames: null };
+  return { shadowMs: visibleMs + (frames[fs]![0] - frames[fv]![0]), shadowFrames: fs - fv };
 }

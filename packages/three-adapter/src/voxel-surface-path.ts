@@ -23,15 +23,15 @@ export function voxelPathsFromUrl(search: string): boolean {
 }
 
 /**
- * The page flag that measures the voxel surfaces as shadow casters: `?voxelShadows=static` makes every chunk and seam
- * surface cast into (and receive) the key light's shadow as a static caster (its cached map), pieces aside. Play
- * draws voxel surfaces without shadows; whether terrain casts is the owner's to decide.
+ * The page flag for comparisons: `?voxelShadows=off` draws a game page's voxel worlds as if they had no shadows
+ * (their surfaces and kit pieces neither cast nor receive), so a measurement or a picture can tell the shadows'
+ * own share. Without it, a game page's voxel surfaces and kit pieces cast and receive like any lit draw.
  */
 export const VOXEL_SHADOWS_URL_PARAM = 'voxelShadows';
 
-/** Whether a page's query string asks for voxel surfaces as static shadow casters. */
-export function voxelStaticCastersFromUrl(search: string): boolean {
-  return new URLSearchParams(search).get(VOXEL_SHADOWS_URL_PARAM) === 'static';
+/** Whether a page's query string leaves voxel shadows on (anything but `off`). */
+export function voxelShadowsFromUrl(search: string): boolean {
+  return new URLSearchParams(search).get(VOXEL_SHADOWS_URL_PARAM) !== 'off';
 }
 
 /** The first level whose draws read terrain on one projection. */

@@ -1,0 +1,166 @@
+/**
+ * Voxel shadows read from Play's pixels (voxel-world.e2e.ts's Play test drives them): a script-built wall's sun
+ * shadow, a moving box in it, a red lamp's shadow of the wall, a moving box's shadow on the voxel grass. Pixels read
+ * with png.ts.
+ */
+import { writeFileSync } from 'node:fs';
+
+import { changedPixels, decodePng } from './png';
+import { expect, test, type Page } from './pw';
+
+/** What the checks drive: the editor page with Play running, the play session, the character's stand (metres), the test objects' ids and where they wait, and the project API. */
+export interface ShadowCheckSetup {
+  readonly page: Page;
+  readonly psid: string;
+  readonly at: readonly number[];
+  readonly ids: { readonly blue: string; readonly mover: string; readonly lamp: string };
+  readonly away: number[];
+  readonly api: (path: string, body?: unknown) => Promise<{ status: number; json: Record<string, unknown> }>;
+}
+
+type Png = ReturnType<typeof decodePng>;
+const lum = (p: readonly number[]): number => 0.2126 * p[0]! + 0.7152 * p[1]! + 0.0722 * p[2]!;
+/** The pad's and the hills' grass: green over red and blue, not black. */
+const grass = (p: readonly number[]): boolean => p[1]! > 25 && p[1]! > 1.1 * p[0]! && p[1]! > 1.1 * p[2]!;
+/** The blue test box (lit or shaded): blue well over green and red. */
+const blueBox = (p: readonly number[]): boolean => p[2]! > 30 && p[2]! >= 1.6 * p[1]! && p[2]! >= 2 * p[0]!;
+
+/** Pixels that are grass in both pictures and at least `factor` times as bright in `b` as in `a`. */
+function grassBrighter(a: Png, b: Png, factor: number): number {
+  let n = 0;
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
+    const p = a.pixel(x, y);
+    const q = b.pixel(x, y);
+    if (grass(p) && grass(q) && lum(q) >= factor * Math.max(lum(p), 1)) n += 1;
+  }
+  return n;
+}
+
+/** How much brighter the blue box is in `b` than in `a`, over the pixels where both show it (and how many). */
+function blueRatio(a: Png, b: Png): { ratio: number; n: number } {
+  let sa = 0;
+  let sb = 0;
+  let n = 0;
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
+    const p = a.pixel(x, y);
+    const q = b.pixel(x, y);
+    if (blueBox(p) && blueBox(q)) {
+      sa += lum(p);
+      sb += lum(q);
+      n += 1;
+    }
+  }
+  return { ratio: n === 0 ? 0 : sb / sa, n };
+}
+
+/**
+ * Grass a red lamp lights once the wall between them is gone, and not while it stands: red the lamp adds to the
+ * grass without the wall (`noWall` − `noWallDark`) of at least `minAdd`, of which the same view with the wall keeps
+ * less than `keep` (`wall` − `wallDark`).
+ */
+function lampShadowed(wallDark: Png, wall: Png, noWallDark: Png, noWall: Png, minAdd: number, keep: number): number {
+  let n = 0;
+  for (let y = 0; y < wall.height; y++) for (let x = 0; x < wall.width; x++) {
+    const ground = noWallDark.pixel(x, y);
+    if (!grass(ground) || !grass(wallDark.pixel(x, y))) continue;
+    const add = noWall.pixel(x, y)[0]! - ground[0]!;
+    const kept = wall.pixel(x, y)[0]! - wallDark.pixel(x, y)[0]!;
+    if (add >= minAdd && kept < keep * add) n += 1;
+  }
+  return n;
+}
+
+/**
+ * Voxel shadows in Play (WebGPU), on the pad 8 km out under the scene's sun (from the south-west above): a wall 4 m
+ * tall built by the script beside the character. Its sun shadow darkens the grass east of it and a moving box
+ * standing in it; a red lamp east of it leaves the grass west of it dark; the wall dug (one edit), the grass there
+ * brightens and the box with it as soon as the shadows are drawn again (the key light's cached map and the lamp's
+ * atlas tile follow the edit). Then a moving box over the pad darkens the voxel grass under it. Each reading is
+ * waited for, then required past a bound set well inside what was measured (`console.log`ged with each run).
+ */
+export async function voxelShadowChecks(o: ShadowCheckSetup): Promise<void> {
+  const { page, psid, at, ids, away, api } = o;
+  const frame = page.locator('iframe.tl-app__preview-frame');
+  const control = async (name: string, args?: Record<string, unknown>): Promise<void> => {
+    const r = await api(`play/${psid}/control`, { command: 'debugCommand', name, ...(args !== undefined ? { args } : {}) });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+  };
+  const counter = async (name: string): Promise<number> => (((await api(`play/${psid}/observe`)).json as { counters?: Record<string, number> }).counters ?? {})[name] ?? 0;
+  const rel = (dx: number, dy: number, dz: number): number[] => [at[0]! + dx, at[1]! + dy, at[2]! + dz];
+  const place = (id: string, p: readonly number[]): Promise<void> => control('place', { id, x: p[0], y: p[1], z: p[2] });
+  /** The picture once two shots 150 ms apart differ in fewer than 40 pixels (streaming, fades and shadow draws done). */
+  const still = async (name: string): Promise<Png> => {
+    let last = null as Png | null;
+    let png = null as Buffer | null;
+    await expect.poll(async () => {
+      const b = await frame.screenshot();
+      const img = decodePng(b);
+      const same = last !== null && changedPixels(last, img, () => true, 30) < 40;
+      last = img;
+      png = b;
+      return same;
+    }, { timeout: 20_000, intervals: [150], message: `${name}: the picture settles` }).toBe(true);
+    writeFileSync(test.info().outputPath(`${name}.png`), png!);
+    return last!;
+  };
+  await control('wall');
+  await expect.poll(() => counter('wallBuilt'), { timeout: 10_000 }).toBe(1);
+  // In the wall's shadow: 0.3–0.9 m east of its east face, its top 0.6 m up (the shadow there reaches 1.4 m out).
+  await place(ids.blue, rel(-1.9, 0.3, -0.75));
+  const wall = await still('shadow-wall');
+  // The wall dug: its sun shadow goes from the grass and the box once the key light's cached map is drawn again.
+  const t0 = Date.now();
+  await control('unwall');
+  let lit = 0;
+  await expect.poll(async () => (lit = grassBrighter(wall, decodePng(await frame.screenshot()), SHADOW_LIT_FACTOR)), { timeout: 15_000, intervals: [50], message: 'the dug wall\'s sun shadow goes' }).toBeGreaterThan(SUN_SHADOW_MIN_PX);
+  const sunMs = Date.now() - t0;
+  expect(await counter('wallDug')).toBe(1);
+  const dug = await still('shadow-dug');
+  const sun = grassBrighter(wall, dug, SHADOW_LIT_FACTOR);
+  const box = blueRatio(wall, dug);
+  // The lamp 0.5 m west of where the wall stood, 3.5 m up (under its top); the wall built again stands between it and
+  // the grass east of it (in view): that grass loses the lamp's light once the lamp's atlas tile is drawn again.
+  await place(ids.lamp, rel(-3.5, 3.5, -0.75));
+  const dugLamp = await still('shadow-dug-lamp');
+  const t1 = Date.now();
+  await control('wall');
+  let kept = 0;
+  await expect.poll(async () => (kept = lampShadowed(wall, decodePng(await frame.screenshot()), dug, dugLamp, LAMP_ADD_MIN, LAMP_KEEP)), { timeout: 15_000, intervals: [50], message: "the rebuilt wall's lamp shadow comes" }).toBeGreaterThan(LAMP_SHADOW_MIN_PX);
+  const lampMs = Date.now() - t1;
+  const wallLamp = await still('shadow-wall-lamp');
+  const lamp = lampShadowed(wall, wallLamp, dug, dugLamp, LAMP_ADD_MIN, LAMP_KEEP);
+  await control('unwall');
+  await place(ids.lamp, away);
+  await expect.poll(() => counter('wallDug'), { timeout: 10_000 }).toBe(2);
+  await still('shadow-dug-again');
+  // A moving box over the pad (0.8 m, its foot 0.8 m up): its shadow on the voxel grass.
+  await place(ids.blue, away);
+  await place(ids.mover, rel(-5.75, 1.2, -0.25));
+  const mover = await still('shadow-mover');
+  await place(ids.mover, away);
+  const clear = await still('shadow-clear');
+  const under = grassBrighter(mover, clear, SHADOW_LIT_FACTOR);
+  console.log(`[voxel-play] shadows: sun shadow of the wall on the grass ${sun} px (a shot without it ${sunMs} ms after the dig command, ${lit} px), the box in it ${box.ratio.toFixed(2)} × as bright without it (${box.n} px), lamp shadow ${lamp} px (a shot with it ${lampMs} ms after the build command, ${kept} px), moving box's shadow ${under} px`);
+  expect(sun, 'the wall darkens the grass east of it').toBeGreaterThan(SUN_SHADOW_MIN_PX);
+  expect(box.n, 'the blue box is in view').toBeGreaterThan(200);
+  expect(box.ratio, 'the wall shades the moving box').toBeGreaterThan(BOX_LIT_RATIO);
+  expect(lamp, "the wall keeps the lamp's light off the grass behind it").toBeGreaterThan(LAMP_SHADOW_MIN_PX);
+  expect(under, "the moving box's shadow falls on the voxel grass").toBeGreaterThan(MOVER_SHADOW_MIN_PX);
+}
+
+/**
+ * The bounds, from the readings of the first green run (high tier, the preview's 670 × 253 picture): sunlit grass
+ * 1.13–1.17 × as bright as shaded (sun 1.2 over ambient 0.6), so a pixel counts at 1.06; the wall's sun shadow 1,161
+ * grass pixels (bound 400); the blue box (its 400 pixels shown in both) 1.62 × as bright out of it (bound 1.25); the
+ * red lamp adds 45–120 to the grass east of the wall, of which the wall keeps 0 (a pixel counts adding 30, keeping
+ * under 35 %): 16,120 pixels (bound 5,000); the moving box's shadow 375 pixels (bound 120). With voxel shadows off
+ * (`?voxelShadows=off`, run once): 0, 1.00, 1 and 0.
+ */
+const SHADOW_LIT_FACTOR = 1.06;
+const SUN_SHADOW_MIN_PX = 400;
+const BOX_LIT_RATIO = 1.25;
+const LAMP_ADD_MIN = 30;
+const LAMP_KEEP = 0.35;
+const LAMP_SHADOW_MIN_PX = 5000;
+const MOVER_SHADOW_MIN_PX = 120;
+

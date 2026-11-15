@@ -15,6 +15,7 @@ import {
   CAVE,
   caveStroke,
   changedShare,
+  editShadowTiming,
   LIGHT_PRESET_IDS,
   LIGHT_SHOT_NAMES,
   LIGHTING_CAMERAS,
@@ -124,15 +125,15 @@ describe('the light-shots options', () => {
     expect(o.only).toEqual([...LIGHT_SHOT_NAMES]);
   });
   it('pass a query through and pick cameras by name', () => {
-    const o = parseLightShotsArgs(['--quality', 'medium', '--query', '&voxelShadows=static', '--only', 'cave,far-view', '--out', 'x', '--edits', '0']);
-    expect([o.quality, o.query, o.only, o.out, o.edits, o.gpu]).toEqual(['medium', '&voxelShadows=static', ['cave', 'far-view'], 'x', 0, false]);
+    const o = parseLightShotsArgs(['--quality', 'medium', '--query', '&voxelShadows=off', '--only', 'cave,far-view', '--out', 'x', '--edits', '0']);
+    expect([o.quality, o.query, o.only, o.out, o.edits, o.gpu]).toEqual(['medium', '&voxelShadows=off', ['cave', 'far-view'], 'x', 0, false]);
     expect([parseLightShotsArgs(['--gpu']).gpu, parseLightShotsArgs(['--gpu', '--gpu-repeats', '7']).gpuRepeats]).toEqual([true, 7]);
     expect(() => parseLightShotsArgs(['--gpu-repeats', '1'])).toThrow(/--gpu-repeats/);
   });
   it('refuse bad values, naming the option', () => {
     expect(() => parseLightShotsArgs(['--quality', 'ultra'])).toThrow(/--quality/);
     expect(() => parseLightShotsArgs(['--only', 'cellar'])).toThrow(/--only/);
-    expect(() => parseLightShotsArgs(['--query', 'voxelShadows=static'])).toThrow(/--query/);
+    expect(() => parseLightShotsArgs(['--query', 'voxelShadows=off'])).toThrow(/--query/);
     expect(() => parseLightShotsArgs(['--hold', '-1'])).toThrow(/--hold/);
     expect(() => parseLightShotsArgs(['--out'])).toThrow(/--out/);
   });
@@ -154,5 +155,18 @@ describe('a shot is refused', () => {
     expect(shotProblems({ settled: false, chunks: 400, l0: 300, farBricks: 900, voxelShare: share, near: true })).toEqual(['streaming never settled']);
     expect(shotProblems({ settled: true, chunks: 0, l0: 0, farBricks: 0, voxelShare: share, near: false })).toEqual(['no voxel draws']);
     expect(shotProblems({ settled: true, chunks: 50, l0: 0, farBricks: 900, voxelShare: share, near: true })).toEqual(['no level-0 chunk drawn']);
+  });
+
+  it("time an edit's shadow from the frame its mesh is drawn to the first frame the static map is drawn again", () => {
+    // 30 Hz frames; the edit's mesh shows at frame 3 (its record: 40 ms from the edit), the static map at frame 3 too.
+    const frames = (meshAt: number, mapAt: number | null): [number, number, number | null][] => Array.from({ length: 10 }, (_, i) => [i * 33.3, i >= meshAt ? 1 : 0, mapAt === null ? 7 : i >= mapAt ? 8 : 7]);
+    expect(editShadowTiming(frames(3, 3), 40)).toEqual({ shadowMs: 40, shadowFrames: 0 });
+    // Drawn one frame later: one frame's time more.
+    const later = editShadowTiming(frames(3, 4), 40);
+    expect(later.shadowFrames).toBe(1);
+    expect(later.shadowMs).toBeCloseTo(73.3, 6);
+    // Never drawn again (no shadow change seen), or no cached map: no reading.
+    expect(editShadowTiming(frames(3, null), 40)).toEqual({ shadowMs: null, shadowFrames: null });
+    expect(editShadowTiming([], 40)).toEqual({ shadowMs: null, shadowFrames: null });
   });
 });

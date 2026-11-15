@@ -101,7 +101,7 @@ import { VoxelFarView } from './voxel-far-mesh';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
 import { gridPhases } from './voxel-surface-projection';
 import { AXIS_PROJECTION_LEVEL, voxelDrawPath } from './voxel-surface-path';
-import { STATIC_CASTER_KEY } from './shadow-casters';
+import { MOVING_CASTER_KEY, STATIC_CASTER_KEY, type StaticShadowRevision } from './shadow-casters';
 import { disposeObjectTree } from './dispose';
 import { markOccludee, markOccludeeGroup } from './occludees';
 import { FULL_PATH, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
@@ -218,6 +218,34 @@ function casterMaterial(): THREE.Material {
   return m;
 }
 
+/** Where a view reports its static casters' changes: within a sphere (world metres), or anywhere. */
+export type VoxelShadowChanges = Pick<StaticShadowRevision, 'changedWithin' | 'bump'>;
+
+/** Metres a draw's box sphere is grown by for its kit pieces reaching past its cells (a flush cut, a stagger, an eave). */
+const DRAW_REACH_M = 1;
+
+/** A view's reports of its static casters' changes. */
+class DrawShadowReports {
+  private readonly at = new THREE.Vector3();
+  constructor(
+    readonly to: VoxelShadowChanges,
+    private readonly grid: ChunkGrid,
+    private readonly origin: FloatingOrigin,
+    private readonly root: THREE.Object3D,
+  ) {}
+
+  /**
+   * A draw in the box of a node of `level` at `cell` (its corner, level-0 cells) was shown, replaced or taken away:
+   * the static shadows within its sphere (grown for the pieces reaching past it) are drawn again.
+   */
+  changed(cell: readonly number[], level: number): void {
+    const o = this.origin.origin;
+    const half = (this.grid.edge * 2 ** level * VOXEL_SIZE_M) / 2;
+    const c = this.at.set((cell[0]! - o.x) * VOXEL_SIZE_M + half, (cell[1]! - o.y) * VOXEL_SIZE_M + half, (cell[2]! - o.z) * VOXEL_SIZE_M + half).applyMatrix4(this.root.matrixWorld);
+    this.to.changedWithin(c.x, c.y, c.z, half * Math.sqrt(3) + DRAW_REACH_M);
+  }
+}
+
 /** A seam piece: positions in the finer level's steps from its origin (finer-level cells). */
 export type VoxelSeamPiece = SeamPieceWire;
 
@@ -295,12 +323,16 @@ export interface VoxelChunkViewOptions {
   readonly renderer: VoxelGridRenderer;
   /** Kit pieces' meshes (the world's piece table and kits); absent: kit pieces are not drawn ({@link VoxelChunkView.setKits}). */
   readonly kits?: VoxelKitSet | null;
-  /** Surfaces and pieces cast and receive shadows (default false). */
+  /** Surfaces and pieces cast and receive shadows (default false; with {@link staticShadows} they do whatever this says). */
   readonly shadows?: boolean;
   /** Each draw's program follows its grid and level ({@link voxelDrawPath}; default true; false: every draw the full program). */
   readonly fastPaths?: boolean;
-  /** Surfaces (not pieces) cast and receive the key light's shadow as static casters, whatever `shadows` says (a measurement). */
-  readonly staticCasters?: boolean;
+  /**
+   * Surfaces (chunks, mip nodes, seams) and kit pieces cast and receive as static casters (the key light's cached
+   * map, the shadow atlas's tiles kept until a change reaches them), and every draw shown, replaced or taken away is
+   * reported here where it stands (its box's sphere, world metres) or, for a change everywhere, with null.
+   */
+  readonly staticShadows?: VoxelShadowChanges | null;
   /** Whether the far bricks draw as a visibility pass and one shade on WebGPU (default on; `VoxelFarViewOptions.visibility`). */
   readonly farVisibility?: boolean;
   /** Where the far field's visibility feedback goes (`VoxelFarViewOptions.onSeen`; absent: none is made). */
@@ -355,7 +387,7 @@ export class VoxelChunkView {
   private readonly renderer: VoxelGridRenderer;
   private readonly shadows: boolean;
   private readonly fastPaths: boolean;
-  private readonly staticCasters: boolean;
+  private readonly statics: DrawShadowReports | null;
   private readonly plainCasters: boolean;
   /** Triangles drawn (seams included), and of them the seams'. */
   triangles = 0;
@@ -381,12 +413,12 @@ export class VoxelChunkView {
     this.origin = opts.origin;
     this.shading = opts.surface;
     this.renderer = opts.renderer;
-    this.shadows = opts.shadows === true;
+    this.statics = opts.staticShadows == null ? null : new DrawShadowReports(opts.staticShadows, opts.grid, opts.origin, this.root);
+    this.shadows = opts.shadows === true || this.statics !== null;
     this.fastPaths = opts.fastPaths !== false;
-    this.staticCasters = opts.staticCasters === true;
     this.plainCasters = opts.reliefCasters !== 'relief';
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
-    this.pieces = new VoxelPieceBatches({ origin: opts.origin, shadows: this.shadows });
+    this.pieces = new VoxelPieceBatches({ origin: opts.origin, shadows: this.shadows, staticCasters: this.statics !== null });
     this.root.add(this.pieces.root);
     // Its chunk, node and seam surfaces are occlusion culling's draws, though they sit below this root.
     markOccludeeGroup(this.root);
@@ -495,7 +527,13 @@ export class VoxelChunkView {
 
   /** Builds again the pieces of every drawn chunk and node that waited for kit meshes, then tells {@link rebuilt}. */
   private buildWaiting(): void {
-    for (const map of this.levels) for (const m of map?.values() ?? []) if (m.waiting) this.givePieces(m, this.pieceRuns(m));
+    for (const map of this.levels) {
+      for (const m of map?.values() ?? []) {
+        if (!m.waiting) continue;
+        this.givePieces(m, this.pieceRuns(m));
+        this.statics?.changed(m.cell, m.level);
+      }
+    }
     this.flushPieces();
     this.rebuilt?.();
   }
@@ -672,6 +710,8 @@ export class VoxelChunkView {
     this.place(m.group, m.cell);
     m.group.visible = this.nearShown;
     this.root.add(m.group);
+    // A draw it replaced was reported as it went (the same box); a new one is reported here.
+    this.statics?.changed(m.cell, m.level);
     if (m.decalSurface !== null) this.tellAdded(m.decalSurface);
     let map = this.levels[p.level];
     if (map === undefined) {
@@ -716,6 +756,7 @@ export class VoxelChunkView {
     mesh.layers.set(OFF_VIEW_LAYER);
     mesh.castShadow = true;
     mesh.receiveShadow = false;
+    if (this.statics !== null) mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.userData[VOXEL_CASTER_KEY] = true;
     group.add(mesh);
     return geometryBytes(geo);
@@ -756,12 +797,17 @@ export class VoxelChunkView {
     return out;
   }
 
-  /** With {@link VoxelChunkViewOptions.staticCasters}: `mesh` casts and receives as a static caster (the cached map). */
+  /**
+   * With {@link VoxelChunkViewOptions.staticShadows}: `mesh` casts into the cached maps (it changes only by being
+   * replaced, which is reported). A relief mesh casting its own displaced shape (the `relief` casters kept to
+   * compare) moves with the ring's focus and fade, which nothing reports: it casts as a moving caster.
+   */
   private castStatic(mesh: THREE.Mesh): void {
-    if (!this.staticCasters) return;
-    mesh.castShadow = mesh.receiveShadow = true;
-    mesh.userData[STATIC_CASTER_KEY] = true;
+    if (this.statics === null || !mesh.castShadow) return;
+    if (mesh.geometry.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) mesh.userData[MOVING_CASTER_KEY] = true;
+    else mesh.userData[STATIC_CASTER_KEY] = true;
   }
+
 
   private applyShader(m: ChunkDraw, solid: number): void {
     this.shaderSets++;
@@ -889,6 +935,7 @@ export class VoxelChunkView {
 
   private removeDraw(m: ChunkDraw): void {
     this.root.remove(m.group);
+    this.statics?.changed(m.cell, m.level);
     this.pieces.remove(m);
     this.flushPieces();
     if (m.decalSurface !== null) this.decalSurfaces?.removed(m.decalSurface);
@@ -934,6 +981,7 @@ export class VoxelChunkView {
     const mesh = new THREE.Mesh(geo, this.fastPaths ? this.shading.materialFor({ materials: 2, projection: level >= AXIS_PROJECTION_LEVEL ? 'axis' : 'blend' }) : this.shading.material);
     mesh.castShadow = mesh.receiveShadow = this.shadows;
     this.castStatic(mesh);
+    this.statics?.changed(cell, level);
     markOccludee(mesh, 'single');
     mesh.name = `voxel-seam ${seamId(level, nx, ny, nz, face)}`;
     mesh.matrixAutoUpdate = false;
@@ -960,6 +1008,7 @@ export class VoxelChunkView {
 
   /** Shows or hides the near field (a measuring run's pass hidden; nothing is rebuilt). */
   showNear(on: boolean): void {
+    if (on !== this.nearShown) this.statics?.to.bump();
     this.nearShown = on;
     for (const c of this.nearObjects()) c.visible = on;
   }
@@ -970,6 +1019,7 @@ export class VoxelChunkView {
     if (s === undefined) return;
     this.seams.delete(id);
     this.root.remove(s.mesh);
+    this.statics?.changed(s.cell, s.level);
     s.mesh.geometry.dispose();
     disposeObjectTree(s.mesh);
     this.triangles -= s.triangles;

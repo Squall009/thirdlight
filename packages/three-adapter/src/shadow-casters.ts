@@ -125,6 +125,14 @@ export class DrawnCasters {
 /** Changes reported where they happened that are kept between two looks at most (more count as anywhere). */
 const CHANGES_KEPT = 4096;
 
+/** The changes reported where they happened since the local lights' shadow atlas last took them. */
+export interface LocalShadowChanges {
+  /** Spheres, x, y, z, r each (world metres). */
+  readonly spheres: ArrayLike<number>;
+  /** More were reported than are kept: count them as a change everywhere. */
+  readonly all: boolean;
+}
+
 /** What changed among the static shadow casters since the map last looked. */
 export class StaticShadowRevision {
   /** Bumped by a change anywhere (the map compares it with the one it was drawn at). */
@@ -134,6 +142,14 @@ export class StaticShadowRevision {
   private used = 0;
   /** Holds in force (`hold`): changes are kept, not drained, until the last is let go. */
   private holds = 0;
+  /**
+   * The same changes for the shadow atlas (x, y, z, r each), kept apart from the key light's: the two read them at
+   * different points of the frame, and a page with no shadowed local light never takes them (they then stop at the
+   * cap as "everywhere", which costs nothing until a light asks).
+   */
+  private local: number[] = [];
+  private localTaken: number[] = [];
+  private localAll = false;
 
   /**
    * Hold the changes back (true) or let them go (false; holds count): while
@@ -175,10 +191,12 @@ export class StaticShadowRevision {
     // Its radius scaled by the largest axis scale (three's own bound for a transformed sphere).
     s.copy(local).applyMatrix4(o.matrixWorld);
     if (!Number.isFinite(s.radius) || !Number.isFinite(s.center.x + s.center.y + s.center.z)) this.bump();
+    else this.keepLocal(s.center.x, s.center.y, s.center.z, s.radius);
   }
 
   /** A change within the sphere at (x, y, z) of `radius` (world metres): a terrain tile's ground came, went or changed there. */
   changedWithin(x: number, y: number, z: number, radius: number): void {
+    this.keepLocal(x, y, z, radius);
     // Changes nothing drains (no cached map to draw) are not kept without end: past a few thousand, anywhere.
     if (this.used >= CHANGES_KEPT) {
       this.used = 0;
@@ -191,6 +209,28 @@ export class StaticShadowRevision {
     s.radius = radius;
   }
 
+  private keepLocal(x: number, y: number, z: number, r: number): void {
+    if (this.localAll) return;
+    if (this.local.length >= CHANGES_KEPT * 4) {
+      this.local.length = 0;
+      this.localAll = true;
+      return;
+    }
+    this.local.push(x, y, z, r);
+  }
+
+  /**
+   * The changes reported where they happened since the last call, for the shadow atlas: a local light's tile (a
+   * face of it) whose view one reaches is drawn again; the next call forgets them. The spheres are valid until then.
+   */
+  takeLocal(): LocalShadowChanges {
+    const out = { spheres: this.local, all: this.localAll };
+    [this.local, this.localTaken] = [this.localTaken, this.local];
+    this.local.length = 0;
+    this.localAll = false;
+    return out;
+  }
+
   /** Whether a change reported where it happened lies within `reach`, and forget them. */
   drain(reach: ((s: THREE.Sphere) => boolean) | null): boolean {
     if (this.holds > 0 && reach !== null) return false;
@@ -199,6 +239,31 @@ export class StaticShadowRevision {
     this.used = 0;
     return hit;
   }
+}
+
+/**
+ * What draws hung under a scene outside its render graph (a voxel world's chunks, voxel-world-draws.ts) need of its
+ * shadows: where to report a change of their static casters (null: the scene draws every caster into one map every
+ * frame), and how they tell the ground under a point (the key light's shadow square is centred on it; null: none
+ * known there). The scene adapter keeps the link on its scene, as it keeps the voxel worlds' decal link.
+ */
+export interface SceneShadowLink {
+  readonly revision: StaticShadowRevision | null;
+  /** The height (world metres) of the ground under (x, z), set by whoever knows it (null: the scene's plane, y = 0). */
+  ground: ((x: number, z: number) => number | null) | null;
+}
+
+const shadowLinks = new WeakMap<object, SceneShadowLink>();
+
+/** Keep `link` on `scene` (null: take it off). */
+export function attachSceneShadows(scene: object, link: SceneShadowLink | null): void {
+  if (link === null) shadowLinks.delete(scene);
+  else shadowLinks.set(scene, link);
+}
+
+/** The shadow link kept on `scene` (null: none, the scene casts no shadow its adapter knows of). */
+export function sceneShadowsOf(scene: object): SceneShadowLink | null {
+  return shadowLinks.get(scene) ?? null;
 }
 
 /** The page flag that draws every caster into one shadow map every frame (`?shadowcache=off`: a diagnostic comparison). */

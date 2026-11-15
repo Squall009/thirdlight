@@ -41,7 +41,7 @@
  *   --copies LIST        passes drawn again (default near,far; `none`)
  *   --repeats N          the GPU measurement's interleaved repeats (default 5)   --gpu-window S (default 1.5)
  *   --scales LIST        render scales at no load (default low 0.833,1; medium 0.75,0.833,0.917,1; high 0.9,0.8,0.667; `none`)
- *   --query Q            more of the editor page's query (`&voxelShadows=static`: page flags Play is passed)
+ *   --query Q            more of the editor page's query (`&voxelShadows=off`: page flags Play is passed)
  *   --orbit R,W          the camera R m from the town square at W rad/s (default 12,0.15; e.g. 60,0.25 moves the eye 15 m/s)
  *   --viewport WxH       (default 1280x720)   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/headroom/<quality>-<tag>.json)
  *

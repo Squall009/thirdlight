@@ -98,6 +98,7 @@ import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-
 import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
+import { voxelShadowChecks } from './voxel-shadows';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -1014,6 +1015,12 @@ async function playProject(): Promise<[number, number, number]> {
     "      state.rooms = r.every((e: any) => e.ok); ctx.game.add(state.rooms ? 'roomsBuilt' : 'roomsRefused', 1);",
     '    }',
     "    for (const _ of ctx.debug.command('shaft')) { const r = v.dig(box(-0.5, -3, 10.5, 0.5, 14, 11.5)); ctx.game.add(r.ok ? 'shaftDug' : 'shaftRefused', 1); }",
+    // Shadows: a wall 4 m tall on the pad west of the character (its sun shadow falls east of it), dug again; objects
+    // (test boxes, a lamp) moved by id.
+    '    const wall = box(-3, 0, -2, -2.5, 4, 0.5);',
+    `    for (const _ of ctx.debug.command('wall')) ctx.game.add(v.set(wall, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'wallBuilt' : 'wallRefused', 1);`,
+    "    for (const _ of ctx.debug.command('unwall')) ctx.game.add(v.dig(wall).ok ? 'wallDug' : 'wallRefused', 1);",
+    "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
     '    if (state.rooms) {',
     "      const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));",
     '      const a = v.regionAt(A[0], A[1] - 4.5, A[2] + 11);',
@@ -1340,6 +1347,15 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     await page.setViewportSize({ width: 1280, height: 720 });
     const at = await playProject();
     await groundRelief(true);
+    // The shadow checks' objects, 500 m under the pad until they are placed (taken out at the end): a blue box the
+    // wall's shadow falls on, a grey box over the pad (both moving objects: not static), a red lamp that casts.
+    const away = (): number[] => [at[0], at[1] - 500, at[2]];
+    const make = async (name: string, kind: 'box' | 'group', parts: Record<string, unknown>): Promise<string> => String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind, name, transform: { position: away() }, ...parts }))['createdId']);
+    const shadowObjects = {
+      blue: await make('Shadowed box', 'box', { box: { size: [0.6, 0.6, 0.6], material: { color: '#2050f0' } } }),
+      mover: await make('Moving box', 'box', { box: { size: [0.8, 0.8, 0.8], material: { color: '#e0e0e0' } } }),
+      lamp: await make('Red lamp', 'group', { components: { light: { type: 'point', color: '#ff3030', intensity: 400, range: 10, decay: 2, castShadow: true } } }),
+    };
     const errors = consoleErrors(page);
     const url = editorUrlFor(be.editorUrl, renderer);
     await page.goto(url);
@@ -1405,6 +1421,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     expect(wc.hits).toBeGreaterThan(100);
     expect(wc.misses).toBeGreaterThan(100);
     expect(wc.mismatches, JSON.stringify(wc.examples)).toBe(0);
+    await voxelShadowChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);
@@ -1571,6 +1588,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     // Back to 2 m (the cache keeps the baked levels; a scene asking 2 m neither reads nor ships them).
     await playCmd('setComponent', { entityId: playWorld!, component: 'voxelWorld', value: { bakeLevel: null, quality: { low: FAR_TEST_RINGS } } });
     await groundRelief(false);
+    await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp] });
   });
 }
 

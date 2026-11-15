@@ -10,7 +10,8 @@
  * report's `problems`, exit code 1). With each shot: the frame profile's page and simulation ms a frame and its
  * budget rows (the `lighting` category among them), and its resident-bytes table. After the shots, `--edits`
  * runtime digs in front of the street camera, each timed from the edit to the first frame that draws it
- * (`__tlVoxelPlay.edits()`). With `--gpu`, at each camera after its pictures the page's GPU measurement
+ * (`__tlVoxelPlay.edits()`) and to the first frame whose key-light shadow map was drawn again after it (edit →
+ * light, `editShadowTiming`). With `--gpu`, at each camera after its pictures the page's GPU measurement
  * (game-host gpu-measure.ts: ms per pass category, the Profiler's "Measure GPU") runs and goes into the shot's
  * `gpu`, and a third picture after it (`<name>-after-gpu.png`) is compared with the first: a measurement must
  * leave the scene drawing what it drew (`afterGpuShare`, refused over the street's own run-to-run change).
@@ -47,7 +48,7 @@ import { commandEnvelope } from '../../tests/support/commands';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { BENCH_LAMP_LIGHT, BENCH_LAMPS, caveStroke, changedShare, EDIT_DIGS, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems } from './lighting-cameras';
+import { BENCH_LAMP_LIGHT, BENCH_LAMPS, caveStroke, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { openPlay, type PlayGame } from './travel-page';
 import { settleAfter, type CountSample } from './travel';
@@ -84,7 +85,10 @@ interface Hook {
   stats(): { worlds: Record<string, WorldStats> };
   edits(): Array<{ world: string; visibleMs: number; swapMs: number; hopMs: number; applyMs: number; frames: number; chunks: number; sections: number }>;
   meter: { set(s: { renderScale?: number; dynamicResolution?: boolean; hide?: { near?: boolean; far?: boolean } }): boolean };
+  /** The key light's cached static map draws so far (null: no cached shadow). */
+  shadowDraws(): number | null;
 }
+
 
 const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });
 
@@ -255,6 +259,19 @@ async function main(): Promise<void> {
       const edits: unknown[] = [];
       for (const d of EDIT_DIGS.slice(0, O.edits)) {
         const n = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.edits().length ?? 0)) as number;
+        // Every frame from now for 6 s: its time, the edits drawn and the static shadow map's draws (edit → light).
+        await game.frame.evaluate(() => {
+          const w = window as unknown as { __tlVoxelPlay?: Hook; __tlEditWatch?: WatchFrame[] };
+          const h = w.__tlVoxelPlay;
+          const rec: WatchFrame[] = [];
+          w.__tlEditWatch = rec;
+          const t0 = performance.now();
+          const tick = (): void => {
+            rec.push([performance.now(), h?.edits().length ?? 0, h?.shadowDraws() ?? null]);
+            if (performance.now() - t0 < 6000) requestAnimationFrame(tick);
+          };
+          tick();
+        });
         await game.debug(d.command);
         let got: unknown = null;
         for (let i = 0; i < 80 && got === null; i++) {
@@ -262,13 +279,15 @@ async function main(): Promise<void> {
           const list = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.edits() ?? [])) as unknown[];
           if (list.length > n) got = list[list.length - 1];
         }
-        edits.push({ command: d.command, center: d.center, edit: got });
+        const watched = (await game.frame.evaluate(() => (window as unknown as { __tlEditWatch?: WatchFrame[] }).__tlEditWatch ?? [])) as WatchFrame[];
+        const light = got === null ? { shadowMs: null, shadowFrames: null } : editShadowTiming(watched, (got as { visibleMs: number }).visibleMs);
+        edits.push({ command: d.command, center: d.center, edit: got, ...light });
         if (got === null) problems.push(`${d.command}: no edit reached the screen in 20 s`);
         await page.waitForTimeout(1000);
       }
       const obs = await game.observe().catch(() => null);
       out['edits'] = { digs: edits, refused: obs?.counters?.['light_dig_refused'] ?? 0, issued: obs?.counters?.['light_digs'] ?? 0 };
-      console.log(`edits: ${JSON.stringify(edits.map((e) => (e as { edit: { visibleMs?: number; frames?: number } | null }).edit === null ? null : { visibleMs: (e as { edit: { visibleMs: number } }).edit.visibleMs, frames: (e as { edit: { frames: number } }).edit.frames }))}`);
+      console.log(`edits: ${JSON.stringify(edits.map((e) => (e as { edit: { visibleMs?: number; frames?: number } | null }).edit === null ? null : { visibleMs: (e as { edit: { visibleMs: number } }).edit.visibleMs, frames: (e as { edit: { frames: number } }).edit.frames, shadowMs: (e as { shadowMs: number | null }).shadowMs, shadowFrames: (e as { shadowFrames: number | null }).shadowFrames }))}`);
     }
     // Open regions where the world runs (counts, bytes, derive µs), then a hole dug through the room camera's wall:
     // wall ms from the command until the room's region answer at its eye changes (polled every 50 ms), and the steps.

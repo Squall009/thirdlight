@@ -74,7 +74,7 @@
  */
 import * as THREE from 'three';
 import { residentBytes, threadProfiler, wallClock } from '@thirdlight/shared';
-import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SkyColumns, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
+import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SKY_NONE, SkyColumns, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
 import { isStreamedTexture } from './texture-streaming';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { VoxelBatchStage, voxelBatchFrameMs } from './voxel-batch-stage';
@@ -83,7 +83,8 @@ import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRec
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from './voxel-surface';
-import { voxelPathsFromUrl, voxelStaticCastersFromUrl } from './voxel-surface-path';
+import { voxelPathsFromUrl, voxelShadowsFromUrl } from './voxel-surface-path';
+import { sceneShadowsOf, type SceneShadowLink } from './shadow-casters';
 import { farFeedbackFromUrl } from './voxel-far-feedback';
 import type { VoxelFarView } from './voxel-far-mesh';
 import { farVisibilityFromUrl } from './voxel-far-visibility';
@@ -136,6 +137,13 @@ export interface VoxelWorldDrawsOptions {
   release?(texture: THREE.Texture): void;
   /** How the arrays are kept resident (absent: as loaded): the level's texel density and the streamer's cap. */
   readonly residency?: VoxelTextureResidency;
+  /**
+   * The worlds' surfaces and kit pieces cast and receive shadows (default false: the editor's Scene view): as static
+   * casters of the scene's cached maps where its adapter keeps them, each draw's change reported where it stands;
+   * and the key light's shadow square is centred on the worlds' ground under the camera. `?voxelShadows=off` turns
+   * it off on a page (a comparison).
+   */
+  readonly shadows?: boolean;
 }
 
 /** The page's say over the voxel texture arrays' resident levels. */
@@ -279,6 +287,9 @@ export class VoxelWorldDraws {
   private readonly walks = new Map<string, VoxelWalkGpu>();
   /** Each world's sky heights by chunk column, as the batches bring them (every renderer: plain arrays). */
   private readonly skies = new Map<string, SkyColumns>();
+  /** The scene shadow link whose ground this page tells (taken back on dispose). */
+  private groundLink: SceneShadowLink | null = null;
+  private readonly ground = (x: number, z: number): number | null => this.groundAt(x, z);
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.unregister.push(
@@ -515,7 +526,13 @@ export class VoxelWorldDraws {
     if (this.arrays !== null) this.giveArrays(surface);
     // Per-draw programs on WebGPU only: WebGL 2 keeps the one program it drew with.
     const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
-    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), staticCasters: voxelStaticCastersFromUrl(pageSearch()), farVisibility: farVisibilityFromUrl(pageSearch()), ...(this.opts.farSeen !== undefined && farFeedbackFromUrl(pageSearch()) ? { onFarSeen: (seen: FarSeenWire) => this.opts.farSeen!(name, seen) } : {}), ...(this.opts.fineUnavailable !== undefined ? { onFineUnavailable: () => this.opts.fineUnavailable!(name) } : {}), ...((t) => (t !== null ? { fineTexture: t } : {}))(fineTextureFromUrl(pageSearch())) });
+    const shadows = this.opts.shadows === true && voxelShadowsFromUrl(pageSearch());
+    const link = shadows ? sceneShadowsOf(scene) : null;
+    if (link !== null && link.ground === null) {
+      link.ground = this.ground;
+      this.groundLink = link;
+    }
+    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), ...(this.opts.farSeen !== undefined && farFeedbackFromUrl(pageSearch()) ? { onFarSeen: (seen: FarSeenWire) => this.opts.farSeen!(name, seen) } : {}), ...(this.opts.fineUnavailable !== undefined ? { onFineUnavailable: () => this.opts.fineUnavailable!(name) } : {}), ...((t) => (t !== null ? { fineTexture: t } : {}))(fineTextureFromUrl(pageSearch())) });
     view.rebuilt = () => this.rebuilt(name);
     view.root.name = `voxel-world ${name}`;
     scene.add(view.root);
@@ -536,6 +553,19 @@ export class VoxelWorldDraws {
   /** A world's sky heights (null: none arrived yet). */
   sky(world: string): SkyColumns | null {
     return this.skies.get(world) ?? null;
+  }
+
+  /**
+   * The ground under world point (x, z) in metres: the top of the highest solid cell there that a world drawn here
+   * knows (null: none knows the column, or nothing is solid in it).
+   */
+  groundAt(x: number, z: number): number | null {
+    let top: number | null = null;
+    for (const k of this.skies.values()) {
+      const h = k.heightAt(Math.floor(x / VOXEL_SIZE_M), Math.floor(z / VOXEL_SIZE_M));
+      if (h !== null && h > SKY_NONE && (top === null || h * VOXEL_SIZE_M > top)) top = h * VOXEL_SIZE_M;
+    }
+    return top;
   }
 
   /** A world's occupancy walk on the GPU (null: none yet, or not WebGPU). */
@@ -631,6 +661,8 @@ export class VoxelWorldDraws {
     if (this.disposed) return;
     this.disposed = true;
     for (const off of this.unregister.splice(0)) off();
+    if (this.groundLink?.ground === this.ground) this.groundLink.ground = null;
+    this.groundLink = null;
     if (this.raf !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.raf);
     this.kitLoaded?.();
     this.kitLoaded = null;

@@ -58,6 +58,7 @@ import type { SceneLights } from './lights-shadows';
 import { AdapterShadowAtlas, type AtlasLight, type AtlasRenderer } from './shadow-atlas-draw';
 import { shadowRank, type ShadowAtlasDiagnostics } from './shadow-atlas';
 import { lightReachOf } from './surface-changes';
+import type { LocalShadowChanges } from './shadow-casters';
 
 /** Frames the diagnostics' means are taken over. */
 export const CLUSTER_STATS_FRAMES = 60;
@@ -104,6 +105,8 @@ export interface AdapterClustersDeps {
   /** What moved this frame (spheres x, y, z, r) and the static casters' revision: a shadow tile they can reach is drawn again. */
   readonly movers: () => ArrayLike<number>;
   readonly staticRevision: () => number;
+  /** The static casters' changes reported where they happened since the last frame (null: none kept): a tile whose view one reaches is drawn again. */
+  readonly staticChanges?: () => LocalShadowChanges | null;
   /** Draw another frame (a host drawing on demand: a shadow is still fading in or out, a cookie's tile arrived). */
   readonly drawAgain: () => void;
 }
@@ -183,7 +186,7 @@ export class AdapterClusters {
 
   constructor(private readonly d: AdapterClustersDeps, heatView = false) {
     this.heat.wanted = heatView;
-    this.atlas = new AdapterShadowAtlas({ movers: d.movers, staticRevision: d.staticRevision }, DEFAULT_SHADOW_ATLAS);
+    this.atlas = new AdapterShadowAtlas({ movers: d.movers, staticRevision: d.staticRevision, ...(d.staticChanges !== undefined ? { staticChanges: d.staticChanges } : {}) }, DEFAULT_SHADOW_ATLAS);
     this.cookieAtlas = new CookieAtlas(() => d.drawAgain());
   }
 

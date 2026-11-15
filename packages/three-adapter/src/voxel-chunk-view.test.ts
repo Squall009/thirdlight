@@ -58,6 +58,10 @@ import { cameraRelativeModelView } from './camera-relative';
 import { VoxelKitMeshes, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { observerOf, wgslOf, wgslRenderer } from './test-wgsl';
 import { createVoxelSurface, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelSurfaceObject } from './voxel-surface';
+import { isStaticCaster, StaticShadowRevision } from './shadow-casters';
+import { FaceRedraws } from './shadow-atlas';
+import { moverFaces, spheresReach } from './shadow-atlas-draw';
+import { CUBE_FACES, placeCubeFace } from './shadow-cube';
 
 const grid = chunkGrid(32);
 const R = jobRadius(PLACEHOLDER_RULES);
@@ -121,11 +125,11 @@ function triangles(geo: THREE.BufferGeometry | null): string[] {
   return out.sort();
 }
 
-function setup(): { view: VoxelChunkView; r: ReturnType<typeof recorder>; origin: FloatingOrigin } {
+function setup(staticShadows: StaticShadowRevision | null = null): { view: VoxelChunkView; r: ReturnType<typeof recorder>; origin: FloatingOrigin } {
   const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: voxelStandInLook, blendMetres: 0.25 });
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: 512, origin: { x: 0, y: 0, z: 0 } });
   const r = recorder();
-  return { view: new VoxelChunkView({ grid, origin, surface, renderer: r }), r, origin };
+  return { view: new VoxelChunkView({ grid, origin, surface, renderer: r, staticShadows }), r, origin };
 }
 
 const surfaceOf = (g: THREE.Object3D): THREE.Mesh => g.children.find((c) => c.userData['voxelKitPiece'] !== true) as THREE.Mesh;
@@ -538,5 +542,101 @@ describe('the voxel chunk view', () => {
     update.call(cameraRelativeModelView, { object: piece, camera });
     const pv = (cameraRelativeModelView.value as THREE.Matrix4).elements;
     expect(Math.hypot(pv[12]!, pv[13]!, pv[14]!)).toBeLessThan(30);
+  });
+
+  it('casts and receives as static casters with shadows on, and reports each chunk shown, replaced or taken away where it stands: the key light\'s map and only the lamp faces it reaches are drawn again', () => {
+    const s = world();
+    const revision = new StaticShadowRevision();
+    const { view } = setup(revision);
+    // A kit for the walls' materials (as the 8 km test above): the chunks' kit pieces cast too.
+    const mesh = { assetId: 'box', digest: 'a'.repeat(64) };
+    const kits: VoxelKitRecordLike[] = [{ voxelKitId: 'stone', materials: [3, 4], slots: { 'edge-out-top': { meshes: [{ mesh }] } } }];
+    const kitMeshes = new VoxelKitMeshes();
+    kitMeshes.add(mesh, new THREE.BoxGeometry(0.5, 0.06, 0.06));
+    const table = worldPieceTable(kits, 0);
+    view.setKits(kitMeshes.set(table, kits));
+    revision.takeLocal();
+    const drawOf = (cx: number, cy: number, cz: number): Parameters<VoxelChunkView['set']>[3] => {
+      const d = deriveWithApron(grid, WORLD_RULES, buildApron(s, cx, cy, cz, jobRadius(WORLD_RULES)), (out) => s.exportChunk(cx, cy, cz, out), undefined, 0, { table, chunk: [cx, cy, cz] });
+      const j = joinSectionsForDraw(grid.edge, grid.edge, [d], view.cells);
+      return { ground: j.ground, base: j.base, instances: j.instances, solid: j.solid };
+    };
+    const chunks: [number, number, number][] = [];
+    for (let cx = -1; cx <= 0; cx++) for (let cy = -1; cy <= 0; cy++) for (let cz = -1; cz <= 0; cz++) if (view.set(cx, cy, cz, drawOf(cx, cy, cz)) > 0) chunks.push([cx, cy, cz]);
+    view.root.updateMatrixWorld(true);
+    expect(chunks.length).toBeGreaterThanOrEqual(4);
+    // Every surface and every piece draw casts and receives, into the static maps.
+    const surfaces = view.root.children.filter((c) => c.name.startsWith('voxel-chunk ')).map(surfaceOf).filter((m) => m !== undefined);
+    const pieces = view.pieces.root.children as THREE.Mesh[];
+    expect(surfaces.length).toBe(chunks.length);
+    expect(pieces.length).toBeGreaterThan(0);
+    for (const m of [...surfaces, ...pieces]) expect([m.castShadow, m.receiveShadow, isStaticCaster(m)], m.name).toEqual([true, true, true]);
+    // One report a chunk drawn, its sphere round the chunk's 16 m box (grown 1 m for its pieces).
+    const shown = revision.takeLocal();
+    expect(shown.all).toBe(false);
+    expect(shown.spheres.length / 4).toBe(chunks.length);
+    const radius = 8 * Math.sqrt(3) + 1;
+    for (let i = 0; i < chunks.length; i++) {
+      const [cx, cy, cz] = chunks[i]!;
+      expect(Array.from(shown.spheres).slice(i * 4, i * 4 + 4).map((v) => Math.round(v * 1000) / 1000)).toEqual([cx * 16 + 8, cy * 16 + 8, cz * 16 + 8, Math.round(radius * 1000) / 1000]);
+    }
+    // The key light's map: drawn again for changes inside its reach only (its frustum, here a sphere test).
+    expect(revision.drain((sp) => sp.center.distanceTo(new THREE.Vector3(8, 8, 8)) < sp.radius + 1)).toBe(true);
+    // An edit to chunk (0, 0, 0)'s wall: that chunk's draw replaced (two reports where it stands: the old goes, the new
+    // comes), nothing else; a map whose reach lies 60 m off is not drawn again.
+    s.setVoxel(2, 6, 0, { material: 0, role: VOXEL_ROLE.air, shape: 0, wetness: 0 });
+    view.set(0, 0, 0, drawOf(0, 0, 0));
+    const edit = revision.takeLocal();
+    expect(edit.spheres.length / 4).toBe(2);
+    for (let k = 0; k < 2; k++) expect(Array.from(edit.spheres).slice(k * 4, k * 4 + 3)).toEqual([8, 8, 8]);
+    expect(revision.drain((sp) => sp.center.distanceTo(new THREE.Vector3(68, 8, 8)) < sp.radius + 26)).toBe(false);
+    s.setVoxel(2, 6, 0, { material: 3, role: VOXEL_ROLE.wall, shape: 15, wetness: 0 });
+    view.set(0, 0, 0, drawOf(0, 0, 0));
+    expect(revision.drain((sp) => sp.center.distanceTo(new THREE.Vector3(8, 8, 8)) < sp.radius)).toBe(true);
+    // A lamp (range 14 m) 12 m out along +x from the edited chunk's side: its view reaches the chunk, and of its six
+    // faces only those whose frustum holds the chunk's sphere are drawn again; once drawn, no face waits on it.
+    const reported = revision.takeLocal().spheres;
+    const lamp = new THREE.Vector3(28, 3, 8);
+    const cameras = Array.from({ length: CUBE_FACES }, (_, f) => {
+      const c = new THREE.PerspectiveCamera(90, 1, 0.5, 14);
+      c.updateProjectionMatrix();
+      placeCubeFace(c, f, lamp, null);
+      return c;
+    });
+    const faces = [0, 1, 2, 3, 4, 5];
+    expect(spheresReach(reported, lamp, 14)).toBe(true);
+    const hit = moverFaces(cameras, faces, reported);
+    const count = (bits: number): number => faces.filter((f) => (bits & (1 << f)) !== 0).length;
+    expect(count(hit)).toBeGreaterThan(0);
+    expect(count(hit)).toBeLessThan(6);
+    const redraws = new FaceRedraws();
+    const tiles = [{ x: 0, y: 0, size: 64 }];
+    redraws.note(true, 0);
+    expect(redraws.draw(tiles, 0b111111)).toBe(0b111111);
+    expect(redraws.note(false, 0, hit)).toBe(false);
+    expect(redraws.draw(tiles, 0b111111)).toBe(hit);
+    // Nothing moved in them: the next frame draws no face again.
+    expect(redraws.note(false, 0, 0)).toBe(false);
+    expect(redraws.draw(tiles, 0b111111)).toBe(0);
+    // A lamp 40 m off: its view never reaches the chunk.
+    expect(spheresReach(reported, new THREE.Vector3(56, 3, 8), 14)).toBe(false);
+    // Taking a chunk away reports it; hiding the near field (a measurement) is a change everywhere.
+    const before = revision.value;
+    view.remove(0, 0, 0);
+    expect(revision.takeLocal().spheres.length / 4).toBe(1);
+    view.showNear(false);
+    expect(revision.value).toBe(before + 1);
+    view.dispose();
+  });
+
+  it('casts no shadow and reports nothing without shadows', () => {
+    const s = world();
+    const revision = new StaticShadowRevision();
+    const { view } = setup();
+    view.set(0, 0, 0, joined(s, 0, 0, 0, view.cells));
+    const m = surfaceOf(view.root.children.find((c) => c.name === 'voxel-chunk 0,0,0')!);
+    expect([m.castShadow, m.receiveShadow, isStaticCaster(m)]).toEqual([false, false, false]);
+    expect(revision.takeLocal().spheres.length).toBe(0);
+    view.dispose();
   });
 });

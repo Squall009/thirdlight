@@ -46,6 +46,7 @@ import { applyObjectDecalLayers } from './projected-decals';
 import { PieceDraw } from './voxel-piece-draw';
 import { TRIM_RUN_ATTRIBUTE } from './voxel-trim-u';
 import { CullView, maxScaleOf, SphereSide } from './view-cull';
+import { STATIC_CASTER_KEY } from './shadow-casters';
 
 /** `mesh.userData[PIECE_SOURCE_KEY]`: the piece mesh a draw draws (its own geometry shares that one's attributes). */
 export const PIECE_SOURCE_KEY = 'voxelPieceSource';
@@ -127,6 +128,11 @@ const sphere = new THREE.Vector3();
 export interface VoxelPieceBatchesOptions {
   readonly origin: FloatingOrigin;
   readonly shadows: boolean;
+  /**
+   * The draws cast into the cached static shadow maps: their copies stand still between chunk changes, which the
+   * chunk view reports where they happen (a reorder for the view draws the same copies into a shadow camera).
+   */
+  readonly staticCasters?: boolean;
 }
 
 /** Every kit piece of one chunk view, drawn per kind across its chunks. */
@@ -137,6 +143,7 @@ export class VoxelPieceBatches {
   private readonly batches = new Map<string, Batch>();
   private readonly origin: FloatingOrigin;
   private readonly shadows: boolean;
+  private readonly staticCasters: boolean;
   private anchor: [number, number, number];
   /** The view, the camera it is culled for, and the other cameras by their last frustum. */
   private readonly view = new CullView();
@@ -152,6 +159,7 @@ export class VoxelPieceBatches {
   constructor(opts: VoxelPieceBatchesOptions) {
     this.origin = opts.origin;
     this.shadows = opts.shadows;
+    this.staticCasters = opts.staticCasters === true && opts.shadows;
     const o = opts.origin.origin;
     this.anchor = [o.x, o.y, o.z];
     this.root.name = 'voxel-pieces';
@@ -299,6 +307,7 @@ export class VoxelPieceBatches {
     const mesh = draw.mesh;
     mesh.name = `voxel-pieces ${b.kind.key}`;
     mesh.castShadow = mesh.receiveShadow = this.shadows;
+    if (this.staticCasters) mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.renderOrder = PIECE_RENDER_ORDER;
     mesh.userData['voxelKitPiece'] = true;
     // What it draws: the kind's own mesh (the draw's geometry shares its attributes) and whether that is a trim run's.

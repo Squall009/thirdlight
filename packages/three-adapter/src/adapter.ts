@@ -69,7 +69,7 @@ import { RenderGraph } from './render-graph';
 import { pageSearch, type AnyRenderer } from './renderer-factory';
 import { PROBES_URL_PARAM } from './probe-lighting';
 import { createScenePreparations } from './scene-preparation';
-import { StaticShadowRevision } from './shadow-casters';
+import { attachSceneShadows, StaticShadowRevision } from './shadow-casters';
 import { markStatic } from './static-merge';
 import { textureHolds } from './texture-holds';
 import { ViewCuller } from './view-cull';
@@ -147,6 +147,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const staticShadows = opts.shadowCache === false ? null : new StaticShadowRevision();
   const staticChanged = staticShadows === null ? null : (where: Parameters<StaticShadowRevision['touched']>[0] | null) => (where === null ? staticShadows.bump() : staticShadows.touched(where));
   graph.onStaticChange(staticChanged);
+  // Draws under the scene outside the graph (voxel worlds) report their static casters' changes and the ground here.
+  attachSceneShadows(scene, { revision: staticShadows, ground: null });
   /** The loaded scenes' lights and the key light's shadow (lights-shadows.ts): a point or spot light hangs on its entity's node; the others off the scene. */
   const lights = createSceneLights({
     scene, staticShadows, startView, resources,
@@ -321,6 +323,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     movers: () => level.archHost.rooms.movers(),
     staticRevision: () => staticShadows?.value ?? 0,
+    staticChanges: () => staticShadows?.takeLocal() ?? null,
     drawAgain: () => opts.onChange?.(),
   }, new URLSearchParams(pageSearch()).get('clusterView') === '1');
   /** The quality level drawn and its renderer settings (quality-control.ts). */

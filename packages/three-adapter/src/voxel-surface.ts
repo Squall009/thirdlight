@@ -135,6 +135,7 @@ import { declareVertexReach } from './vertex-reach';
 import { addHeaviest, heaviestTwo, NEUTRAL_TEXELS, NODE_OPS, textureHeightAt, textureSetAt, triplanarWeights, type SetMaps, type SetProjectionMode } from './voxel-surface-sets';
 import { seamBlendMetres, type BlendCell } from './voxel-surface-blend';
 import { heightBlend, WET_DARKEN, WET_WATER_ROUGHNESS, wetLook } from './voxel-surface-wetness';
+import { STEADY_SHAPE_KEY } from './shadow-casters';
 
 const TSL: N = TSLTyped;
 const { Fn, attribute, clamp, faceDirection, float, floor, int, ivec2, ivec3, log2, max, min, mix, mod, modelWorldMatrix, normalLocal, normalView, positionGeometry, positionLocal, positionView, positionWorld, property, select, smoothstep, sqrt, texture, transformNormalToView, uniform, varying, vec2, vec3, vec4 } = TSL;
@@ -927,6 +928,10 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
   const material = cameraRelative(new THREE.MeshStandardNodeMaterial());
   material.metalness = 0;
   material.name = 'voxel surface';
+  // Its position node moves relief vertices only, and a relief mesh casts its chunk's plain surfaces in its place
+  // (or, compared as its own caster, casts as a moving one): what this material draws into a shadow map changes
+  // only when a draw is replaced, which the chunk view reports. The variants share this userData.
+  material.userData[STEADY_SHAPE_KEY] = true;
   /** The texture arrays bound (none: the neutral values). */
   let bound: THREE.Texture[] = [];
   const mapTextures = (): void => void (material.userData[WORLD_MAPPED_TEXTURES_KEY] = worldMapped(tdata, ids, bound));

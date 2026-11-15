@@ -38,7 +38,7 @@ import { withContactShadows } from './post-contact-shadows';
 import { shadowSeesCutaways } from './block-cutaway-view';
 import { decideShadows, deriveShadowCamera, directionalShadowSettings, planSceneLights, SHADOW_PROFILE, type AuthoredLight, type ShadowOutcome, type ShadowPlan, type ShadowReason, type ShadowRegion } from './lighting';
 import { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
-import type { StaticShadowRevision } from './shadow-casters';
+import { sceneShadowsOf, type StaticShadowRevision } from './shadow-casters';
 import { textureHolds } from './texture-holds';
 import { markProbeHeld } from './probe-lighting';
 import {
@@ -158,7 +158,8 @@ export interface SceneLights {
   forEachLight(cb: (id: string, kind: SceneLightKind, light: THREE.Light, direction: readonly number[] | null) => void): void;
   /**
    * The key light's shadow square follows the camera on the ground (its X and Z; Y is up), snapped to whole
-   * shadow texels in the light's frame (no shimmer).
+   * shadow texels in the light's frame (no shimmer). The ground is the height its scene's shadow link knows under
+   * the camera (a voxel world's top solid cell there), else the plane y = 0.
    */
   followCamera(camera: THREE.Camera): void;
   /**
@@ -199,6 +200,17 @@ export interface SceneLights {
   setRoomLights(on: boolean): void;
   diagnostics(): LightsDiagnostics;
   dispose(): void;
+}
+
+/**
+ * The ground under the camera, into `out`: walking moves the key light's square, the camera's height does not. A
+ * world whose ground lies far from y = 0 (a voxel world's hills, a cave under them) tells it through the scene's
+ * shadow link, else its casters fall outside the shadow camera's depth range there; its top solid cell (not the
+ * camera's height) keeps what stands over a cave or a room in range. Without it, the plane y = 0.
+ */
+function groundUnder(scene: THREE.Scene, camera: THREE.Camera, out: THREE.Vector3): THREE.Vector3 {
+  const ground = sceneShadowsOf(scene)?.ground?.(camera.position.x, camera.position.z) ?? null;
+  return out.set(camera.position.x, ground ?? 0, camera.position.z);
 }
 
 /** A baked or mixed ambient/hemisphere light is in the probe bake (it is the sky the probes see): inside a tile the probes replace it. */
@@ -506,8 +518,7 @@ function releaseLight(entityId: string): void {
       followDir.set(d[0], d[1], d[2]);
       if (followDir.lengthSq() < 1e-12) followDir.set(0, -1, 0);
       followDir.normalize();
-      // The ground under the camera: walking moves the square, the camera's height does not.
-      followPoint.set(camera.position.x, 0, camera.position.z);
+      groundUnder(o.scene, camera, followPoint);
       snapToLightGrid(followPoint, followDir, texel, followCentre);
       const light = keyRec.light;
       light.target.position.copy(followCentre);
