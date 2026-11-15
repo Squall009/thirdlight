@@ -214,7 +214,7 @@ below, near and far absent; 131 s.
 | 46e.2 | Done 2026-11-14 (f17f4a48…): one 6-connected walk (CPU; WGSL from the same steps) over level 0 and mips (the CPU also far nodes; the GPU not: D662); `ctx.voxels.raycast`; picks walk it; GPU = CPU 0 of 1,200 differ; rays/ms worker 360–430 / 170–215 / 19–20, GPU 28k / 17k / 1.6k (short, medium, long; §8a); D662–D664 |
 | 46e.3 | Done 2026-11-15 (531a2d5b, 5bf24807): open regions derived per section (v32, spec entry), stitched where the world runs, `ctx.voxels.regionAt`, voxel page overlay, sky heights to the page; town 120 enclosed / 3,181 portals; derive 7 % of a section; stitch 1.4 ms/frame loading, 0 settled; edit → answer 91 ms; 150 m/s sim spikes 1 → 14 (D667); D665–D669 |
 | 46e.4 | a done 2026-11-15 (cd2ce0ac): near-field voxel surfaces and kit pieces cast and receive via the cached sun map, the dynamic map and the atlas; edits redraw only what they reach; sun square on the voxel ground; low shadows 0.21–0.47 vs off below resolution; edit → shadow 63–87 ms; D670–D672. b next (far shade at the hit, far sun march) |
-| 46e.5 | a, b done 2026-11-15 (b: 2d8c4763, 833b9065): live probes over voxel charts, voxel hits resolved on the GPU (= CPU, 0 of 1,200), probes hold the ambient: room 120 → 10 mean, cave darkens inward; low GPU lighting below res. settled, page 0.4–1.0 ms; probes 4–14 MB + resolve 9–17 MB; D680 fixed, D681–D683. c next |
+| 46e.5 | Done 2026-11-15 (a, b; c: 52c88694…f6c8bcd0): charts on the view's worker, faces' hashes kept across changes, a chunk marks what it can shadow; street lit 18.9 s from Play (30), 1.5 M texels for 1.4 M; settled GPU lighting below res., page 0.25–0.44 ms; relighting 6.7–18.9 ms GPU; orbit no room at 30 Hz; edit → light 0.3 s, settled 2.4–2.9 s (§8a 46e.5c) |
 | 46e.6 | not started |
 | 46e.7 | not started |
 | 46e.8 | not started |
@@ -901,6 +901,121 @@ door interiors, soft shade under eaves; far view — the far field as before (th
 near houses' windows dark. Read by voxel surfaces, kit pieces (the room's stairs) and a moving object (the e2e's box
 inside the shut hut, 5.6 against 19.1). An edit opening a roof brightens the room after it settles.
 
+### 46e.5c — the cache's port artefacts taken out, and its column measured
+
+**Built (wiring, not features).** What 46e.5a/b left that was how the port was wired, not what a surface cache is:
+
+- **Charts on a worker (D676).** A voxel chunk's charts are made on a worker of the view's worker script
+  (`voxel-chart-worker.ts` `runVoxelChartWorker`, beside the block mesher; the editor's and preview's
+  `mesh-worker.js`, and exports with voxel worlds now ship it), from a copy of the chunk's mesh and the walk's level-0
+  blocks round it (`solidBlocksOf`: the 3³ blocks a surface's front cell can lie in), so a hidden surface is hidden as on
+  the page; two jobs in flight, nearest chunk first; no worker: the page charts in steps as before. Not the voxel job
+  pool: that runs in the simulation worker, the charts are the page's (no new job kind, nothing derived or stored).
+- **The faces' hashes kept across changes (D677, D681).** One class (`surface-voxel-faces.ts` `VoxelFaceTable`) keeps
+  the lookup's hash (≤ 1/2 full) and the resolve's (≤ 3/4, with the cells behind surfaces) and writes only the slots of
+  chunks that came, went or moved on the pages (backward-shift deletion; a face two chunks key goes to the chunk whose
+  box holds its cell, else the first by key, so any order reads as one table made at once). The resolve's slot now holds
+  its chart's place like the lookup's (no chart records; `voxelAreaTexels` in whole numbers on both sides). When the
+  other words are unchanged only the dirty slots are written (texture rows, buffer runs).
+- **Marks from a voxel chunk by what it can shadow (D678).** A chunk that came, went or was drawn again marks the units
+  touching its box and those some segment from which to a lamp (or ray toward a sun) the box can stand across
+  (`SurfaceChanges.castersChanged`: an exact per-axis interval test for boxes, the light's size and the sun disc's
+  spread grown in; a sun under 0.1 sine falls back to the old sweep); the probes hear of the box ± the bounce reach and of
+  each marked region apart.
+- **Also:** the memory table's `probes` row reads the live probes' GPU bytes; `__tlVoxelPlay.light.progress()` (cheap,
+  every frame) and `relightAll()` (benches); `light-shots --cache-edits`, `--arrival-shots`, `--gpu-stale`.
+
+**Measured** 2026-11-15 13:30–14:32 UTC at f6c8bcd0 (built), Iris Xe, WebGPU, 1280 × 720, low, 30 Hz cap, each run
+alone (`thirdlight-gate` inactive), the brief's 10G scope; uptime 22.9 d, load (1 min) 1.2–2.0. Raw:
+`~/.cache/thirdlight-phase46e/work/46e.5c/` (`measure.sh`; `m-*`, `shots/`, `shots-off/`, `room-first/`, `cov-150-*`,
+`*.uptime`). Cameras: one run `cache` (`shots`) and one `off` (`shots-off`) back to back; orbit: cache / off / cache
+without the texel read (`&surfaceRead=0`), interleaved, two rounds. Cameras in order street / room / cave / night / far.
+
+| What | Cache | Off | Note |
+|---|---|---|---|
+| GPU settled, `lighting` | 0.12 / below / below / below / below | no pass | nothing stale: nothing dispatched |
+| GPU settled, `near` (the texel and probe reads inside it) | 2.57 / 0.47 / 1.34 / 3.66 / 3.06 | below / below / below / below / 1.88 | +0.5–3.7 ms, one run each; near reads below at close cameras when off (D660) |
+| GPU settled, `shadows` | 1.46 / 1.45 / 1.14 / 1.96 / 0.68 | 0.59 / 0.36 / 0.36 / 0.84 / 0.44 | higher with the cache, not explained (one run each) |
+| GPU settled, frame (ballast line) | 22.3 / 9.4 / 8.1 / 12.2 / 10.7 | 13.1 / 6.8 / 5.9 / 8.5 / 9.6 | |
+| GPU while relighting (every texel and probe kept stale), `lighting` | 15.0 / 12.6 / not read (the ballast line failed) / 6.7 / 18.9 | — | against the 6.67 ms row: over at four (D685) |
+| GPU, 8 km town orbit (moving eye) | **no room at no load** (2–7 of 89 frames missed), so not resolved: `lighting` 10.5 ± 2.3 (r2), 7.6 ± 4.2 and 11.6 ± 2.8 without the read; frame line 40.6 (r2), 29.3 without the read; resolution 7.6–9.5 ms | room 44 / 152 copies; near 2.00 / 1.93, far 3.43 / 3.47, shadows 0.52 / 0.59; frame 8.5 / 9.4 | the moving eye relevels tiles and streams chunks all the time: the cache relights at its budget every frame (D685); the read's own cost on the orbit is under this noise |
+| Page ms a frame, settled (profile) | 6.47 / 4.75 / 3.05 / 4.82 / 4.40; `lighting` 0.44 / 0.30 / 0.25 / 0.41 / 0.28 (worst 10 / 8 / 5 / 17 / 12) | 6.49 / 4.53 / 2.84 / 4.27 / 4.56; 0.26 / 0.16 / 0.14 / 0.17 / 0.16 | of 2.0: under |
+| Page while relighting | `lighting` 5.6 / 6.0 / 8.8 / 12.3 / 2.6 (residency 4.0–4.6, light pass 0.8–6.8) | — | over 2.0 (D685) |
+| Page on the orbit | 9.1 / 9.3 ms; `lighting` 3.0 / 2.6 (worst 25 / 38) | 6.4 / 6.6; 0.16 / 0.17 | over 2.0 (D685) |
+| Charting | worker 3.0–3.6 ms a chunk (227–637 chunks a run, slowest 63 ms), page 0–0.1 ms a frame | — | was 1 ms a frame on the page for ~30 s |
+| Texels written to light the street from Play (192 chunks resident) | 1.49 M for 1.37 M resident (room first: 1.62 M for 1.2 M) | — | 46e.5a: 20 M for 1.2 M |
+| Surface cache | 22.4 / 22.1 / 12.1 / 22.5 / 3.0 MB of 32 MiB | — | |
+| Probes (the table's row, now wired) | 12.2 / 12.7 / 7.6 / 7.3 / 5.8 MB of 128 MiB (GPU: records and tiles); page 4.9 / 5.4 / 4.4 / 4.3 / 1.8 MB | — | 27–35 k probes, 12 k at the far view |
+| The faces' hashes | page: lookup 30.4 / 31.2 / 15.9 / 29.2 / 8.4 MB, resolve 34.7 / 36.3 / 17.3 / 32.5 / 16.6 MB; GPU: lookup texture 16 / 16 / 8 / 16 / 4 MB, resolve buffer 16.8 / 16.8 / 8.4 / 16.8 / 8.4 MB | — | uploads by the street's settle: lookup 104 MB in 55 packs (8 whole, as it grew), resolve 150 MB in 18 (5 whole) (D684) |
+| Page heap / GPU process, orbit | 787 / 832 MiB; 1,086 / 1,093 MiB | 585 / 609; 934 / 927 | +200 MiB page, +155 MiB GPU; low's 1,536 / 2,560: under |
+| Edit → light: a window dug in the room's wall | reached the cache 272 ms, first texels 318 ms, texels settled 1.93 s, probes settled 2.43 s (smoke run: 287 / 353 / 1,852 / 2,864) | — | 337 k texels written; 16 % of the picture changed |
+| Edit → light: a wall between lamp 3 and the fronts (night), then dug | built: 313 / 375 / 692 ms / 2.89 s; dug: 189 / 246 / 464 ms / 2.50 s | — | 0.83 M texels each; the wall is 36 m down the street: 0.9 % of the picture |
+| Play start → settled | street first 18.9 s, room first 19.1 s (both runs) | — | 46e.5b 30 s / 37 s |
+| Meanwhile (`room-first/`, `shots/`) | 2 s after arriving: 14 k units stale, 35–77 chunks waiting for charts, the flat ambient still drawn (the room as bright as the street); 10 s: texels lit, probes all but ~900 lit (room first) or settled | — | |
+| 150 m/s, export, low, one round each | longest 98 ms (a page frame of 23 ms `surface light pass` at the flight's start), 0 > 100, missed 13.7 a min, detail 9.3 s, pending 9.7 s, falls 0/34, holes 0 | 45 ms, 0, 4.6, 5.8 s, 10.1 s, 0/34, 0 | the cache's light pass and packs at speed (D685) |
+| Medium / high, one run each (unverified on target hardware) | medium: no room at no load (15 of 89 missed); near 5.7, far 5.2, lighting 6.1 ms (frame line 17.7). High: misses at no load (42 of 89), nothing resolved | — | |
+
+**The cache's column for 46e.7**
+
+- GPU settled at the five cameras: `lighting` below resolution (0.12 ms at the street); `near` 0.5–3.7 ms over off; frame 8–22 ms (off 6–13).
+- GPU while relighting: `lighting` 6.7–18.9 ms at four cameras against its 6.67 ms row.
+- GPU on the moving orbit: no room at the 30 Hz cap with no load; `lighting` 7.6–11.6 ms; frame line 29–41 ms (off 8.5–9.4 ms).
+- Page a frame: settled 3.1–6.5 ms, `lighting` 0.25–0.44 (worst 17) of 2.0; relighting `lighting` 2.6–12.3; orbit 9.1–9.3 ms, `lighting` 2.6–3.0 (worst 38).
+- Memory: cache 3–22.5 of 32 MiB; probes 5.8–12.7 of 128 MiB; faces' hashes 25–68 MB page, 12–33 MB GPU; orbit +200 MiB page heap, +155 MiB GPU process.
+- Edit → light: first texels 0.25–0.38 s, texels settled 0.46–1.93 s, probes settled 2.4–2.9 s.
+- Play start → settled: 18.9 s (street), 19.1 s (room).
+- Travel 150 m/s: longest 98 ms (off 45), missed 13.7 a min (off 4.6), detail 9.3 s (off 5.8).
+
+**What is left is the cache's own cost** (performance first, for the A/B): (1) texel density by distance — a moving eye
+changes tiles' levels all the time, every change is a relight, so on the orbit it never settles and holds its whole
+GPU row; (2) the relight's own scheduling on the page (each frame it orders every stale unit: 4–4.6 ms while 15 k are
+stale); (3) one global hash per table, a change's faces scattered over it: a pack's upload is rows (lookup) or runs
+(resolve) all over it, 2–8 MB a pack on average, and the two tables hold 25–68 MB on the page; (4) the reads: `near` +0.5–3.7 ms settled (lookup,
+filtered texel, probe light), unresolved on the orbit; (5) memory: 22 MiB of texels and ~13 MiB of probes at the town,
++200 MiB page heap on the orbit. The wiring costs are gone: charting 0–0.1 ms a frame on the page, a pack's CPU work
+by the changed chunks, the streaming relight 1.5 M texels for 1.4 M resident.
+
+**Pictures** (`shots/`, looked at beside `46e.5b/shots/`; mean brightness 46e.5b → now): `street-noon.png` 95.5 → 92.7,
+`room-window.png` 9.3 → 9.9, `cave.png` 65.9 → 65.8, `night-lamps.png` 12.2 → 12.1, `far-view.png` 94.5 → 94.4: the same
+looks; the cave's step risers stand out a little sharper and the cell-sized dark blotches on its floor and the black
+slit on its right wall are still there, as the black sliver at the street camera's brick edge (D683). In settle:
+`room-first/room-window-arrive-2s.png` (the flat ambient, as with the store off) and `-10s.png` (dark, the windows'
+bands lit); edits: `shots/edit-window-before.png` / `-after.png` (the hole's light on the floor and the walls by it),
+`edit-lamp-wall-*.png`. The pictures after each GPU measurement differ by 0.8–5.4 % (D660).
+
+**D682, the trace.** Not a port bug found, and not a grey constant: (a) the sun's share at a hit is read (a texel's
+rgb holds every light with its traced shadow; the sun is only taken out where a pixel draws it); (b) a hit's colour is
+the materials' own (`TSL.diffuseColor`, the voxel surface's textured colour, written into the albedo cells on capture
+frames), `BOUNCE_ALBEDO` (0.3 grey) only where no material drew; (c) the "3 %" of 46e.5b was the open hut's walls with
+the voxel resolve returning nothing on both sides, which still bounced the probes' own light at the hits (0.3/π ×
+probes there): it is the first bounce of the hits' direct light (the sun patch) only. Whether 3 % is right for that hut
+is not verified (no reference).
+
+**D683, a bounded look.** Still seen at the cave and street. Not traced; the likeliest cause is a texel's point lying
+in a cell the walk counts solid at a concave step (the tracer leaves at most two such cells, then calls the ray
+blocked), not chart cells without a texel (every chart cell is found back, 46e.5a's test).
+
+**Tested.** vitest `surface-voxel-faces.test.ts` (90 random steps of chunks coming, going, drawn again and moving on
+the pages, listing order shuffled, with and without the cells behind: every face reads as a table made at once; slots
+written ≤ 4 × the changed faces + 8 a step and ≤ 2 × over the run; margins keyed twice held once; a chunk that comes
+writes only its own; `voxelAreaTexels` = `areaTexels` for 1–255 columns × 8 levels; **broken** (the tie by key made
+"newest wins", run once: `broken-faces-order-vitest.log`): 3 of 5 fail), `surface-caster-marks.test.ts` (700 units of a
+street, three lamps, an area light, a sun, 24 boxes a look: every unit a brute-force sample of segments to the light or
+rays toward the sun's disc finds the box can shadow is marked; 39 % / 31 % of the old rule's marks at noon / night;
+**broken** (no shadow test, `broken-no-shadow-test-vitest.log`): both fail on the first unit), `voxel-chart-worker.test.ts`
+(charts through a real message port equal the page's for a chunk part of whose ground a slab hides; the host makes its
+tile from the worker's charts), `lighting-cameras.test.ts` (the cache edit timing, the lamp wall's place). Playwright
+`voxel-world.e2e.ts` Play (`voxel-shadows.ts`): the pillar built under the lit lamp, the light settled: 13 of 470 /
+10 of 487 shadowed px still lit (bound < 1/5); dug, 470 / 487 lit again (bound > 7/10). **With the caster marks off**
+(`castersChanged` marking nothing, run once by hand: `e2e-broken-marks.log`) it still passes (15 of 467, 464): the lit
+wall lies in the pillar's own chunk, whose new tile is lit afresh, so the check proves the edit path, not the marks
+across chunks (the vitest does). The Play test 2.6–2.8 min alone (2.9 before); nothing to move to vitest yet.
+
+**Gate.** `gate-fast-20261115-120519` and `-123431` red on the Play test's first cache settle (60 s) under the
+all-areas load (the levels area beside it: probes 6,821 of 56,618 stale after 433 updates; alone 34 s): D686, watch;
+`gate-fast-20261115-125819` red on lint (ESLint out of heap), its rerun `gate-rerun-20261115-130123` green on the
+Play test (lit 32 s), red on two watched tests (`rendering.e2e.ts:491`, D643's terrain impostor ratio 0.583).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -1032,6 +1147,24 @@ inside the shut hut, 5.6 against 19.1). An edit opening a roof brightens the roo
   whole numbers so the GPU and its CPU twin agree exactly; the materials' lookup keeps its own (no shared buffer).
 - 2026-11-15 (46e.5b, default chosen, owner to confirm): `light-shots` and the Play e2e count the cache settled only
   with its probes lit, none stale, drawn and nothing held back (`__tlVoxelPlay.light.cache().probes`).
+
+- 2026-11-15 (46e.5c, default chosen, owner to confirm): the cache's voxel charts are made on a worker of the view's
+  worker script (the page's, beside the block mesher), not in the voxel job pool (it runs in the simulation worker) nor
+  as part of the draw batch (a derived output): no new job kind; a job carries the chunk's mesh and the walk's level-0
+  blocks round it; two jobs in flight, nearest first; the page charts in steps where no worker starts.
+- 2026-11-15 (46e.5c, default chosen, owner to confirm): the lookup's and the resolve's voxel hashes are kept across
+  changes (≤ 1/2 and ≤ 3/4 full, made again with a third more room when they outgrow it, or at an eighth of their load);
+  a face two chunks key is the one whose chunk's box holds its cell, else the first chunk by key (was: the first resident
+  one); the resolve's slot holds its chart's place as the lookup's does.
+- 2026-11-15 (46e.5c, default chosen, owner to confirm): a voxel chunk that comes, goes or is drawn again marks the
+  units touching its box and those it can stand across from a light or a sun (exact for boxes, the light's size and the
+  sun disc's spread grown in), not every unit a touching light reaches; old scene kinds keep their rule. A sun under 0.1
+  sine falls back to the old sweep.
+- 2026-11-15 (46e.5c, default chosen, owner to confirm): the memory table's `probes` row on a page whose probes are
+  live (no bake's probe set) is the live probes' GPU bytes (the pass's records and the probe lighting's tiles).
+- 2026-11-15 (46e.5c, default chosen, owner to confirm): "GPU while the light is being computed" is read with every
+  texel and probe of the cache marked stale every half second while the measurement runs (`light-shots --gpu-stale`):
+  a stale state lasting seconds after an arrival or an edit is too short for a two-minute measurement.
 
 ## 10. Open questions for the owner (asked with the plan)
 

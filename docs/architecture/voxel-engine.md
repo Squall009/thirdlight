@@ -69,9 +69,12 @@ page in the same commit.
   occlusion or bounce light from voxels yet. **The lighting store** is one page switch, `?voxelLight=off|cache|
   volume|hybrid` (`off`, today's picture, by default; `__tlVoxelPlay.light.setStore` changes it at run time). With
   `cache` (a candidate for the storage A/B, WebGPU only) phase 42's surface cache lights the level-0 chunks' surfaces:
-  each chunk's drawn mesh charted on the page by its triangles' main axis (`surface-cache-voxels.ts`), lit by the
-  light pass with soft shadow rays that also walk the voxels' occupancy (the one walk, in the tracer's second program),
-  read by the voxel surfaces through a hash of their cells and faces; no probes, sky occlusion or bounce on it yet.
+  each chunk's drawn mesh charted by its triangles' main axis (`surface-cache-voxels.ts`) on a worker of the view's
+  worker script (`voxel-chart-worker.ts`), lit by the light pass with soft shadow rays that also walk the voxels'
+  occupancy (the one walk, in the tracer's second program), read by the voxel surfaces through a hash of their cells
+  and faces kept across changes (`surface-voxel-faces.ts`, the resolve table's too); live probes over the charts hold
+  the sky and one bounce, read by surfaces, kit pieces and moving objects; a chunk that comes, goes or changes marks
+  what it can shadow. Its measured column: plan-46e §8a 46e.5c.
 
 ## 4. Streaming
 
