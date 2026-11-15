@@ -14,7 +14,7 @@
 /** The pictures' names, fixed (a later item compares files of the same name). */
 export const LIGHT_SHOT_NAMES = ['street-noon', 'room-window', 'cave', 'night-lamps', 'far-view'] as const;
 /** Checks beside the five, taken only when named (`--only`): a far lamp from two places, two cameras moved 1 m. */
-export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m'] as const;
+export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m'] as const;
 export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number] | (typeof LIGHT_CHECK_NAMES)[number];
 
 /** The looks the cameras use: environment presets the bench writes into the project. */
@@ -112,13 +112,15 @@ function farLampCamera(name: 'far-lamp-a' | 'far-lamp-b', command: string, side:
   const d = Math.hypot(lx - eye[0], lz - eye[2]);
   return { name, command, eye, yaw: yawOf(lx - eye[0], lz - eye[2]), pitch: Math.atan2(eye[1] - ly, d), preset: 'bench-night', near: false, shows: 'at night, a lamp 2 m before the cave hillside, drawn by the far field from 230 m' };
 }
-const moved = (c: LightingCamera, name: 'far-view-1m' | 'street-noon-1m', command: string): LightingCamera => ({ ...c, name, command, eye: [c.eye[0] + 1, c.eye[1], c.eye[2]] });
-/** The checks' cameras (LIGHT_CHECK_NAMES): the far lamp from two places 60 m apart, far view and street moved 1 m. */
+const moved = (c: LightingCamera, name: 'far-view-1m' | 'street-noon-1m' | 'street-noon-2m' | 'room-window-2m', command: string, by = 1): LightingCamera => ({ ...c, name, command, eye: [c.eye[0] + by, c.eye[1], c.eye[2]] });
+/** The checks' cameras (LIGHT_CHECK_NAMES): the far lamp from two places 60 m apart, far view and street moved 1 m, street and room moved 2 m (a camera-following store's step). */
 export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   farLampCamera('far-lamp-a', 'shot6', 30),
   farLampCamera('far-lamp-b', 'shot7', -30),
   moved(LIGHTING_CAMERAS[4]!, 'far-view-1m', 'shot8'),
   moved(LIGHTING_CAMERAS[0]!, 'street-noon-1m', 'shot9'),
+  moved(LIGHTING_CAMERAS[0]!, 'street-noon-2m', 'shot10', 2),
+  moved(LIGHTING_CAMERAS[1]!, 'room-window-2m', 'shot11', 2),
 ]);
 
 /** Runtime edits for the edit-to-screen time: a 1 m ball dug in the street in front of the street camera, each its own command. */

@@ -24,7 +24,7 @@
  *
  *   --origin URL  --token-file FILE (default ~/thirdlight-staging-p45/owner-token)  --project ID (voxel-slice)
  *   --world NAME (far)  --quality low|medium|high (default low)  --viewport WxH (default 1280x720)
- *   --only LIST   cameras by name (default all five; also far-lamp-a, far-lamp-b, far-view-1m, street-noon-1m)   --query Q   more of the editor page's query (Play is
+ *   --only LIST   cameras by name (default all five; also far-lamp-a, far-lamp-b, far-view-1m, street-noon-1m, street-noon-2m, room-window-2m)   --query Q   more of the editor page's query (Play is
  *                 passed its flags: a later item's lighting arrangement), starting with `&`
  *   --hold S (default 3)  --timeout S a camera (default 180)  --edits N (default 3, 0: none)
  *   --gpu         the GPU measurement at each camera (about two minutes each)   --gpu-repeats N (default 5)
@@ -346,6 +346,9 @@ async function main(): Promise<void> {
       const file = join(OUT, `${cam.name}.png`);
       const shown = decodePng(await game.screenshot(file));
       const profile = await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null);
+      // The same view a second later: what changes in a still, settled picture (flicker).
+      await page.waitForTimeout(1000);
+      const secondShare = changedShare(shown, decodePng(await game.screenshot(join(OUT, `${cam.name}-1s.png`))));
       // The same view with the voxel draws hidden: what changes is what the voxels drew.
       await meterSet(game, { near: true, far: true });
       await page.waitForTimeout(CONVERGE_MS);
@@ -425,6 +428,7 @@ async function main(): Promise<void> {
         pending: s.pending,
         counts: s.counts,
         voxelShare: Number(voxelShare.toFixed(3)),
+        secondShare: Number(secondShare.toFixed(4)),
         problems: shotProblemsFound,
         profile: report === null ? null : profileSummary(report),
         memory: report?.counters.memory ?? null,
