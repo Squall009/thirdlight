@@ -199,12 +199,11 @@ export default {
         ctx.game.add(s.wallDug >= 0 ? 'region_dug' : 'region_dig_refused', 1);
       }
       if (s.wallDug >= 0 && (r === null || (r.enclosed ? 1 : 0) !== s.wasEnclosed)) { put('region_edit_steps', ctx.stepIndex - s.wallDug); s.wallDug = -1; }
-      // The lamp wall: the house front's own voxel (a ray from the lamp toward it) is what it is built of.
+      // The lamp wall: built of the house front's own voxel (a ray from the lamp toward it), else the ground's under the lamp.
       for (const _ of ctx.debug.command('${LAMP_WALL_COMMANDS.build}')) {
-        const hit = v?.raycast(LAMP, [0, 0, 1], 6) ?? null;
-        const rec = hit?.voxel ?? null;
+        const rec = v?.raycast(LAMP, [0, 0, 1], 8)?.voxel ?? v?.raycast(LAMP, [0, -1, 0], 8)?.voxel ?? null;
         const ok = rec !== null && v.set(LAMP_WALL, { material: rec.material, role: rec.role }).ok;
-        ctx.game.add(ok ? 'lamp_walls' : 'lamp_wall_refused', 1);
+        ctx.game.add(ok ? 'lamp_walls' : rec === null ? 'lamp_wall_nohit' : 'lamp_wall_refused', 1);
       }
       for (const _ of ctx.debug.command('${LAMP_WALL_COMMANDS.dig}')) ctx.game.add(v?.dig(LAMP_WALL).ok ? 'lamp_unwalls' : 'lamp_wall_refused', 1);
       for (const d of DIGS) for (const _ of ctx.debug.command(d.command)) {

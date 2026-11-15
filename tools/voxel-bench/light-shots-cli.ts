@@ -448,7 +448,7 @@ async function main(): Promise<void> {
         await page.waitForTimeout(CONVERGE_MS);
         const after = decodePng(await game.screenshot(join(OUT, `edit-${tag}-after.png`)));
         const counters = (await game.observe().catch(() => null))?.counters ?? {};
-        runs.push({ tag, camera: cam.name, command, ...timing, changedShare: Number(changedShare(before, after).toFixed(4)), counters: Object.fromEntries(['lamp_walls', 'lamp_unwalls', 'lamp_wall_refused', 'region_dug', 'region_dig_refused'].map((k) => [k, counters[k] ?? 0])) });
+        runs.push({ tag, camera: cam.name, command, ...timing, changedShare: Number(changedShare(before, after).toFixed(4)), counters: Object.fromEntries(['lamp_walls', 'lamp_unwalls', 'lamp_wall_refused', 'lamp_wall_nohit', 'region_dug', 'region_dig_refused'].map((k) => [k, counters[k] ?? 0])) });
         console.log(`cache edit ${tag}: ${JSON.stringify(runs[runs.length - 1])}`);
         if (timing.settledMs === null) problems.push(`cache edit ${tag}: the light did not settle within 90 s of the command`);
       }
