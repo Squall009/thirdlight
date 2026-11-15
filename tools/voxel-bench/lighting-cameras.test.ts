@@ -15,7 +15,9 @@ import {
   CAVE,
   caveStroke,
   changedShare,
+  cacheEditTiming,
   editShadowTiming,
+  LAMP_WALL,
   LIGHT_PRESET_IDS,
   LIGHT_SHOT_NAMES,
   LIGHTING_CAMERAS,
@@ -168,5 +170,28 @@ describe('a shot is refused', () => {
     // Never drawn again (no shadow change seen), or no cached map: no reading.
     expect(editShadowTiming(frames(3, null), 40)).toEqual({ shadowMs: null, shadowFrames: null });
     expect(editShadowTiming([], 40)).toEqual({ shadowMs: null, shadowFrames: null });
+  });
+
+  it("time a cache edit from the command to its chunk waiting, its first texels written, texels and probes settled", () => {
+    // Frames 30 Hz from the command at 0: the chunk waits for charts at frame 2, units stale from 3, texels written from 4, settled at 8, probes at 10.
+    const f = (i: number): [number, number, number, number, number, number] => [i * 33.3, i >= 4 ? 1000 + i : 1000, i >= 3 && i < 8 ? 50 : 0, i >= 2 && i < 3 ? 1 : 0, i >= 10 ? 1 : 0, i >= 3 && i < 10 ? 20 : 0];
+    const frames = Array.from({ length: 14 }, (_, i) => f(i));
+    const t = cacheEditTiming(frames, 0);
+    expect(t.reachedMs).toBeCloseTo(66.6, 6);
+    expect(t.firstLightMs).toBeCloseTo(133.2, 6);
+    expect(t.texelsSettledMs).toBeCloseTo(266.4, 6);
+    expect(t.settledMs).toBeCloseTo(333, 6);
+    expect(t.texelsWritten).toBe(8);
+    // Nothing reached the cache: no reading.
+    expect(cacheEditTiming(frames.map((x) => [x[0], 1000, 0, 0, 1, 0] as [number, number, number, number, number, number]), 0)).toEqual({ reachedMs: null, firstLightMs: null, texelsSettledMs: null, settledMs: null, texelsWritten: 0 });
+  });
+
+  it('build the lamp wall between the third lamp and the house fronts behind it', () => {
+    const lamp = BENCH_LAMPS[2]!.position;
+    expect(lamp[2]).toBeLessThan(LAMP_WALL.min[2]);
+    expect(LAMP_WALL.max[2]).toBeLessThan(-24);
+    expect(LAMP_WALL.min[0]).toBeLessThan(lamp[0]);
+    expect(LAMP_WALL.max[0]).toBeGreaterThan(lamp[0]);
+    expect(LAMP_WALL.max[1]).toBeGreaterThan(lamp[1]);
   });
 });

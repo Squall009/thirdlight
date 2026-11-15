@@ -127,6 +127,15 @@ export const EDIT_DIGS: ReadonlyArray<{ readonly command: string; readonly cente
 );
 export const EDIT_DIG_RADIUS_M = 1;
 
+/**
+ * A wall the cache's edit timing builds at night between the third street lamp ({@link BENCH_LAMPS}, 3 m up at
+ * x 8, z −25.5) and the house fronts of row 5 behind it (their faces at z −24): 4 m wide, 5 m tall and a cell
+ * thick, 0.5 m in front of the fronts, so the fronts' lamp-lit patch round x 8 goes dark; dug again after.
+ */
+export const LAMP_WALL = Object.freeze({ min: Object.freeze([6, 0, -25] as const), max: Object.freeze([10, 5, -24.5] as const) });
+/** The debug commands that build and dig the lamp wall, and the camera it is timed from. */
+export const LAMP_WALL_COMMANDS = Object.freeze({ build: 'lamp_wall', dig: 'lamp_unwall', camera: 'night-lamps' as LightShotName });
+
 /** A clear physical sky (no clouds: they drift, so two runs' skies would differ). */
 const CLEAR_SKY = Object.freeze({ mode: 'procedural', environmentIntensity: 0.1, cloudCoverage: 0 });
 
@@ -164,6 +173,8 @@ export function lightShotsSource(cameras: readonly LightingCamera[] = [...LIGHTI
   return `
 const SHOTS = ${JSON.stringify(cameras.map((c) => ({ command: c.command, eye: c.eye, yaw: c.yaw, pitch: c.pitch, preset: c.preset })))};
 const DIGS = ${JSON.stringify(EDIT_DIGS)};
+const LAMP = ${JSON.stringify(BENCH_LAMPS[2]!.position)};
+const LAMP_WALL = ${JSON.stringify(LAMP_WALL)};
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
 export default {
   prepare() { return {}; },
@@ -188,6 +199,14 @@ export default {
         ctx.game.add(s.wallDug >= 0 ? 'region_dug' : 'region_dig_refused', 1);
       }
       if (s.wallDug >= 0 && (r === null || (r.enclosed ? 1 : 0) !== s.wasEnclosed)) { put('region_edit_steps', ctx.stepIndex - s.wallDug); s.wallDug = -1; }
+      // The lamp wall: the house front's own voxel (a ray from the lamp toward it) is what it is built of.
+      for (const _ of ctx.debug.command('${LAMP_WALL_COMMANDS.build}')) {
+        const hit = v?.raycast(LAMP, [0, 0, 1], 6) ?? null;
+        const rec = hit?.voxel ?? null;
+        const ok = rec !== null && v.set(LAMP_WALL, { material: rec.material, role: rec.role }).ok;
+        ctx.game.add(ok ? 'lamp_walls' : 'lamp_wall_refused', 1);
+      }
+      for (const _ of ctx.debug.command('${LAMP_WALL_COMMANDS.dig}')) ctx.game.add(v?.dig(LAMP_WALL).ok ? 'lamp_unwalls' : 'lamp_wall_refused', 1);
       for (const d of DIGS) for (const _ of ctx.debug.command(d.command)) {
         const r = ctx.voxels?.dig({ center: d.center, radius: ${EDIT_DIG_RADIUS_M} });
         ctx.game.add('light_digs', 1);
@@ -224,6 +243,12 @@ export interface LightShotsOptions {
   readonly gpuRepeats: number;
   /** `--gpu-only LIST`: only these categories (default every one present). */
   readonly gpuOnly: readonly string[] | null;
+  /** `--gpu-stale`: a second GPU measurement at each camera while the surface cache has work (every texel and probe kept stale). */
+  readonly gpuStale: boolean;
+  /** `--cache-edits`: the surface cache's edit → light times (a window dug at the room camera; a wall built and dug between a lamp and the fronts at night). */
+  readonly cacheEdits: boolean;
+  /** `--arrival-shots`: pictures 2 s and 10 s after each camera's move, before anything settles (what a player sees meanwhile). */
+  readonly arrivalShots: boolean;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -267,6 +292,9 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     gpu: argv.includes('--gpu'),
     gpuRepeats: num('gpu-repeats', 5, 3, 15),
     gpuOnly: arg('gpu-only')?.split(',').filter((x) => x !== '') ?? null,
+    gpuStale: argv.includes('--gpu-stale'),
+    cacheEdits: argv.includes('--cache-edits'),
+    arrivalShots: argv.includes('--arrival-shots'),
     viewport: { width: Number(m[1]), height: Number(m[2]) },
   };
 }
@@ -302,6 +330,27 @@ export function shotProblems(s: { settled: boolean; chunks: number; l0: number; 
   if (s.near && s.l0 === 0) out.push('no level-0 chunk drawn');
   if (!(s.voxelShare >= VOXEL_SHARE_MIN)) out.push(`no voxel surface in the frame (${(s.voxelShare * 100).toFixed(1)} % changed with the voxels hidden)`);
   return out;
+}
+
+/** One animation frame of the cache's edit watch: its time (page ms), texels written so far, units stale, chunks waiting for charts, probes settled (1) and stale. */
+export type CacheWatchFrame = [number, number, number, number, number, number];
+
+/**
+ * Edit → light in the surface cache, from the frames watched from the edit command (page time `t0`): when the
+ * change reached the cache (its chunk waiting for charts, or units marked stale), the first frame after that whose
+ * texels were written (the changed light drawn), and when texels and then probes settled again (nothing stale or
+ * waiting). Null where it did not happen in the watch.
+ */
+export function cacheEditTiming(frames: readonly CacheWatchFrame[], t0: number): { reachedMs: number | null; firstLightMs: number | null; texelsSettledMs: number | null; settledMs: number | null; texelsWritten: number } {
+  const none = { reachedMs: null, firstLightMs: null, texelsSettledMs: null, settledMs: null, texelsWritten: 0 };
+  const r = frames.findIndex((f) => f[0] >= t0 && (f[3] > 0 || f[2] > 0));
+  if (r < 0) return none;
+  const written0 = frames[r]![1];
+  const l2 = frames.findIndex((f, i) => i > r && f[1] > written0);
+  const ts = frames.findIndex((f, i) => i > Math.max(r, l2) && f[2] === 0 && f[3] === 0);
+  const ps = ts < 0 ? -1 : frames.findIndex((f, i) => i >= ts && f[2] === 0 && f[3] === 0 && f[4] === 1 && f[5] === 0);
+  const ms = (i: number): number | null => (i < 0 ? null : Number((frames[i]![0] - t0).toFixed(1)));
+  return { reachedMs: ms(r), firstLightMs: ms(l2), texelsSettledMs: ms(ts), settledMs: ms(ps), texelsWritten: (ts < 0 ? frames[frames.length - 1]![1] : frames[ts]![1]) - written0 };
 }
 
 /** One animation frame of the edit watch: its time (page ms), the edits drawn so far, the static map's draws so far. */

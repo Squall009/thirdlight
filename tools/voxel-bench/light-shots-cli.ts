@@ -29,6 +29,12 @@
  *   --hold S (default 3)  --timeout S a camera (default 180)  --edits N (default 3, 0: none)
  *   --gpu         the GPU measurement at each camera (about two minutes each)   --gpu-repeats N (default 5)
  *   --gpu-only LIST  only these categories (near,far,shadows,lighting,post,effects)
+ *   --gpu-stale   a second GPU measurement at each camera while the surface cache has work (every texel and probe
+ *                 marked stale every half second meanwhile: its light and probe passes at their budget)
+ *   --cache-edits the surface cache's edit → light times: a window dug through the room camera's wall, then a wall
+ *                 built between a lamp and the house fronts at night and dug again (from the command to the change
+ *                 reaching the cache, its first texels written, texels settled, probes settled; a picture after each)
+ *   --arrival-shots  pictures 2 s and 10 s after each camera's move (`<name>-arrive-2s.png`, `-10s`), before it settles
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
  *
  * How to (staging running, nothing else on the GPU):
@@ -48,7 +54,7 @@ import { commandEnvelope } from '../../tests/support/commands';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { BENCH_LAMP_LIGHT, BENCH_LAMPS, caveStroke, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
+import { BENCH_LAMP_LIGHT, BENCH_LAMPS, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { openPlay, type PlayGame } from './travel-page';
 import { settleAfter, type CountSample } from './travel';
@@ -90,7 +96,7 @@ interface Hook {
   /** The sun heights the key light's march reads (null: none on the page). */
   sun?(): unknown;
   /** The lighting store: which, what the surface cache holds of the worlds, and the GPU tracer's voxel hits against the CPU walk's. */
-  light?: { store(): string; cache(): CacheStats | null; check(at: number[], n: number): Promise<unknown> };
+  light?: { store(): string; cache(): CacheStats | null; check(at: number[], n: number): Promise<unknown>; progress(): { texelsWritten: number; staleUnits: number; waiting: number; probesSettled: boolean; probesStale: number } | null; relightAll(): void };
 }
 interface CacheStats {
   tiles: number;
@@ -253,6 +259,17 @@ async function main(): Promise<void> {
     console.log(`loading: ${JSON.stringify(out['loadingSpans'])}`);
     for (const cam of [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS].filter((c) => O.only.includes(c.name))) {
       await game.debug(cam.command);
+      const arrived = Date.now();
+      const arrival: Record<string, unknown>[] = [];
+      if (O.arrivalShots) {
+        // What a player sees before the light has caught up: 2 s and 10 s after the move.
+        for (const at of [2, 10]) {
+          await page.waitForTimeout(Math.max(0, arrived + at * 1000 - Date.now()));
+          const f = join(OUT, `${cam.name}-arrive-${at}s.png`);
+          await game.screenshot(f);
+          arrival.push({ at, file: f, progress: await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null).catch(() => null) });
+        }
+      }
       const s = await settle(game);
       // The surface cache's light caught up (the cache store only): from the camera's move and from Play's start.
       const store = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.store() ?? 'off')) as string;
@@ -294,6 +311,29 @@ async function main(): Promise<void> {
           problems.push(`${cam.name}: GPU measurement: ${String(e).slice(0, 200)}`);
         }
       }
+      let gpuStale: unknown = null;
+      if (O.gpuStale && lit.cache !== null) {
+        // The cache kept at work: every texel and probe stale every half second while the measurement runs.
+        await game.frame.evaluate(() => {
+          const w = window as unknown as { __tlVoxelPlay?: Hook; __tlRelightTick?: number };
+          w.__tlVoxelPlay?.light?.relightAll();
+          w.__tlRelightTick = setInterval(() => w.__tlVoxelPlay?.light?.relightAll(), 500) as unknown as number;
+        });
+        try {
+          const before = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null);
+          const g = await measureGpuOnPage((call, options) => game.frame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: O.gpuRepeats, ...(O.gpuOnly !== null ? { only: O.gpuOnly } : {}) });
+          const after = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null);
+          const staleProfile = await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null);
+          gpuStale = { measure: g, before, after, lightingSpans: lightingSpans(staleProfile as ProfileReport | null), profile: staleProfile === null ? null : profileSummary(staleProfile as ProfileReport) };
+          console.log(`${cam.name}: while relighting ${gpuMeasureSummary(g)}; texels written ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+        } catch (e) {
+          problems.push(`${cam.name}: GPU measurement while relighting: ${String(e).slice(0, 200)}`);
+        } finally {
+          await game.frame.evaluate(() => clearInterval((window as unknown as { __tlRelightTick?: number }).__tlRelightTick));
+          await meterSet(game, {});
+          await cacheLit(game);
+        }
+      }
       const c = s.counts ?? {};
       const shotProblemsFound = shotProblems({ settled: s.settledS !== null, chunks: c['chunks'] ?? 0, l0: c['l0'] ?? 0, farBricks: c['farBricks'] ?? 0, voxelShare, near: cam.near });
       for (const p of shotProblemsFound) problems.push(`${cam.name}: ${p}`);
@@ -325,6 +365,8 @@ async function main(): Promise<void> {
         cacheLitS: lit.litS,
         sincePlayS,
         tracerCheck: check,
+        ...(O.arrivalShots ? { arrival, arrivedToLitS: lit.litS === null ? null : Number(((Date.now() - arrived) / 1000).toFixed(1)) } : {}),
+        ...(O.gpuStale ? { gpuStale } : {}),
         ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
         at: host(),
       });
@@ -367,6 +409,50 @@ async function main(): Promise<void> {
       const obs = await game.observe().catch(() => null);
       out['edits'] = { digs: edits, refused: obs?.counters?.['light_dig_refused'] ?? 0, issued: obs?.counters?.['light_digs'] ?? 0 };
       console.log(`edits: ${JSON.stringify(edits.map((e) => (e as { edit: { visibleMs?: number; frames?: number } | null }).edit === null ? null : { visibleMs: (e as { edit: { visibleMs: number } }).edit.visibleMs, frames: (e as { edit: { frames: number } }).edit.frames, shadowMs: (e as { shadowMs: number | null }).shadowMs, shadowFrames: (e as { shadowFrames: number | null }).shadowFrames }))}`);
+    }
+    if (O.cacheEdits) {
+      // Edit → light in the surface cache: a window dug through the room camera's wall (its light changes), a wall
+      // built between a lamp and the fronts at night (the lit texels behind it go dark), dug again (they come back).
+      const room = LIGHTING_CAMERAS.find((c) => c.name === 'room-window')!;
+      const night = LIGHTING_CAMERAS.find((c) => c.name === LAMP_WALL_COMMANDS.camera)!;
+      const runs: Record<string, unknown>[] = [];
+      for (const [cam, command, tag] of [[room, 'region_dig', 'window'], [night, LAMP_WALL_COMMANDS.build, 'lamp-wall'], [night, LAMP_WALL_COMMANDS.dig, 'lamp-unwall']] as const) {
+        await game.debug(cam.command);
+        await settle(game);
+        await cacheLit(game);
+        await page.waitForTimeout(CONVERGE_MS);
+        const before = decodePng(await game.screenshot(join(OUT, `edit-${tag}-before.png`)));
+        await game.frame.evaluate(() => {
+          const w = window as unknown as { __tlVoxelPlay?: Hook; __tlCacheWatch?: CacheWatchFrame[]; __tlCacheWatchOn?: boolean };
+          const rec: CacheWatchFrame[] = [];
+          w.__tlCacheWatch = rec;
+          w.__tlCacheWatchOn = true;
+          const tick = (): void => {
+            const p = w.__tlVoxelPlay?.light?.progress() ?? null;
+            if (p !== null) rec.push([performance.now(), p.texelsWritten, p.staleUnits, p.waiting, p.probesSettled ? 1 : 0, p.probesStale]);
+            if (w.__tlCacheWatchOn === true) requestAnimationFrame(tick);
+          };
+          tick();
+        });
+        const t0 = (await game.frame.evaluate(() => performance.now())) as number;
+        await game.debug(command);
+        // Until texels and probes are settled again after the change reached the cache (or 90 s).
+        let timing = cacheEditTiming([], t0);
+        for (let i = 0; i < 360; i++) {
+          await page.waitForTimeout(250);
+          const frames = (await game.frame.evaluate(() => (window as unknown as { __tlCacheWatch?: CacheWatchFrame[] }).__tlCacheWatch ?? [])) as CacheWatchFrame[];
+          timing = cacheEditTiming(frames, t0);
+          if (timing.settledMs !== null) break;
+        }
+        await game.frame.evaluate(() => void ((window as unknown as { __tlCacheWatchOn?: boolean }).__tlCacheWatchOn = false));
+        await page.waitForTimeout(CONVERGE_MS);
+        const after = decodePng(await game.screenshot(join(OUT, `edit-${tag}-after.png`)));
+        const counters = (await game.observe().catch(() => null))?.counters ?? {};
+        runs.push({ tag, camera: cam.name, command, ...timing, changedShare: Number(changedShare(before, after).toFixed(4)), counters: Object.fromEntries(['lamp_walls', 'lamp_unwalls', 'lamp_wall_refused', 'region_dug', 'region_dig_refused'].map((k) => [k, counters[k] ?? 0])) });
+        console.log(`cache edit ${tag}: ${JSON.stringify(runs[runs.length - 1])}`);
+        if (timing.settledMs === null) problems.push(`cache edit ${tag}: the light did not settle within 90 s of the command`);
+      }
+      out['cacheEdits'] = runs;
     }
     // Open regions where the world runs (counts, bytes, derive µs), then a hole dug through the room camera's wall:
     // wall ms from the command until the room's region answer at its eye changes (polled every 50 ms), and the steps.

@@ -340,13 +340,28 @@ export async function voxelCacheLightChecks(o: FarLightSetup): Promise<void> {
   const openLamp = await still('cache-open-lamp');
   const lit = redAdded(openDark, openLamp, LAMP_ADD_MIN);
   const shadow = pillarShadowed(pillarDark, pillarLamp, openDark, openLamp, LAMP_ADD_MIN, LAMP_KEEP);
+  // An edit under the lit lamp: the pillar built between it and the lit wall, the texels behind it relit dark once the
+  // light settles; dug again, lit again.
+  const tBuild = Date.now();
+  await control('pillar');
+  await expect.poll(() => counter('pillarBuilt'), { timeout: 10_000 }).toBe(2);
+  await settled('the pillar built under the lamp');
+  const builtMs = Date.now() - tBuild;
+  const pillarEdit = await still('cache-pillar-edit');
+  const tDig = Date.now();
+  await control('unpillar');
+  await expect.poll(() => counter('pillarDug'), { timeout: 10_000 }).toBe(2);
+  await settled('the pillar dug under the lamp');
+  const dugMs = Date.now() - tDig;
+  const openEdit = await still('cache-open-edit');
+  const edit = editRelit(pillarDark, pillarLamp, openDark, openLamp, pillarEdit, openEdit);
   const changed = changedPixels(off, pillarLamp, () => true, 20);
   const cs = stats as CacheStats | null;
   await place(ids.lamp, away);
   const hut = await probeHutChecks(o, settled, hook);
   // Off again, the pillar back: the picture is the store-off one.
   await control('pillar');
-  await expect.poll(() => counter('pillarBuilt'), { timeout: 10_000 }).toBe(2);
+  await expect.poll(() => counter('pillarBuilt'), { timeout: 10_000 }).toBe(3);
   await hook('setStore', 'off');
   await expect.poll(() => hook<CacheStats | null>('cache'), { timeout: 10_000 }).toBeNull();
   // The shut hut with the store off: the flat ambient term lights its inside as it lights the street.
@@ -365,8 +380,12 @@ export async function voxelCacheLightChecks(o: FarLightSetup): Promise<void> {
   await control('unwall');
   await expect.poll(() => counter('wallDug'), { timeout: 10_000 }).toBe(3);
   console.log(`[voxel-play] surface cache: lit ${litMs} ms after the switch (${JSON.stringify(cs)}); the lamp adds red to ${lit} px; the pillar's shadow ${shadow} px; the cache's picture differs from the store-off one in ${changed} px, the store-off one before and after in ${same} px`);
+  console.log(`[voxel-play] surface cache edits: the pillar built under the lit lamp settled ${builtMs} ms after the command, ${edit.stillLit} of its ${edit.shadow} shadowed px still lit; dug again, settled ${dugMs} ms after, ${edit.litAgain} lit again`);
   expect(lit, 'the lamp lights the wall and grass by the cache').toBeGreaterThan(CACHE_LIT_MIN_PX);
   expect(shadow, "the pillar's traced shadow keeps the lamp off what is behind it").toBeGreaterThan(CACHE_SHADOW_MIN_PX);
+  expect(edit.shadow, 'the pillar shadows the lit wall').toBeGreaterThan(CACHE_SHADOW_MIN_PX);
+  expect(edit.stillLit, 'built under the lit lamp, the texels behind the pillar are relit dark').toBeLessThan(EDIT_STILL_LIT_SHARE * edit.shadow);
+  expect(edit.litAgain, 'dug again, they are lit again').toBeGreaterThan(EDIT_LIT_AGAIN_SHARE * edit.shadow);
   expect(changed, 'the cache changes the picture').toBeGreaterThan(CACHE_CHANGED_MIN_PX);
   expect(same, 'switched off, the picture is the store-off one').toBeLessThan(CACHE_SAME_MAX_PX);
   // The live probes: the shut hut darker inside by the cache than by the flat term (sky occlusion), its blue box too;
@@ -480,6 +499,29 @@ function pillarShadowed(pillarDark: Png, pillarLamp: Png, openDark: Png, openLam
   return n;
 }
 
+/**
+ * The pillar edited under the lit lamp: of the pixels it shadows (as `pillarShadowed` finds them from the four
+ * pictures taken before the edits), how many `pillarEdit` (built while lit, settled) still shows lit (the red the
+ * lamp adds kept at `LAMP_KEEP` of it or more), and how many `openEdit` (dug again, settled) shows lit again (at
+ * least 1 − `LAMP_KEEP` of it).
+ */
+function editRelit(pillarDark: Png, pillarLamp: Png, openDark: Png, openLamp: Png, pillarEdit: Png, openEdit: Png): { shadow: number; stillLit: number; litAgain: number } {
+  let shadow = 0;
+  let stillLit = 0;
+  let litAgain = 0;
+  for (let y = 0; y < openDark.height; y++) for (let x = 0; x < openDark.width; x++) {
+    const a = pillarDark.pixel(x, y);
+    const b = openDark.pixel(x, y);
+    if (Math.abs(a[0]! - b[0]!) + Math.abs(a[1]! - b[1]!) + Math.abs(a[2]! - b[2]!) > 30) continue;
+    const add = openLamp.pixel(x, y)[0]! - b[0]!;
+    if (add < LAMP_ADD_MIN || pillarLamp.pixel(x, y)[0]! - a[0]! >= LAMP_KEEP * add) continue;
+    shadow += 1;
+    if (pillarEdit.pixel(x, y)[0]! - a[0]! >= LAMP_KEEP * add) stillLit += 1;
+    if (openEdit.pixel(x, y)[0]! - b[0]! >= (1 - LAMP_KEEP) * add) litAgain += 1;
+  }
+  return { shadow, stillLit, litAgain };
+}
+
 /** Pixels to which `lit` adds at least `min` red over `dark`. */
 function redAdded(dark: Png, lit: Png, min: number): number {
   let n = 0;
@@ -498,6 +540,13 @@ const CACHE_LIT_MIN_PX = 8000;
 const CACHE_SHADOW_MIN_PX = 250;
 const CACHE_CHANGED_MIN_PX = 500;
 const CACHE_SAME_MAX_PX = 40;
+/**
+ * The pillar edited under the lit lamp (set before its first run, not from a reading): of the pixels it shadows, at
+ * most a fifth may stay lit once built and the light settled (an edit's marks relight what it can shadow; a few at
+ * the shadow's soft edge may keep some light), and at least seven tenths are lit again once it is dug.
+ */
+const EDIT_STILL_LIT_SHARE = 0.2;
+const EDIT_LIT_AGAIN_SHARE = 0.7;
 
 /**
  * The live probes' bounds, from the readings of the first green run (high tier, the preview's 670 × 253 picture): the
