@@ -455,3 +455,4 @@ export { WALK_BENCH_KINDS, walkBenchRandom, walkBenchRays, type WalkBatchRay, ty
 export { airRegions, ALL_FACE_PAIRS, ALL_REGION_FACES, facePairBit, openRegionsArrays, openRegionsBytes, openRegionsOf, REGION_FACE, REGION_PORTAL, regionLabelAt, regionSkyAt, solidRegions, type OpenRegionsOut } from './open-regions';
 export { OpenRegionStitch, type OpenPortalInfo, type OpenRegionInfo, type OpenRegionStats, type RegionStreamerView } from './open-region-stitch';
 export { SKY_NONE, SkyColumns, type SkyColumnWire } from './sky-columns';
+export { farBrickTops, FarSunTops, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_TILE_TEXELS, SUN_WINDOW_TEXELS, SunHeightWindow, sunTileOffset, composeSkyTile, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarTopsPlace, type SunColumn } from './sun-heights';

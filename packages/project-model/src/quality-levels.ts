@@ -153,13 +153,18 @@ export interface LightingTierSettings {
   readonly surfaceReach: number;
   /** The shadow atlas's side (texels, one of `SHADOW_ATLAS_SIZES`): 16-bit depth and the R8 colour three's render target needs, so 12, 48 and 192 MiB. */
   readonly shadowAtlas: number;
+  /**
+   * Samples each lit pixel's march toward the sun takes over a voxel world's sun heights past the sun's shadow map
+   * (far mountains and houses shading valleys and streets; WebGPU), 0: off.
+   */
+  readonly voxelSunSteps: number;
 }
 
 /** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */
 export const LIGHTING_TIER_SETTINGS: Readonly<Record<LightingTier, Readonly<LightingTierSettings>>> = Object.freeze({
-  low: Object.freeze({ surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 2048 }),
-  medium: Object.freeze({ surfaceCacheMiB: 64, surfaceLightMs: 1.5, contactShadows: true, reflections: 'medium' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 4096 }),
-  high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2, shadowAtlas: 8192 }),
+  low: Object.freeze({ surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 2048, voxelSunSteps: 12 }),
+  medium: Object.freeze({ surfaceCacheMiB: 64, surfaceLightMs: 1.5, contactShadows: true, reflections: 'medium' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 4096, voxelSunSteps: 16 }),
+  high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2, shadowAtlas: 8192, voxelSunSteps: 24 }),
 });
 
 /** The tier of a level that names none. */
@@ -194,6 +199,7 @@ export function levelLighting(level: Pick<QualityLevelConfig, 'lighting' | 'surf
     surfaceRays: t.surfaceRays,
     surfaceReach: t.surfaceReach,
     shadowAtlas: level.shadowAtlas ?? t.shadowAtlas,
+    voxelSunSteps: t.voxelSunSteps,
   };
 }
 

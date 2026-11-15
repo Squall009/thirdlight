@@ -87,6 +87,8 @@ interface Hook {
   meter: { set(s: { renderScale?: number; dynamicResolution?: boolean; hide?: { near?: boolean; far?: boolean } }): boolean };
   /** The key light's cached static map draws so far (null: no cached shadow). */
   shadowDraws(): number | null;
+  /** The sun heights the key light's march reads (null: none on the page). */
+  sun?(): unknown;
 }
 
 
@@ -203,6 +205,7 @@ async function main(): Promise<void> {
       const hidden = decodePng(await game.screenshot(hiddenFile));
       await meterSet(game, {});
       const voxelShare = changedShare(shown, hidden);
+      const sun = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.sun?.() ?? null).catch(() => null);
       let gpu: unknown = null;
       let afterGpuShare: number | null = null;
       let afterGpuLaterShare: number | null = null;
@@ -247,10 +250,11 @@ async function main(): Promise<void> {
         problems: shotProblemsFound,
         profile: report === null ? null : profileSummary(report),
         memory: report?.counters.memory ?? null,
+        sun,
         ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
         at: host(),
       });
-      console.log(`${cam.name}: settled ${s.settledS ?? 'never'} s, ${JSON.stringify(s.counts)}, voxels change ${(voxelShare * 100).toFixed(1)} % of the picture${shotProblemsFound.length > 0 ? `; REFUSED: ${shotProblemsFound.join('; ')}` : ''}; profile ${JSON.stringify(report === null ? null : profileSummary(report).msPerFrame)}`);
+      console.log(`${cam.name}: settled ${s.settledS ?? 'never'} s, ${JSON.stringify(s.counts)}, voxels change ${(voxelShare * 100).toFixed(1)} % of the picture${shotProblemsFound.length > 0 ? `; REFUSED: ${shotProblemsFound.join('; ')}` : ''}; profile ${JSON.stringify(report === null ? null : profileSummary(report).msPerFrame)}; sun field ${JSON.stringify(sun)}`);
     }
     if (O.edits > 0) {
       // Edit → screen: digs in front of the street camera, one at a time, each read from the page's edit record.

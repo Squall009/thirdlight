@@ -98,7 +98,7 @@ import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-
 import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
-import { voxelShadowChecks } from './voxel-shadows';
+import { voxelFarLightChecks, voxelShadowChecks } from './voxel-shadows';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -935,6 +935,8 @@ async function publishScript(behaviorId: string, source: string, entityId: strin
 let standAt: [number, number, number] | null = null;
 /** The play world's object (made with the play project). */
 let playWorld: string | null = null;
+/** The Play project's camera (moved by the far-light checks). */
+let pitCamera = '';
 
 /** The Play camera (metres, as `playProject` places it): over the pad, 35° down. */
 const PLAY_PITCH = (35 * Math.PI) / 180;
@@ -971,7 +973,7 @@ async function playProject(): Promise<[number, number, number]> {
   const [ox, oy, oz] = farScene;
   const at: [number, number, number] = [(ox + 9.5) / 2, oy / 2, (oz + 10.5) / 2];
   const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'far', blendMetres: PLAY_BLEND_M, quality: { low: FAR_TEST_RINGS } } } }))['createdId']);
-  await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: playCamera(at), components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
+  pitCamera = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: playCamera(at), components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } }))['createdId']);
   // A projected and a clipped decal on the wall's front face (facing +z: a decal projects along its −z), plain colours.
   await playCmd('setMaterial', { material: { materialId: 'mark-red', name: 'Red mark', shader: 'decal', params: { color: '#e01010' }, textures: {} } });
   await playCmd('setMaterial', { material: { materialId: 'mark-blue', name: 'Blue mark', shader: 'decal', params: { color: '#1030e0' }, textures: {} } });
@@ -1020,6 +1022,10 @@ async function playProject(): Promise<[number, number, number]> {
     '    const wall = box(-3, 0, -2, -2.5, 4, 0.5);',
     `    for (const _ of ctx.debug.command('wall')) ctx.game.add(v.set(wall, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'wallBuilt' : 'wallRefused', 1);`,
     "    for (const _ of ctx.debug.command('unwall')) ctx.game.add(v.dig(wall).ok ? 'wallDug' : 'wallRefused', 1);",
+    // A long wall 8 m tall from 4 m to 38 m ahead of the character: its sun shadow runs out past the key light's map.
+    '    const longWall = box(-3, 0, -38, -2, 8, -4);',
+    `    for (const _ of ctx.debug.command('longwall')) ctx.game.add(v.set(longWall, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'longWallBuilt' : 'longWallRefused', 1);`,
+    "    for (const _ of ctx.debug.command('unlongwall')) ctx.game.add(v.dig(longWall).ok ? 'longWallDug' : 'longWallRefused', 1);",
     "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
     '    if (state.rooms) {',
     "      const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));",
@@ -1422,6 +1428,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     expect(wc.misses).toBeGreaterThan(100);
     expect(wc.mismatches, JSON.stringify(wc.examples)).toBe(0);
     await voxelShadowChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
+    await voxelFarLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);

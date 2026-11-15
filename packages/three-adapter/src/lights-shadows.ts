@@ -39,6 +39,7 @@ import { shadowSeesCutaways } from './block-cutaway-view';
 import { decideShadows, deriveShadowCamera, directionalShadowSettings, planSceneLights, SHADOW_PROFILE, type AuthoredLight, type ShadowOutcome, type ShadowPlan, type ShadowReason, type ShadowRegion } from './lighting';
 import { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 import { sceneShadowsOf, type StaticShadowRevision } from './shadow-casters';
+import { sunShadowed, type SunShadowed } from './voxel-sun-field';
 import { textureHolds } from './texture-holds';
 import { markProbeHeld } from './probe-lighting';
 import {
@@ -113,6 +114,8 @@ type KeyRec = {
   directionNow: [number, number, number] | null;
   /** Its shadow as a cached static map and a dynamic one (null: three's single map, or no shadow). */
   readonly cached: CachedShadowNode | null;
+  /** Its shadow node's march past the map over a voxel world's sun heights (null: no shadow). */
+  readonly sun: SunShadowed | null;
 };
 
 /** A light's authored masks under the ones a script wrote (`w`; absent: none). */
@@ -200,6 +203,32 @@ export interface SceneLights {
   setRoomLights(on: boolean): void;
   diagnostics(): LightsDiagnostics;
   dispose(): void;
+}
+
+const followDir = new THREE.Vector3();
+const followPoint = new THREE.Vector3();
+const followCentre = new THREE.Vector3();
+
+/**
+ * The key light's square onto the ground under the camera, snapped to its shadow texels (its maps and the sun
+ * march's hand-over follow it), and the scene's sun heights onto the camera.
+ */
+function followKeyLight(r: KeyRec, scene: THREE.Scene, camera: THREE.Camera, d: readonly [number, number, number]): void {
+  const texel = (2 * r.plan.halfExtent) / r.settings.mapSize;
+  followDir.set(d[0], d[1], d[2]);
+  if (followDir.lengthSq() < 1e-12) followDir.set(0, -1, 0);
+  followDir.normalize();
+  groundUnder(scene, camera, followPoint);
+  snapToLightGrid(followPoint, followDir, texel, followCentre);
+  const light = r.light;
+  light.target.position.copy(followCentre);
+  light.position.copy(followCentre).addScaledVector(followDir, -SHADOW_PROFILE.distance);
+  light.target.updateMatrixWorld();
+  r.cached?.follow(followPoint, followCentre, followDir);
+  r.sun?.follow(followCentre, followDir, r.plan.halfExtent, SHADOW_PROFILE.distance);
+  // The map holds casters as far toward the sun as its near plane, which lies this far across from its centre.
+  const across = Math.hypot(followDir.x, followDir.z);
+  sceneShadowsOf(scene)?.sunField?.follow(camera.position.x, camera.position.z, followDir, (SHADOW_PROFILE.distance - r.plan.camera.near) * across);
 }
 
 /**
@@ -321,6 +350,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     // The target is not in the scene (it draws nothing): its world matrix is kept here and by the shadow follow.
     light.target.updateMatrixWorld();
     let cached: CachedShadowNode | null = null;
+    let sun: SunShadowed | null = null;
     if (outcome.ok && outcome.shadows === 'on' && !shadowsUnsupported) {
       // The shadow-camera parameters are set now; the shadow map is allocated only by the first-frame probe.
       light.castShadow = true;
@@ -339,9 +369,11 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       if (o.staticShadows !== null) {
         cached = new CachedShadowNode(light, o.staticShadows, { mapSize: settings.mapSize, halfExtent: plan.halfExtent, near: plan.camera.near, far: plan.camera.far, distance: SHADOW_PROFILE.distance, bias: settings.bias, normalBias: settings.normalBias });
       }
-      (light.shadow as { shadowNode?: unknown }).shadowNode = withContactShadows(cached ?? shadow(light, light.shadow));
+      // Past the map (and toward the sun past its casters) a voxel world's sun heights shade it, where a build has them.
+      sun = sunShadowed(withContactShadows(cached ?? shadow(light, light.shadow)));
+      (light.shadow as { shadowNode?: unknown }).shadowNode = sun.node;
     }
-    return { id, light, authored: l, settings, plan, outcome, directionNow: null, cached };
+    return { id, light, authored: l, settings, plan, outcome, directionNow: null, cached, sun };
   };
   /** The shadow state follows the key light (a scene with a shadow-casting sun turns shadows on; the probe runs for it). */
   const applyKeyShadow = (): void => {
@@ -352,9 +384,6 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
   };
 
   let selection: SceneLightSelection | null = null;
-  const followDir = new THREE.Vector3();
-  const followPoint = new THREE.Vector3();
-  const followCentre = new THREE.Vector3();
 
   function setLightValues(rec: { light: THREE.Light; id: string; type: string }, v: EnvironmentLightValues): void {
     rec.light.color.set(v.color);
@@ -512,19 +541,7 @@ function releaseLight(entityId: string): void {
     },
 
     followCamera(camera: THREE.Camera): void {
-      if (keyRec === null) return;
-      const texel = (2 * keyRec.plan.halfExtent) / keyRec.settings.mapSize;
-      const d = keyDirectionOf(keyRec) ?? [0, -1, 0];
-      followDir.set(d[0], d[1], d[2]);
-      if (followDir.lengthSq() < 1e-12) followDir.set(0, -1, 0);
-      followDir.normalize();
-      groundUnder(o.scene, camera, followPoint);
-      snapToLightGrid(followPoint, followDir, texel, followCentre);
-      const light = keyRec.light;
-      light.target.position.copy(followCentre);
-      light.position.copy(followCentre).addScaledVector(followDir, -SHADOW_PROFILE.distance);
-      light.target.updateMatrixWorld();
-      keyRec.cached?.follow(followPoint, followCentre, followDir);
+      if (keyRec !== null) followKeyLight(keyRec, o.scene, camera, keyDirectionOf(keyRec) ?? [0, -1, 0]);
     },
 
     beforeFrame(renderer): boolean {

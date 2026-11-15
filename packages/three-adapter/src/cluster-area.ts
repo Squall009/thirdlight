@@ -116,7 +116,10 @@ export function shadeAreaLight(a: AreaLightArgs): void {
   let radiance = a.colour.mul(window).div(area);
   if (a.gate !== null) radiance = radiance.mul(a.gate);
   const radianceVar = radiance.toVar();
-  if (drawsRectArea(model)) {
+  // A build that places its surface itself (the far field's one shade: its fragments lie on a plane at the camera)
+  // takes the form factor below, which reads that place; three's rect-area term reads the fragment's own.
+  const surface = builder.context.positionView as N | undefined;
+  if (drawsRectArea(model) && surface === undefined) {
     model.directRectArea({ lightColor: radianceVar, lightPosition: a.centre, halfWidth: u, halfHeight: v, reflectedLight: a.reflectedLight, ltc_1: a.ltc.one, ltc_2: a.ltc.two, lightNode: { light: {}, shadowNode: null } }, builder);
     return;
   }
@@ -125,7 +128,7 @@ export function shadeAreaLight(a: AreaLightArgs): void {
   const p1 = c.sub(u).sub(v);
   const p2 = c.sub(u).add(v);
   const p3 = c.add(u).add(v);
-  const formFactor = LTC_Evaluate({ N: normalView, V: positionViewDirection, P: positionView, mInv: mat3(1, 0, 0, 0, 1, 0, 0, 0, 1), p0, p1, p2, p3 }).x;
+  const formFactor = LTC_Evaluate({ N: normalView, V: surface === undefined ? positionViewDirection : surface.negate().normalize(), P: surface ?? positionView, mInv: mat3(1, 0, 0, 0, 1, 0, 0, 0, 1), p0, p1, p2, p3 }).x;
   const direction = a.toLight.div(a.distance.max(1e-6)).toVar();
   // `direct` takes irradiance as colour × N·L: the form factor's irradiance (π L F) over the centre's N·L.
   const nDotL = max(dot(normalView, direction), float(0.05));

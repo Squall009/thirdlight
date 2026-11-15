@@ -251,6 +251,8 @@ export interface SceneShadowLink {
   readonly revision: StaticShadowRevision | null;
   /** The height (world metres) of the ground under (x, z), set by whoever knows it (null: the scene's plane, y = 0). */
   ground: ((x: number, z: number) => number | null) | null;
+  /** The sun heights the key light's march reads past its map, following the camera (set by the voxel draws; absent: none). */
+  sunField?: { follow(x: number, z: number, dir: { x: number; y: number; z: number }, farFrom: number): void } | null;
 }
 
 const shadowLinks = new WeakMap<object, SceneShadowLink>();

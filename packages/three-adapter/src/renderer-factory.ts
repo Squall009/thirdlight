@@ -33,6 +33,7 @@ import { WebGPURenderer } from 'three/webgpu';
 import { registerLayeredLights } from './light-layers';
 import { registerScreenSpaceOcclusion } from './post-ao';
 import { registerContactShadows } from './post-contact-shadows';
+import { registerSunField } from './voxel-sun-field';
 import { registerReflections } from './post-reflections';
 import { registerProbeLighting } from './probe-lighting';
 import { registerClusterHeat } from './cluster-heat';
@@ -357,6 +358,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     // And the screen-space ambient occlusion, a light every lit material takes into its indirect light.
     registerScreenSpaceOcclusion();
     registerContactShadows();
+    // And the voxel sun heights, a light the key light's shadow reads past its map.
+    registerSunField();
     registerReflections();
     // And objects that take no local light (their material's mode variant per draw).
     installLocalLightModes(r as never);

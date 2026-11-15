@@ -46,6 +46,7 @@ import { texelTexture } from './texel-texture-node';
 import { faceOfCode, INSIDE_FACE_CODE, type FarBrickTextures } from './voxel-far-brick-field';
 import { farFragmentDepth, type FarCover } from './voxel-far-common';
 import type { FarFineShade } from './voxel-far-fine-shade';
+import { SUN_FIELD_NORMAL_KEY } from './voxel-sun-field';
 
 const TSL: N = TSLTyped;
 const { Discard, Fn, If, cameraProjectionMatrixInverse, cameraViewMatrix, cameraWorldMatrix, clamp, context, float, floor, int, ivec2, mod, normalize, positionGeometry, positionView, property, round, screenCoordinate, uniform, vec3, vec4 } = TSL;
@@ -202,6 +203,8 @@ export class FarVisibility {
     const roughOut = property('float', 'farShadeRoughness');
     const aoOut = property('float', 'farShadeAo');
     const hitWorld = property('vec3', 'farShadeWorld');
+    const hitView = property('vec3', 'farShadeView');
+    const hitNormalWorld = property('vec3', 'farShadeNormalWorld');
     const rootWorld = this.rootWorld;
     const fineShade = this.fine;
     m.depthNode = Fn(() => {
@@ -216,6 +219,7 @@ export class FarVisibility {
       // The pixel's ray (its plane point, view space) to the hit's depth.
       const ray = positionView.toVar();
       const view = ray.mul(hitViewZ.div(ray.z)).toVar();
+      hitView.assign(view);
       hitWorld.assign(cameraWorldMatrix.mul(vec4(view, 1)).xyz);
       const shaded = textures.shade(region, p, hit.face, hit.inside);
       const normal = vec3(shaded.normal).toVar();
@@ -230,22 +234,31 @@ export class FarVisibility {
         roughOut.assign(look.roughness);
         aoOut.assign(look.ao);
       });
-      normalOut.assign(normalize(cameraViewMatrix.mul(vec4(normalize(rootWorld.mul(vec4(normal, 0)).xyz), 0)).xyz));
+      hitNormalWorld.assign(normalize(rootWorld.mul(vec4(normal, 0)).xyz));
+      normalOut.assign(normalize(cameraViewMatrix.mul(vec4(hitNormalWorld, 0)).xyz));
       return farFragmentDepth(cover.behindNear(hitWorld, hitViewZ));
     })();
     m.colorNode = vec4(colourOut, 1);
     m.normalNode = normalOut;
     m.roughnessNode = roughOut;
     m.aoNode = aoOut;
-    // Fog at the hit's depth, not the plane's (three's fog reads the context's view depth where given).
-    m.contextNode = context({ modelViewMatrix: cameraRelativeModelView, getViewZ: () => hitViewZ });
+    // Fog at the hit's depth, not the plane's (three's fog reads the context's view depth where given), and every
+    // light lit at the hit: three's analytic lights and the clustered lights (their reach, cluster cell, spot cone and
+    // atlas shadow) read the context's view position, its spot projections the world one; the plane's position lies
+    // at the camera, kilometres from what the pixel shows.
+    m.contextNode = context({ modelViewMatrix: cameraRelativeModelView, getViewZ: () => hitViewZ, positionView: hitView, positionWorld: hitWorld });
     m.userData[OWN_MOTION_KEY] = worldMotion(hitWorld, this.lastFromNow.mul(vec4(hitWorld, 1)).xyz);
+    // The sun's shadow at the hit: its maps where they reach, the sun field's march past them (voxel-sun-field.ts),
+    // from the hit's own normal.
+    m.receivedShadowPositionNode = hitWorld;
+    m.userData[SUN_FIELD_NORMAL_KEY] = hitNormalWorld;
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), m);
     quad.name = 'voxel-far shade';
     quad.frustumCulled = false;
     quad.matrixAutoUpdate = false;
     quad.matrixWorldAutoUpdate = false;
-    quad.castShadow = quad.receiveShadow = false;
+    quad.castShadow = false;
+    quad.receiveShadow = true;
     quad.visible = false;
     // Drawn after the frame's depth pyramid (the march it starts reads it), in the frame's second pass.
     quad.userData[AFTER_PYRAMID_KEY] = true;

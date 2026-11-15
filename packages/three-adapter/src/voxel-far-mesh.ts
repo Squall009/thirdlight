@@ -185,6 +185,11 @@ export class VoxelFarView {
   private readonly fineKeys = new Set<string>();
   /** Far changes held for their fine builds since made. */
   heldChanges = 0;
+  /**
+   * Told of each brick node drawn (with its stored bricks) and each taken away, as they are applied (the sun field's
+   * far tops: voxel-sun-field.ts); fine nodes are left out (the near field's sky heights cover where they draw).
+   */
+  nodesChanged: ((added: readonly { readonly key: string; readonly node: MipNode; readonly bricks: FarBricks }[], removed: readonly string[]) => void) | null = null;
   constructor(private readonly opts: VoxelFarViewOptions) {
     this.root.name = 'voxel-far';
     this.root.matrixAutoUpdate = false;
@@ -398,6 +403,10 @@ export class VoxelFarView {
       this.groupOf.set(key, g.key);
     });
     this.maskUnderFine(far);
+    if (this.nodesChanged !== null) {
+      const added = far.added.filter((a) => a.bricks !== undefined && a.level > FAR_FINE_TOP_LEVEL).map((a) => ({ key: mipNodeKey(a), node: a as MipNode, bricks: a.bricks! }));
+      this.nodesChanged(added, far.removed.map((n) => mipNodeKey(n)));
+    }
     for (const g of [...this.groups.values()]) if (g.dirty) this.rebuild(g);
     if (this.atlas !== null && this.atlas.trim(this.uploader())) this.trims++;
     this.lastBuildMs = performance.now() - t0;

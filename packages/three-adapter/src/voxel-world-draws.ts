@@ -73,17 +73,18 @@
  * over the hop to this page to the first frame drawn after the batch.
  */
 import * as THREE from 'three';
-import { residentBytes, threadProfiler, wallClock } from '@thirdlight/shared';
-import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SKY_NONE, SkyColumns, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
+import { frameSliceMs, residentBytes, threadProfiler, wallClock } from '@thirdlight/shared';
+import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SKY_NONE, SkyColumns, SUN_TILE_TEXELS, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
 import { isStreamedTexture } from './texture-streaming';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { VoxelBatchStage, voxelBatchFrameMs } from './voxel-batch-stage';
-import { DEFAULT_QUALITY_LEVELS, levelVoxels, qualityLevelOf, textureSlotSetKey, voxelArrayTopLevel, voxelWorldBlendMetres, VOXEL_TEXTURE_MAPS, type QualityLevelConfig, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
+import { DEFAULT_QUALITY_LEVELS, levelLighting, levelVoxels, qualityLevelOf, textureSlotSetKey, voxelArrayTopLevel, voxelWorldBlendMetres, VOXEL_TEXTURE_MAPS, type QualityLevelConfig, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
 import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from './voxel-surface';
-import { voxelPathsFromUrl, voxelShadowsFromUrl } from './voxel-surface-path';
+import { voxelPathsFromUrl, voxelShadowsFromUrl, voxelSunFromUrl } from './voxel-surface-path';
+import { SunFieldHost, type SunFieldRenderer } from './voxel-sun-field';
 import { sceneShadowsOf, type SceneShadowLink } from './shadow-casters';
 import { farFeedbackFromUrl } from './voxel-far-feedback';
 import type { VoxelFarView } from './voxel-far-mesh';
@@ -238,6 +239,8 @@ const BUDGET_FRAMES = 8;
 /** The batches made into draws and the shader grids uploaded, as spans of the page's thread. */
 const VOXEL_DRAWS_SPAN = threadProfiler.span('voxel draws made', 'voxelApply');
 const VOXEL_GRIDS_SPAN = threadProfiler.span('voxel grids uploaded', 'voxelApply');
+/** The sun heights composed and uploaded (voxel-sun-field.ts), a span of the page's thread. */
+const VOXEL_SUN_SPAN = threadProfiler.span('voxel sun heights', 'lighting');
 
 /** Edits kept for measurements. */
 const EDITS_KEPT = 64;
@@ -290,6 +293,8 @@ export class VoxelWorldDraws {
   /** The scene shadow link whose ground this page tells (taken back on dispose). */
   private groundLink: SceneShadowLink | null = null;
   private readonly ground = (x: number, z: number): number | null => this.groundAt(x, z);
+  /** The sun heights the key light's march reads past its map (WebGPU game pages with voxel shadows; null: none). */
+  private sun: SunFieldHost | null = null;
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.unregister.push(
@@ -510,10 +515,41 @@ export class VoxelWorldDraws {
       threadProfiler.begin(VOXEL_GRIDS_SPAN);
       for (const w of this.worlds.values()) w.surface.grids.frame();
       threadProfiler.end(VOXEL_GRIDS_SPAN);
+      this.sunFrame();
       this.capArrays();
       if (this.worlds.size > 0 || this.waiting.length > 0) this.loop();
     };
     this.raf = requestAnimationFrame(tick);
+  }
+
+  /** The sun heights' share of the frame: the tier's samples, tiles composed within the lighting preparation slice, uploads. */
+  private sunFrame(): void {
+    const sun = this.sun;
+    if (sun === null) return;
+    const level = this.opts.residency?.level() ?? null;
+    sun.setTier(level === null ? 0 : levelLighting(level).voxelSunSteps);
+    threadProfiler.begin(VOXEL_SUN_SPAN);
+    const t0 = performance.now();
+    const budget = frameSliceMs('surfacePrepare');
+    sun.field.frame(() => performance.now() - t0 < budget, this.opts.renderer() as unknown as SunFieldRenderer | null);
+    threadProfiler.end(VOXEL_SUN_SPAN);
+  }
+
+  /** The sun march off (true) or back to the tier's (a page hook's comparison). */
+  setSunOff(off: boolean): void {
+    this.sun?.setOff(off);
+    this.opts.applied?.();
+  }
+
+  /** The sun field's CPU reference at a world point (null: no field; a check of what the compute pass writes). */
+  sunProbe(p: readonly number[]): ReturnType<SunFieldHost['field']['probe']> | null {
+    return this.sun?.field.probe(p) ?? null;
+  }
+
+  /** The sun field as drawn (null: none on this page). */
+  sunStats(): { readonly steps: number; readonly waiting: readonly number[]; readonly marching: number; readonly farNodes: number; readonly nearOrigin: readonly number[]; readonly farOrigin: readonly number[]; readonly bytes: number; readonly topMax: number; readonly stats: Record<string, number> } | null {
+    const s = this.sun;
+    return s === null ? null : { steps: s.steps, waiting: [...s.field.waiting], marching: s.field.marching, farNodes: s.field.far.count, nearOrigin: s.field.near.origin, farOrigin: s.field.far.window.origin, bytes: s.field.bytes, topMax: Math.max(s.field.near.topMax, s.field.far.window.topMax), stats: { ...s.field.stats } };
   }
 
   private world(name: string, edge: number, scene: THREE.Scene, renderer: VoxelGridRenderer): WorldDraw {
@@ -534,6 +570,18 @@ export class VoxelWorldDraws {
     }
     const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), ...(this.opts.farSeen !== undefined && farFeedbackFromUrl(pageSearch()) ? { onFarSeen: (seen: FarSeenWire) => this.opts.farSeen!(name, seen) } : {}), ...(this.opts.fineUnavailable !== undefined ? { onFineUnavailable: () => this.opts.fineUnavailable!(name) } : {}), ...((t) => (t !== null ? { fineTexture: t } : {}))(fineTextureFromUrl(pageSearch())) });
     view.rebuilt = () => this.rebuilt(name);
+    if (webgpu && link !== null && edge === SUN_TILE_TEXELS) {
+      this.sun ??= new SunFieldHost(scene, link, edge, VOXEL_SIZE_M, () => this.skies.values(), {
+        // Its march sits inside every sun-lit program: the measurement's hide skips it there.
+        hide: (h) => gpuPassHides.register({ category: 'shadows', name: 'voxel sun march', present: () => (this.sun?.steps ?? 0) > 0, hide: h }),
+        bytes: (read) => residentBytes.register('voxelStream', read),
+      }, voxelSunFromUrl(pageSearch()));
+      const sun = this.sun;
+      view.far.nodesChanged = (added, removed) => {
+        for (const k of removed) sun.field.farRemoved(`${name}|${k}`);
+        for (const a of added) sun.field.farAdded(`${name}|${a.key}`, a.node, a.bricks);
+      };
+    }
     view.root.name = `voxel-world ${name}`;
     scene.add(view.root);
     const decals = voxelWorldDecalsOf(scene);
@@ -591,6 +639,7 @@ export class VoxelWorldDraws {
     this.walks.get(name)?.dispose();
     this.walks.delete(name);
     this.skies.delete(name);
+    this.sun?.field.far.removePrefixed(`${name}|`);
     const w = this.worlds.get(name);
     if (w === undefined) return;
     for (const q of this.waiting) if (q.stage?.view === w.view) q.stage.discard();
@@ -629,6 +678,7 @@ export class VoxelWorldDraws {
       let k = this.skies.get(b.world);
       if (k === undefined) this.skies.set(b.world, (k = new SkyColumns(b.edge)));
       k.apply(b.sky);
+      this.sun?.field.skyChanged(b.sky);
     }
     const t1 = performance.now();
     const done = q.stage.commit();
@@ -663,6 +713,8 @@ export class VoxelWorldDraws {
     for (const off of this.unregister.splice(0)) off();
     if (this.groundLink?.ground === this.ground) this.groundLink.ground = null;
     this.groundLink = null;
+    this.sun?.dispose();
+    this.sun = null;
     if (this.raf !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.raf);
     this.kitLoaded?.();
     this.kitLoaded = null;

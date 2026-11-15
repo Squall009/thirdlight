@@ -57,3 +57,14 @@ export function voxelDrawPath(cells: Uint16Array | null, solid: number, level: n
   else for (let i = 0; i < cells.length && !(two && terrain); i++) take(cells[i]!);
   return { materials: two ? 2 : 1, projection: level >= AXIS_PROJECTION_LEVEL || !terrain ? 'axis' : 'blend' };
 }
+
+/**
+ * The page flag for comparisons: `?voxelSun=off` turns a game page's sun march past the shadow map off
+ * (voxel-sun-field.ts; the tier's `voxelSunSteps` decide otherwise), so a measurement or a picture can tell its share.
+ */
+export const VOXEL_SUN_URL_PARAM = 'voxelSun';
+
+/** Whether a page's query string leaves the sun march to the tier (anything but `off`). */
+export function voxelSunFromUrl(search: string): boolean {
+  return new URLSearchParams(search).get(VOXEL_SUN_URL_PARAM) !== 'off';
+}
