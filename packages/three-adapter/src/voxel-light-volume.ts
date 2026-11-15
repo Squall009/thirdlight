@@ -218,7 +218,9 @@ export class VoxelLightVolume {
     if (this.light.read) this.holdAmbient(true);
     deps.scene.add(this.light);
     this.offs.push(
-      gpuPassHides.register({ category: 'lighting', name: 'voxel light volume', present: () => this.stale.size > 0, hide: (h) => (this.hidden = h) }),
+      // Present while it exists, as the cache's pass: a moving eye makes bricks stale between windows, so a reading taken
+      // only while some are stale at the start missed the orbit's update.
+      gpuPassHides.register({ category: 'lighting', name: 'voxel light volume', present: () => true, hide: (h) => (this.hidden = h) }),
       // Its GPU bytes are held against the two stores it replaces (the surface cache's, then the probes'); the grids kept for its colours are a share of the chunks drawn.
       residentBytes.register('surfaceCache', () => Math.min(this.gpu.bytes, this.budgets().surfaceCache)),
       residentBytes.register('probes', () => Math.max(0, this.gpu.bytes - this.budgets().surfaceCache)),
