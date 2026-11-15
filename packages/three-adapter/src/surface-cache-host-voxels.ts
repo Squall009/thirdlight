@@ -119,6 +119,17 @@ export class HostVoxels {
     return this.source?.walk() ?? null;
   }
 
+  /** Whether a voxel cell is drawn as a body (null: no world lit here, or none knows): what the probes' placement drops probes inside. */
+  solidAt(): ((x: number, y: number, z: number) => boolean | null) | null {
+    const src = this.source;
+    return src?.solidAt === undefined ? null : src.solidAt.bind(src);
+  }
+
+  /** Whether voxel worlds are lit by the cache here. */
+  get lit(): boolean {
+    return this.source !== null;
+  }
+
   /** The listing's part: each chunk drawn is seen; one not held at its version is charted (the old one kept meanwhile). */
   list(seen: Set<string>): void {
     const src = this.source;
@@ -170,6 +181,11 @@ export class HostVoxels {
       }
     }
     this.stats.chartMs = Math.max(this.stats.chartMs, performance.now() - start);
+  }
+
+  /** Whether a resident tile's light is lit (no unit of it stale). */
+  tileLit(key: string): boolean {
+    return this.host.units(key).every((u) => !this.host.relight.isStale(u));
   }
 
   /** What the cache holds of the voxel worlds now. */

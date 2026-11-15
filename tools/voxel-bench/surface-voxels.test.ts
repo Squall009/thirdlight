@@ -4,11 +4,13 @@
  * surface found in a chart under its own face, each chart cell found back at
  * itself, keys only near the surface, the chart point on the drawn surface,
  * random surface points and the occupancy walk's hits there resolving to the
- * same texel, and a chunk's chart bytes at each of the cache's levels.
+ * same texel, and a chunk's chart bytes at each of the cache's levels; the
+ * live probes placed from the charts and cells.
  */
 import { describe, expect, it } from 'vitest';
 import { joinSections, sectionLocalOrigin, VOXEL_SIZE_M, walkRay, walkVoxels } from '@thirdlight/voxel';
-import { locateVoxelFace, locateVoxelHit, SURFACE_LEVELS, VOXEL_HIT_REACH, voxelCellOf, voxelChartBox, voxelChartBytes, voxelChartFrame, voxelChartPoint, voxelChunkCharts, voxelFaceKey, voxelSurfaceGeometry, type VoxelChunkCharts } from '@thirdlight/three-adapter';
+import { DEFAULT_PROBE_SPACING } from '@thirdlight/project-model';
+import { brickSide, locateVoxelFace, locateVoxelHit, placeProbeBricks, PROBE_PLACED_DROPPED, ProbeMarks, probeSolid, SURFACE_LEVELS, VOXEL_HIT_REACH, voxelCellOf, voxelChartBox, voxelChartBytes, voxelChartFrame, voxelChartPoint, voxelChunkCharts, voxelFaceKey, voxelSurfaceGeometry, voxelTileMarks, type VoxelChunkCharts } from '@thirdlight/three-adapter';
 
 import { walkWorld, WALK_GRID, type WalkWorld } from './walk-world';
 import { cavesWorld, townWorld } from './worlds';
@@ -226,5 +228,59 @@ describe.each([
       }
       if (box.plane !== null) expect(Math.abs(box.plane[0] * out[0]! + box.plane[1] * out[1]! + box.plane[2] * out[2]! - box.plane[3])).toBeLessThan(1e-3);
     }
+  });
+});
+
+/**
+ * The live probes' placement from the voxel charts (the marks) and cells (what is solid): bricks only near the
+ * charted surfaces, no lit probe inside a body, probes under roofs and in the caves' tunnels (enclosed air) as well
+ * as in the open.
+ */
+describe.each([
+  ['town', town],
+  ['caves', caves],
+])('probes over voxel charts: %s', (name, w) => {
+  it('places bricks near the surfaces, drops the probes inside bodies, keeps those in rooms and tunnels', () => {
+    const chunks = chunksOf(w);
+    const marks = new ProbeMarks(DEFAULT_PROBE_SPACING);
+    for (const c of chunks) voxelTileMarks(c.made, marks);
+    const solid = (p: readonly number[]): boolean => w.solidAt(Math.floor(p[0]! / VOXEL_SIZE_M), Math.floor(p[1]! / VOXEL_SIZE_M), Math.floor(p[2]! / VOXEL_SIZE_M));
+    const placed = placeProbeBricks(marks.finish(), probeSolid({ voxels: (x, y, z) => w.solidAt(x, y, z) }, brickSide(DEFAULT_PROBE_SPACING, 0)));
+    const levels = [0, 0, 0];
+    for (const b of placed.bricks) levels[b.level]!++;
+    let lit = 0;
+    let dropped = 0;
+    let insideLit = 0;
+    let roofed = 0;
+    const src = w.source();
+    for (let i = 0; i < placed.keys.length; i++) {
+      const o = [placed.origins[i * 3]!, placed.origins[i * 3 + 1]!, placed.origins[i * 3 + 2]!];
+      if (placed.states[i] === PROBE_PLACED_DROPPED) {
+        dropped++;
+        continue;
+      }
+      lit++;
+      if (solid(o)) insideLit++;
+      // Under something solid within 8 m straight up, and walled within 8 m on all four sides: a room's or a tunnel's air.
+      const shut = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].every((d) => {
+        const r = walkRay([o[0]! + 0.0013, o[1]! + 0.0017, o[2]! + 0.0011], d);
+        return r !== null && walkVoxels(src, r, 8, { stop: 'light', far: false }).hit !== null;
+      });
+      if (shut) roofed++;
+    }
+    // Every brick touches a chart's box (grown by a brick side: a coarse brick holds its finer ones' surfaces).
+    const boxes = chunks.flatMap((c) => Array.from({ length: c.made.charts.length }, (_, k) => {
+      const f = voxelChartFrame(c.made, k);
+      return voxelChartBox(c.made, k, 0, f.wc, 0, f.hc);
+    }));
+    const near = placed.bricks.filter((b) => boxes.some((x) => [0, 1, 2].every((a) => x.max[a]! >= b.min[a]! - b.side && x.min[a]! <= b.min[a]! + 2 * b.side))).length;
+    console.log(`${name}: probe bricks by level ${levels.join(' / ')}; probes ${placed.keys.length}: lit ${lit}, dropped inside bodies ${dropped}, lit with walls and a roof within 8 m ${roofed}; bricks near a chart ${near} of ${placed.bricks.length}`);
+    expect(levels[0]!).toBeGreaterThan(20);
+    expect(levels[1]!).toBeGreaterThan(5);
+    expect(lit).toBeGreaterThan(500);
+    expect(dropped).toBeGreaterThan(100);
+    expect(insideLit).toBe(0);
+    expect(roofed).toBeGreaterThan(20);
+    expect(near).toBe(placed.bricks.length);
   });
 });

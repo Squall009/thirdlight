@@ -130,6 +130,13 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   private viewOn = false;
   /** The resolve tables' trace and residency versions (-1: none yet). */
   private resolvedFor = -1;
+  /** The resolve table on the GPU now (the checks resolve the same hits on the CPU from it). */
+  resolveWords: Uint32Array | null = null;
+
+  /** Bytes of the resolve table the probe and reflection rays read. */
+  get resolveBytes(): number {
+    return this.resolveWords?.byteLength ?? 0;
+  }
   private resolvedResidency = -1;
   /** The sky the probes see where nothing is hit (radiance SH: `SkyProbe`'s). */
   sky = new Float32Array(12);
@@ -317,7 +324,8 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     // The tables follow the packed scene (the same version), never a newer one the pack has not caught up with.
     const version = this.host.traceVersion;
     if (version === this.sceneVersion && (version !== this.resolvedFor || this.host.residencyVersion !== this.resolvedResidency)) {
-      this.probePass.resolve.setTable(packResolveTable(this.host.resolveScene().scene, this.host.cache).words);
+      this.resolveWords = packResolveTable(this.host.resolveScene().scene, this.host.cache).words;
+      this.probePass.resolve.setTable(this.resolveWords);
       this.resolvedFor = version;
       this.resolvedResidency = this.host.residencyVersion;
     }

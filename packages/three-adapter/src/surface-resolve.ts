@@ -41,7 +41,14 @@
  *   field's min, 4–6 its size (m), 7–15 world normal → root (row-major),
  *   16 the surfel cell (m), 17 the surfel hash, 18 its capacity (a power of
  *   two), 19 positions, 20 UV1 (0: none); a hash slot (`HASH_WORDS`): cell
- *   x, y, z (i32), facing | surfel << 3 (`EMPTY_SLOT`: empty).
+ *   x, y, z (i32), facing | surfel << 3 (`EMPTY_SLOT`: empty);
+ * - voxel worlds (header 14 the hash's slots, a power of two, 0: none; 15
+ *   its first slot): one hash of every resident level-0 chunk's keyed faces
+ *   (`surface-cache-voxels.ts`: the cells a surface spans and the cell behind
+ *   them, where a walk's hit stops), a slot (`VOXEL_R_WORDS`) the face's keys
+ *   (`voxelSlotKeys`; the second 0: free), its chart's record, and its column
+ *   in the chart with the chart's columns (u | v << 8 | w << 15 | h << 23).
+ *   A face two chunks key (their margins) keeps the first resident one's.
  *
  * Pure (no three.js, no device).
  */
@@ -52,7 +59,9 @@ import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, surfelLevelFor,
 import { FACE_PLANE_AXES } from './surface-cache-blocks';
 import type { SurfaceCache, SurfaceTexel } from './surface-cache';
 import type { SurfaceScene } from './surface-cache-scene';
-import { HIT_WORDS, TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_TERRAIN } from './tracer-scene';
+import { HIT_WORDS, TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_TERRAIN, TRACE_VOXELS } from './tracer-scene';
+import { voxelSlotHash, voxelSlotKeys } from './surface-cache-lookup';
+import { VOXEL_FRAME_WORDS, VOXEL_KEY_MARGIN, type VoxelChunkCharts, type VoxelTile } from './surface-cache-voxels';
 import { Words, invertAffine, worldToLocalOf } from './tracer-words';
 
 export const RESOLVE_HEADER_WORDS = 16;
@@ -63,6 +72,9 @@ export const ARCH_R_WORDS = 7;
 export const COMP_WORDS = 14;
 export const MODEL_R_WORDS = 21;
 export const HASH_WORDS = 4;
+export const VOXEL_R_WORDS = 4;
+/** The voxel hash's most slots per keyed face (a power of two at least this many times the faces: at most 3/4 full). */
+const VOXEL_SLOTS_PER_FACE = 4 / 3;
 export const EMPTY_SLOT = 0xffffffff;
 export const RESOLVE_PAGE = 1;
 export const RESOLVE_RING = 2;
@@ -306,7 +318,106 @@ export function packResolveTable(scene: SurfaceScene, cache: SurfaceCache): Reso
     w.setU(at + 19, sl.pos);
     w.setU(at + 20, sl.uv);
   });
+  packVoxelFaces(w, view.voxels, resident);
   return { words: w.done(), terrains: ringKeys };
+}
+
+/** The resident voxel chunks' keyed faces in one hash (header 14, 15). */
+function packVoxelFaces(w: Words, tiles: readonly VoxelTile[], resident: ReadonlyMap<string, Resident>): void {
+  const live = tiles.filter((t) => t.made !== null && resident.has(t.key));
+  let n = 0;
+  for (const t of live) n += t.made!.keys.length;
+  if (n === 0) return;
+  const cap = grownCapacity(1, Math.ceil(n * VOXEL_SLOTS_PER_FACE));
+  const slots = w.alloc(cap * VOXEL_R_WORDS);
+  for (const tile of live) {
+    const m = tile.made!;
+    const charts = putCharts(w, resident.get(tile.key));
+    const e = voxelFaceEntries(m);
+    for (let i = 0; i < e.length; i += 4) {
+      const k0 = e[i]!;
+      const k1 = e[i + 1]!;
+      for (let at = voxelSlotHash(k0, k1, cap); ; at = (at + 1) & (cap - 1)) {
+        const sa = slots + at * VOXEL_R_WORDS;
+        if (w.getU(sa + 1) === 0) {
+          w.setU(sa, k0);
+          w.setU(sa + 1, k1);
+          w.setU(sa + 2, charts + (e[i + 2]! >>> 16) * CHART_WORDS);
+          w.setU(sa + 3, e[i + 3]!);
+          break;
+        }
+        if (w.getU(sa) === k0 && w.getU(sa + 1) === k1) break;
+      }
+    }
+  }
+  w.setU(14, cap);
+  w.setU(15, slots);
+}
+
+/** A chunk's keyed faces as (k0, k1, chart << 16, its column and the chart's columns as the slot holds them), made once with its charts. */
+const faceEntries = new WeakMap<VoxelChunkCharts, Uint32Array>();
+
+function voxelFaceEntries(m: VoxelChunkCharts): Uint32Array {
+  let out = faceEntries.get(m);
+  if (out !== undefined) return out;
+  const s = m.edge + 2 * VOXEL_KEY_MARGIN;
+  out = new Uint32Array(m.keys.length * 4);
+  for (let i = 0; i < m.keys.length; i += 1) {
+    const key = m.keys[i]!;
+    const lc = Math.floor(key / 6);
+    const [k0, k1] = voxelSlotKeys((lc % s) - VOXEL_KEY_MARGIN + m.cell0[0], Math.floor(lc / (s * s)) - VOXEL_KEY_MARGIN + m.cell0[1], (Math.floor(lc / s) % s) - VOXEL_KEY_MARGIN + m.cell0[2], key % 6);
+    const c = m.chartOf[i]!;
+    out[i * 4] = k0;
+    out[i * 4 + 1] = k1;
+    out[i * 4 + 2] = (c << 16) >>> 0;
+    out[i * 4 + 3] = ((m.offsets[i]! & 0x7fff) | (m.frames[c * VOXEL_FRAME_WORDS + 3]! << 15) | (m.frames[c * VOXEL_FRAME_WORDS + 4]! << 23)) >>> 0;
+  }
+  faceEntries.set(m, out);
+  return out;
+}
+
+/** The order a voxel hit's faces are asked in: its own first, then the cell's others (`locateVoxelHit`'s). */
+export function voxelFaceOrder(face: number, k: number): number {
+  return k === 0 ? face : k <= face ? k - 1 : k;
+}
+
+/**
+ * A voxel hit's texel: its level-0 cell (`a0`: x | z << 16, `a1`: y, each +
+ * 32768) and its place across the face it entered by (`a1`'s bytes 2 and 3);
+ * the hit's face of the cell first, then its others, the first keyed (a ray
+ * entering a slope's cell by a side its surface does not face). The texel is
+ * found in whole numbers (the place in 255ths of a cell), so the GPU's f32
+ * and this agree at a texel's edge.
+ */
+function resolveVoxelCpu(u: Uint32Array, f: Float32Array, face: number, a0: number, a1: number): [number, number] {
+  const cap = u[14]!;
+  if (cap === 0) return NONE;
+  const cell = [(a0 & 0xffff) - 32768, (a1 & 0xffff) - 32768, (a0 >>> 16) - 32768];
+  // The hit's point within its cell (255ths along each axis).
+  const axis = Math.min(2, face >> 1);
+  const [hu, hv] = FACE_PLANE_AXES[axis]!;
+  const q = [0, 0, 0];
+  q[axis] = face & 1 ? 0 : 255;
+  q[hu] = (a1 >>> 16) & 255;
+  q[hv] = a1 >>> 24;
+  for (let k = 0; k < 6; k += 1) {
+    const fc = voxelFaceOrder(face, k);
+    const [k0, k1] = voxelSlotKeys(cell[0]!, cell[1]!, cell[2]!, fc);
+    for (let at = voxelSlotHash(k0, k1, cap), tries = 0; tries < cap; at = (at + 1) & (cap - 1), tries += 1) {
+      const sa = u[15]! + at * VOXEL_R_WORDS;
+      if (u[sa + 1] === 0) break;
+      if (u[sa] !== k0 || u[sa + 1] !== k1) continue;
+      const [pu, pv] = FACE_PLANE_AXES[fc >> 1]!;
+      const o = u[sa + 3]!;
+      const c = u[sa + 2]!;
+      const iw = u[c + 2]! & 0xffff;
+      const ih = u[c + 2]! >>> 16;
+      const x = (u[c + 1]! & 0xffff) + Math.min(iw - 1, Math.floor((((o & 255) * 255 + q[pu]!) * iw) / (((o >>> 15) & 255) * 255)));
+      const y = (u[c + 1]! >>> 16) + Math.min(ih - 1, Math.floor((((o >>> 8) & 0x7f) * 255 + q[pv]!) * ih / ((o >>> 23) * 255)));
+      return [((RESOLVE_PAGE << 30) | u[c]!) >>> 0, (x | (y << 16)) >>> 0];
+    }
+  }
+  return NONE;
 }
 
 /** A texel as the resolve pass writes it (two words; [0, 0]: none). */
@@ -485,5 +596,6 @@ export function resolveHitCpu(table: Uint32Array, hits: Uint32Array, i: number):
     if (uv === 0) return chartTexel(u, f, chart, 0, 0, best);
     return chartTexel(u, f, chart, f[uv + best * 2]! * f[chart + 3]!, f[uv + best * 2 + 1]! * f[chart + 4]!, -1);
   }
+  if (kind === TRACE_VOXELS) return resolveVoxelCpu(u, f, face, a0, a1);
   return NONE;
 }

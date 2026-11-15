@@ -715,6 +715,8 @@ function voxelLightHooks(draws: VoxelWorldDraws) {
     setStore: (store: string) => draws.setLightStore((VOXEL_LIGHT_STORES as readonly string[]).includes(store) ? (store as VoxelLightStore) : 'off'),
     cache: () => draws.lightFeed()?.diagnostics() ?? null,
     check: (at: number[], n: number) => draws.lightFeed()?.check(at, n) ?? Promise.resolve(null),
+    /** The resolve pass's voxel texels for traced rays against its CPU twin's (the probes' bounce reads them). */
+    resolveCheck: (at: number[], n = 1200) => draws.lightFeed()?.resolveCheck(at, n) ?? Promise.resolve(null),
   };
 }
 

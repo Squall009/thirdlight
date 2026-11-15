@@ -49,7 +49,7 @@ import { SurfaceRooms, type LightingRooms } from './surface-rooms';
 import { LiveProbes, PROBE_BUDGET_SHARE, type LiveProbeDiagnostics } from './surface-probes';
 import { SurfaceSeeding } from './surface-seed';
 import { ProbeMarks, brickSide, type ProbeSolid, type Steps } from './probe-bricks';
-import { architectureMarks, blockTileMarks, probeSolid, terrainMarksSteps, type ProbeSolidModel } from './probe-geometry';
+import { architectureMarks, blockTileMarks, probeSolid, terrainMarksSteps, voxelTileMarks, type ProbeSolidModel } from './probe-geometry';
 import type { TraceArchitecture } from './tracer-objects';
 import type { VoxelTile } from './surface-cache-voxels';
 import { HostVoxels } from './surface-cache-host-voxels';
@@ -831,7 +831,7 @@ export class SurfaceCacheHost {
   /**
    * The probes: a grid per room, and bricks where the static scene's
    * surfaces are (`probe-geometry.ts`: block layers' faces, architecture,
-   * models, terrain near the eye). Placed again when a surface came, went
+   * models, terrain near the eye, voxel chunks' charts and cells). Placed again when a surface came, went
    * or changed, the terrain's window moved or the rooms changed, at most
    * every `PROBE_PLACE_MS` (a scene streaming in, a block dug live).
    */
@@ -908,11 +908,12 @@ export class SurfaceCacheHost {
         marks.mark(t.min, t.max, 0);
         const m = t as ModelTile;
         models.push({ worldToLocal: m.worldToLocal, set: m.set, min: m.min, max: m.max });
-      }
+      } else if (kind === 'voxels') voxelTileMarks((t as VoxelTile).made, marks);
     }
     for (const field of fields) yield* terrainMarksSteps(field, centre, snap, marks);
     yield;
-    return { marks, solid: probeSolid({ layers, terrains: fields, arch, models }, brickSide(DEFAULT_PROBE_SPACING, 0)) };
+    const voxels = this.voxels.solidAt();
+    return { marks, solid: probeSolid({ layers, terrains: fields, arch, models, ...(voxels !== null ? { voxels } : {}) }, brickSide(DEFAULT_PROBE_SPACING, 0)) };
   }
 
   /** A terrain's tiles whose data changed (an edit, live or scripted), came or went since the last listing, or the whole terrain once it came after the scene: their boxes changed. */

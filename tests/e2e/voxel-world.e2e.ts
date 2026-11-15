@@ -1030,6 +1030,16 @@ async function playProject(): Promise<[number, number, number]> {
     '    const longWall = box(-3, 0, -38, -2, 8, -4);',
     `    for (const _ of ctx.debug.command('longwall')) ctx.game.add(v.set(longWall, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'longWallBuilt' : 'longWallRefused', 1);`,
     "    for (const _ of ctx.debug.command('unlongwall')) ctx.game.add(v.dig(longWall).ok ? 'longWallDug' : 'longWallRefused', 1);",
+    // A hut on the pad ahead of the camera (walls and roof of plaster round a 4 × 2.5 × 7.5 m room, a floor slab): the
+    // live probes' sky occlusion and bounce. Its roof opened and shut again, its floor swapped to grass and back.
+    "    const hutFloor = box(-2, 0, 2.5, 2, 0.5, 10);",
+    "    const hutRoof = box(-1.5, 3, 4, 1.5, 3.5, 8);",
+    `    for (const _ of ctx.debug.command('hut')) { const r = [v.set(box(-2.5, 0, 2, 2.5, 3.5, 10.5), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }), v.dig(box(-2, 0.5, 2.5, 2, 3, 10))]; ctx.game.add(r.every((e: any) => e.ok) ? 'hutBuilt' : 'hutRefused', 1); }`,
+    "    for (const _ of ctx.debug.command('hutopen')) ctx.game.add(v.dig(hutRoof).ok ? 'hutOpened' : 'hutRefused', 1);",
+    `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(hutRoof, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
+    `    for (const _ of ctx.debug.command('hutgrass')) ctx.game.add(v.set(hutFloor, { material: ${MAT.grass}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutGrass' : 'hutRefused', 1);`,
+    `    for (const _ of ctx.debug.command('hutplaster')) ctx.game.add(v.set(hutFloor, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutPlaster' : 'hutRefused', 1);`,
+    "    for (const _ of ctx.debug.command('unhut')) ctx.game.add(v.dig(box(-2.5, 0, 2, 2.5, 3.5, 10.5)).ok ? 'hutDug' : 'hutRefused', 1);",
     "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
     '    if (state.rooms) {',
     "      const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));",
@@ -1433,7 +1443,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     expect(wc.mismatches, JSON.stringify(wc.examples)).toBe(0);
     await voxelShadowChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
     await voxelFarLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
-    await voxelCacheLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
+    await voxelCacheLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);

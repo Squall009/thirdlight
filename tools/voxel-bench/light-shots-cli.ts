@@ -103,12 +103,17 @@ interface CacheStats {
   bytes: number;
   live: boolean;
   read: boolean;
+  /** The live probes over the voxels (absent before they existed). */
+  probes?: { probes: number; lit: number; stale: number; settled: boolean; drawn: boolean; behind: boolean; pageBytes: number; gpuBytes: number; resolveBytes: number };
 }
 
 /** The longest a shot waits for the surface cache to light what is resident (a store that is not the cache: not at all). */
 const CACHE_TIMEOUT_MS = 120_000;
 
-/** Waits until the surface cache's voxel texels are lit (every chunk charted, nothing stale, texels written, held a second); how long it took and the stats then. */
+/**
+ * Waits until the surface cache's voxel texels are lit (every chunk charted, nothing stale, texels written) and its
+ * live probes too (some lit, none stale, drawn, nothing held back), held a second; how long it took and the stats then.
+ */
 async function cacheLit(game: PlayGame): Promise<{ litS: number | null; cache: CacheStats | null }> {
   const t0 = Date.now();
   let calm = 0;
@@ -116,7 +121,9 @@ async function cacheLit(game: PlayGame): Promise<{ litS: number | null; cache: C
   for (;;) {
     last = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.cache() ?? null).catch(() => null)) as CacheStats | null;
     if (last === null) return { litS: null, cache: null };
-    calm = last.live && last.resident > 0 && last.waiting === 0 && last.staleUnits === 0 && last.texelsWritten > 0 ? calm + 1 : 0;
+    const p = last.probes;
+    const probesLit = p !== undefined && p.lit > 0 && p.settled && p.drawn && !p.behind;
+    calm = last.live && last.resident > 0 && last.waiting === 0 && last.staleUnits === 0 && last.texelsWritten > 0 && probesLit ? calm + 1 : 0;
     if (calm >= 4) return { litS: Number(((Date.now() - t0) / 1000).toFixed(1)), cache: last };
     if (Date.now() - t0 > CACHE_TIMEOUT_MS) return { litS: null, cache: last };
     await game.page.waitForTimeout(250);

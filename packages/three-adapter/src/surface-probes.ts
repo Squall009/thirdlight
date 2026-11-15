@@ -925,6 +925,11 @@ export class LiveProbes implements ProbeLookup {
     return this.words;
   }
 
+  /** Bytes the probes hold on the page (records, places, lattice, holders and the brick map); their records on the GPU are `state`'s size again. */
+  get bytes(): number {
+    return this.state.byteLength + this.positions.byteLength + this.reach.byteLength + this.rooms.byteLength + this.lattice.byteLength + this.holders.byteLength + this.holdersAt.byteLength + this.map.cells.byteLength + this.map.entries.byteLength + this.stale.byteLength * 2 + this.since.byteLength + this.marked.byteLength;
+  }
+
   diagnostics(): LiveProbeDiagnostics {
     const { bricks, lit, moved } = this.counts;
     return { grids: this.grids.length, bricks, probes: this.count, lit, moved, stale: this.staleCount, settled: this.staleCount === 0, perUpdate: this.perUpdate, msUsed: this.msUsed, lastSettleMs: this.lastSettleMs, updates: this.updates, placeMs: this.placeMs };

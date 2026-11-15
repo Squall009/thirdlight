@@ -286,6 +286,8 @@ interface CacheStats {
   readonly texelsWritten: number;
   readonly live: boolean;
   readonly read: boolean;
+  /** The live probes over the voxels (absent: none placed yet). */
+  readonly probes?: { readonly probes: number; readonly lit: number; readonly stale: number; readonly settled: boolean; readonly drawn: boolean; readonly behind: boolean };
 }
 
 /**
@@ -296,7 +298,7 @@ interface CacheStats {
  * the wall and grass behind (red the lamp adds there without the pillar, which the pillar takes away). Switched off
  * again, the picture is the store-off picture as it was.
  */
-export async function voxelCacheLightChecks(o: ShadowCheckSetup): Promise<void> {
+export async function voxelCacheLightChecks(o: FarLightSetup): Promise<void> {
   const { ids, away } = o;
   const { frame, control, counter, rel, place, still } = driver(o);
   const hook = async <T>(f: string, arg?: unknown): Promise<T> => (await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate((_, a) => {
@@ -317,8 +319,10 @@ export async function voxelCacheLightChecks(o: ShadowCheckSetup): Promise<void> 
   const settled = async (what: string): Promise<void> => {
     await expect.poll(async () => {
       stats = await hook<CacheStats | null>('cache');
-      return stats !== null && stats.live && stats.read && stats.resident > 0 && stats.litTexels > 0 && stats.texelsWritten > 0 && stats.waiting === 0 && stats.staleUnits === 0;
-    }, { timeout: 60_000, intervals: [250], message: `${what}: the cache's voxel texels are lit` }).toBe(true);
+      const p = stats?.probes;
+      const probes = p !== undefined && p.lit > 0 && p.settled && p.drawn && !p.behind;
+      return stats !== null && stats.live && stats.read && stats.resident > 0 && stats.litTexels > 0 && stats.texelsWritten > 0 && stats.waiting === 0 && stats.staleUnits === 0 && probes;
+    }, { timeout: 60_000, intervals: [250], message: `${what}: the cache's voxel texels and probes are lit` }).toBe(true);
   };
   const t0 = Date.now();
   await settled('the store switched');
@@ -338,11 +342,22 @@ export async function voxelCacheLightChecks(o: ShadowCheckSetup): Promise<void> 
   const shadow = pillarShadowed(pillarDark, pillarLamp, openDark, openLamp, LAMP_ADD_MIN, LAMP_KEEP);
   const changed = changedPixels(off, pillarLamp, () => true, 20);
   const cs = stats as CacheStats | null;
+  await place(ids.lamp, away);
+  const hut = await probeHutChecks(o, settled, hook);
   // Off again, the pillar back: the picture is the store-off one.
   await control('pillar');
   await expect.poll(() => counter('pillarBuilt'), { timeout: 10_000 }).toBe(2);
   await hook('setStore', 'off');
   await expect.poll(() => hook<CacheStats | null>('cache'), { timeout: 10_000 }).toBeNull();
+  // The shut hut with the store off: the flat ambient term lights its inside as it lights the street.
+  await place(o.camera, hut.eye);
+  await place(ids.blue, hut.box);
+  const hutOff = await still('probe-hut-shut-off');
+  await place(o.camera, o.cameraAt);
+  await place(ids.blue, away);
+  await control('unhut');
+  await expect.poll(() => counter('hutDug'), { timeout: 10_000 }).toBe(1);
+  await place(ids.lamp, lamp);
   const offAgain = await still('cache-off-again');
   const same = changedPixels(off, offAgain, () => true, 20);
   await place(ids.lamp, away);
@@ -354,6 +369,116 @@ export async function voxelCacheLightChecks(o: ShadowCheckSetup): Promise<void> 
   expect(shadow, "the pillar's traced shadow keeps the lamp off what is behind it").toBeGreaterThan(CACHE_SHADOW_MIN_PX);
   expect(changed, 'the cache changes the picture').toBeGreaterThan(CACHE_CHANGED_MIN_PX);
   expect(same, 'switched off, the picture is the store-off one').toBeLessThan(CACHE_SAME_MAX_PX);
+  // The live probes: the shut hut darker inside by the cache than by the flat term (sky occlusion), its blue box too;
+  // the roof opened, brighter; its floor grass, its walls greener (the floor's light bounced in its colour).
+  const wallsOff = meanLum(hutOff, WALL_ROWS);
+  const boxCache = meanOf(hut.shut, blueBox);
+  const boxOff = meanOf(hutOff, blueBox);
+  console.log(`[voxel-play] live probes: resolve GPU against CPU ${JSON.stringify(hut.resolve)}; ${JSON.stringify(hut.probes)}; hut walls (upper rows) shut ${hut.walls.shut.toFixed(1)}, open ${hut.walls.open.toFixed(1)}, shut with the store off ${wallsOff.toFixed(1)}; the open roof reached the probes ${hut.openMs} ms after the command; walls' red − green with a plaster floor ${hut.tint.plaster.toFixed(2)}, a grass floor ${hut.tint.grass.toFixed(2)}; blue box inside ${boxCache.lum.toFixed(1)} (${boxCache.n} px) against ${boxOff.lum.toFixed(1)} with the store off (${boxOff.n} px)`);
+  expect(hut.resolve, 'the resolve check ran').not.toBeNull();
+  const rc = hut.resolve!;
+  expect(rc.rays).toBe(1200);
+  expect(rc.voxelHits, 'probe rays hit voxels').toBeGreaterThan(500);
+  expect(rc.resolved, 'voxel hits resolve to texels on the GPU').toBeGreaterThan(0.9 * rc.voxelHits);
+  expect(rc.lit, 'and read lit texels').toBeGreaterThan(0.5 * rc.voxelHits);
+  expect(rc.mismatches, JSON.stringify(rc.examples)).toBeLessThanOrEqual(RESOLVE_MISMATCH_MAX);
+  expect(hut.walls.shut, 'the shut hut is darker inside by the probes than by the flat ambient term').toBeLessThan(HUT_DARK_SHARE * wallsOff);
+  expect(hut.walls.open, 'the roof opened, the hut is brighter inside').toBeGreaterThan(HUT_OPEN_FACTOR * hut.walls.shut);
+  expect(hut.tint.plaster - hut.tint.grass, 'a grass floor bounces green onto the walls: less red over green than a plaster one').toBeGreaterThan(HUT_TINT_MIN);
+  expect(boxCache.n, 'the blue box is in view inside').toBeGreaterThan(100);
+  expect(boxCache.lum, 'the moving box inside reads the probes: darker than by the flat term').toBeLessThan(HUT_DARK_SHARE * boxOff.lum);
+}
+
+/** The resolve pass's voxel texels against its CPU twin's (the page's `__tlVoxelPlay.light.resolveCheck`). */
+interface ResolveCheck {
+  readonly rays: number;
+  readonly voxelHits: number;
+  readonly resolved: number;
+  readonly lit: number;
+  readonly mismatches: number;
+  readonly sceneDiffers: number;
+  readonly examples: unknown[];
+}
+
+/** Rows of the hut's inside picture showing its walls (the upper part: the far wall and the sides above the floor). */
+const WALL_ROWS = 0.4;
+
+/** The mean brightness of a picture's upper `rows` share. */
+function meanLum(img: Png, rows: number): number {
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < Math.floor(img.height * rows); y++) for (let x = 0; x < img.width; x++) {
+    sum += lum(img.pixel(x, y));
+    n++;
+  }
+  return n === 0 ? 0 : sum / n;
+}
+
+/** The mean red less green over a picture's upper `rows` share, where `mask` (a plaster picture) is grey. */
+function meanTint(img: Png, mask: Png, rows: number): number {
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < Math.floor(img.height * rows); y++) for (let x = 0; x < img.width; x++) {
+    const m = mask.pixel(x, y);
+    if (Math.abs(m[0]! - m[1]!) > 20 || Math.abs(m[1]! - m[2]!) > 25 || lum(m) < 3) continue;
+    const p = img.pixel(x, y);
+    sum += p[0]! - p[1]!;
+    n++;
+  }
+  return n === 0 ? 0 : sum / n;
+}
+
+/** The mean brightness of the pixels `test` takes, and how many. */
+function meanOf(img: Png, test: (p: readonly number[]) => boolean): { lum: number; n: number } {
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const p = img.pixel(x, y);
+    if (!test(p)) continue;
+    sum += lum(p);
+    n++;
+  }
+  return { lum: n === 0 ? 0 : sum / n, n };
+}
+
+/**
+ * The live probes over the voxels (the store the cache): a hut built by the script on the pad (plaster walls and roof
+ * round a room 4 × 2.5 × 7.5 m, a plaster floor slab), the camera put inside it looking at its far wall, the blue box on
+ * its floor. Shut, then its roof opened by an edit (the probes stale where it changed, lit again), then its floor
+ * swapped to grass and back. Pictures once the cache and probes settle; the readings go back for the checks after the
+ * store-off picture.
+ */
+async function probeHutChecks(o: FarLightSetup, settled: (what: string) => Promise<void>, hook: <T>(f: string, arg?: unknown) => Promise<T>): Promise<{ eye: number[]; box: number[]; shut: Png; resolve: ResolveCheck | null; walls: { shut: number; open: number }; tint: { plaster: number; grass: number }; openMs: number; probes: unknown }> {
+  const { ids, away } = o;
+  const { control, counter, rel, place, still } = driver(o);
+  const eye = rel(0, 2.2, 9.5);
+  const box = rel(1, 0.8, 6);
+  await control('hut');
+  await expect.poll(() => counter('hutBuilt'), { timeout: 10_000 }).toBe(1);
+  await place(o.camera, eye);
+  await place(ids.blue, box);
+  await settled('the hut shut');
+  const shut = await still('probe-hut-shut');
+  const probes = (await hook<CacheStats | null>('cache'))?.probes ?? null;
+  const t0 = Date.now();
+  await control('hutopen');
+  await expect.poll(() => counter('hutOpened'), { timeout: 10_000 }).toBe(1);
+  await expect.poll(async () => (await hook<CacheStats | null>('cache'))?.probes?.stale ?? 0, { timeout: 10_000, intervals: [50], message: 'the opened roof makes probes stale' }).toBeGreaterThan(0);
+  await settled('the hut opened');
+  const openMs = Date.now() - t0;
+  const open = await still('probe-hut-open');
+  // The probe rays' resolve on the GPU against its CPU twin over the same table: 1,200 rays round the eye in the hut.
+  const resolve = await hook<ResolveCheck | null>('resolveCheck', eye);
+  await control('hutgrass');
+  await expect.poll(() => counter('hutGrass'), { timeout: 10_000 }).toBe(1);
+  await settled('the hut floored in grass');
+  const grassFloor = await still('probe-hut-grass');
+  await control('hutplaster');
+  await control('hutshut');
+  await expect.poll(async () => [await counter('hutPlaster'), await counter('hutShut')], { timeout: 10_000 }).toEqual([1, 1]);
+  await place(ids.blue, away);
+  await place(o.camera, o.cameraAt);
+  return { eye, box, shut, resolve, walls: { shut: meanLum(shut, WALL_ROWS), open: meanLum(open, WALL_ROWS) }, tint: { plaster: meanTint(open, open, WALL_ROWS), grass: meanTint(grassFloor, open, WALL_ROWS) }, openMs, probes };
 }
 
 /**
@@ -392,3 +517,15 @@ const CACHE_LIT_MIN_PX = 8000;
 const CACHE_SHADOW_MIN_PX = 250;
 const CACHE_CHANGED_MIN_PX = 500;
 const CACHE_SAME_MAX_PX = 40;
+
+/**
+ * The live probes' bounds, from the readings of the first green run (high tier, the preview's 670 × 253 picture): the
+ * shut hut's walls 6.4 by the probes against 118.9 by the flat ambient term (share 0.05; bound 0.5), the blue box in it
+ * 5.7 against 19.1 (0.30); the roof opened, its walls 77.4 (12 ×; bound 3); its walls' red over green 15.98 with a
+ * plaster floor, 11.88 with a grass one (4.1; bound 1.5). The GPU and CPU resolve find a voxel hit's texel in whole
+ * numbers, so they agree exactly (an f32 / f64 place differed by a row at 15 of 1,200 before).
+ */
+const HUT_DARK_SHARE = 0.5;
+const HUT_OPEN_FACTOR = 3;
+const HUT_TINT_MIN = 1.5;
+const RESOLVE_MISMATCH_MAX = 0;

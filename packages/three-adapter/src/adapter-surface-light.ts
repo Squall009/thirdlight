@@ -34,6 +34,8 @@ import { AdapterLiveProbes } from './adapter-live-probes';
 import type { ProbeLightingHost } from './probe-grids';
 import { PROBE_HIT_LIFT, probesIrradianceAt } from './surface-probes';
 import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
+import { RAY_FLOATS } from './tracer-scene';
+import { RESOLVE_PAGE, resolveHitCpu } from './surface-resolve';
 import { SURFACE_PAGE_BYTES } from './surface-cache-atlas';
 import { TERRAIN_RING_SHARE } from './surface-cache';
 import { TERRAIN_RINGS_MAX, TERRAIN_RING_BYTES } from './surface-cache-terrain';
@@ -45,7 +47,7 @@ import { AdapterSavedLight, LOOKUP_MS, type SavedLightDiagnostics, type SurfaceB
 import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
 import { AdapterLightingViews, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 import { gpuPassHides } from './gpu-pass-hides';
-import type { SurfaceCacheVoxelLink } from './voxel-world-light';
+import type { SurfaceCacheVoxelLink, VoxelResolveRays } from './voxel-world-light';
 
 /** The live light's parts on the page, each its own span (under the frame's 'surface light'). */
 const SPANS = { residency: threadProfiler.span('surface cache residency', 'lighting'), light: threadProfiler.span('surface light pass', 'lighting'), lookup: threadProfiler.span('surface lookup packed', 'lighting') };
@@ -77,6 +79,26 @@ const ALBEDO_READ_MS = 2000;
 function deviceOf(renderer: AnyRenderer): TracerDevice | null {
   const b = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean; device?: TracerDevice | null } }).backend;
   return b?.isWebGPUBackend === true && b.device != null ? b.device : null;
+}
+
+/** The live probes on a voxel page lit by the cache (`voxelLink`'s diagnostics). */
+export interface VoxelProbeDiagnostics {
+  readonly probes: number;
+  readonly lit: number;
+  readonly stale: number;
+  /** None stale and no placement waiting (`SurfaceCacheHost.probesSettled`). */
+  readonly settled: boolean;
+  /** Whether the probe lighting draws the live probes, and holds light not drawn yet. */
+  readonly drawn: boolean;
+  readonly behind: boolean;
+  readonly bricks: readonly number[];
+  readonly updates: number;
+  readonly placeMs: number;
+  readonly lastSettleMs: number | null;
+  /** Bytes on the page (records, places, lattice, brick map), on the GPU (the pass's records and the probe lighting's tiles) and of the resolve table the probe rays read. */
+  readonly pageBytes: number;
+  readonly gpuBytes: number;
+  readonly resolveBytes: number;
 }
 
 /** The live light on the page: whether it runs, why not, and the debug look's squares. */
@@ -372,11 +394,11 @@ export class AdapterSurfaceLight {
   }
 
   /** The scene link's part for voxel worlds lit by the cache (voxel-world-light.ts's `SurfaceCacheVoxelLink`). */
-  voxelLink(): Required<SurfaceCacheVoxelLink> & { voxelDiagnostics(): SurfaceVoxelDiagnostics & { readonly texelsWritten: number; readonly live: boolean; readonly read: boolean } } {
+  voxelLink(): Required<SurfaceCacheVoxelLink> & { voxelDiagnostics(): SurfaceVoxelDiagnostics & { readonly texelsWritten: number; readonly live: boolean; readonly read: boolean; readonly probes: VoxelProbeDiagnostics } } {
     const host = this.host;
     return {
       voxels: (src) => host.voxels.set(src),
-      voxelDiagnostics: () => ({ ...host.voxels.diagnostics(), texelsWritten: this.runtime?.texelsWritten ?? 0, live: this.runtime !== null, read: this.scene.userData[SURFACE_READ_LIVE_KEY] !== undefined }),
+      voxelDiagnostics: () => ({ ...host.voxels.diagnostics(), texelsWritten: this.runtime?.texelsWritten ?? 0, live: this.runtime !== null, read: this.scene.userData[SURFACE_READ_LIVE_KEY] !== undefined, probes: this.voxelProbes() }),
       traceRays: async (rays) => {
         const rt = this.runtime;
         if (rt === null || !rt.pass.tracer.ready) return null;
@@ -384,7 +406,50 @@ export class AdapterSurfaceLight {
         return rt.pass.tracer.trace(rays);
       },
       resolveHit: (hit) => host.resolveScene().scene.resolve(host.cache, hit),
+      resolveRays: (rays) => this.resolveRays(rays),
     };
+  }
+
+  /**
+   * The probe rays' resolve, on the GPU and by its CPU twin over the same
+   * table: `rays` traced by the cache's tracer, their hits' texels from the
+   * resolve pass and from `resolveHitCpu`, and per hit whether its texel
+   * lies in a resident tile whose light is lit (no unit of it stale). Null:
+   * no live light, or no table yet.
+   */
+  private async resolveRays(rays: Float32Array): Promise<VoxelResolveRays | null> {
+    const rt = this.runtime;
+    if (rt === null || !rt.pass.tracer.ready || !rt.syncProbeInputs() || rt.resolveWords === null) return null;
+    rt.pass.tracer.setVoxelWalk(this.host.voxels.walk());
+    const table = rt.resolveWords;
+    const n = rays.length / RAY_FLOATS;
+    const hits = await rt.pass.tracer.trace(rays);
+    const gpu = await rt.probePass.resolve.resolve(rt.pass.tracer.hitsBuffer!, n);
+    const cpu = new Uint32Array(n * 2);
+    for (let i = 0; i < n; i += 1) cpu.set(resolveHitCpu(table, hits, i), i * 2);
+    // Each resident tile's blocks on its page, and whether its light is lit.
+    const blocks: { page: number; x: number; y: number; side: number; lit: boolean }[] = [];
+    this.host.cache.forEachResident((key, _level, bs) => {
+      const lit = this.host.voxels.tileLit(key);
+      for (const b of bs) blocks.push({ ...b, lit });
+    });
+    const lit = new Uint8Array(n);
+    for (let i = 0; i < n; i += 1) {
+      const a = gpu[i * 2]!;
+      if (a >>> 30 !== RESOLVE_PAGE) continue;
+      const page = a & 0x3fffffff;
+      const x = gpu[i * 2 + 1]! & 0xffff;
+      const y = gpu[i * 2 + 1]! >>> 16;
+      lit[i] = blocks.some((b) => b.lit && b.page === page && x >= b.x && x < b.x + b.side && y >= b.y && y < b.y + b.side) ? 1 : 0;
+    }
+    return { hits, gpu, cpu, lit };
+  }
+
+  /** The live probes as a voxel page's lighting store reports them: how many, lit, stale, settled and drawn, and their bytes. */
+  private voxelProbes(): VoxelProbeDiagnostics {
+    const p = this.host.probes;
+    const d = p.diagnostics();
+    return { probes: d.probes, lit: d.lit, stale: d.stale, settled: this.host.probesSettled, drawn: this.liveProbes?.drawing ?? false, behind: this.liveProbes?.behind ?? false, bricks: d.bricks, updates: d.updates, placeMs: d.placeMs, lastSettleMs: d.lastSettleMs, pageBytes: p.bytes, gpuBytes: p.state.byteLength + (this.liveProbes?.tileBytes ?? 0), resolveBytes: this.runtime?.resolveBytes ?? 0 };
   }
 
   /** "Bake lighting": this page's live light run to settled and read back (`adapter-surface-bake.ts`). */

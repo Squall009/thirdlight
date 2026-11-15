@@ -21,6 +21,7 @@ import { SURFACE_READ_KEY } from './surface-cache-read';
 import { SURFACE_CACHE_KEY, type SurfaceVoxelChunk, type SurfaceVoxelDiagnostics, type SurfaceVoxelSource } from './surface-cache-host';
 import { voxelHitWords, walkSolidAt, type VoxelTileMesh } from './surface-cache-voxels';
 import type { SurfaceTexel } from './surface-cache';
+import { RESOLVE_PAGE } from './surface-resolve';
 import { TRACE_MISS, TRACE_VOXELS, RAY_FLOATS } from './tracer-scene';
 import type { TraceHit } from './tracer-cpu-math';
 import { VOXEL_TRACE_SKIPS } from './tracer-wgsl';
@@ -36,6 +37,16 @@ export interface SurfaceCacheVoxelLink {
   traceRays?(rays: Float32Array): Promise<Uint32Array | null>;
   /** The texel a traced hit's light is in (null: a miss, or not resident). */
   resolveHit?(hit: TraceHit): SurfaceTexel | null;
+  /** Traces `rays` and resolves their hits on the GPU and by the CPU twin over the same table (null: no live light or table yet). */
+  resolveRays?(rays: Float32Array): Promise<VoxelResolveRays | null>;
+}
+
+/** The probe rays' resolve on the GPU against its CPU twin (`SurfaceCacheVoxelLink.resolveRays`): the hits, the two texels a hit (two words each), and whether each GPU texel is lit. */
+export interface VoxelResolveRays {
+  readonly hits: Uint32Array;
+  readonly gpu: Uint32Array;
+  readonly cpu: Uint32Array;
+  readonly lit: Uint8Array;
 }
 
 /** The scene's surface cache link (null: no cache on this page). */
@@ -74,8 +85,13 @@ export class VoxelLightFeed implements SurfaceVoxelSource {
   solidAt(x: number, y: number, z: number): boolean | null {
     const w = this.walked();
     const src = w === null ? null : this.walks.source(w);
-    return src === null ? null : walkSolidAt(src)(x, y, z);
+    if (src === null) return null;
+    // The probes' placement asks it for every probe: one reader a walk source.
+    if (this.solidOf?.src !== src) this.solidOf = { src, at: walkSolidAt(src) };
+    return this.solidOf.at(x, y, z);
   }
+
+  private solidOf: { readonly src: WalkSource; readonly at: (x: number, y: number, z: number) => boolean | null } | null = null;
 
   walk(): VoxelWalkBuffers | null {
     const w = this.walked();
@@ -157,14 +173,7 @@ export class VoxelLightFeed implements SurfaceVoxelSource {
     const src = w === null ? null : this.walks.source(w);
     const l = this.linked;
     if (src === null || l?.traceRays === undefined || l.resolveHit === undefined) return null;
-    let s = 0x9e3779b9;
-    const rnd = (): number => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32);
-    const rays = new Float32Array(n * RAY_FLOATS);
-    for (let k = 0; k < n; k++) {
-      const d = [rnd() * 2 - 1, rnd() * 2 - 1.2, rnd() * 2 - 1];
-      const len = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
-      rays.set([at[0]! + (rnd() * 2 - 1) * spread, at[1]! + rnd() * spread * 0.5, at[2]! + (rnd() * 2 - 1) * spread, 0, d[0]! / len, d[1]! / len, d[2]! / len, reach], k * RAY_FLOATS);
-    }
+    const rays = checkRays(at, n, spread, reach);
     const t0 = performance.now();
     const words = await l.traceRays(rays);
     if (words === null) return null;
@@ -191,6 +200,68 @@ export class VoxelLightFeed implements SurfaceVoxelSource {
     }
     return out;
   }
+
+  /**
+   * The resolve pass's texels for voxel hits against its CPU twin's, over
+   * the table the probe rays read: `n` rays from round `at` as `check` casts
+   * them, traced on the GPU; their hits resolved on the GPU and on the CPU
+   * (`resolveHitCpu`), and by the scene's own CPU way for comparison.
+   */
+  async resolveCheck(at: readonly number[], n: number, spread = 6, reach = 16): Promise<VoxelResolveCheck | null> {
+    const l = this.linked;
+    if (l?.resolveRays === undefined || l.resolveHit === undefined) return null;
+    const r = await l.resolveRays(checkRays(at, n, spread, reach));
+    if (r === null) return null;
+    const out: VoxelResolveCheck = { rays: n, voxelHits: 0, resolved: 0, lit: 0, mismatches: 0, sceneDiffers: 0, examples: [] };
+    const f = new Float32Array(r.hits.buffer, r.hits.byteOffset, r.hits.length);
+    for (let k = 0; k < n; k++) {
+      const o = k * 8;
+      const kind = r.hits[o + 4]! & 255;
+      const g = [r.gpu[k * 2]!, r.gpu[k * 2 + 1]!];
+      const c = [r.cpu[k * 2]!, r.cpu[k * 2 + 1]!];
+      if (kind === TRACE_VOXELS) {
+        out.voxelHits++;
+        if (g[0] !== 0) out.resolved++;
+        out.lit += r.lit[k]!;
+        const hit: TraceHit = { kind, t: f[o]!, normal: [f[o + 1]!, f[o + 2]!, f[o + 3]!], face: (r.hits[o + 4]! >>> 8) & 255, object: r.hits[o + 5]!, a0: r.hits[o + 6]!, a1: r.hits[o + 7]! };
+        const s = l.resolveHit(hit);
+        const sw = s !== null && 'page' in s ? [((RESOLVE_PAGE << 30) | s.page) >>> 0, (s.x | (s.y << 16)) >>> 0] : [0, 0];
+        if (sw[0] !== g[0] || sw[1] !== g[1]) out.sceneDiffers++;
+      }
+      if (g[0] !== c[0] || g[1] !== c[1]) {
+        out.mismatches++;
+        if (out.examples.length < 6) out.examples.push({ ray: k, kind, gpu: g, cpu: c });
+      }
+    }
+    return out;
+  }
+}
+
+/** Rays from round `at` (within `spread` metres) in random directions, up to `reach` metres (`VoxelLightFeed`'s checks). */
+function checkRays(at: readonly number[], n: number, spread: number, reach: number): Float32Array {
+  let s = 0x9e3779b9;
+  const rnd = (): number => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+  const rays = new Float32Array(n * RAY_FLOATS);
+  for (let k = 0; k < n; k++) {
+    const d = [rnd() * 2 - 1, rnd() * 2 - 1.2, rnd() * 2 - 1];
+    const len = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
+    rays.set([at[0]! + (rnd() * 2 - 1) * spread, at[1]! + rnd() * spread * 0.5, at[2]! + (rnd() * 2 - 1) * spread, 0, d[0]! / len, d[1]! / len, d[2]! / len, reach], k * RAY_FLOATS);
+  }
+  return rays;
+}
+
+/** The resolve pass's voxel texels against its CPU twin's (`VoxelLightFeed.resolveCheck`). */
+export interface VoxelResolveCheck {
+  readonly rays: number;
+  /** Rays that hit a voxel; of those resolved on the GPU to a texel, and to a lit one. */
+  voxelHits: number;
+  resolved: number;
+  lit: number;
+  /** Rays whose GPU and CPU texels differ. */
+  mismatches: number;
+  /** Voxel hits `SurfaceScene.resolve` (the CPU's own way: the nearest charted point) puts in another texel, or none. */
+  sceneDiffers: number;
+  readonly examples: Record<string, unknown>[];
 }
 
 /** The tracer's voxel hits against the CPU walk's (`VoxelLightFeed.check`). */

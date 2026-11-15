@@ -3,9 +3,11 @@
  * chunk's mesh (a sloping ground and an upright wall) as a tile made
  * resident, the materials' lookup packed from it finding every drawn point's
  * texel where the cache addresses it, a traced voxel hit's address resolved
- * to the same texel, the host listing a page's voxel chunks (their charts
+ * to the same texel (by the scene and by the resolve table the probe rays
+ * read), the host listing a page's voxel chunks (their charts
  * made, their units' texel points on the surface, a chunk drawn again a new
- * version, the source's budget where the tier gives none).
+ * version, the source's budget where the tier gives none, live probes placed
+ * over its charts and dropped inside its bodies).
  */
 import { mulberry32 } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
@@ -16,7 +18,8 @@ import { SurfaceCacheHost, type SurfaceVoxelChunk } from './surface-cache-host';
 import { SURFACE_READ, lookupSurfaceCpu, packSurfaceLookup } from './surface-cache-lookup';
 import { SurfaceScene } from './surface-cache-scene';
 import { locateVoxelFace, voxelCellOf, voxelChunkTile, voxelHitWords, type VoxelTileMesh } from './surface-cache-voxels';
-import { TRACE_VOXELS } from './tracer-scene';
+import { HIT_WORDS, TRACE_VOXELS } from './tracer-scene';
+import { packResolveTable, resolveHitCpu, texelWords } from './surface-resolve';
 import { lightFrameOf } from './surface-light-frame';
 import { TEXEL_POINT_FLOATS } from './surface-texels';
 import type { CacheLight } from './surface-changes';
@@ -121,12 +124,40 @@ describe('voxel tiles in the surface cache', () => {
     expect(same / n).toBeGreaterThan(0.99);
   });
 
+  it('resolves a traced voxel hit from the resolve table (the GPU pass\'s words) to the texel the scene finds', () => {
+    const table = packResolveTable(scene, cache).words;
+    let n = 0;
+    let same = 0;
+    let none = 0;
+    const hits = new Uint32Array(HIT_WORDS);
+    for (const s of points(m, 1000)) {
+      const face = faceOf(s.normal);
+      const at = voxelCellOf(s.p, face);
+      if (locateVoxelFace(tile.made!, at.cell, face, at.fu, at.fv) === null) continue;
+      n++;
+      const hit = { kind: TRACE_VOXELS, t: 1, normal: [0, 0, 0] as [number, number, number], face, object: 0, ...voxelHitWords(at.cell, at.fu, at.fv) };
+      hits.set([0, 0, 0, 0, TRACE_VOXELS | (face << 8), 0, hit.a0, hit.a1]);
+      const got = resolveHitCpu(table, hits, 0);
+      const want = texelWords(scene.resolve(cache, hit), []);
+      if (got[0] === 0) none++;
+      if (got[0] === want[0] && Math.abs((got[1] & 0xffff) - (want[1] & 0xffff)) <= 1 && Math.abs((got[1] >>> 16) - (want[1] >>> 16)) <= 1) same++;
+    }
+    expect(n).toBeGreaterThan(900);
+    expect(none).toBe(0);
+    // The scene takes the nearest charted point, the table the face's own column: a texel either side at most, nearly all the same.
+    expect(same / n).toBeGreaterThan(0.99);
+    // A hit on a face no surface keys (the wall's back, inside the ground) finds another of its cell's faces, or none.
+    hits.set([0, 0, 0, 0, TRACE_VOXELS | (1 << 8), 0, voxelHitWords([CELL0[0] + 4, 0, CELL0[2] + 4], 0.5, 0.5).a0, voxelHitWords([CELL0[0] + 4, 0, CELL0[2] + 4], 0.5, 0.5).a1]);
+    expect(resolveHitCpu(table, hits, 0)).toEqual([0, 0]);
+  });
+
   it('lists a page\'s voxel chunks, lights their texels on the surface, and makes a chunk drawn again new', () => {
     let version = 1;
     const chunk = (): SurfaceVoxelChunk => ({ key: 'w/64,0,-32', version, cell0: CELL0, edge: EDGE, mesh: () => m });
     const host = new SurfaceCacheHost({ layers: () => [], terrains: () => [], architecture: () => [], models: () => [], bricks: () => null }, 32 * 1024 * 1024);
     expect(host.relightBudgetMs).toBe(0);
-    host.voxels.set({ chunks: () => [chunk()], walk: () => null, relightMs: 6.67 });
+    // Cells under 2 m are bodies (the ground's solid part, as the walk's blocks would say).
+    host.voxels.set({ chunks: () => [chunk()], walk: () => null, relightMs: 6.67, solidAt: (_x, y) => y * VOXEL_SIZE_M < 2 });
     expect(host.relightBudgetMs).toBe(6.67);
     host.setLive(true);
     const eye = [CELL0[0] * VOXEL_SIZE_M + 8, 3, CELL0[2] * VOXEL_SIZE_M + 8];
@@ -153,6 +184,18 @@ describe('voxel tiles in the surface cache', () => {
       if (Math.abs(len - 1) < 1e-3 && inBox) onSurface++;
     }
     expect(onSurface).toBe(texels);
+    // The live probes over the chunk's charts: bricks over the ground and the wall, none lit inside the ground.
+    for (let f = 0; f < 40 && host.probes.count === 0; f++) host.update(eye, (now += 300));
+    const pd = host.probes.diagnostics();
+    expect(pd.bricks[0]! + pd.bricks[1]!, JSON.stringify(pd)).toBeGreaterThan(0);
+    let lit = 0;
+    for (let i = 0; i < host.probes.count; i++) {
+      if (!host.probes.probeLit(i)) continue;
+      lit++;
+      expect(host.probes.positions[i * 3 + 1]!).toBeGreaterThanOrEqual(2);
+    }
+    expect(lit).toBeGreaterThan(20);
+    expect(lit).toBeLessThan(host.probes.count);
     // Drawn again (an edit): a new version is made again, its units stale.
     version = 2;
     host.touch();

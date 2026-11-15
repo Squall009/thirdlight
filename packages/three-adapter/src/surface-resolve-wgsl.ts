@@ -7,9 +7,9 @@
  * Bindings: 0 the dispatch's parameters (hit count, first hit), 1 the
  * table, 2 the tracer's hits (two vec4u each), 3 the texels (a vec2u each).
  */
-import { ARCH_R_WORDS, CHART_WORDS, COMP_WORDS, EMPTY_SLOT, HASH_WORDS, LAYER_R_WORDS, MODEL_R_WORDS, RESOLVE_PAGE, RESOLVE_RING, TERRAIN_R_WORDS } from './surface-resolve';
+import { ARCH_R_WORDS, CHART_WORDS, COMP_WORDS, EMPTY_SLOT, HASH_WORDS, LAYER_R_WORDS, MODEL_R_WORDS, RESOLVE_PAGE, RESOLVE_RING, TERRAIN_R_WORDS, VOXEL_R_WORDS } from './surface-resolve';
 import { SURFACE_CHART_METRES } from './surface-cache-atlas';
-import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_TERRAIN } from './tracer-scene';
+import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_TERRAIN, TRACE_VOXELS } from './tracer-scene';
 
 /** Threads per workgroup. */
 export const RESOLVE_WORKGROUP = 64;
@@ -208,6 +208,48 @@ fn resolveBricks(obj: u32, a0: u32, n: vec3f) -> vec2u {
   return chartTexel(chart, tf(uv + u32(best) * 2u) * tf(chart + 3u), tf(uv + u32(best) * 2u + 1u) * tf(chart + 4u), -1);
 }
 
+// A voxel face's home slot (voxelSlotHash).
+fn voxelSlot(k0: u32, k1: u32, cap: u32) -> u32 {
+  var h = (k0 * 0x9e3779b1u) ^ (k1 * 0x85ebca6bu);
+  h = (h ^ (h >> 16u)) * 0x7feb352du;
+  return (h ^ (h >> 15u)) & (cap - 1u);
+}
+
+// A voxel hit's texel: its cell's face it entered by, then the cell's others (resolveVoxelCpu).
+fn resolveVoxels(face: u32, a0: u32, a1: u32) -> vec2u {
+  let cap = T[14];
+  if (cap == 0u) { return NONE; }
+  let axis = min(2u, face >> 1u);
+  let hp = planeAxes(axis);
+  var q = vec3u(0u);
+  q[axis] = select(255u, 0u, (face & 1u) != 0u);
+  q[hp.x] = (a1 >> 16u) & 255u;
+  q[hp.y] = a1 >> 24u;
+  for (var k = 0u; k < 6u; k++) {
+    var fc = k;
+    if (k == 0u) { fc = face; } else if (k <= face) { fc = k - 1u; }
+    let k0 = a0;
+    let k1 = (a1 & 0xffffu) | ((fc + 1u) << 16u);
+    var at = voxelSlot(k0, k1, cap);
+    for (var tries = 0u; tries < cap; tries++) {
+      let sa = T[15] + at * ${VOXEL_R_WORDS}u;
+      if (T[sa + 1u] == 0u) { break; }
+      if (T[sa] == k0 && T[sa + 1u] == k1) {
+        let p = planeAxes(fc >> 1u);
+        let o = T[sa + 3u];
+        let c = T[sa + 2u];
+        let iw = T[c + 2u] & 0xffffu;
+        let ih = T[c + 2u] >> 16u;
+        let x = (T[c + 1u] & 0xffffu) + min(iw - 1u, ((o & 255u) * 255u + q[p.x]) * iw / (((o >> 15u) & 255u) * 255u));
+        let y = (T[c + 1u] >> 16u) + min(ih - 1u, (((o >> 8u) & 0x7fu) * 255u + q[p.y]) * ih / ((o >> 23u) * 255u));
+        return vec2u((${RESOLVE_PAGE}u << 30u) | T[c], x | (y << 16u));
+      }
+      at = (at + 1u) & (cap - 1u);
+    }
+  }
+  return NONE;
+}
+
 @compute @workgroup_size(${RESOLVE_WORKGROUP})
 fn main(@builtin(global_invocation_id) g: vec3u) {
   if (g.x >= P.count) { return; }
@@ -223,6 +265,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   else if (kind == ${TRACE_TERRAIN}u) { out = resolveTerrain(h1.y, h1.z, fu, fv); }
   else if (kind == ${TRACE_ARCH}u) { out = resolveArch(h1.y, face, fu, fv); }
   else if (kind == ${TRACE_BRICKS}u) { out = resolveBricks(h1.y, h1.z, vec3f(bitcast<f32>(h0.y), bitcast<f32>(h0.z), bitcast<f32>(h0.w))); }
+  else if (kind == ${TRACE_VOXELS}u) { out = resolveVoxels(face, h1.z, h1.w); }
   X[i] = out;
 }
 `;
