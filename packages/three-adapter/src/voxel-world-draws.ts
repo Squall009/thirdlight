@@ -638,7 +638,7 @@ export class VoxelWorldDraws {
       view.setDecalSurfaces(decals);
       return;
     }
-    this.light ??= new VoxelLightFeed({ buffers: (world) => this.walks.get(world)?.buffers() ?? null, source: (world) => this.walks.get(world)?.table.source() ?? null, worlds: () => this.walks.keys() }, () => this.opts.residency?.level() ?? null);
+    this.light ??= new VoxelLightFeed({ buffers: (world) => this.walks.get(world)?.buffers() ?? null, source: (world) => this.walks.get(world)?.table.source() ?? null, table: (world) => this.walks.get(world)?.table ?? null, worlds: () => this.walks.keys() }, () => this.opts.residency?.level() ?? null);
     view.setDecalSurfaces(this.light.surfaces(name, edge, decals));
     this.light.link(scene);
   }

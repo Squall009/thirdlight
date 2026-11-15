@@ -52,7 +52,7 @@ import { ProbeMarks, brickSide, type ProbeSolid, type Steps } from './probe-bric
 import { architectureMarks, blockTileMarks, probeSolid, terrainMarksSteps, voxelTileMarks, type ProbeSolidModel } from './probe-geometry';
 import type { TraceArchitecture } from './tracer-objects';
 import type { VoxelTile } from './surface-cache-voxels';
-import { HostVoxels } from './surface-cache-host-voxels';
+import { HostVoxels, type VoxelChartPort } from './surface-cache-host-voxels';
 
 export type { SurfaceVoxelChunk, SurfaceVoxelDiagnostics, SurfaceVoxelSource } from './surface-cache-host-voxels';
 
@@ -104,6 +104,8 @@ export interface SurfaceCacheHostDeps {
   readonly modelAlive?: (id: string) => boolean;
   /** Whether surfaces are still being built (block chunks meshing; absent: never): what is listed meanwhile is not the whole scene. */
   readonly building?: () => boolean;
+  /** Starts the worker voxel chunks' charts are made on (absent, or null from it: the page charts them in steps). */
+  readonly voxelChartWorker?: () => VoxelChartPort | null;
 }
 
 /**
@@ -368,7 +370,7 @@ export class SurfaceCacheHost {
       cache: this.cache,
       units: (key) => this.tileUnits.get(key) ?? [],
       relight: this.relight,
-    });
+    }, deps.voxelChartWorker);
   }
 
   /** The GPU time a frame may spend on live light (0: none, the saved light is drawn): the tier's, else the voxel worlds' while they are lit here. */
@@ -439,12 +441,18 @@ export class SurfaceCacheHost {
     return this.slices;
   }
 
-  /** Geometry in a box changed (after the first listing; the scene coming in is not a change); `terrain`: one of its tiles (its version moves: rings and probes follow). */
-  private geometry(min: readonly number[], max: readonly number[], terrain?: string): void {
+  /**
+   * Geometry in a box changed (after the first listing; the scene coming in is not a change); `terrain`: one of its
+   * tiles (its version moves: rings and probes follow); `voxel`: a voxel chunk came, went or was drawn again, which
+   * marks only what its casters can shadow (`SurfaceChanges.castersChanged`: chunks stream in all the time, and a
+   * light's whole reach relit for each would light what was lit again and again).
+   */
+  private geometry(min: readonly number[], max: readonly number[], terrain?: string, voxel = false): void {
     if (terrain !== undefined) this.terrainVersions.set(terrain, (this.terrainVersions.get(terrain) ?? 0) + 1);
     this.geometryVersion += 1;
     if (this.listing === 'none') return;
-    this.changes.geometryChanged(min, max);
+    if (voxel) this.changes.castersChanged(min, max);
+    else this.changes.geometryChanged(min, max);
     this.colours.changed(min, max);
   }
 
@@ -735,12 +743,13 @@ export class SurfaceCacheHost {
       this.ready.delete(key);
       this.readyVersion += 1;
       this.changed = true;
-      this.geometry(had.min, had.max);
+      // A voxel chunk drawn again is in the same box: marked once, below.
+      if (!voxel) this.geometry(had.min, had.max);
     }
     const p = this.pending.get(key);
     if (p === undefined || p.version !== version) {
       this.pending.set(key, { min, max, version, make, change: this.listing !== 'none', ...(voxel ? { voxel } : {}) });
-      this.geometry(min, max);
+      this.geometry(min, max, undefined, voxel);
     }
   }
 
@@ -820,7 +829,7 @@ export class SurfaceCacheHost {
       this.ready.delete(key);
       this.readyVersion += 1;
       this.changed = true;
-      this.geometry(t.min, t.max);
+      this.geometry(t.min, t.max, undefined, (t as { kind?: string }).kind === 'voxels');
     }
     for (const key of [...this.pending.keys()]) if (!seen.has(key)) this.pending.delete(key);
     this.applyLayerMoves();

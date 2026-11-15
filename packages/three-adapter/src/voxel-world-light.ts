@@ -14,7 +14,7 @@
  */
 import type * as THREE from 'three';
 import { frameBudgetMs, levelFrameBudget, type QualityLevelConfig } from '@thirdlight/project-model';
-import { VOXEL_SIZE_M, walkRay, walkVoxels, type WalkSource } from '@thirdlight/voxel';
+import { VOXEL_SIZE_M, walkRay, walkVoxels, type WalkSource, type WalkTable } from '@thirdlight/voxel';
 
 import { SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_KEY } from './surface-cache-read';
@@ -28,6 +28,7 @@ import { VOXEL_TRACE_SKIPS } from './tracer-wgsl';
 import type { VoxelWalkBuffers } from './tracer-gpu';
 import { VOXEL_CELL_KEY, type VoxelDecalSurfaces } from './voxel-chunk-view';
 import { WALK_GPU_MAX_STEPS } from './voxel-walk-wgsl';
+import { solidBlocksOf, type VoxelSolidBlocks } from './voxel-chart-worker';
 
 /** What the scene's surface cache link offers a page's voxel worlds (the adapter puts it on `scene.userData[SURFACE_CACHE_KEY]`). */
 export interface SurfaceCacheVoxelLink {
@@ -62,6 +63,8 @@ interface Chunk extends SurfaceVoxelChunk {
 export interface VoxelLightWalks {
   buffers(world: string): VoxelWalkBuffers | null;
   source(world: string): WalkSource | null;
+  /** The world's walk table (what the GPU's blocks are uploaded from; absent: not on the GPU). */
+  table?(world: string): WalkTable | null;
   worlds(): Iterable<string>;
 }
 
@@ -92,6 +95,12 @@ export class VoxelLightFeed implements SurfaceVoxelSource {
   }
 
   private solidOf: { readonly src: WalkSource; readonly at: (x: number, y: number, z: number) => boolean | null } | null = null;
+
+  solidBlocks(cell0: readonly number[], edge: number): VoxelSolidBlocks | null {
+    const w = this.walked();
+    const t = w === null ? null : (this.walks.table?.(w) ?? null);
+    return t === null ? null : solidBlocksOf(t, cell0, edge);
+  }
 
   walk(): VoxelWalkBuffers | null {
     const w = this.walked();

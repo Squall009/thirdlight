@@ -253,8 +253,9 @@ export async function exportProjectM3(
   const here = ctx.fs.join(m3BootstrapEntry, '..');
   const engineDir = ctx.fs.join(here, '..', '..', '..');
   const read = (path: string): Uint8Array => ctx.fs.read(path);
-  // The view's worker (block chunks meshed, terrain tiles packed, architecture generated), for a game with block layers, terrain or
-  // generated architecture (a scene or a prefab names one); without it chunks mesh, tiles pack and architecture generates on the page.
+  // The view's worker (block chunks meshed, terrain tiles packed, architecture generated, voxel chunks charted for the surface cache),
+  // for a game with block layers, terrain, generated architecture (a scene or a prefab names one) or voxel worlds; without it the page
+  // does that work itself.
   const decoder = new TextDecoder();
   const hasBlockLayers = [closure.sceneBytes, ...closure.sceneArtifacts.map((a) => a.bytes), ...closure.contentFileArtifacts.map((a) => a.bytes)].some((b) => {
     const text = decoder.decode(b);
@@ -264,7 +265,7 @@ export async function exportProjectM3(
   const withPhysics = closure.moduleIds.includes(PHYSICS_3D_MODULE_ID);
   const planned: { name: string; entry: string; what: string; moduleIds?: readonly string[]; wasm?: true }[] = [
     { name: WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-sim-worker.ts'), what: 'simulation worker', moduleIds: closure.moduleIds },
-    ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh, terrain and architecture worker' }] : []),
+    ...(hasBlockLayers || voxels.worlds.length > 0 ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh, terrain, architecture and voxel chart worker' }] : []),
     ...(withPhysics ? [{ name: PHYSICS_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-3d.ts'), what: 'physics', wasm: true as const }] : []),
     ...(voxels.worlds.length > 0 ? [{ name: VOXEL_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, VOXEL_WORKER_ENTRY_FILE), what: 'voxel worker' }] : []),
   ];

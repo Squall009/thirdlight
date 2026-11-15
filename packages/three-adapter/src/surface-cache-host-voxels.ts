@@ -17,6 +17,15 @@ import type { SurfaceCache, SurfaceTile } from './surface-cache';
 import type { SurfaceRelight } from './surface-relight';
 import { voxelChunkChartsSteps, voxelChunkTile, type VoxelChunkCharts, type VoxelTile, type VoxelTileMesh } from './surface-cache-voxels';
 import type { VoxelWalkBuffers } from './tracer-gpu';
+import type { VoxelChartReply, VoxelChartRequest, VoxelSolidBlocks } from './voxel-chart-worker';
+
+/** A worker charts are made on (the view's worker script: `runVoxelChartWorker`). */
+export interface VoxelChartPort {
+  post(message: unknown, transfer?: readonly ArrayBuffer[]): void;
+  listen(onMessage: (message: unknown) => void): void;
+  onError(handler: (message: string) => void): void;
+  terminate(): void;
+}
 
 /** A voxel world's level-0 chunk as drawn: its key (world and chunk), its mesh's version, its corner cell and edge, and its mesh (null: gone). */
 export interface SurfaceVoxelChunk {
@@ -35,6 +44,8 @@ export interface SurfaceVoxelSource {
   solidAt?(x: number, y: number, z: number): boolean | null;
   /** The occupancy walk the traced rays take through the voxels (null: none on the GPU yet). */
   walk(): VoxelWalkBuffers | null;
+  /** The level-0 occupancy round a chunk as a chart job carries it to a worker (absent or null: not known here; the worker then hides nothing). */
+  solidBlocks?(cell0: readonly number[], edge: number): VoxelSolidBlocks | null;
   /** GPU ms a frame the live light may take while texels are stale, where the tier gives it none (the lighting row of the tier's frame budget). */
   readonly relightMs: number;
 }
@@ -53,10 +64,14 @@ export interface SurfaceVoxelDiagnostics {
   readonly levels: readonly number[];
   /** Bytes of pages the resident voxel tiles hold. */
   readonly bytes: number;
-  /** Chunks whose charts are still being made or wait to be listed, chunks charted so far, and the longest frame's charting (ms). */
+  /** Chunks whose charts are still being made or wait to be listed, chunks charted so far, and the longest frame's charting on the page (ms). */
   readonly waiting: number;
   readonly charted: number;
   readonly chartMs: number;
+  /** Whether charts are made on a worker, and its ms charting (all, and the slowest chunk). */
+  readonly chartWorker: boolean;
+  readonly workerMs: number;
+  readonly workerMaxMs: number;
 }
 
 /** What it reads of its host. */
@@ -77,21 +92,58 @@ export interface HostVoxelsDeps {
   readonly relight: SurfaceRelight;
 }
 
-/** A chunk being charted: its tile, the steps, and where it is (for nearest first). */
+/** A chunk being charted: its tile, the steps (on the page) or its job (on the worker: sent or not), and where it is (for nearest first). */
 interface Charting {
   readonly tile: VoxelTile;
-  readonly steps: Generator<void, VoxelChunkCharts>;
+  readonly steps: Generator<void, VoxelChunkCharts> | null;
+  readonly mesh: () => VoxelTileMesh | null;
+  job: number;
   readonly centre: readonly number[];
 }
+
+/** Chart jobs on the worker at once: enough to keep it busy, few enough that the nearest chunk goes next as the eye moves. */
+const CHART_JOBS_IN_FLIGHT = 2;
 
 export class HostVoxels {
   private source: SurfaceVoxelSource | null = null;
   private applied = -1;
   private charting = new Map<string, Charting>();
-  /** The longest frame's share spent charting since last read (ms), and the chunks charted. */
-  readonly stats = { chartMs: 0, charted: 0 };
+  /** The longest frame's share spent charting on the page since last read (ms), the chunks charted, and the worker's ms. */
+  readonly stats = { chartMs: 0, charted: 0, workerMs: 0, workerMaxMs: 0 };
+  /** The chart worker (null: none started or it failed: the page charts in steps), its jobs out and replies come back. */
+  private worker: VoxelChartPort | null = null;
+  private workerFailed = false;
+  private nextJob = 1;
+  private readonly sent = new Map<number, Charting>();
+  private readonly replies: VoxelChartReply[] = [];
 
-  constructor(private readonly host: HostVoxelsDeps) {}
+  /** `chartWorker`: starts the worker charts are made on (absent: none, the page charts them). */
+  constructor(private readonly host: HostVoxelsDeps, private readonly chartWorker?: () => VoxelChartPort | null) {}
+
+  /** The chart worker, started on first use (null: none here). */
+  private charter(): VoxelChartPort | null {
+    if (this.worker !== null || this.workerFailed || this.chartWorker === undefined) return this.worker;
+    const w = this.chartWorker();
+    if (w === null) {
+      this.workerFailed = true;
+      return null;
+    }
+    w.listen((m) => {
+      const r = m as Partial<VoxelChartReply> | null;
+      if (r?.t === 'voxelCharted') this.replies.push(r as VoxelChartReply);
+    });
+    w.onError((message) => {
+      console.warn(`surface cache: voxel charts on the page (${message})`);
+      this.workerFailed = true;
+      this.worker?.terminate();
+      this.worker = null;
+      // Its jobs are charted on the page from the next listing.
+      this.sent.clear();
+      this.host.touch();
+    });
+    this.worker = w;
+    return w;
+  }
 
   /** The voxel worlds' surfaces lit by the cache from now on (null: none; their tiles go on the next listing). */
   set(src: SurfaceVoxelSource | null): void {
@@ -146,10 +198,11 @@ export class HostVoxels {
         this.charting.set(c.key, job);
         continue;
       }
-      const mesh = c.mesh();
       const tile = voxelChunkTile(c.key, c.version, c.cell0, c.edge, () => c.mesh(), solidAt);
-      const steps = voxelChunkChartsSteps(mesh?.positions ?? [], mesh?.indices ?? [], c.cell0, c.edge, solidAt);
-      this.charting.set(c.key, { tile, steps, centre: [0, 1, 2].map((a) => (tile.min[a]! + tile.max[a]!) / 2) });
+      const onWorker = this.charter() !== null;
+      const mesh = onWorker ? null : c.mesh();
+      const steps = onWorker ? null : voxelChunkChartsSteps(mesh?.positions ?? [], mesh?.indices ?? [], c.cell0, c.edge, solidAt);
+      this.charting.set(c.key, { tile, steps, mesh: () => c.mesh(), job: 0, centre: [0, 1, 2].map((a) => (tile.min[a]! + tile.max[a]!) / 2) });
     }
   }
 
@@ -158,20 +211,67 @@ export class HostVoxels {
     return this.charting.size;
   }
 
-  /** Charts chunks, nearest `eye` first, until the frame's slice (from `t0`) is spent; each done goes to the host. */
+  /** The worker's charts come in (those still wanted go to the host); the nearest chunks waiting are sent while few are out. */
+  private stepWorker(eye: ArrayLike<number>, w: VoxelChartPort): void {
+    for (const r of this.replies.splice(0)) {
+      const job = this.sent.get(r.job);
+      this.sent.delete(r.job);
+      if (job === undefined) continue;
+      // Listed again since at another version: this reply is let go.
+      if (this.charting.get(job.tile.key) !== job) continue;
+      this.charting.delete(job.tile.key);
+      if (!r.ok) {
+        console.warn(`surface cache: a voxel chunk's charts failed on the worker (${r.message})`);
+        continue;
+      }
+      job.tile.made = r.made;
+      this.stats.charted += 1;
+      this.stats.workerMs += r.ms;
+      this.stats.workerMaxMs = Math.max(this.stats.workerMaxMs, r.ms);
+      this.host.want(job.tile);
+    }
+    if (this.sent.size >= CHART_JOBS_IN_FLIGHT) return;
+    const d = (j: Charting): number => (j.centre[0]! - eye[0]!) ** 2 + (j.centre[1]! - eye[1]!) ** 2 + (j.centre[2]! - eye[2]!) ** 2;
+    const order = [...this.charting.values()].filter((j) => j.job === 0).sort((a, b) => d(a) - d(b));
+    const src = this.source;
+    for (const job of order) {
+      if (this.sent.size >= CHART_JOBS_IN_FLIGHT) break;
+      const m = job.mesh();
+      const t = job.tile;
+      // Copied: the page goes on drawing the mesh.
+      const positions = Float32Array.from(m?.positions ?? []);
+      const indices = m === null ? new Uint32Array(0) : m.indices instanceof Uint16Array ? m.indices.slice() : Uint32Array.from(m.indices);
+      const solid = src?.solidBlocks?.(t.cell0, t.edge) ?? null;
+      job.job = this.nextJob++;
+      this.sent.set(job.job, job);
+      const req: VoxelChartRequest = { t: 'voxelCharts', job: job.job, positions, indices, cell0: [t.cell0[0], t.cell0[1], t.cell0[2]], edge: t.edge, solid };
+      w.post(req, [positions.buffer, indices.buffer, ...(solid !== null ? [solid.flags.buffer, solid.cells.buffer] : [])] as ArrayBuffer[]);
+    }
+  }
+
+  /** Charts chunks, nearest `eye` first, until the frame's slice (from `t0`) is spent (or on the worker); each done goes to the host. */
   step(eye: ArrayLike<number>, t0: number): void {
+    const w = this.charter();
+    if (w !== null) {
+      const start = performance.now();
+      this.stepWorker(eye, w);
+      this.stats.chartMs = Math.max(this.stats.chartMs, performance.now() - start);
+      return;
+    }
     if (this.charting.size === 0) return;
     const slice = frameSliceMs('surfacePrepare');
     const start = performance.now();
     const d = (j: Charting): number => (j.centre[0]! - eye[0]!) ** 2 + (j.centre[1]! - eye[1]!) ** 2 + (j.centre[2]! - eye[2]!) ** 2;
     const order = [...this.charting.values()].sort((a, b) => d(a) - d(b));
     for (const job of order) {
+      // A job a failed worker held: charted here from the start.
+      const steps = job.steps ?? this.restart(job);
       for (;;) {
         if (performance.now() - t0 >= slice) {
           this.stats.chartMs = Math.max(this.stats.chartMs, performance.now() - start);
           return;
         }
-        const r = job.steps.next();
+        const r = steps.next();
         if (r.done !== true) continue;
         job.tile.made = r.value;
         this.charting.delete(job.tile.key);
@@ -181,6 +281,22 @@ export class HostVoxels {
       }
     }
     this.stats.chartMs = Math.max(this.stats.chartMs, performance.now() - start);
+  }
+
+  /** Page steps for a job that was the worker's. */
+  private restart(job: Charting): Generator<void, VoxelChunkCharts> {
+    const m = job.mesh();
+    const steps = voxelChunkChartsSteps(m?.positions ?? [], m?.indices ?? [], job.tile.cell0, job.tile.edge, this.source?.solidAt?.bind(this.source));
+    const again: Charting = { ...job, steps };
+    this.charting.set(job.tile.key, again);
+    return steps;
+  }
+
+  /** The chart worker goes (the page closes the cache). */
+  dispose(): void {
+    this.worker?.terminate();
+    this.worker = null;
+    this.workerFailed = true;
   }
 
   /** Whether a resident tile's light is lit (no unit of it stale). */
@@ -229,6 +345,6 @@ export class HostVoxels {
     });
     const chartMs = this.stats.chartMs;
     this.stats.chartMs = 0;
-    return { chunks, tiles, resident, charts, residentTexels, litTexels, staleUnits, levels: Array.from({ length: levels.length }, (_, l) => levels[l] ?? 0), bytes, waiting, charted: this.stats.charted, chartMs };
+    return { chunks, tiles, resident, charts, residentTexels, litTexels, staleUnits, levels: Array.from({ length: levels.length }, (_, l) => levels[l] ?? 0), bytes, waiting, charted: this.stats.charted, chartMs, chartWorker: this.worker !== null, workerMs: this.stats.workerMs, workerMaxMs: this.stats.workerMaxMs };
   }
 }
