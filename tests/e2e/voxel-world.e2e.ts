@@ -1363,7 +1363,8 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
   // WebGPU only, the simulation in its worker (the product's way; sim-worker.e2e.ts runs a game with it in the page).
   const renderer = 'webgpu';
   test("Play: a world 8 km out streams with the simulation in its worker at a tier switched at run time, a script digs a pit, the pixels change and the character falls in; a voxel save in the game's slot brings the pit back after a restart, not the wetness", async ({ page }) => {
-    test.setTimeout(180_000);
+    // The two lighting stores' checks (the cache, then the light volume) on one page take most of it.
+    test.setTimeout(240_000);
     await page.setViewportSize({ width: 1280, height: 720 });
     const at = await playProject();
     await groundRelief(true);
