@@ -58,4 +58,29 @@ describe('GPU pass hides', () => {
     r.showAll();
     expect(near.hidden).toBe(false);
   });
+
+  it('a pass held by name stays hidden and absent whatever the categories, and comes back when let go', () => {
+    const r = new GpuPassHides();
+    const cache = pass('lighting', 'surface light');
+    const volume = pass('lighting', 'voxel light volume');
+    r.register(cache);
+    r.register(volume);
+    r.hold(['voxel light volume']);
+    expect([cache.hidden, volume.hidden]).toEqual([false, true]);
+    // The category's reading is the other pass's alone.
+    expect(r.present()).toEqual({ lighting: ['surface light'] });
+    r.set(['lighting']);
+    expect([cache.hidden, volume.hidden]).toEqual([true, true]);
+    r.set([]);
+    expect([cache.hidden, volume.hidden]).toEqual([false, true]);
+    r.showAll();
+    expect(volume.hidden).toBe(true);
+    // A pass registering while held is hidden at once.
+    const late = pass('lighting', 'voxel light volume');
+    r.register(late);
+    expect(late.hidden).toBe(true);
+    r.hold([]);
+    expect([cache.hidden, volume.hidden, late.hidden]).toEqual([false, false, false]);
+    expect(r.holding()).toEqual([]);
+  });
 });

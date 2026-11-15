@@ -54,6 +54,8 @@ import type { N } from './effects-tsl';
 import { TSL_SCALAR_OPS } from './field-ops';
 import { CameraWindow } from './camera-window';
 import { gpuPassHides } from './gpu-pass-hides';
+import { handoverKeepsBox, handoverVolumeKeepFrom, type HandoverRing } from './voxel-light-handover';
+import { volumeShareNode } from './voxel-light-handover-nodes';
 import { gpuTextureOf, uploadTextureRegion, type RegionTextureRenderer } from './region-texture';
 import { KEPT_IRRADIANCE, isProbeHeld, markProbeHeld } from './probe-lighting';
 import { SkyProbe } from './surface-probe-sky';
@@ -69,6 +71,8 @@ const TSL: N = TSLTyped;
 const { If, float, int, ivec2, luminance, max, mix, normalWorld, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, uint, uniform, vec3 } = TSL;
 
 /** Updates a brick takes to settle (each blends 1 / its count in: the mean of this many estimates). */
+/** The volume's update in the page's GPU measurement (a measurement may hold it by name). */
+export const VOLUME_PASS = 'voxel light volume';
 export const VOLUME_SETTLE_UPDATES = 8;
 /** Rays a face casts an update. */
 export const VOLUME_RAYS = 4;
@@ -118,6 +122,10 @@ export interface VoxelLightVolumeDeps {
   ground(x: number, z: number): number | null;
   /** False: the volume is lit but no surface reads it (`?surfaceRead=0`, a comparison of what reading costs and changes). */
   readonly read?: boolean;
+  /** Where the page hands over to the surface cache near the eye (null or absent: the volume lights everything it holds). */
+  handover?(): HandoverRing | null;
+  /** The share of the tier's GPU `lighting` row the update may take (absent: all of it; a page running both stores halves it). */
+  rowShare?(): number;
 }
 
 interface Brick {
@@ -202,6 +210,9 @@ export class VoxelLightVolume {
   private readonly heldHere = new Set<THREE.Light>();
   private scannedChildren = -1;
   private disposed = false;
+  /** With a hand-over: bricks wholly within this distance across of `ruleEye` (x, z) are not kept (null: every brick is). */
+  private keepFrom: number | null = null;
+  private readonly ruleEye = [NaN, NaN];
   /** Bricks updated a frame now (by the measured cost), the measured ms a brick, and counts since made. */
   private perFrame = START_BRICKS;
   private msPerBrick: number | null = null;
@@ -220,7 +231,7 @@ export class VoxelLightVolume {
     this.offs.push(
       // Present while it exists, as the cache's pass: a moving eye makes bricks stale between windows, so a reading taken
       // only while some are stale at the start missed the orbit's update.
-      gpuPassHides.register({ category: 'lighting', name: 'voxel light volume', present: () => true, hide: (h) => (this.hidden = h) }),
+      gpuPassHides.register({ category: 'lighting', name: VOLUME_PASS, present: () => true, hide: (h) => (this.hidden = h) }),
       // Its GPU bytes are held against the two stores it replaces (the surface cache's, then the probes'); the grids kept for its colours are a share of the chunks drawn.
       residentBytes.register('surfaceCache', () => Math.min(this.gpu.bytes, this.budgets().surfaceCache)),
       residentBytes.register('probes', () => Math.max(0, this.gpu.bytes - this.budgets().surfaceCache)),
@@ -356,6 +367,7 @@ export class VoxelLightVolume {
     const t0 = performance.now();
     this.frames++;
     for (let level = 0; level < VOLUME_LEVELS; level++) this.follow(level, eye);
+    this.followHandover(eye);
     const slice = frameSliceMs('surfacePrepare');
     this.look(() => performance.now() - t0 < slice);
     if (this.light.read) this.holdAmbient();
@@ -469,7 +481,53 @@ export class VoxelLightVolume {
       if ((n++ & 63) === 63 && !more()) return;
       this.toLookCoarse.delete(key);
       this.stats.lookedCoarse++;
-      this.lookBrick(level, bx, by, bz, this.inWindow(level, bx, by, bz) && volumeLevelBrickKept(this.lookup, level, bx, by, bz));
+      this.lookBrick(level, bx, by, bz, this.keeps(level, bx, by, bz));
+    }
+  }
+
+  /** Whether a brick is kept: in its level's window, beside what stops light, and past the hand-over's inner ring. */
+  private keeps(level: number, bx: number, by: number, bz: number): boolean {
+    if (!this.inWindow(level, bx, by, bz) || !this.pastHandover(level, bx, bz)) return false;
+    return volumeLevelBrickKept(this.lookup, level, bx, by, bz);
+  }
+
+  private pastHandover(level: number, bx: number, bz: number): boolean {
+    if (this.keepFrom === null) return true;
+    const m = brickM(level);
+    return handoverKeepsBox(this.keepFrom, this.ruleEye[0]!, this.ruleEye[1]!, bx * m, (bx + 1) * m, bz * m, (bz + 1) * m);
+  }
+
+  /**
+   * The hand-over's inner ring onto the eye: when the page's hand-over changes, or the eye moved a level-0 brick
+   * across since the rule was last placed, the bricks within the larger ring round either place are looked at again
+   * (those wholly inside are dropped, those now outside kept, from nothing).
+   */
+  private followHandover(eye: readonly number[]): void {
+    const ring = this.deps.handover?.() ?? null;
+    const step = brickM(0);
+    const next = ring === null ? null : handoverVolumeKeepFrom(ring, step);
+    const moved = !Number.isFinite(this.ruleEye[0]!) || Math.hypot(eye[0]! - this.ruleEye[0]!, eye[2]! - this.ruleEye[1]!) >= step;
+    if (next === this.keepFrom && (next === null || !moved)) return;
+    const was = this.keepFrom;
+    const wasEye = [this.ruleEye[0]!, this.ruleEye[1]!];
+    this.keepFrom = next;
+    this.ruleEye[0] = eye[0]!;
+    this.ruleEye[1] = eye[2]!;
+    const r = Math.max(was ?? 0, next ?? 0);
+    if (r <= 0) return;
+    const centres = Number.isFinite(wasEye[0]!) ? [wasEye, [eye[0]!, eye[2]!]] : [[eye[0]!, eye[2]!]];
+    for (let level = 0; level < VOLUME_LEVELS; level++) {
+      const m = brickM(level);
+      const o = this.origins[level]!;
+      if (!Number.isFinite(o[1]!)) continue;
+      const H = VOLUME_LEVEL_WINDOWS[level]![1];
+      for (const [cx, cz] of centres) {
+        const x0 = Math.floor((cx! - r - m) / m);
+        const x1 = Math.floor((cx! + r + m) / m);
+        const z0 = Math.floor((cz! - r - m) / m);
+        const z1 = Math.floor((cz! + r + m) / m);
+        for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = o[1]!; y < o[1]! + H; y++) if (this.inWindow(level, x, y, z)) this.lookCoarseLater(level, x, y, z);
+      }
     }
   }
 
@@ -482,7 +540,7 @@ export class VoxelLightVolume {
       const gx = bx * B + x;
       const gy = by * B + y;
       const gz = bz * B + z;
-      this.lookBrick(0, gx, gy, gz, near && this.inWindow(0, gx, gy, gz) && volumeLevelBrickKept(this.lookup, 0, gx, gy, gz));
+      this.lookBrick(0, gx, gy, gz, near && this.keeps(0, gx, gy, gz));
     }
   }
 
@@ -641,7 +699,7 @@ export class VoxelLightVolume {
   /** Bricks listed for this frame's update (nearest the eye first) and the pass dispatched. */
   private update(walk: VoxelWalkGpu, eye: readonly number[]): void {
     const level = this.deps.level();
-    const budget = level === null ? 0 : frameBudgetMs(levelFrameBudget(level), 'gpu', 'lighting');
+    const budget = level === null ? 0 : frameBudgetMs(levelFrameBudget(level), 'gpu', 'lighting') * (this.deps.rowShare?.() ?? 1);
     if (budget <= 0) return;
     // Nearest the eye first, by the gap between the eye's level-0 brick and a brick's span in level-0 bricks.
     const e = eye.map((v) => Math.floor(v / brickM(0)));
@@ -742,11 +800,39 @@ export class VoxelLightVolume {
       pageBytes: this.pageBytes,
       budgetBytes: b.surfaceCache + b.probes,
       chunkGrids: this.chunkCells.size,
+      handover: this.handoverDiagnostics(),
       // The sky's light on a surface facing up and down with nothing over it (the SH's irradiance), to check open cells by.
       skyUp: [0, 1, 2].map((k) => this.sky.coefficients[k]! * SH_E0 + this.sky.coefficients[3 + k]! * SH_E1),
       skyDown: [0, 1, 2].map((k) => this.sky.coefficients[k]! * SH_E0 - this.sky.coefficients[3 + k]! * SH_E1),
       ...this.stats,
     };
+  }
+
+  /**
+   * The hand-over's rule as applied (null: none): the distance across within which bricks are dropped, and per level
+   * the kept bricks and the least distance across from the eye to a kept brick's farthest corner (what a check reads:
+   * never within `keepFrom`).
+   */
+  private handoverDiagnostics(): { keepFrom: number; eye: number[]; levels: { kept: number; nearestFarM: number | null }[] } | null {
+    if (this.keepFrom === null) return null;
+    const levels = VOLUME_LEVEL_WINDOWS.map(() => ({ kept: 0, nearestFarM: null as number | null }));
+    const [ex, ez] = [this.ruleEye[0]!, this.ruleEye[1]!];
+    for (const b of this.bricks.values()) {
+      const m = brickM(b.level);
+      const far = Math.hypot(Math.max(Math.abs(b.bx * m - ex), Math.abs((b.bx + 1) * m - ex)), Math.max(Math.abs(b.bz * m - ez), Math.abs((b.bz + 1) * m - ez)));
+      const l = levels[b.level]!;
+      l.kept++;
+      l.nearestFarM = l.nearestFarM === null ? far : Math.min(l.nearestFarM, far);
+    }
+    return { keepFrom: this.keepFrom, eye: [ex, ez], levels };
+  }
+
+  /**
+   * The volume's light in the scene's lights or out of them (a measurement: with it out, no lit program holds the
+   * volume's node, so what the programs cost with it in is told from what the store's own work costs).
+   */
+  setLightShown(on: boolean): void {
+    this.light.visible = on;
   }
 
   /** Every kept brick stale from nothing (a bench keeping the pass at work to measure it). */
@@ -1162,7 +1248,8 @@ class VoxelVolumeLightNode extends (THREE.Node as unknown as new () => { updateT
     if (!this.light.read || m?.userData?.[VOLUME_READ_KEY] === false || builder.renderer?.backend?.isWebGPUBackend !== true) return;
     const ctx = builder.context;
     const r = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, positionWorld, normalWorldGeometry.normalize(), normalWorld);
-    const w = r.weight;
+    // Near the eye a page running both stores hands over to the surface cache (alone, the share is 1 everywhere).
+    const w = r.weight.mul(volumeShareNode());
     const replaced = ctx.irradiance.sub(KEPT_IRRADIANCE).add(ctx.iblIrradiance);
     const darker = luminance(r.light).div(max(luminance(replaced), float(1e-4))).clamp(0, 1);
     ctx.radiance.mulAssign(mix(float(1), darker, w));

@@ -35,6 +35,7 @@
  *                 built between a lamp and the house fronts at night and dug again (from the command to the change
  *                 reaching the cache, its first texels written, texels settled, probes settled; a picture after each)
  *   --arrival-shots  pictures 2 s and 10 s after each camera's move (`<name>-arrive-2s.png`, `-10s`), before it settles
+ *   --light-out   the light volume's light taken out of the scene's lights before each GPU measurement (and left out)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
  *
  * How to (staging running, nothing else on the GPU):
@@ -96,7 +97,7 @@ interface Hook {
   /** The sun heights the key light's march reads (null: none on the page). */
   sun?(): unknown;
   /** The lighting store: which, what the surface cache holds of the worlds, and the GPU tracer's voxel hits against the CPU walk's. */
-  light?: { store(): string; cache(): CacheStats | null; volume?(): Record<string, unknown> | null; check(at: number[], n: number): Promise<unknown>; progress(): { texelsWritten: number; staleUnits: number; waiting: number; probesSettled: boolean; probesStale: number; settled?: boolean } | null; relightAll(): void };
+  light?: { store(): string; cache(): CacheStats | null; volume?(): Record<string, unknown> | null; check(at: number[], n: number): Promise<unknown>; progress(): { texelsWritten: number; staleUnits: number; waiting: number; probesSettled: boolean; probesStale: number; settled?: boolean } | null; relightAll(): void; handover?(): unknown; holdPass?(stores: string[]): void };
 }
 interface CacheStats {
   tiles: number;
@@ -174,7 +175,15 @@ async function volumeCellsRound(eye: number[]): Promise<unknown> {
 
 /** Waits for the page's lighting store to light what it holds (`off`: nothing to wait for). */
 async function storeLit(game: PlayGame, store: string): Promise<{ litS: number | null; cache: CacheStats | null }> {
-  if (store === 'cache' || store === 'hybrid') return cacheLit(game);
+  if (store === 'hybrid') {
+    // Both: the cache near, then the volume beyond (each waits for its own settle; the time is to the later one).
+    const t0 = Date.now();
+    const c = await cacheLit(game);
+    const v = await volumeLit(game);
+    const handover = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.handover?.() ?? null).catch(() => null);
+    return { litS: c.litS === null || v.litS === null ? null : Number(((Date.now() - t0) / 1000).toFixed(1)), cache: c.cache === null ? null : ({ ...c.cache, volume: v.cache, handover } as unknown as CacheStats) };
+  }
+  if (store === 'cache') return cacheLit(game);
   if (store === 'volume') return volumeLit(game);
   return { litS: null, cache: null };
 }
@@ -361,11 +370,16 @@ async function main(): Promise<void> {
       const check = lit.cache === null || store === 'volume' ? null : await game.frame.evaluate((at) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.check(at, 1200) ?? null, [...cam.eye]).catch((e: unknown) => String(e));
       if (check !== null) console.log(`${cam.name}: tracer check ${JSON.stringify(check).slice(0, 400)}`);
       // The light volume's cells read back round the eye, against the CPU's rule (which cells hold light).
-      const volumeCells = store === 'volume' ? await game.frame.evaluate(volumeCellsRound, [...cam.eye]).catch((e: unknown) => String(e)) : null;
+      const volumeCells = store === 'volume' || store === 'hybrid' ? await game.frame.evaluate(volumeCellsRound, [...cam.eye]).catch((e: unknown) => String(e)) : null;
       if (volumeCells !== null) console.log(`${cam.name}: volume cells ${JSON.stringify(volumeCells).slice(0, 600)}`);
       let gpu: unknown = null;
       let afterGpuShare: number | null = null;
       let afterGpuLaterShare: number | null = null;
+      if (O.gpu && O.lightOut) {
+        // The volume's light out of the scene's lights: every lit program built again without its node.
+        await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: { light?: { volumeLightShown?(on: boolean): unknown } } }).__tlVoxelPlay?.light?.volumeLightShown?.(false));
+        await page.waitForTimeout(5000);
+      }
       if (O.gpu) {
         try {
           const g = await measureGpuOnPage((call, options) => game.frame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: O.gpuRepeats, ...(O.gpuOnly !== null ? { only: O.gpuOnly } : {}) });
@@ -400,7 +414,20 @@ async function main(): Promise<void> {
           const after = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null);
           const staleProfile = await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null);
           const volumeAfter = await volumeDiag();
-          gpuStale = { measure: g, before, after, volumeBefore, volumeAfter, lightingSpans: lightingSpans(staleProfile as ProfileReport | null), profile: staleProfile === null ? null : profileSummary(staleProfile as ProfileReport) };
+          // Both stores on: `lighting` again with one store's pass held at a time, so each store's share is read apart.
+          const split: Record<string, unknown> = {};
+          if (store === 'hybrid') {
+            try {
+              for (const [held, read] of [['volume', 'cache'], ['cache', 'volume']] as const) {
+                await game.frame.evaluate((h) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.holdPass?.([h]), held);
+                split[read] = await measureGpuOnPage((call, options) => game.frame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: O.gpuRepeats, only: ['lighting'] });
+                console.log(`${cam.name}: while relighting, ${read} alone (${held} held): ${gpuMeasureSummary(split[read] as Parameters<typeof gpuMeasureSummary>[0])}`);
+              }
+            } finally {
+              await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.holdPass?.([]));
+            }
+          }
+          gpuStale = { measure: g, split, before, after, volumeBefore, volumeAfter, lightingSpans: lightingSpans(staleProfile as ProfileReport | null), profile: staleProfile === null ? null : profileSummary(staleProfile as ProfileReport) };
           console.log(`${cam.name}: while relighting ${gpuMeasureSummary(g)}; texels written ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
         } catch (e) {
           problems.push(`${cam.name}: GPU measurement while relighting: ${String(e).slice(0, 200)}`);
@@ -516,17 +543,24 @@ async function main(): Promise<void> {
         await game.debug(command);
         // Until texels and probes are settled again after the change reached the cache (or 90 s).
         let timing = cacheEditTiming([], t0);
+        // A picture as soon as the first changed light is seen (polled: up to a poll and a screenshot after it).
+        let firstShotMs: number | null = null;
         for (let i = 0; i < 360; i++) {
-          await page.waitForTimeout(250);
+          await page.waitForTimeout(firstShotMs === null ? 50 : 250);
           const frames = (await game.frame.evaluate(() => (window as unknown as { __tlCacheWatch?: CacheWatchFrame[] }).__tlCacheWatch ?? [])) as CacheWatchFrame[];
           timing = cacheEditTiming(frames, t0);
+          if (firstShotMs === null && timing.firstLightMs !== null) {
+            const at = (await game.frame.evaluate(() => performance.now())) as number;
+            await game.screenshot(join(OUT, `edit-${tag}-first.png`));
+            firstShotMs = Number((at - t0).toFixed(0));
+          }
           if (timing.settledMs !== null) break;
         }
         await game.frame.evaluate(() => void ((window as unknown as { __tlCacheWatchOn?: boolean }).__tlCacheWatchOn = false));
         await page.waitForTimeout(CONVERGE_MS);
         const after = decodePng(await game.screenshot(join(OUT, `edit-${tag}-after.png`)));
         const counters = (await game.observe().catch(() => null))?.counters ?? {};
-        runs.push({ tag, camera: cam.name, command, ...timing, changedShare: Number(changedShare(before, after).toFixed(4)), counters: Object.fromEntries(['lamp_walls', 'lamp_unwalls', 'lamp_wall_refused', 'lamp_wall_nohit', 'region_dug', 'region_dig_refused'].map((k) => [k, counters[k] ?? 0])) });
+        runs.push({ tag, camera: cam.name, command, ...timing, firstShotMs, changedShare: Number(changedShare(before, after).toFixed(4)), counters: Object.fromEntries(['lamp_walls', 'lamp_unwalls', 'lamp_wall_refused', 'lamp_wall_nohit', 'region_dug', 'region_dig_refused'].map((k) => [k, counters[k] ?? 0])) });
         console.log(`cache edit ${tag}: ${JSON.stringify(runs[runs.length - 1])}`);
         if (timing.settledMs === null) problems.push(`cache edit ${tag}: the light did not settle within 90 s of the command`);
       }

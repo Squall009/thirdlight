@@ -37,12 +37,14 @@ interface Entry {
 export class GpuPassHides {
   private readonly entries = new Set<Entry>();
   private readonly hiddenNow = new Set<GpuPassCategory>();
+  /** Passes held hidden by name whatever the categories (a measurement of one of two passes sharing a category). */
+  private readonly held = new Set<string>();
 
-  /** A pass joins its category (hidden at once if its category is hidden now); the call returned takes it out. */
+  /** A pass joins its category (hidden at once if its category is hidden now, or it is held); the call returned takes it out. */
   register(pass: GpuPassHide): () => void {
     const e: Entry = { pass, hidden: false };
     this.entries.add(e);
-    if (this.hiddenNow.has(pass.category)) this.apply(e, true);
+    if (this.hiddenNow.has(pass.category) || this.held.has(pass.name)) this.apply(e, true);
     return () => {
       this.entries.delete(e);
     };
@@ -56,7 +58,10 @@ export class GpuPassHides {
   set(hidden: Iterable<GpuPassCategory>): void {
     const want = new Set(hidden);
     try {
-      for (const e of this.entries) if (e.hidden !== want.has(e.pass.category)) this.apply(e, want.has(e.pass.category));
+      for (const e of this.entries) {
+        const h = want.has(e.pass.category) || this.held.has(e.pass.name);
+        if (e.hidden !== h) this.apply(e, h);
+      }
       this.hiddenNow.clear();
       for (const c of want) this.hiddenNow.add(c);
     } catch (err) {
@@ -65,11 +70,26 @@ export class GpuPassHides {
     }
   }
 
-  /** Every pass shown again (errors of a pass's own show are swallowed: the others still show). */
+  /**
+   * These passes (by name) stay hidden from now on whatever the categories, and are not present to a measurement, so a
+   * category's reading is the rest of it (two lighting stores on one page, read one at a time); empty: none held.
+   */
+  hold(names: Iterable<string>): void {
+    this.held.clear();
+    for (const n of names) this.held.add(n);
+    this.set([...this.hiddenNow]);
+  }
+
+  /** The passes held now (by name). */
+  holding(): string[] {
+    return [...this.held];
+  }
+
+  /** Every pass shown again but those held (errors of a pass's own show are swallowed: the others still show). */
   showAll(): void {
     this.hiddenNow.clear();
     for (const e of this.entries) {
-      if (!e.hidden) continue;
+      if (!e.hidden || this.held.has(e.pass.name)) continue;
       e.hidden = false;
       try {
         e.pass.hide(false);
@@ -88,6 +108,7 @@ export class GpuPassHides {
   present(): Partial<Record<GpuPassCategory, string[]>> {
     const out: Partial<Record<GpuPassCategory, string[]>> = {};
     for (const e of this.entries) {
+      if (this.held.has(e.pass.name)) continue;
       let on = false;
       try {
         on = e.pass.present();

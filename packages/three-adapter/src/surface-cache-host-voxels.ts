@@ -12,12 +12,14 @@
  * Pure (no three.js, no device).
  */
 import { frameSliceMs } from '@thirdlight/shared';
+import { VOXEL_SIZE_M } from '@thirdlight/voxel';
 
 import type { SurfaceCache, SurfaceTile } from './surface-cache';
 import type { SurfaceRelight } from './surface-relight';
 import { voxelChunkChartsSteps, voxelChunkTile, type VoxelChunkCharts, type VoxelTile, type VoxelTileMesh } from './surface-cache-voxels';
 import type { VoxelWalkBuffers } from './tracer-gpu';
 import type { VoxelChartReply, VoxelChartRequest, VoxelSolidBlocks } from './voxel-chart-worker';
+import { boxDistanceAcross } from './voxel-light-handover';
 
 /** A worker charts are made on (the view's worker script: `runVoxelChartWorker`). */
 export interface VoxelChartPort {
@@ -48,6 +50,12 @@ export interface SurfaceVoxelSource {
   solidBlocks?(cell0: readonly number[], edge: number): VoxelSolidBlocks | null;
   /** GPU ms a frame the live light may take while texels are stale, where the tier gives it none (the lighting row of the tier's frame budget). */
   readonly relightMs: number;
+  /**
+   * How far across from the eye chunks are lit (metres; null or absent: every chunk drawn): a page handing over to
+   * the light volume beyond a distance lists only the chunks within it, so their tiles, texels, faces and probes
+   * are all the cache holds.
+   */
+  reach?(): number | null;
 }
 
 /** What the cache holds of voxel worlds: chunks offered and charted, resident tiles, their texels, and how many of those are lit (no unit of theirs stale). */
@@ -64,6 +72,11 @@ export interface SurfaceVoxelDiagnostics {
   readonly levels: readonly number[];
   /** Bytes of pages the resident voxel tiles hold. */
   readonly bytes: number;
+  /** With a reach: how far across chunks are listed, and the farthest a listed tile's box lies from the eye (both metres; null: no reach). */
+  readonly reachM: number | null;
+  readonly farthestM: number | null;
+  /** Chunks drawn that the reach left out at the last listing. */
+  readonly beyond: number;
   /** Chunks whose charts are still being made or wait to be listed, chunks charted so far, and the longest frame's charting on the page (ms). */
   readonly waiting: number;
   readonly charted: number;
@@ -116,6 +129,9 @@ export class HostVoxels {
   private nextJob = 1;
   private readonly sent = new Map<number, Charting>();
   private readonly replies: VoxelChartReply[] = [];
+  /** The eye (x, z) at the last listing, and the chunks its reach left out then. */
+  private readonly listedEye = [NaN, NaN];
+  private beyond = 0;
 
   /** `chartWorker`: starts the worker charts are made on (absent: none, the page charts them). */
   constructor(private readonly host: HostVoxelsDeps, private readonly chartWorker?: () => VoxelChartPort | null) {}
@@ -182,14 +198,30 @@ export class HostVoxels {
     return this.source !== null;
   }
 
-  /** The listing's part: each chunk drawn is seen; one not held at its version is charted (the old one kept meanwhile). */
-  list(seen: Set<string>): void {
+  /**
+   * The listing's part: each chunk drawn (within the source's reach across from `eye`) is seen; one not held at its
+   * version is charted (the old one kept meanwhile). A chunk past the reach is not seen: its tile goes.
+   */
+  list(seen: Set<string>, eye?: ArrayLike<number>): void {
     const src = this.source;
     const was = this.charting;
     this.charting = new Map();
+    this.beyond = 0;
     if (src === null) return;
     const solidAt = src.solidAt?.bind(src);
+    const reach = src.reach?.() ?? null;
+    const [ex, ez] = eye === undefined ? [NaN, NaN] : [eye[0]!, eye[2]!];
+    this.listedEye[0] = ex;
+    this.listedEye[1] = ez;
     for (const c of src.chunks()) {
+      if (reach !== null) {
+        // Before the eye is known nothing is listed: a reach is only told from where the eye is.
+        const m = c.edge * VOXEL_SIZE_M;
+        if (!Number.isFinite(ex) || boxDistanceAcross(ex, ez, c.cell0[0] * VOXEL_SIZE_M, c.cell0[0] * VOXEL_SIZE_M + m, c.cell0[2] * VOXEL_SIZE_M, c.cell0[2] * VOXEL_SIZE_M + m) > reach) {
+          this.beyond++;
+          continue;
+        }
+      }
       const held = this.host.versionOf(c.key);
       if (held !== undefined) seen.add(c.key);
       if (held === c.version) continue;
@@ -345,6 +377,12 @@ export class HostVoxels {
     });
     const chartMs = this.stats.chartMs;
     this.stats.chartMs = 0;
-    return { chunks, tiles, resident, charts, residentTexels, litTexels, staleUnits, levels: Array.from({ length: levels.length }, (_, l) => levels[l] ?? 0), bytes, waiting, charted: this.stats.charted, chartMs, chartWorker: this.worker !== null, workerMs: this.stats.workerMs, workerMaxMs: this.stats.workerMaxMs };
+    const reachM = this.source?.reach?.() ?? null;
+    let farthestM: number | null = null;
+    if (reachM !== null && Number.isFinite(this.listedEye[0]!)) for (const t of ready.values()) {
+      const d = boxDistanceAcross(this.listedEye[0]!, this.listedEye[1]!, t.min[0]!, t.max[0]!, t.min[2]!, t.max[2]!);
+      farthestM = farthestM === null ? d : Math.max(farthestM, d);
+    }
+    return { chunks, tiles, resident, charts, residentTexels, litTexels, staleUnits, levels: Array.from({ length: levels.length }, (_, l) => levels[l] ?? 0), bytes, reachM, farthestM, beyond: this.beyond, waiting, charted: this.stats.charted, chartMs, chartWorker: this.worker !== null, workerMs: this.stats.workerMs, workerMaxMs: this.stats.workerMaxMs };
   }
 }

@@ -91,3 +91,18 @@ export function voxelLightStoreFromUrl(search: string): VoxelLightStore {
 export function voxelStoreUsesCache(store: VoxelLightStore): boolean {
   return store === 'cache' || store === 'hybrid';
 }
+
+/**
+ * Whether the voxel surfaces read the surface cache's texels per pixel (its lamps' light with traced shadows): with
+ * the cache alone. With both stores the cache's texels feed only its probes' bounce: a voxel surface's program
+ * reading the texels and the volume samples more textures than the Iris Xe's fragment stage allows (16), and the
+ * guard draws it with a plain fallback; so there the lamps' direct light stays per pixel, as with the volume.
+ */
+export function voxelStoreReadsTexels(store: VoxelLightStore): boolean {
+  return store === 'cache';
+}
+
+/** Whether a store keeps light in the voxel light volume. */
+export function voxelStoreUsesVolume(store: VoxelLightStore): boolean {
+  return store === 'volume' || store === 'hybrid';
+}

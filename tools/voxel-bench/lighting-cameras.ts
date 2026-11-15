@@ -250,6 +250,8 @@ export interface LightShotsOptions {
   readonly cacheEdits: boolean;
   /** `--arrival-shots`: pictures 2 s and 10 s after each camera's move, before anything settles (what a player sees meanwhile). */
   readonly arrivalShots: boolean;
+  /** `--light-out`: the light volume's light taken out of the scene's lights before the GPU measurement (what its node costs the lit programs). */
+  readonly lightOut: boolean;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -296,6 +298,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     gpuStale: argv.includes('--gpu-stale'),
     cacheEdits: argv.includes('--cache-edits'),
     arrivalShots: argv.includes('--arrival-shots'),
+    lightOut: argv.includes('--light-out'),
     viewport: { width: Number(m[1]), height: Number(m[2]) },
   };
 }

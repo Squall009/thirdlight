@@ -626,7 +626,7 @@ export class SurfaceCacheHost {
     this.voxels.applyBudget();
     if (now - this.listedAt >= LIST_MS) {
       this.listedAt = now;
-      this.list(now);
+      this.list(now, eye);
     }
     this.syncRooms(now);
     this.followRings(eye);
@@ -754,7 +754,7 @@ export class SurfaceCacheHost {
   }
 
   /** The loaded scene's surfaces: what is ready stays, what changed or is new waits to be made, what left goes. */
-  private list(now: number): void {
+  private list(now: number, eye: ArrayLike<number>): void {
     const seen = new Set<string>();
     const whole = this.deps.building?.() !== true;
     if (this.deps.modelAlive !== undefined) this.modelSlots.prune(this.deps.modelAlive);
@@ -794,7 +794,7 @@ export class SurfaceCacheHost {
       // The cache lets its rings go when it places again.
       this.changed = true;
     }
-    this.voxels.list(seen);
+    this.voxels.list(seen, eye);
     for (const a of this.deps.architecture()) {
       this.layersOf.set(a.id, a.layers);
       let version = this.componentVersions.of.get(a.component);

@@ -551,6 +551,35 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   await hook('setStore', 'volume');
   const litMs = await settled('the store switched');
   const shut = await still('volume-hut-shut');
+  // Both stores (the hybrid) from the volume settled: the cache's probes near the eye, the volume past the hand-over
+  // (the shut hut's far wall the volume's, the floor before the eye the probes'); then the volume alone again (the
+  // bricks inside the hand-over made again, from nothing).
+  let both: { p: unknown; c: unknown } = { p: null, c: null };
+  const bothSettled = async (what: string): Promise<void> => {
+    try {
+      await expect.poll(async () => {
+        const p = await hook<(VolumeProgress & { settled?: boolean }) | null>('progress');
+        const c = await hook<HybridCache | null>('cache');
+        both = { p, c };
+        const pr = c?.probes;
+        return p !== null && p.settled === true && p.texelsWritten > 0 && p.waiting === 0 && c !== null && c.resident > 0 && c.litTexels > 0 && pr !== undefined && pr.lit > 0 && pr.settled && pr.drawn && !pr.behind;
+      }, { timeout: 60_000, intervals: [250], message: `${what}: both stores settle` }).toBe(true);
+    } catch (e) {
+      throw new Error(`${String(e).slice(0, 300)}; the last readings: ${JSON.stringify(both).slice(0, 1500)}`);
+    }
+  };
+  await hook('setHandover', HYBRID_HANDOVER_M);
+  const tHybrid = Date.now();
+  await hook('setStore', 'hybrid');
+  await bothSettled('the hybrid switched');
+  const hybridMs = Date.now() - tHybrid;
+  const hybShut = await still('hybrid-hut-shut');
+  const hybCache = await hook<HybridCache | null>('cache');
+  const hybVolume = await hook<{ handover: VolumeHandover | null } | null>('volume');
+  await hook('setHandover', null);
+  await hook('setStore', 'volume');
+  await expect.poll(() => hook('cache'), { timeout: 10_000 }).toBeNull();
+  const backMs = await settled('back to the volume alone');
   // The cells round the hut read back from the GPU, the CPU's rule beside each: 0.5 m, then 1 m.
   const pts: number[][] = [];
   for (let x = -3; x <= 3; x += 0.5) for (let y = -0.5; y <= 4; y += 0.5) for (let z = 1.5; z <= 11; z += 0.5) pts.push(rel(x + 0.25, y + 0.25, z + 0.25));
@@ -660,6 +689,57 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   expect(shaded.red, "the pillar built between them takes the lamp's bounce off").toBeLessThan(VOLUME_EDIT_SHADED_SHARE * lit.red);
   expect(relit.red, 'dug again, the bounce comes back').toBeGreaterThan(VOLUME_EDIT_BACK_SHARE * lit.red);
   expect(same, 'switched off, the picture is the store-off one').toBeLessThan(CACHE_SAME_MAX_PX);
+  // The hybrid: dark near and far in the shut hut; the cache's tiles only within its reach, the volume's bricks only past
+  // its inner ring. (A brightness step across the hand-over is read on the lighting cameras' pictures, where the
+  // light is bright enough to show one: the shut hut is too dark, a lit outdoor view cost a cache settle more.)
+  const reach = HYBRID_HANDOVER_M * (1 + HYBRID_FADE_SHARE);
+  const keepFrom = HYBRID_HANDOVER_M * (1 - HYBRID_FADE_SHARE) - VOLUME_BRICK_M;
+  const near = { off: meanRows(hutOff, NEAR_ROWS), hybrid: meanRows(hybShut, NEAR_ROWS) };
+  const far = { off: walls.off, hybrid: meanLum(hybShut, WALL_ROWS) };
+  const l0 = hybVolume?.handover?.levels[0] ?? null;
+  console.log(`[voxel-play] hybrid (hand-over ${HYBRID_HANDOVER_M} m): both settled ${hybridMs} ms after the switch; the shut hut near (lower rows) ${near.hybrid.toFixed(1)} against ${near.off.toFixed(1)} by the flat term, far (upper rows) ${far.hybrid.toFixed(1)} against ${far.off.toFixed(1)}; cache ${JSON.stringify({ resident: hybCache?.resident, tiles: hybCache?.tiles, reachM: hybCache?.reachM, farthestM: hybCache?.farthestM, beyond: hybCache?.beyond })}; volume ${JSON.stringify(hybVolume?.handover)}; back to the volume alone settled ${backMs} ms after`);
+  expect(near.hybrid, 'the hybrid: the shut hut is dark near the eye (the cache)').toBeLessThan(HUT_DARK_SHARE * near.off);
+  expect(far.hybrid, 'the hybrid: the shut hut is dark past the hand-over (the volume)').toBeLessThan(HUT_DARK_SHARE * far.off);
+  expect(hybCache?.resident ?? 0, 'the hybrid: the cache holds tiles near the eye').toBeGreaterThan(0);
+  expect(hybCache?.reachM, "the hybrid: the cache's reach").toBeCloseTo(reach, 6);
+  expect(hybCache?.farthestM ?? Infinity, "the hybrid: no cache tile past the cache's reach").toBeLessThanOrEqual(reach);
+  expect(l0?.kept ?? 0, 'the hybrid: the volume keeps 0.5 m bricks past the hand-over').toBeGreaterThan(0);
+  expect(l0?.nearestFarM ?? 0, "the hybrid: no volume brick wholly inside the volume's inner ring").toBeGreaterThan(keepFrom);
+}
+
+/** The hybrid's cache reading (the page's `__tlVoxelPlay.light.cache()` with a reach). */
+interface HybridCache extends CacheStats {
+  readonly tiles: number;
+  readonly reachM: number | null;
+  readonly farthestM: number | null;
+  readonly beyond: number;
+}
+/** The volume's hand-over rule as applied (its diagnostics' `handover`). */
+interface VolumeHandover {
+  readonly keepFrom: number;
+  readonly levels: readonly { readonly kept: number; readonly nearestFarM: number | null }[];
+}
+
+/**
+ * The hybrid's check (the hand-over a run-time setting, the tier's otherwise): 6 m puts the shut hut's far wall (7.5 m
+ * from the eye) past it and the floor before the eye (2–4 m) inside it. The fade's share and the step the volume's
+ * rule keeps for the eye moving between re-looks are the engine's (voxel-light-handover.ts), written here as numbers.
+ */
+const HYBRID_HANDOVER_M = 6;
+const HYBRID_FADE_SHARE = 0.25;
+const VOLUME_BRICK_M = 2;
+/** Rows of the hut's inside picture showing the floor before the eye (the lower quarter). */
+const NEAR_ROWS: readonly [number, number] = [0.75, 1];
+
+/** The mean brightness of a picture's rows from `rows[0]` to `rows[1]` (shares of its height). */
+function meanRows(img: Png, rows: readonly [number, number]): number {
+  let sum = 0;
+  let n = 0;
+  for (let y = Math.floor(img.height * rows[0]); y < Math.floor(img.height * rows[1]); y++) for (let x = 0; x < img.width; x++) {
+    sum += lum(img.pixel(x, y));
+    n++;
+  }
+  return n === 0 ? 0 : sum / n;
 }
 
 /** The resolve pass's voxel texels against its CPU twin's (the page's `__tlVoxelPlay.light.resolveCheck`). */

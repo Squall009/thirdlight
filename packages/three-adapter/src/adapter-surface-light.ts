@@ -50,6 +50,9 @@ import { AdapterLightingViews, type LightingViewCounts, type LightingViewState }
 import { gpuPassHides } from './gpu-pass-hides';
 import type { SurfaceCacheVoxelLink, VoxelResolveRays } from './voxel-world-light';
 
+/** The surface cache's live light passes in the page's GPU measurement (a measurement may hold them by name). */
+export const SURFACE_LIGHT_PASS = 'surface light, probes and reflection tracer';
+
 /** The live light's parts on the page, each its own span (under the frame's 'surface light'). */
 const SPANS = { residency: threadProfiler.span('surface cache residency', 'lighting'), light: threadProfiler.span('surface light pass', 'lighting'), lookup: threadProfiler.span('surface lookup packed', 'lighting') };
 
@@ -209,7 +212,7 @@ export class AdapterSurfaceLight {
     const read = q.get(SURFACE_READ_URL_PARAM);
     this.readOn = read !== '0';
     this.readKinds = surfaceReadKinds(read);
-    this.unregister = gpuPassHides.register({ category: 'lighting', name: 'surface light, probes and reflection tracer', present: () => this.runtime !== null, hide: (h) => void (this.gpuHidden = h) });
+    this.unregister = gpuPassHides.register({ category: 'lighting', name: SURFACE_LIGHT_PASS, present: () => this.runtime !== null, hide: (h) => void (this.gpuHidden = h) });
   }
 
   /** Before the frame's programs are built (ahead of the probes' frame): whether the light is live with probes, so the probe light joins before the programs are built. */

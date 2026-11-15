@@ -42,6 +42,8 @@
  *   --repeats N          the GPU measurement's interleaved repeats (default 5)   --gpu-window S (default 1.5)
  *   --scales LIST        render scales at no load (default low 0.833,1; medium 0.75,0.833,0.917,1; high 0.9,0.8,0.667; `none`)
  *   --query Q            more of the editor page's query (`&voxelShadows=off`: page flags Play is passed)
+ *   --hold LIST          lighting stores' passes held through the GPU measurement (`volume`, `cache`): with both on
+ *                        (`&voxelLight=hybrid`) `lighting` is then the other store's alone
  *   --orbit R,W          the camera R m from the town square at W rad/s (default 12,0.15; e.g. 60,0.25 moves the eye 15 m/s)
  *   --viewport WxH       (default 1280x720)   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/headroom/<quality>-<tag>.json)
  *
@@ -90,6 +92,7 @@ const GPU_WINDOW_S = Number(arg('gpu-window', '1.5'));
 const SCALES = list(arg('scales', QUALITY === 'high' ? '0.9,0.8,0.667' : QUALITY === 'medium' ? '0.75,0.833,0.917,1' : QUALITY === 'low' ? '0.833,1' : 'none')).map(Number);
 const VIEWPORT = parseViewport(arg('viewport', '1280x720'));
 const QUERY = arg('query', '');
+const HOLD = arg('hold', '').split(',').filter((x) => x !== '');
 const TAG = arg('tag', new Date().toISOString().slice(0, 16).replace(/[:T]/g, ''));
 const OUT = arg('out', join(benchDir('headroom'), `${QUALITY}-${TAG}.json`));
 const LEVEL = DEFAULT_QUALITY_LEVELS.find((l) => l.id === QUALITY);
@@ -296,7 +299,13 @@ async function main(): Promise<void> {
       console.log(`  GPU clock at no load: ${JSON.stringify(r['noLoadGpuClock'])}; completions ${JSON.stringify(r['completions'])}`);
       const gameFrame = await (await canvas.elementHandle())!.ownerFrame();
       if (gameFrame === null) throw new Error('the canvas has no frame');
-      r['gpu'] = await measureGpuOnPage((call, options) => gameFrame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: REPEATS, windowS: GPU_WINDOW_S });
+      if (HOLD.length > 0) await gameFrame.evaluate((h) => (window as unknown as { __tlVoxelPlay: { light?: { holdPass?(s: string[]): void } } }).__tlVoxelPlay.light?.holdPass?.(h), HOLD);
+      try {
+        r['gpu'] = await measureGpuOnPage((call, options) => gameFrame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: REPEATS, windowS: GPU_WINDOW_S });
+      } finally {
+        if (HOLD.length > 0) await gameFrame.evaluate(() => (window as unknown as { __tlVoxelPlay: { light?: { holdPass?(s: string[]): void } } }).__tlVoxelPlay.light?.holdPass?.([]));
+      }
+      if (HOLD.length > 0) r['held'] = HOLD;
       // The copies the frame holds at no load (how many times each pass could be drawn).
       const copies: Record<string, LimitResult> = {};
       for (const pass of COPIES) {

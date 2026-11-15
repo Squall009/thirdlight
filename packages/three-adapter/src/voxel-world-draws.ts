@@ -83,7 +83,9 @@ import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRec
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from './voxel-surface';
-import { voxelLightStoreFromUrl, voxelPathsFromUrl, voxelShadowsFromUrl, voxelStoreUsesCache, voxelSunFromUrl, type VoxelLightStore } from './voxel-surface-path';
+import { voxelLightStoreFromUrl, voxelPathsFromUrl, voxelShadowsFromUrl, voxelStoreReadsTexels, voxelStoreUsesCache, voxelStoreUsesVolume, voxelSunFromUrl, type VoxelLightStore } from './voxel-surface-path';
+import { handoverCacheReach, handoverRing, voxelHandoverFromUrl, type HandoverRing } from './voxel-light-handover';
+import { setVoxelHandover } from './voxel-light-handover-nodes';
 import { VoxelLightFeed } from './voxel-world-light';
 import { SunFieldHost, type SunFieldRenderer } from './voxel-sun-field';
 import { sceneShadowsOf, type SceneShadowLink } from './shadow-casters';
@@ -95,9 +97,9 @@ import { pageSearch } from './renderer-factory';
 import { gpuPassHides } from './gpu-pass-hides';
 import { fineDeviceOf } from './voxel-fine-bricks';
 import { VoxelWalkGpu } from './voxel-walk-gpu';
-import { VoxelLightVolume, type VolumeDevice } from './voxel-light-volume';
+import { VOLUME_PASS, VoxelLightVolume, type VolumeDevice } from './voxel-light-volume';
 import type { RegionTextureRenderer } from './region-texture';
-import { SURFACE_READ_URL_PARAM } from './adapter-surface-light';
+import { SURFACE_LIGHT_PASS, SURFACE_READ_URL_PARAM } from './adapter-surface-light';
 
 /** One edit's way to the screen, as this page saw it (ms). */
 export interface VoxelEditToScreen {
@@ -314,9 +316,13 @@ export class VoxelWorldDraws {
   /** The voxel light volume when it is the store (made with the first world walked on WebGPU), and that world. */
   private volume: VoxelLightVolume | null = null;
   private volumeWorld: string | null = null;
+  /** The hand-over distance in place of the tier's (`?voxelLightHandover=`, or a check's; null: the tier's). */
+  private handoverM: number | null = null;
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.lightStore = opts.lighting === true ? voxelLightStoreFromUrl(pageSearch()) : 'off';
+    this.handoverM = voxelHandoverFromUrl(pageSearch());
+    // The fade's uniforms are set every frame (the tier's distance is read from the page, not at hand while it is made).
     this.unregister.push(
       gpuPassHides.register({ category: 'near', name: 'voxel near surfaces and kit pieces', present: () => [...this.worlds.values()].some((w) => w.view.count > 0), hide: (h) => this.showNear(!h) }),
       gpuPassHides.register({ category: 'far', name: 'voxel far field', present: () => [...this.worlds.values()].some((w) => w.view.far.nodes > 0), hide: (h) => this.showFar(!h) }),
@@ -536,6 +542,7 @@ export class VoxelWorldDraws {
       for (const w of this.worlds.values()) w.surface.grids.frame();
       threadProfiler.end(VOXEL_GRIDS_SPAN);
       this.sunFrame();
+      setVoxelHandover(this.handover());
       this.volumeFrame();
       this.capArrays();
       if (this.worlds.size > 0 || this.waiting.length > 0) this.loop();
@@ -556,9 +563,41 @@ export class VoxelWorldDraws {
     threadProfiler.end(VOXEL_SUN_SPAN);
   }
 
-  /** With the volume store: the volume made once a world walks on the GPU, and its frame's share. */
+  /**
+   * Where the page hands its voxel worlds' light over from the surface cache to the light volume (both stores on:
+   * `hybrid`), from the tier's distance or the one set in its place; null: one store lights everything.
+   */
+  handover(): HandoverRing | null {
+    if (this.lightStore !== 'hybrid') return null;
+    const level = this.opts.residency?.level() ?? null;
+    const d = this.handoverM ?? levelLighting(level ?? {}).voxelLightHandoverM;
+    return handoverRing(d);
+  }
+
+  /** The hand-over distance from now on in place of the tier's (null: the tier's again; a check's or a bench's). */
+  setHandover(m: number | null): void {
+    this.handoverM = m !== null && Number.isFinite(m) && m > 0 ? m : null;
+    setVoxelHandover(this.handover());
+    this.opts.applied?.();
+  }
+
+  /**
+   * These stores' GPU passes held (not dispatched, not present to the page's GPU measurement) until called again
+   * without them: the hybrid's `lighting` read one store at a time (empty: none held).
+   */
+  holdStorePasses(stores: readonly string[]): void {
+    gpuPassHides.hold([...(stores.includes('cache') ? [SURFACE_LIGHT_PASS] : []), ...(stores.includes('volume') ? [VOLUME_PASS] : [])]);
+  }
+
+  /** The share of the tier's GPU `lighting` row each store's update takes: the row is split between the stores on. */
+  private rowShare(): number {
+    const on = (voxelStoreUsesCache(this.lightStore) ? 1 : 0) + (voxelStoreUsesVolume(this.lightStore) ? 1 : 0);
+    return 1 / Math.max(1, on);
+  }
+
+  /** With a store that uses the volume: the volume made once a world walks on the GPU, and its frame's share. */
   private volumeFrame(): void {
-    if (this.lightStore !== 'volume' || this.opts.lighting !== true) return;
+    if (!voxelStoreUsesVolume(this.lightStore) || this.opts.lighting !== true) return;
     if (this.volume === null) {
       const world = [...this.walks.keys()][0];
       const renderer = this.opts.renderer();
@@ -566,7 +605,7 @@ export class VoxelWorldDraws {
       const device = renderer === null ? null : fineDeviceOf(renderer);
       if (world === undefined || renderer === null || scene === null || device === null || this.walks.get(world)!.buffers() === null) return;
       this.volumeWorld = world;
-      this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), read: new URLSearchParams(pageSearch()).get(SURFACE_READ_URL_PARAM) !== '0' });
+      this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), read: new URLSearchParams(pageSearch()).get(SURFACE_READ_URL_PARAM) !== '0', handover: () => this.handover(), rowShare: () => this.rowShare() });
       // The grids of chunks drawn before it came are not at hand: their bricks bounce the default grey until drawn again.
     }
     this.volume.frame();
@@ -666,7 +705,11 @@ export class VoxelWorldDraws {
       view.setDecalSurfaces(decals);
       return;
     }
-    this.light ??= new VoxelLightFeed({ buffers: (world) => this.walks.get(world)?.buffers() ?? null, source: (world) => this.walks.get(world)?.table.source() ?? null, table: (world) => this.walks.get(world)?.table ?? null, worlds: () => this.walks.keys() }, () => this.opts.residency?.level() ?? null);
+    this.light ??= new VoxelLightFeed({ buffers: (world) => this.walks.get(world)?.buffers() ?? null, source: (world) => this.walks.get(world)?.table.source() ?? null, table: (world) => this.walks.get(world)?.table ?? null, worlds: () => this.walks.keys() }, () => this.opts.residency?.level() ?? null, {
+      reach: () => ((r) => (r === null ? null : handoverCacheReach(r)))(this.handover()),
+      rowShare: () => this.rowShare(),
+      read: voxelStoreReadsTexels(this.lightStore),
+    });
     view.setDecalSurfaces(this.light.surfaces(name, edge, decals));
     this.light.link(scene);
   }
@@ -678,10 +721,12 @@ export class VoxelWorldDraws {
   setLightStore(store: VoxelLightStore): void {
     if (this.opts.lighting !== true || store === this.lightStore) return;
     const was = voxelStoreUsesCache(this.lightStore);
+    const wasRead = voxelStoreReadsTexels(this.lightStore);
     this.lightStore = store;
-    if (store !== 'volume') this.dropVolume();
+    setVoxelHandover(this.handover());
+    if (!voxelStoreUsesVolume(store)) this.dropVolume();
     const scene = this.opts.scene();
-    if (scene === null || was === voxelStoreUsesCache(store)) return;
+    if (scene === null || (was === voxelStoreUsesCache(store) && wasRead === voxelStoreReadsTexels(store))) return;
     if (was) {
       this.light?.unlink();
       this.light = null;

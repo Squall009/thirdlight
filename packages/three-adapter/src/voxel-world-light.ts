@@ -86,7 +86,16 @@ export class VoxelLightFeed implements SurfaceVoxelSource {
   private readonly versions = new Map<string, number>();
   private linked: SurfaceCacheVoxelLink | null = null;
 
-  constructor(private readonly walks: VoxelLightWalks, private readonly level: () => QualityLevelConfig | null) {}
+  /**
+   * `share`: with the light volume beyond a hand-over distance, how far across the cache lists chunks (null: every
+   * chunk), the share of the tier's GPU `lighting` row its live light takes (absent: all of it), and whether the
+   * surfaces read its texels per pixel (absent: they do; false: its texels feed only its probes' bounce).
+   */
+  constructor(private readonly walks: VoxelLightWalks, private readonly level: () => QualityLevelConfig | null, private readonly share?: { reach(): number | null; rowShare(): number; readonly read?: boolean }) {}
+
+  reach(): number | null {
+    return this.share?.reach() ?? null;
+  }
 
   /** The world the traced rays walk: the first with a walk on the GPU. */
   private walked(): string | null {
@@ -122,7 +131,7 @@ export class VoxelLightFeed implements SurfaceVoxelSource {
 
   get relightMs(): number {
     const l = this.level();
-    return l === null ? 0 : frameBudgetMs(levelFrameBudget(l), 'gpu', 'lighting');
+    return l === null ? 0 : frameBudgetMs(levelFrameBudget(l), 'gpu', 'lighting') * (this.share?.rowShare() ?? 1);
   }
 
   /** The listener a world's chunk view tells of its level-0 surfaces (beside its decals': `also`). */
@@ -136,7 +145,7 @@ export class VoxelLightFeed implements SurfaceVoxelSource {
         const key = `${world}/${cell[0]},${cell[1]},${cell[2]}`;
         const version = (this.versions.get(key) ?? 0) + 1;
         this.versions.set(key, version);
-        mesh.userData[SURFACE_READ_KEY] = SURFACE_READ.voxels;
+        if (this.share?.read !== false) mesh.userData[SURFACE_READ_KEY] = SURFACE_READ.voxels;
         const geo = mesh.geometry;
         this.chunksBy.set(mesh, {
           key,

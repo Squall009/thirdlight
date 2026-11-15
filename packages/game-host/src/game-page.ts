@@ -707,6 +707,17 @@ function staticShadowDraws(adapter: SceneAdapter | null): number | null {
   return d?.ok === true ? (d.diagnostics.shadowMaps?.staticTotal ?? null) : null;
 }
 
+/**
+ * How far the store's light has caught up: the cache's or the volume's reading, or with both on their sum (texels
+ * and cell faces written, units and bricks stale, chunks and blocks waiting), settled when both are.
+ */
+function lightProgress(draws: VoxelWorldDraws) {
+  const c = draws.lightFeed()?.progress() ?? null;
+  const v = draws.lightVolume()?.progress() ?? null;
+  if (c === null || v === null) return c ?? v;
+  return { texelsWritten: c.texelsWritten + v.texelsWritten, staleUnits: c.staleUnits + v.staleUnits, waiting: c.waiting + v.waiting, probesSettled: c.probesSettled && v.settled, probesStale: c.probesStale, settled: c.probesSettled && c.staleUnits === 0 && c.waiting === 0 && v.settled, cache: c, volume: v };
+}
+
 /** The lighting store's hooks: which store, what the surface cache holds of the worlds, and the GPU tracer's voxel hits against the CPU walk's. */
 function voxelLightHooks(draws: VoxelWorldDraws) {
   return {
@@ -715,12 +726,19 @@ function voxelLightHooks(draws: VoxelWorldDraws) {
     setStore: (store: string) => draws.setLightStore((VOXEL_LIGHT_STORES as readonly string[]).includes(store) ? (store as VoxelLightStore) : 'off'),
     cache: () => draws.lightFeed()?.diagnostics() ?? null,
     /** How far the store's light has caught up (texels or cell faces written, units stale, chunks or blocks waiting, probes settled): cheap, read every frame by a bench. */
-    progress: () => draws.lightFeed()?.progress() ?? draws.lightVolume()?.progress() ?? null,
+    progress: () => lightProgress(draws),
+    /** Where the page hands over from the cache to the volume (null: one store), and the distance set in place of the tier's (null: the tier's). */
+    handover: () => draws.handover(),
+    setHandover: (m: number | null) => draws.setHandover(m),
+    /** These stores' GPU passes held (not dispatched, absent from the GPU measurement) until called again: `['volume']` reads the cache's `lighting` alone. */
+    holdPass: (stores: string[]) => draws.holdStorePasses(stores),
     /** Every texel and probe of the cache, or every brick of the volume, stale at once (a bench keeps it relighting while it measures the GPU). */
     relightAll: () => {
       draws.lightFeed()?.relightAll();
       draws.lightVolume()?.relightAll();
     },
+    /** The light volume's light in the scene's lights (true, as made) or out of them (a measurement of what its node costs the lit programs). */
+    volumeLightShown: (on: boolean) => draws.lightVolume()?.setLightShown(on) ?? null,
     /** What the light volume holds (null: the store is not the volume). */
     volume: () => draws.lightVolume()?.diagnostics() ?? null,
     /** Cells of the light volume read back from the GPU at world points (metres; or a level's cells, `{ points, level }`), the CPU's rule beside each. */
