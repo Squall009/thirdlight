@@ -99,6 +99,16 @@ export function uploadTextureRegion(renderer: RegionUploadRenderer, texture: THR
 }
 
 /**
+ * The `GPUTexture` three made for `texture` (made now if it was not yet; WebGPU only, else null), for a compute pass
+ * of the engine's own that writes a texture lit programs read (the voxel light volume's pool).
+ */
+export function gpuTextureOf(renderer: RegionUploadRenderer, texture: THREE.Texture): unknown {
+  if (renderer.backend.isWebGLBackend === true) return null;
+  renderer.initTexture(texture);
+  return renderer.backend.get(texture).texture ?? null;
+}
+
+/**
  * Makes `next` on the GPU and copies the texels of `from` inside `keep`
  * (texels from the origin, an empty box copying nothing) to the same places
  * in it: a texture grown, or shrunk to a part that holds everything in use.

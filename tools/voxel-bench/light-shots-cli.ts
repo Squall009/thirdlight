@@ -96,7 +96,7 @@ interface Hook {
   /** The sun heights the key light's march reads (null: none on the page). */
   sun?(): unknown;
   /** The lighting store: which, what the surface cache holds of the worlds, and the GPU tracer's voxel hits against the CPU walk's. */
-  light?: { store(): string; cache(): CacheStats | null; check(at: number[], n: number): Promise<unknown>; progress(): { texelsWritten: number; staleUnits: number; waiting: number; probesSettled: boolean; probesStale: number } | null; relightAll(): void };
+  light?: { store(): string; cache(): CacheStats | null; volume?(): Record<string, unknown> | null; check(at: number[], n: number): Promise<unknown>; progress(): { texelsWritten: number; staleUnits: number; waiting: number; probesSettled: boolean; probesStale: number; settled?: boolean } | null; relightAll(): void };
 }
 interface CacheStats {
   tiles: number;
@@ -111,6 +111,72 @@ interface CacheStats {
   read: boolean;
   /** The live probes over the voxels (absent before they existed). */
   probes?: { probes: number; lit: number; stale: number; settled: boolean; drawn: boolean; behind: boolean; pageBytes: number; gpuBytes: number; resolveBytes: number };
+}
+
+/**
+ * Waits until the light volume has settled (every block looked at, every kept brick updated to its settle count, cell
+ * faces written), held a second; how long it took and its diagnostics then (in the shot's `cache` field, one place for
+ * either store's reading).
+ */
+async function volumeLit(game: PlayGame): Promise<{ litS: number | null; cache: CacheStats | null }> {
+  const t0 = Date.now();
+  let calm = 0;
+  for (;;) {
+    const p = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null).catch(() => null);
+    calm = p !== null && p.settled === true && p.texelsWritten > 0 && p.waiting === 0 ? calm + 1 : 0;
+    const done = calm >= 4 || Date.now() - t0 > CACHE_TIMEOUT_MS;
+    if (done) {
+      const v = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.volume?.() ?? null).catch(() => null)) as CacheStats | null;
+      return { litS: calm >= 4 ? Number(((Date.now() - t0) / 1000).toFixed(1)) : null, cache: v };
+    }
+    await game.page.waitForTimeout(250);
+  }
+}
+
+/**
+ * In the page: the light volume's cells in a box round `eye` (±4 m across, ±2 m up, every 0.5 m) read back from the GPU,
+ * summed up: cells the CPU's rule says hold light, those the GPU holds light in (a face not the word 0), those that
+ * differ among bricks updated, the mean light of the faces facing up and down, and a few cells.
+ */
+async function volumeCellsRound(eye: number[]): Promise<unknown> {
+  type Cell = { cell: number[]; kept: boolean; slot: number; updates: number; holds: boolean; faces: (number[] | null)[] };
+  const l = (window as unknown as { __tlVoxelPlay?: { light?: { volumeCells?(p: number[][]): Promise<Cell[] | null> } } }).__tlVoxelPlay?.light;
+  const pts: number[][] = [];
+  for (let dx = -4; dx <= 4; dx += 0.5) for (let dy = -2; dy <= 2; dy += 0.5) for (let dz = -4; dz <= 4; dz += 0.5) pts.push([eye[0]! + dx + 0.25, eye[1]! + dy + 0.25, eye[2]! + dz + 0.25]);
+  const cells = (await l?.volumeCells?.(pts)) ?? null;
+  if (cells === null) return null;
+  let holds = 0;
+  let gpu = 0;
+  let differ = 0;
+  let kept = 0;
+  const up = [0, 0, 0];
+  const down = [0, 0, 0];
+  const examples: unknown[] = [];
+  for (const c of cells) {
+    const valid = c.faces.some((f) => f !== null);
+    if (c.kept) kept++;
+    if (c.holds) holds++;
+    if (valid) {
+      gpu++;
+      for (let k = 0; k < 3; k++) {
+        up[k]! += c.faces[2]?.[k] ?? 0;
+        down[k]! += c.faces[3]?.[k] ?? 0;
+      }
+    }
+    if (c.updates > 0 && c.holds !== valid) {
+      differ++;
+      if (examples.length < 4) examples.push(c);
+    }
+  }
+  const mean = (v: number[]): number[] => v.map((x) => Number((x / Math.max(gpu, 1)).toFixed(4)));
+  return { cells: cells.length, kept, holds, gpu, differ, up: mean(up), down: mean(down), examples, some: cells.filter((c) => c.faces.some((f) => f !== null)).slice(0, 3) };
+}
+
+/** Waits for the page's lighting store to light what it holds (`off`: nothing to wait for). */
+async function storeLit(game: PlayGame, store: string): Promise<{ litS: number | null; cache: CacheStats | null }> {
+  if (store === 'cache' || store === 'hybrid') return cacheLit(game);
+  if (store === 'volume') return volumeLit(game);
+  return { litS: null, cache: null };
 }
 
 /** The longest a shot waits for the surface cache to light what is resident (a store that is not the cache: not at all). */
@@ -216,7 +282,7 @@ function regionSpans(r: ProfileReport | null): Record<string, number> | null {
 }
 
 /** The page's lighting spans: own ms a frame (mean, worst) of the surface cache's parts and the other lighting work. */
-const LIGHTING_SPANS = ['surface light', 'surface cache residency', 'surface light pass', 'surface lookup packed', 'lights, shadows and environment', 'voxel sun heights'];
+const LIGHTING_SPANS = ['surface light', 'surface cache residency', 'surface light pass', 'surface lookup packed', 'lights, shadows and environment', 'voxel sun heights', 'voxel light volume'];
 function lightingSpans(r: ProfileReport | null): Record<string, { mean: number; worst: number }> | null {
   if (r === null) return null;
   const frames = r.threads.page;
@@ -273,9 +339,9 @@ async function main(): Promise<void> {
       const s = await settle(game);
       // The surface cache's light caught up (the cache store only): from the camera's move and from Play's start.
       const store = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.store() ?? 'off')) as string;
-      const lit = store === 'cache' || store === 'hybrid' ? await cacheLit(game) : { litS: null, cache: null };
+      const lit = await storeLit(game, store);
       const sincePlayS = Number(((Date.now() - playAt) / 1000).toFixed(1));
-      if (lit.cache !== null) console.log(`${cam.name}: cache lit after ${lit.litS ?? 'never'} s (${sincePlayS} s from Play): ${JSON.stringify(lit.cache)}`);
+      if (lit.cache !== null) console.log(`${cam.name}: ${store} lit after ${lit.litS ?? 'never'} s (${sincePlayS} s from Play): ${JSON.stringify(lit.cache)}`);
       await page.waitForTimeout(CONVERGE_MS);
       const file = join(OUT, `${cam.name}.png`);
       const shown = decodePng(await game.screenshot(file));
@@ -289,8 +355,11 @@ async function main(): Promise<void> {
       const voxelShare = changedShare(shown, hidden);
       const sun = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.sun?.() ?? null).catch(() => null);
       // The cache's tracer through the voxels against the CPU walk: 1,200 rays round the eye.
-      const check = lit.cache === null ? null : await game.frame.evaluate((at) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.check(at, 1200) ?? null, [...cam.eye]).catch((e: unknown) => String(e));
+      const check = lit.cache === null || store === 'volume' ? null : await game.frame.evaluate((at) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.check(at, 1200) ?? null, [...cam.eye]).catch((e: unknown) => String(e));
       if (check !== null) console.log(`${cam.name}: tracer check ${JSON.stringify(check).slice(0, 400)}`);
+      // The light volume's cells read back round the eye, against the CPU's rule (which cells hold light).
+      const volumeCells = store === 'volume' ? await game.frame.evaluate(volumeCellsRound, [...cam.eye]).catch((e: unknown) => String(e)) : null;
+      if (volumeCells !== null) console.log(`${cam.name}: volume cells ${JSON.stringify(volumeCells).slice(0, 600)}`);
       let gpu: unknown = null;
       let afterGpuShare: number | null = null;
       let afterGpuLaterShare: number | null = null;
@@ -331,7 +400,7 @@ async function main(): Promise<void> {
         } finally {
           await game.frame.evaluate(() => clearInterval((window as unknown as { __tlRelightTick?: number }).__tlRelightTick));
           await meterSet(game, {});
-          await cacheLit(game);
+          await storeLit(game, store);
         }
       }
       const c = s.counts ?? {};
@@ -365,6 +434,7 @@ async function main(): Promise<void> {
         cacheLitS: lit.litS,
         sincePlayS,
         tracerCheck: check,
+        volumeCells,
         ...(O.arrivalShots ? { arrival, arrivedToLitS: lit.litS === null ? null : Number(((Date.now() - arrived) / 1000).toFixed(1)) } : {}),
         ...(O.gpuStale ? { gpuStale } : {}),
         ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
@@ -419,7 +489,7 @@ async function main(): Promise<void> {
       for (const [cam, command, tag] of [[room, 'region_dig', 'window'], [night, LAMP_WALL_COMMANDS.build, 'lamp-wall'], [night, LAMP_WALL_COMMANDS.dig, 'lamp-unwall']] as const) {
         await game.debug(cam.command);
         await settle(game);
-        await cacheLit(game);
+        await storeLit(game, (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.store() ?? 'off')) as string);
         await page.waitForTimeout(CONVERGE_MS);
         const before = decodePng(await game.screenshot(join(OUT, `edit-${tag}-before.png`)));
         await game.frame.evaluate(() => {

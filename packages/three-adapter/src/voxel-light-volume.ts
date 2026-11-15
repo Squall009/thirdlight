@@ -1,0 +1,1129 @@
+/**
+ * The voxel light volume (a candidate store for voxel worlds' soft light,
+ * `?voxelLight=volume`, WebGPU only): light kept in the open cells that touch
+ * a surface, six values a cell (voxel-light-volume-layout.ts), round the
+ * camera, updated in compute (voxel-light-volume-wgsl.ts) and read by the
+ * voxel surfaces in place of the flat ambient term.
+ *
+ * - **Where it is kept.** A window of 2 m bricks follows the camera
+ *   (`CameraWindow` across, the eye's height up, lowered to keep the ground
+ *   under a high eye in it); a brick is kept where it holds an open cell next
+ *   to a solid one (by the walk's blocks the draw batches bring), and takes a
+ *   slot of the pool (an r32uint texture three owns, written by the pass and
+ *   read by the surfaces). The window's index (a slot a brick, wrapped) is a
+ *   texture written from here.
+ * - **What is stale.** A brick that comes into the window or is kept anew
+ *   (no light yet); the bricks a changed block's changed bricks can reach by
+ *   a ray (the edit's own bricks and those beside them from scratch, the
+ *   rest keeping half their history); the sun or the sky changed, or a lamp
+ *   moved (those it reaches, half their history). A brick settles after
+ *   `VOLUME_SETTLE_UPDATES` updates.
+ * - **Pacing.** Stale bricks nearest the eye first, as many a frame as the
+ *   tier's GPU `lighting` row holds by the pass's own measured ms a brick
+ *   (timestamps); none once settled. The CPU's share (window, keeping,
+ *   marks) runs within the lighting preparation slice. Hidden by the GPU
+ *   measurement under `lighting`.
+ * - **The colours bounced.** Each kept brick's open cells carry the mean
+ *   colour of the solid cells across their faces (the materials' look
+ *   colours, from the chunks' shader grids; a textured look with no colour of
+ *   its own bounces the grey the live probes bounce where no material drew).
+ * - **The read** ({@link VoxelVolumeLight}'s node, built after every light
+ *   the volume does not hold): a voxel surface's pixel reads the eight cells
+ *   round the point half a cell off it along its normal, trilinearly, only
+ *   those holding light counted, evaluates their ambient cubes with its
+ *   normal, and takes that in place of the held ambient and hemisphere light
+ *   and the environment's diffuse light; where no cell holds light (past the
+ *   window, not lit yet) it keeps the flat term, faded by the weight found.
+ */
+import * as THREE from 'three/webgpu';
+import * as TSLTyped from 'three/tsl';
+import { frameSliceMs, residentBytes, threadProfiler } from '@thirdlight/shared';
+import { frameBudgetMs, levelFrameBudget, MEMORY_BUDGET_BY_TIER, type QualityLevelConfig } from '@thirdlight/project-model';
+import { MATERIAL_BITS, OCCUPANCY, pageWalkView, VOXEL_SIZE_M, WALK_BLOCK_SHIFT, type WalkBlockView, type WalkBlockWire, type WalkTable } from '@thirdlight/voxel';
+
+import type { N } from './effects-tsl';
+import { TSL_SCALAR_OPS } from './field-ops';
+import { CameraWindow } from './camera-window';
+import { gpuPassHides } from './gpu-pass-hides';
+import { gpuTextureOf, uploadTextureRegion, copyTextureInto, type RegionTextureRenderer } from './region-texture';
+import { KEPT_IRRADIANCE, isProbeHeld, markProbeHeld } from './probe-lighting';
+import { SkyProbe } from './surface-probe-sky';
+import { BOUNCE_ALBEDO, SH_E0, SH_E1 } from './surface-probes';
+import { texelTexture } from './texel-texture-node';
+import type { VoxelMaterialLook } from './voxel-surface';
+import type { VoxelWalkGpu } from './voxel-walk-gpu';
+import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, RAY_COST_WEIGHT, type GpuBuffer, type GpuEncoder, type GpuTexture } from './tracer-gpu';
+import { ambientCubeSteps, VOLUME_ALBEDO_WIDTH, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_BRICKS_PER_ROW, VOLUME_FACES, VOLUME_POOL_WIDTH, VOLUME_READ_OFFSET_CELLS, VOLUME_WINDOW_BRICKS, VOLUME_WORD, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeChangedBricks, volumeCellHolds, volumeDecode, volumeIndexTexel, volumePoolTexel, VOLUME_READ_KEY, volumeMarkedUpdates, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { VOLUME_LAMP_FLOATS, VOLUME_LIST_WORDS, VOLUME_PARAM_FLOATS, VOLUME_UPDATE_WGSL } from './voxel-light-volume-wgsl';
+
+const TSL: N = TSLTyped;
+const { If, float, int, ivec2, luminance, max, mix, normalWorld, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, uint, uniform, vec3 } = TSL;
+
+/** Updates a brick takes to settle (each blends 1 / its count in: the mean of this many estimates). */
+export const VOLUME_SETTLE_UPDATES = 8;
+/** Rays a face casts an update. */
+export const VOLUME_RAYS = 4;
+/** Metres a ray goes before it counts as reaching the sky, and a walk toward the sun before the sun counts as seen. */
+export const VOLUME_RAY_REACH_M = 24;
+export const VOLUME_SUN_REACH_M = 48;
+/** Bricks an update a frame before the pass's cost is known. */
+const START_BRICKS = 32;
+/** Frames between looks at the scene's lamps (a walk of the scene graph). */
+const LAMP_LOOK_FRAMES = 15;
+/** Slots the pool starts with (it grows by doubling, up to its budget). */
+const START_SLOTS = 2048;
+/** Bytes a slot takes on the GPU (its faces and its colours). */
+const SLOT_BYTES = (VOLUME_BRICK_TEXELS + VOLUME_BRICK_VOLUME) * 4;
+/** The largest 2D texture side the pool may take (WebGPU's default limit). */
+const MAX_TEXTURE_ROWS = 8192;
+
+const VOLUME_SPAN = threadProfiler.span('voxel light volume', 'lighting');
+
+/** The part of a `GPUDevice` the volume calls. */
+export interface VolumeDevice {
+  createBuffer(desc: { size: number; usage: number; label?: string }): GpuBuffer;
+  createShaderModule(desc: { code: string; label?: string }): unknown;
+  createComputePipeline(desc: Record<string, unknown>): { getBindGroupLayout(i: number): unknown };
+  createBindGroup(desc: Record<string, unknown>): unknown;
+  createCommandEncoder(): GpuEncoder & { resolveQuerySet?(q: unknown, first: number, count: number, dst: GpuBuffer, offset: number): void };
+  createQuerySet?(desc: { type: string; count: number }): unknown;
+  readonly features?: { has(name: string): boolean };
+  readonly queue: { writeBuffer(b: GpuBuffer, offset: number, data: ArrayBufferView): void; submit(list: unknown[]): void };
+}
+
+/** What the volume reads of the page. */
+export interface VoxelLightVolumeDeps {
+  readonly scene: THREE.Scene;
+  readonly renderer: RegionTextureRenderer;
+  readonly device: VolumeDevice;
+  /** The world whose walk the rays take, and its walk on the GPU (null: none yet). */
+  walk(): VoxelWalkGpu | null;
+  level(): QualityLevelConfig | null;
+  look(material: number): VoxelMaterialLook;
+  /** The top of what is solid under (x, z) (null: none known). */
+  ground(x: number, z: number): number | null;
+  /** False: the volume is lit but no surface reads it (`?surfaceRead=0`, a comparison of what reading costs and changes). */
+  readonly read?: boolean;
+}
+
+interface Brick {
+  readonly bx: number;
+  readonly by: number;
+  readonly bz: number;
+  /** Its pool slot (−1: none free within the budget yet). */
+  slot: number;
+  updates: number;
+  /** Its index entry is written (after its first update was listed). */
+  published: boolean;
+}
+
+/** How far the volume's light has caught up (the same reading as the cache's, `VoxelLightProgress`). */
+export interface VoxelVolumeProgress {
+  /** Cell faces written by updates so far. */
+  readonly texelsWritten: number;
+  /** Bricks not settled. */
+  readonly staleUnits: number;
+  /** Blocks waiting to be looked at and kept bricks waiting for a slot. */
+  readonly waiting: number;
+  readonly probesSettled: boolean;
+  readonly probesStale: number;
+  readonly settled: boolean;
+}
+
+/** One cell as read back from the pool (a check against the CPU's rules). */
+export interface VoxelVolumeCell {
+  readonly cell: readonly number[];
+  /** Its brick is kept, has a slot, has been updated (times). */
+  readonly kept: boolean;
+  readonly slot: number;
+  readonly updates: number;
+  /** The CPU's rule: it holds light. */
+  readonly holds: boolean;
+  /** The six faces' light (null: the word 0). */
+  readonly faces: readonly (readonly number[] | null)[];
+}
+
+/** The scene's lamps the update lights bounces with, as the pass reads them. */
+interface LampSet {
+  readonly data: Float32Array;
+  readonly count: number;
+  readonly key: string;
+  readonly spheres: readonly number[][];
+}
+
+export class VoxelLightVolume {
+  readonly light: VoxelVolumeLight;
+  private readonly win = new CameraWindow({ texels: VOLUME_WINDOW_BRICKS[0], cellM: VOLUME_BRICK_M });
+  /** The window's corner brick (NaN until the first follow). */
+  private readonly origin = [NaN, NaN, NaN];
+  private readonly bricks = new Map<number, Brick>();
+  private readonly stale = new Set<Brick>();
+  private readonly blocks = new Map<string, VolumeBlockBricks | null>();
+  /** Blocks (bx, by, bz) whose bricks are to be looked at again. */
+  private readonly toLook = new Map<string, readonly [number, number, number]>();
+  private readonly freeSlots: number[] = [];
+  private nextSlot = 0;
+  private waitingSlots = 0;
+  private readonly index = new Uint32Array(VOLUME_WINDOW_BRICKS[0] * VOLUME_WINDOW_BRICKS[1] * VOLUME_WINDOW_BRICKS[2]);
+  private readonly indexDirty = new Set<number>();
+  /** Level-0 chunks' shader grids (the colours), by `cx,cy,cz`: the grid, or its one entry. */
+  private readonly chunkCells = new Map<string, Uint16Array | number>();
+  private readonly albedoDirty = new Set<Brick>();
+  private readonly sky = new SkyProbe();
+  private skyVersion = -1;
+  private readonly sunWas = [0, 0, 0, 0];
+  private lamps: LampSet = { data: new Float32Array(VOLUME_LAMP_FLOATS), count: 0, key: '', spheres: [] };
+  private frames = 0;
+  private hidden = false;
+  private readonly gpu: VolumeGpu;
+  private readonly offs: Array<() => void> = [];
+  private readonly heldHere = new Set<THREE.Light>();
+  private scannedChildren = -1;
+  private disposed = false;
+  /** Bricks updated a frame now (by the measured cost), the measured ms a brick, and counts since made. */
+  private perFrame = START_BRICKS;
+  private msPerBrick: number | null = null;
+  readonly stats = { updates: 0, bricksUpdated: 0, texelsWritten: 0, marks: 0, lookedBlocks: 0, frameMs: 0, lastBricks: 0, lastMs: 0, settledAt: null as number | null, staleSince: performance.now() };
+
+  constructor(private readonly deps: VoxelLightVolumeDeps) {
+    this.gpu = new VolumeGpu(deps.device, deps.renderer, this.slotBudget());
+    this.light = new VoxelVolumeLight(this.gpu, deps.read !== false);
+    // The held lights are marked before the light joins: the programs its joining builds again take them as held.
+    if (this.light.read) this.holdAmbient(true);
+    deps.scene.add(this.light);
+    this.offs.push(
+      gpuPassHides.register({ category: 'lighting', name: 'voxel light volume', present: () => this.stale.size > 0, hide: (h) => (this.hidden = h) }),
+      // Its GPU bytes are held against the two stores it replaces (the surface cache's, then the probes'); the grids kept for its colours are a share of the chunks drawn.
+      residentBytes.register('surfaceCache', () => Math.min(this.gpu.bytes, this.budgets().surfaceCache)),
+      residentBytes.register('probes', () => Math.max(0, this.gpu.bytes - this.budgets().surfaceCache)),
+      residentBytes.register('voxelStream', () => this.pageBytes),
+    );
+  }
+
+  /** The tier's surface cache and probe budgets (bytes; the volume holds their sum). */
+  private budgets(): { surfaceCache: number; probes: number } {
+    const tier = this.deps.level()?.lighting ?? 'low';
+    const e = MEMORY_BUDGET_BY_TIER[tier].entries;
+    return { surfaceCache: e.find((x) => x.id === 'surfaceCache')?.bytes ?? 0, probes: e.find((x) => x.id === 'probes')?.bytes ?? 0 };
+  }
+
+  /** Slots the budget holds (and the pool's largest texture). */
+  private slotBudget(): number {
+    const b = this.budgets();
+    return Math.min(Math.floor((b.surfaceCache + b.probes) / SLOT_BYTES), MAX_TEXTURE_ROWS * VOLUME_BRICKS_PER_ROW);
+  }
+
+  /** Bytes on the page: the bricks' records, the index, the blocks' bits and the grids kept. */
+  get pageBytes(): number {
+    let cells = 0;
+    for (const c of this.chunkCells.values()) if (typeof c !== 'number') cells += c.byteLength;
+    return this.bricks.size * 48 + this.index.byteLength + this.blocks.size * 2 * 64 + cells;
+  }
+
+  /** A level-0 chunk's shader grid arrived (its draw or its shader data; null and −1: it went). */
+  chunkGrid(cx: number, cy: number, cz: number, cells: Uint16Array | null, solid: number): void {
+    const key = `${cx},${cy},${cz}`;
+    const was = this.chunkCells.get(key);
+    const next = cells !== null ? cells.slice() : solid;
+    if (cells === null && solid < 0) this.chunkCells.delete(key);
+    else this.chunkCells.set(key, next);
+    // A material changed where the walk saw nothing change (a repaint): what its bounce reaches is stale.
+    if (was !== undefined && !(cells === null && solid < 0)) {
+      const box = changedCells(was, next);
+      if (box !== null) this.markBox(box[0].map((v, a) => Math.floor((v + [cx, cy, cz][a]! * 32) / 4)), box[1].map((v, a) => Math.floor((v + [cx, cy, cz][a]! * 32) / 4)));
+    }
+    // Its bricks' colours are made again.
+    const b0 = [cx * VOLUME_BLOCK_BRICKS, cy * VOLUME_BLOCK_BRICKS, cz * VOLUME_BLOCK_BRICKS];
+    for (const b of this.bricks.values()) if (b.slot >= 0 && b.bx >= b0[0]! && b.bx < b0[0]! + VOLUME_BLOCK_BRICKS && b.by >= b0[1]! && b.by < b0[1]! + VOLUME_BLOCK_BRICKS && b.bz >= b0[2]! && b.bz < b0[2]! + VOLUME_BLOCK_BRICKS) this.albedoDirty.add(b);
+  }
+
+  /** Before a batch's walk blocks go into the table: the level-0 blocks' cells as they were, to find what changed. */
+  beforeWalk(table: WalkTable, wires: readonly WalkBlockWire[]): Map<string, WalkBlockView | null> {
+    const was = new Map<string, WalkBlockView | null>();
+    for (const w of wires) if (w.level === 0) was.set(`${w.bx},${w.by},${w.bz}`, copyView(table.view(0, w.bx, w.by, w.bz, 'light')));
+    return was;
+  }
+
+  /** After them: each changed block's bricks are looked at again, and the bricks its changed bricks reach are marked. */
+  afterWalk(table: WalkTable, was: Map<string, WalkBlockView | null>): void {
+    for (const [key, before] of was) {
+      const [bx, by, bz] = key.split(',').map(Number) as [number, number, number];
+      const after = table.view(0, bx, by, bz, 'light');
+      this.blocks.delete(key);
+      const changed = volumeChangedBricks(before, after);
+      if (changed.length === 0) continue;
+      // The block and those beside it (their bricks along its faces may be kept or not now).
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) <= 1) this.toLook.set(`${bx + dx},${by + dy},${bz + dz}`, [bx + dx, by + dy, bz + dz]);
+      const lo = [Infinity, Infinity, Infinity];
+      const hi = [-Infinity, -Infinity, -Infinity];
+      for (const bi of changed) {
+        const l = volumeBlockBrick(bi);
+        const g = [bx * VOLUME_BLOCK_BRICKS + l[0], by * VOLUME_BLOCK_BRICKS + l[1], bz * VOLUME_BLOCK_BRICKS + l[2]];
+        for (let a = 0; a < 3; a++) {
+          lo[a] = Math.min(lo[a]!, g[a]!);
+          hi[a] = Math.max(hi[a]!, g[a]!);
+        }
+      }
+      this.markBox(lo, hi);
+    }
+  }
+
+  /** Bricks a ray from which can reach the bricks lo … hi are stale: near ones from nothing, the rest keeping half. */
+  private markBox(lo: readonly number[], hi: readonly number[]): void {
+    const reach = Math.ceil(VOLUME_RAY_REACH_M / VOLUME_BRICK_M);
+    this.stats.marks++;
+    const at = [0, 0, 0];
+    for (const b of this.bricks.values()) {
+      at[0] = b.bx;
+      at[1] = b.by;
+      at[2] = b.bz;
+      const u = volumeMarkedUpdates(at, lo, hi, b.updates, reach, VOLUME_SETTLE_UPDATES);
+      if (u === null) continue;
+      b.updates = u;
+      this.stale.add(b);
+    }
+  }
+
+  /** Every kept brick stale (`full`: from nothing; else keeping half its history: the sun or the sky changed). */
+  markAll(full: boolean): void {
+    for (const b of this.bricks.values()) {
+      b.updates = full ? 0 : Math.min(b.updates, VOLUME_SETTLE_UPDATES >> 1);
+      this.stale.add(b);
+    }
+    this.stats.marks++;
+  }
+
+  /** A block's brick bits (cached; null: the walk does not know it, open air). */
+  private blockBits(bx: number, by: number, bz: number): VolumeBlockBricks | null {
+    const key = `${bx},${by},${bz}`;
+    let b = this.blocks.get(key);
+    if (b === undefined) {
+      const t = this.deps.walk()?.table ?? null;
+      const v = t === null ? null : t.view(0, bx, by, bz, 'light');
+      b = v === null ? null : volumeBlockBricks(v);
+      this.blocks.set(key, b);
+    }
+    return b;
+  }
+
+  private readonly lookup = (bx: number, by: number, bz: number): VolumeBlockBricks | null => this.blockBits(bx, by, bz);
+
+  /** The frame's share: the window, keeping, the lights looked at, the update listed and dispatched. */
+  frame(): void {
+    if (this.disposed) return;
+    const walk = this.deps.walk();
+    const eye = this.light.eye;
+    if (walk === null || walk.buffers() === null || !Number.isFinite(eye[0]!)) return;
+    threadProfiler.begin(VOLUME_SPAN);
+    const t0 = performance.now();
+    this.frames++;
+    this.follow(eye);
+    const slice = frameSliceMs('surfacePrepare');
+    this.look(() => performance.now() - t0 < slice);
+    if (this.light.read) this.holdAmbient();
+    this.lights();
+    this.colours();
+    this.flushIndex();
+    if (!this.hidden && this.stale.size > 0) this.update(walk, eye);
+    if (this.stale.size === 0 && this.toLook.size === 0 && this.stats.settledAt === null) this.stats.settledAt = performance.now();
+    if (this.stale.size > 0) this.stats.settledAt = null;
+    this.stats.frameMs = performance.now() - t0;
+    threadProfiler.end(VOLUME_SPAN);
+  }
+
+  /** The window onto the eye: a move drops the bricks that leave and queues the blocks that enter. */
+  private follow(eye: readonly number[]): void {
+    const [W, H, D] = VOLUME_WINDOW_BRICKS;
+    const ey = Math.floor(eye[1]! / VOLUME_BRICK_M);
+    this.win.follow(eye[0]!, eye[2]!);
+    const ox = Math.round(this.win.originX / VOLUME_BRICK_M);
+    const oz = Math.round(this.win.originZ / VOLUME_BRICK_M);
+    // Up: centred on the eye, lowered to keep the ground under a high eye in the window (the eye stays in it).
+    const g = this.deps.ground(eye[0]!, eye[2]!);
+    let oy = ey - (H >> 1);
+    if (g !== null) {
+      const gb = Math.floor(g / VOLUME_BRICK_M);
+      if (gb - 2 < oy) oy = Math.max(gb - 2, ey - H + 2);
+    }
+    // Up and down by whole steps past a margin, so an eye bobbing in place does not move it.
+    if (Number.isFinite(this.origin[1]!) && Math.abs(oy - this.origin[1]!) <= 2) oy = this.origin[1]!;
+    if (ox === this.origin[0] && oy === this.origin[1] && oz === this.origin[2]) return;
+    const was = [...this.origin];
+    this.origin[0] = ox;
+    this.origin[1] = oy;
+    this.origin[2] = oz;
+    this.gpu.setOrigin(this.origin);
+    // Bricks that left: their slots go back, their index entries are cleared (the wrapped slot is another place's now).
+    for (const [key, b] of this.bricks) if (!this.inWindow(b.bx, b.by, b.bz)) this.drop(key, b);
+    // The blocks over the window's new part.
+    const blocks = (o: readonly number[], a: number, n: number): [number, number] => [Math.floor(o[a]! / VOLUME_BLOCK_BRICKS), Math.floor((o[a]! + n - 1) / VOLUME_BLOCK_BRICKS)];
+    const [x0, x1] = blocks(this.origin, 0, W);
+    const [y0, y1] = blocks(this.origin, 1, H);
+    const [z0, z1] = blocks(this.origin, 2, D);
+    const inOld = (bx: number, by: number, bz: number): boolean => Number.isFinite(was[0]!) && bx * VOLUME_BLOCK_BRICKS >= was[0]! && (bx + 1) * VOLUME_BLOCK_BRICKS <= was[0]! + W && by * VOLUME_BLOCK_BRICKS >= was[1]! && (by + 1) * VOLUME_BLOCK_BRICKS <= was[1]! + H && bz * VOLUME_BLOCK_BRICKS >= was[2]! && (bz + 1) * VOLUME_BLOCK_BRICKS <= was[2]! + D;
+    for (let bx = x0; bx <= x1; bx++) for (let by = y0; by <= y1; by++) for (let bz = z0; bz <= z1; bz++) if (!inOld(bx, by, bz)) this.toLook.set(`${bx},${by},${bz}`, [bx, by, bz]);
+  }
+
+  private inWindow(bx: number, by: number, bz: number): boolean {
+    const o = this.origin;
+    const d = VOLUME_WINDOW_BRICKS;
+    return bx >= o[0]! && by >= o[1]! && bz >= o[2]! && bx < o[0]! + d[0] && by < o[1]! + d[1] && bz < o[2]! + d[2];
+  }
+
+  private indexOf(bx: number, by: number, bz: number): number {
+    const [x, y] = volumeIndexTexel(bx, by, bz);
+    return y * VOLUME_WINDOW_BRICKS[0] * VOLUME_WINDOW_BRICKS[2] + x;
+  }
+
+  private drop(key: number, b: Brick): void {
+    this.bricks.delete(key);
+    this.stale.delete(b);
+    this.albedoDirty.delete(b);
+    if (b.slot >= 0) this.freeSlots.push(b.slot);
+    else this.waitingSlots--;
+    // A published brick's entry is cleared wherever it lies: its wrapped place is the same however the window moved.
+    if (b.published) {
+      const i = this.indexOf(b.bx, b.by, b.bz);
+      this.index[i] = 0;
+      this.indexDirty.add(Math.floor(i / (VOLUME_WINDOW_BRICKS[0] * VOLUME_WINDOW_BRICKS[2])));
+    }
+  }
+
+  /** Blocks queued are looked at while `more()` says so (one at least): their bricks kept or dropped. */
+  private look(more: () => boolean): void {
+    let first = true;
+    for (const [key, [bx, by, bz]] of this.toLook) {
+      if (!first && !more()) return;
+      first = false;
+      this.toLook.delete(key);
+      this.stats.lookedBlocks++;
+      this.lookBlock(bx, by, bz);
+    }
+  }
+
+  private lookBlock(bx: number, by: number, bz: number): void {
+    const B = VOLUME_BLOCK_BRICKS;
+    // A block with nothing solid in it or its six neighbours keeps nothing: its 512 bricks are skipped.
+    const any = (x: number, y: number, z: number): boolean => this.blockBits(x, y, z)?.some.some((w) => w !== 0) ?? false;
+    const near = any(bx, by, bz) || any(bx + 1, by, bz) || any(bx - 1, by, bz) || any(bx, by + 1, bz) || any(bx, by - 1, bz) || any(bx, by, bz + 1) || any(bx, by, bz - 1);
+    for (let x = 0; x < B; x++) for (let y = 0; y < B; y++) for (let z = 0; z < B; z++) {
+      const gx = bx * B + x;
+      const gy = by * B + y;
+      const gz = bz * B + z;
+      const key = volumeBrickKey(gx, gy, gz);
+      const had = this.bricks.get(key);
+      const keep = near && this.inWindow(gx, gy, gz) && volumeBrickKept(this.lookup, gx, gy, gz);
+      if (!keep) {
+        if (had !== undefined) this.drop(key, had);
+        continue;
+      }
+      if (had !== undefined) continue;
+      const b: Brick = { bx: gx, by: gy, bz: gz, slot: this.takeSlot(), updates: 0, published: false };
+      if (b.slot < 0) this.waitingSlots++;
+      else this.albedoDirty.add(b);
+      this.bricks.set(key, b);
+      this.stale.add(b);
+    }
+  }
+
+  /** A free slot (the pool grown when none is left, within its budget; −1: none). */
+  private takeSlot(): number {
+    const s = this.freeSlots.pop();
+    if (s !== undefined) return s;
+    if (this.nextSlot >= this.gpu.capacity && !this.gpu.grow(this.slotBudget())) return -1;
+    return this.nextSlot++;
+  }
+
+  /** On a page whose voxel worlds the volume lights, the scene's ambient and hemisphere lights are held by it (its sky holds their light). */
+  private holdAmbient(now = false): void {
+    // Looked at again when the scene's top level changed (lights are placed there), before a new light's programs build.
+    if (!now && this.deps.scene.children.length === this.scannedChildren) return;
+    this.scannedChildren = this.deps.scene.children.length;
+    for (const o of this.deps.scene.children) {
+      const l = o as THREE.Light & { isAmbientLight?: boolean; isHemisphereLight?: boolean };
+      if ((l.isAmbientLight !== true && l.isHemisphereLight !== true) || this.heldHere.has(l) || isProbeHeld(l)) continue;
+      markProbeHeld(l, true);
+      this.heldHere.add(l);
+    }
+  }
+
+  /** The sun, the sky and the lamps as the update reads them; a change marks what it reaches. */
+  private lights(): void {
+    const scene = this.deps.scene;
+    this.sky.update(this.deps.renderer, scene);
+    if (this.sky.version !== this.skyVersion) {
+      this.skyVersion = this.sky.version;
+      this.gpu.setSky(this.sky.coefficients);
+      if (this.bricks.size > 0) this.markAll(false);
+    }
+    const sun = keyLight(scene);
+    const s = this.gpu.sun;
+    if (sun === null) s.fill(0);
+    else {
+      const d = new THREE.Vector3().subVectors(sun.position, sun.target.position).normalize();
+      s[0] = d.x;
+      s[1] = d.y;
+      s[2] = d.z;
+      s[3] = sun.intensity > 0 && sun.visible ? 1 : 0;
+      s[4] = sun.color.r * sun.intensity;
+      s[5] = sun.color.g * sun.intensity;
+      s[6] = sun.color.b * sun.intensity;
+    }
+    // Compared in 64 bits (the pass's copy is 32): a sun turned by a hundredth of a degree, or its light changed by a
+    // hundredth, marks everything; an unlit sun's direction is not looked at.
+    const w = this.sunWas;
+    const lit = sun === null || !sun.visible ? 0 : sun.intensity * (sun.color.r + sun.color.g + sun.color.b);
+    const dir = sun === null ? null : new THREE.Vector3().subVectors(sun.position, sun.target.position).normalize();
+    const turned = lit > 0 && dir !== null && dir.x * w[0]! + dir.y * w[1]! + dir.z * w[2]! < Math.cos((0.01 * Math.PI) / 180);
+    if (turned || Math.abs(lit - w[3]!) > 0.01 * Math.max(w[3]!, 1e-3)) {
+      if (dir !== null && lit > 0) {
+        w[0] = dir.x;
+        w[1] = dir.y;
+        w[2] = dir.z;
+      }
+      w[3] = lit;
+      if (this.bricks.size > 0) this.markAll(false);
+    }
+    if (this.frames % LAMP_LOOK_FRAMES !== 1) return;
+    const next = sceneLamps(scene, this.origin);
+    if (next.key === this.lamps.key) return;
+    // What the old and the new lamps reach is stale (half its history).
+    const reach = [...this.lamps.spheres, ...next.spheres];
+    this.lamps = next;
+    this.gpu.setLamps(next);
+    for (const sp of reach) {
+      const lo = [0, 1, 2].map((a) => Math.floor((sp[a]! - sp[3]!) / VOLUME_BRICK_M));
+      const hi = [0, 1, 2].map((a) => Math.floor((sp[a]! + sp[3]!) / VOLUME_BRICK_M));
+      for (const b of this.bricks.values()) {
+        if (b.bx < lo[0]! || b.bx > hi[0]! || b.by < lo[1]! || b.by > hi[1]! || b.bz < lo[2]! || b.bz > hi[2]!) continue;
+        b.updates = Math.min(b.updates, VOLUME_SETTLE_UPDATES >> 1);
+        this.stale.add(b);
+      }
+    }
+  }
+
+  /** The kept bricks' colours made and uploaded (those that took a slot or whose grids changed). */
+  private colours(): void {
+    if (this.albedoDirty.size === 0) return;
+    const looks = new Map<number, number>();
+    const colourOf = (entry: number): number => {
+      const m = entry & ((1 << MATERIAL_BITS) - 1);
+      let c = looks.get(m);
+      if (c === undefined) {
+        const look = this.deps.look(m);
+        // A textured look without a colour of its own (white) bounces the default grey (its texels' colour is not read here).
+        const col = look.colour === 0xffffff ? new THREE.Color(BOUNCE_ALBEDO, BOUNCE_ALBEDO, BOUNCE_ALBEDO) : new THREE.Color().setHex(look.colour);
+        c = packRgba(col.r, col.g, col.b);
+        looks.set(m, c);
+      }
+      return c;
+    };
+    const words = new Uint32Array(VOLUME_BRICK_VOLUME);
+    for (const b of this.albedoDirty) {
+      if (b.slot < 0) continue;
+      brickColours(b, this.chunkCells, colourOf, words);
+      this.gpu.writeAlbedo(b.slot, words);
+    }
+    this.albedoDirty.clear();
+  }
+
+  private flushIndex(): void {
+    if (this.indexDirty.size === 0) return;
+    this.gpu.writeIndex(this.index, this.indexDirty);
+    this.indexDirty.clear();
+  }
+
+  /** Bricks listed for this frame's update (nearest the eye first) and the pass dispatched. */
+  private update(walk: VoxelWalkGpu, eye: readonly number[]): void {
+    const level = this.deps.level();
+    const budget = level === null ? 0 : frameBudgetMs(levelFrameBudget(level), 'gpu', 'lighting');
+    if (budget <= 0) return;
+    const e = eye.map((v) => Math.floor(v / VOLUME_BRICK_M));
+    const reach = Math.max(...VOLUME_WINDOW_BRICKS);
+    const buckets: Brick[][] = Array.from({ length: reach + 1 }, () => []);
+    for (const b of this.stale) {
+      if (b.slot < 0) continue;
+      buckets[Math.min(reach, Math.max(Math.abs(b.bx - e[0]!), Math.abs(b.by - e[1]!), Math.abs(b.bz - e[2]!)))]!.push(b);
+    }
+    const n = this.msPerBrick === null ? this.perFrame : Math.max(1, Math.floor(budget / this.msPerBrick));
+    const list: Brick[] = [];
+    for (const bucket of buckets) {
+      for (const b of bucket) {
+        if (list.length >= n) break;
+        list.push(b);
+      }
+      if (list.length >= n) break;
+    }
+    if (list.length === 0) return;
+    for (const b of list) {
+      if (b.published) continue;
+      b.published = true;
+      const i = this.indexOf(b.bx, b.by, b.bz);
+      this.index[i] = b.slot + 1;
+      this.indexDirty.add(Math.floor(i / (VOLUME_WINDOW_BRICKS[0] * VOLUME_WINDOW_BRICKS[2])));
+    }
+    this.flushIndex();
+    const words = new Int32Array(list.length * VOLUME_LIST_WORDS);
+    const f = new Float32Array(words.buffer);
+    list.forEach((b, k) => {
+      const o = k * VOLUME_LIST_WORDS;
+      words[o] = b.bx;
+      words[o + 1] = b.by;
+      words[o + 2] = b.bz;
+      words[o + 3] = b.slot;
+      f[o + 4] = 1 / (b.updates + 1);
+      words[o + 5] = b.updates + this.stats.updates * 3;
+    });
+    this.gpu.dispatch(walk, words, list.length, this.frames, (ms) => {
+      this.stats.lastMs = ms;
+      const per = ms / list.length;
+      this.msPerBrick = this.msPerBrick === null ? per : this.msPerBrick + (per - this.msPerBrick) * RAY_COST_WEIGHT;
+    });
+    for (const b of list) {
+      b.updates++;
+      if (b.updates >= VOLUME_SETTLE_UPDATES) this.stale.delete(b);
+    }
+    this.stats.updates++;
+    this.stats.bricksUpdated += list.length;
+    this.stats.lastBricks = list.length;
+    this.stats.texelsWritten += list.length * VOLUME_BRICK_TEXELS;
+  }
+
+  /** How far the light has caught up (cheap: read every frame by a bench). */
+  progress(): VoxelVolumeProgress {
+    const settled = this.stale.size === 0 && this.toLook.size === 0 && this.bricks.size > 0;
+    return { texelsWritten: this.stats.texelsWritten, staleUnits: this.stale.size, waiting: this.toLook.size + Math.max(0, this.waitingSlots), probesSettled: settled, probesStale: 0, settled };
+  }
+
+  /** What the volume holds now (diagnostics, benches, checks). */
+  diagnostics(): Record<string, unknown> {
+    const b = this.budgets();
+    return {
+      store: 'volume',
+      kept: this.bricks.size,
+      slots: this.gpu.capacity,
+      slotsUsed: this.nextSlot - this.freeSlots.length,
+      stale: this.stale.size,
+      waiting: this.toLook.size + Math.max(0, this.waitingSlots),
+      settled: this.progress().settled,
+      origin: [...this.origin],
+      perFrame: this.msPerBrick === null ? this.perFrame : null,
+      msPerBrick: this.msPerBrick,
+      raysPerFace: VOLUME_RAYS,
+      settleUpdates: VOLUME_SETTLE_UPDATES,
+      lamps: this.lamps.count,
+      sun: [...this.gpu.sun],
+      gpuBytes: this.gpu.bytes,
+      pageBytes: this.pageBytes,
+      budgetBytes: b.surfaceCache + b.probes,
+      chunkGrids: this.chunkCells.size,
+      // The sky's light on a surface facing up and down with nothing over it (the SH's irradiance), to check open cells by.
+      skyUp: [0, 1, 2].map((k) => this.sky.coefficients[k]! * SH_E0 + this.sky.coefficients[3 + k]! * SH_E1),
+      skyDown: [0, 1, 2].map((k) => this.sky.coefficients[k]! * SH_E0 - this.sky.coefficients[3 + k]! * SH_E1),
+      ...this.stats,
+    };
+  }
+
+  /** Every kept brick stale from nothing (a bench keeping the pass at work to measure it). */
+  relightAll(): void {
+    this.markAll(true);
+  }
+
+  /** Cells read back from the pool with the CPU's rule beside each (null: no walk yet). */
+  async cells(points: readonly (readonly number[])[]): Promise<VoxelVolumeCell[] | null> {
+    const t = this.deps.walk()?.table ?? null;
+    if (t === null) return null;
+    const src = t.source();
+    const wanted = points.map((p) => {
+      const c = [0, 1, 2].map((a) => Math.floor(p[a]! / VOXEL_SIZE_M));
+      const b = this.bricks.get(volumeBrickKey(c[0]! >> 2, c[1]! >> 2, c[2]! >> 2)) ?? null;
+      return { c, b };
+    });
+    const rows = new Set<number>();
+    for (const w of wanted) if (w.b !== null && w.b.slot >= 0) for (let f = 0; f < VOLUME_FACES; f++) rows.add(volumePoolTexel(w.b.slot, cellOf(w.c), f)[1]);
+    const read = await this.gpu.readRows([...rows]);
+    return wanted.map(({ c, b }) => {
+      const faces: (number[] | null)[] = [];
+      for (let f = 0; f < VOLUME_FACES; f++) {
+        if (b === null || b.slot < 0) {
+          faces.push(null);
+          continue;
+        }
+        const [x, y] = volumePoolTexel(b.slot, cellOf(c), f);
+        const word = read.get(y)?.[x] ?? 0;
+        faces.push(word === 0 ? null : volumeDecode(word));
+      }
+      return { cell: c, kept: b !== null, slot: b?.slot ?? -1, updates: b?.updates ?? 0, holds: volumeCellHolds(src, c[0]!, c[1]!, c[2]!), faces };
+    });
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const off of this.offs.splice(0)) off();
+    for (const l of this.heldHere) markProbeHeld(l, false);
+    this.heldHere.clear();
+    this.light.removeFromParent();
+    this.sky.dispose();
+    this.gpu.dispose();
+    this.bricks.clear();
+    this.stale.clear();
+    this.chunkCells.clear();
+  }
+}
+
+/** Metres a brick spans. */
+const VOLUME_BRICK_M = VOXEL_SIZE_M * 4;
+
+function cellOf(c: readonly number[]): number {
+  return (c[0]! & 3) + 4 * ((c[1]! & 3) + 4 * (c[2]! & 3));
+}
+
+function packRgba(r: number, g: number, b: number): number {
+  const q = (v: number): number => Math.max(0, Math.min(255, Math.round(v * 255)));
+  return (q(r) | (q(g) << 8) | (q(b) << 16) | (255 << 24)) >>> 0;
+}
+
+/** A block's light-stopping cells copied out of the table (its page may be written over by the batch). */
+function copyView(v: WalkBlockView | null): WalkBlockView | null {
+  if (v === null || v.flag !== OCCUPANCY.mixed) return v;
+  const cells = new Uint32Array(1 << (3 * WALK_BLOCK_SHIFT - 5));
+  for (let i = 0; i < cells.length; i++) {
+    let w = 0;
+    for (let k = 0; k < 32; k++) if (v.cell(i * 32 + k)) w |= 1 << k;
+    cells[i] = w >>> 0;
+  }
+  const bricks = new Uint32Array(16);
+  for (let i = 0; i < 512; i++) if (v.brick(i) !== OCCUPANCY.empty) bricks[i >>> 5]! |= 1 << (i & 31);
+  const page = new Uint32Array(2 * (16 + cells.length));
+  page.set(bricks, 16);
+  page.set(cells, 32 + cells.length);
+  return pageWalkView(page, 0, OCCUPANCY.mixed, 'light');
+}
+
+/**
+ * A brick's 64 colours: each open cell's the mean of the look colours of the cells across its faces that hold a
+ * material (in the chunk's shader grid, its border included); 0 where none does.
+ */
+function brickColours(b: Brick, grids: ReadonlyMap<string, Uint16Array | number>, colourOf: (entry: number) => number, out: Uint32Array): void {
+  out.fill(0);
+  const edge = 32;
+  const side = edge + 2;
+  const cx = Math.floor((b.bx * 4) / edge);
+  const cy = Math.floor((b.by * 4) / edge);
+  const cz = Math.floor((b.bz * 4) / edge);
+  const g = grids.get(`${cx},${cy},${cz}`);
+  if (g === undefined || typeof g === 'number') return;
+  const at = (x: number, y: number, z: number): number => g[((x + 1) * side + (z + 1)) * side + (y + 1)]!;
+  for (let lz = 0; lz < 4; lz++) for (let ly = 0; ly < 4; ly++) for (let lx = 0; lx < 4; lx++) {
+    const x = b.bx * 4 + lx - cx * edge;
+    const y = b.by * 4 + ly - cy * edge;
+    const z = b.bz * 4 + lz - cz * edge;
+    if (at(x, y, z) !== 0) continue;
+    let r = 0;
+    let gg = 0;
+    let bb = 0;
+    let n = 0;
+    for (const [dx, dy, dz] of NEIGHBOURS) {
+      const e = at(x + dx, y + dy, z + dz);
+      if (e === 0) continue;
+      const c = colourOf(e);
+      r += c & 255;
+      gg += (c >>> 8) & 255;
+      bb += (c >>> 16) & 255;
+      n++;
+    }
+    if (n > 0) out[lx + 4 * (ly + 4 * lz)] = (Math.round(r / n) | (Math.round(gg / n) << 8) | (Math.round(bb / n) << 16) | (255 << 24)) >>> 0;
+  }
+}
+
+/** The chunk cells (0 … 31) whose shader entries differ between two grids (a grid or its one entry), as a box (null: none). */
+function changedCells(a: Uint16Array | number, b: Uint16Array | number): [number[], number[]] | null {
+  if (typeof a === 'number' && typeof b === 'number') return a === b ? null : [[0, 0, 0], [31, 31, 31]];
+  const side = 34;
+  const at = (g: Uint16Array | number, i: number): number => (typeof g === 'number' ? g : g[i]!);
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (let x = 0; x < 32; x++) for (let z = 0; z < 32; z++) for (let y = 0; y < 32; y++) {
+    const i = ((x + 1) * side + (z + 1)) * side + (y + 1);
+    if (at(a, i) === at(b, i)) continue;
+    const c = [x, y, z];
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k]!, c[k]!);
+      hi[k] = Math.max(hi[k]!, c[k]!);
+    }
+  }
+  return lo[0] === Infinity ? null : [lo, hi];
+}
+
+const NEIGHBOURS: readonly (readonly [number, number, number])[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+
+/** The scene's key light: the first shadow-casting directional light at its top, else the first directional one. */
+function keyLight(scene: THREE.Scene): THREE.DirectionalLight | null {
+  let first: THREE.DirectionalLight | null = null;
+  for (const o of scene.children) {
+    const l = o as THREE.DirectionalLight;
+    if (l.isDirectionalLight !== true) continue;
+    if (l.castShadow) return l;
+    first ??= l;
+  }
+  return first;
+}
+
+/** The point and spot lights whose reach meets the window (a spot as a point: its cone is not read). */
+function sceneLamps(scene: THREE.Scene, origin: readonly number[]): LampSet {
+  const lo = origin.map((v) => v * VOLUME_BRICK_M);
+  const hi = origin.map((v, a) => (v + VOLUME_WINDOW_BRICKS[a]!) * VOLUME_BRICK_M);
+  const found: number[][] = [];
+  const p = new THREE.Vector3();
+  scene.traverseVisible((o) => {
+    const l = o as THREE.PointLight & { isSpotLight?: boolean };
+    if (l.isPointLight !== true && l.isSpotLight !== true) return;
+    if (!(l.intensity > 0) || !(l.distance > 0)) return;
+    l.getWorldPosition(p);
+    const r = l.distance;
+    if (p.x + r < lo[0]! || p.y + r < lo[1]! || p.z + r < lo[2]! || p.x - r > hi[0]! || p.y - r > hi[1]! || p.z - r > hi[2]!) return;
+    found.push([p.x, p.y, p.z, r, l.color.r * l.intensity, l.color.g * l.intensity, l.color.b * l.intensity, l.decay]);
+  });
+  const data = new Float32Array(Math.max(1, found.length) * VOLUME_LAMP_FLOATS);
+  found.forEach((v, k) => data.set(v, k * VOLUME_LAMP_FLOATS));
+  return { data, count: found.length, key: found.map((v) => v.map((x) => x.toFixed(3)).join(',')).join(';'), spheres: found.map((v) => v.slice(0, 4)) };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The GPU side
+
+/** The pool, the colours, the index and the update pass on three's device. */
+class VolumeGpu {
+  pool: THREE.StorageTexture;
+  albedo: THREE.StorageTexture;
+  readonly indexTex: THREE.StorageTexture;
+  capacity: number;
+  /** Toward the sun (xyz), on (w); its colour × intensity. */
+  readonly sun = new Float32Array(7);
+  private readonly skyCoefficients = new Float32Array(12);
+  private lampData: Float32Array = new Float32Array(VOLUME_LAMP_FLOATS);
+  private lampCount = 0;
+  private readonly origin = [0, 0, 0];
+  private readonly pipeline: { getBindGroupLayout(i: number): unknown };
+  private readonly params: GpuBuffer;
+  private list: GpuBuffer | null = null;
+  private lampBuf: GpuBuffer | null = null;
+  private bind: { group: unknown; key: readonly unknown[] } | null = null;
+  private readonly query: unknown;
+  private readonly stamps: GpuBuffer | null;
+  private timing = false;
+  /** The read's uniforms: the window's corner brick (made once, given to the light's node). */
+  readonly originNode: N = uniform(new THREE.Vector3(0, 0, 0)).setGroup(renderGroup);
+  readonly onTexture: Array<(pool: THREE.Texture, index: THREE.Texture) => void> = [];
+
+  constructor(
+    private readonly device: VolumeDevice,
+    private readonly renderer: RegionTextureRenderer,
+    budgetSlots: number,
+  ) {
+    this.capacity = Math.min(START_SLOTS, budgetSlots);
+    this.pool = uintTexture(VOLUME_POOL_WIDTH, Math.ceil(this.capacity / VOLUME_BRICKS_PER_ROW), 'voxel light volume');
+    this.albedo = uintTexture(VOLUME_ALBEDO_WIDTH, Math.ceil(this.capacity / VOLUME_BRICKS_PER_ROW), 'voxel light volume colours');
+    this.indexTex = uintTexture(VOLUME_WINDOW_BRICKS[0] * VOLUME_WINDOW_BRICKS[2], VOLUME_WINDOW_BRICKS[1], 'voxel light volume index');
+    const module = device.createShaderModule({ code: VOLUME_UPDATE_WGSL, label: 'voxel light volume' }) as { getCompilationInfo?(): Promise<{ messages: ReadonlyArray<{ type: string; lineNum: number; message: string }> }> };
+    void module.getCompilationInfo?.().then((info) => {
+      for (const m of info.messages) if (m.type === 'error') console.error(`voxel light volume WGSL, line ${m.lineNum}: ${m.message}`);
+    });
+    this.pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label: 'voxel light volume' });
+    this.params = device.createBuffer({ size: VOLUME_PARAM_FLOATS * 4, usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST, label: 'voxel light volume params' });
+    const timed = device.features?.has('timestamp-query') === true && device.createQuerySet !== undefined;
+    this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: 2 }) : null;
+    this.stamps = timed ? device.createBuffer({ size: 16, usage: GPU_BUFFER_USAGE.QUERY_RESOLVE | GPU_BUFFER_USAGE.COPY_SRC, label: 'voxel light volume timestamps' }) : null;
+    gpuTextureOf(renderer, this.pool);
+    gpuTextureOf(renderer, this.albedo);
+    gpuTextureOf(renderer, this.indexTex);
+  }
+
+  /** GPU bytes: the pool, the colours, the index and the pass's buffers. */
+  get bytes(): number {
+    return this.capacity * SLOT_BYTES + INDEX_TEXELS * 4 + (this.list?.size ?? 0) + (this.lampBuf?.size ?? 0) + VOLUME_PARAM_FLOATS * 4;
+  }
+
+  setOrigin(o: readonly number[]): void {
+    this.origin[0] = o[0]!;
+    this.origin[1] = o[1]!;
+    this.origin[2] = o[2]!;
+    (this.originNode.value as THREE.Vector3).set(o[0]!, o[1]!, o[2]!);
+  }
+
+  setSky(c: Float32Array): void {
+    this.skyCoefficients.set(c);
+  }
+
+  setLamps(l: LampSet): void {
+    this.lampData = l.data;
+    this.lampCount = l.count;
+  }
+
+  /** The pool and colours doubled (copied over), up to `budget` slots; false: at the budget already. */
+  grow(budget: number): boolean {
+    const next = Math.min(budget, this.capacity * 2);
+    if (next <= this.capacity) return false;
+    const rows = Math.ceil(next / VOLUME_BRICKS_PER_ROW);
+    const pool = uintTexture(VOLUME_POOL_WIDTH, rows, 'voxel light volume');
+    const albedo = uintTexture(VOLUME_ALBEDO_WIDTH, rows, 'voxel light volume colours');
+    copyTextureInto(this.renderer, this.pool, pool, { width: VOLUME_POOL_WIDTH, height: rowsOf(this.capacity), depth: 1 });
+    copyTextureInto(this.renderer, this.albedo, albedo, { width: VOLUME_ALBEDO_WIDTH, height: rowsOf(this.capacity), depth: 1 });
+    this.pool.dispose();
+    this.albedo.dispose();
+    this.pool = pool;
+    this.albedo = albedo;
+    this.capacity = next;
+    this.bind = null;
+    for (const f of this.onTexture) f(this.pool, this.indexTex);
+    return true;
+  }
+
+  writeAlbedo(slot: number, words: Uint32Array): void {
+    uploadTextureRegion(this.renderer, this.albedo, words, { x: (slot % VOLUME_BRICKS_PER_ROW) * VOLUME_BRICK_VOLUME, y: Math.floor(slot / VOLUME_BRICKS_PER_ROW), z: 0, width: VOLUME_BRICK_VOLUME, height: 1, depth: 1 }, 4);
+  }
+
+  writeIndex(index: Uint32Array, rows: Iterable<number>): void {
+    const w = INDEX_WIDTH;
+    for (const y of rows) uploadTextureRegion(this.renderer, this.indexTex, index.subarray(y * w, (y + 1) * w), { x: 0, y, z: 0, width: w, height: 1, depth: 1 }, 4);
+  }
+
+  /** The update of `count` listed bricks dispatched (its GPU ms given to `timed` once read, at most one reading in flight). */
+  dispatch(walk: VoxelWalkGpu, words: Int32Array, count: number, frame: number, timed: (ms: number) => void): boolean {
+    const wb = walk.buffers();
+    if (wb === null) return false;
+    const d = this.device;
+    const STORAGE = GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_DST;
+    this.list = grownGpuBuffer(d, this.list, Math.max(words.byteLength, 256), STORAGE, 'voxel light volume bricks');
+    this.lampBuf = grownGpuBuffer(d, this.lampBuf, Math.max(this.lampData.byteLength, 256), STORAGE, 'voxel light volume lamps');
+    d.queue.writeBuffer(this.list, 0, words);
+    d.queue.writeBuffer(this.lampBuf, 0, this.lampData);
+    const p = new Float32Array(VOLUME_PARAM_FLOATS);
+    const pi = new Int32Array(p.buffer);
+    const pu = new Uint32Array(p.buffer);
+    pi.set([this.origin[0]!, this.origin[1]!, this.origin[2]!, count, VOLUME_WINDOW_BRICKS[0], VOLUME_WINDOW_BRICKS[1], VOLUME_WINDOW_BRICKS[2], VOLUME_RAYS], 0);
+    p.set([this.sun[0]!, this.sun[1]!, this.sun[2]!, this.sun[3]!, this.sun[4]!, this.sun[5]!, this.sun[6]!, VOLUME_SUN_REACH_M], 8);
+    for (let b = 0; b < 4; b++) p.set([this.skyCoefficients[b * 3]!, this.skyCoefficients[b * 3 + 1]!, this.skyCoefficients[b * 3 + 2]!, 0], 16 + b * 4);
+    p.set([VOLUME_RAY_REACH_M, this.lampCount, BOUNCE_ALBEDO, frame], 32);
+    pu.set([wb.maxLevel, VOLUME_POOL_WIDTH, VOLUME_WINDOW_BRICKS[0] * VOLUME_WINDOW_BRICKS[2], VOLUME_ALBEDO_WIDTH], 36);
+    d.queue.writeBuffer(this.params, 0, p);
+    const pool = gpuTextureOf(this.renderer, this.pool) as { createView(): unknown } | null;
+    const albedo = gpuTextureOf(this.renderer, this.albedo) as { createView(): unknown } | null;
+    const index = gpuTextureOf(this.renderer, this.indexTex) as { createView(): unknown } | null;
+    if (pool === null || albedo === null || index === null) return false;
+    const key = [wb.table, wb.pages, pool, albedo, index, this.list, this.lampBuf];
+    if (this.bind === null || this.bind.key.some((k, i) => k !== key[i])) {
+      this.bind = {
+        key,
+        group: d.createBindGroup({
+          layout: this.pipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: this.params } },
+            { binding: 1, resource: { buffer: this.list } },
+            { binding: 2, resource: { buffer: this.lampBuf } },
+            { binding: 3, resource: { buffer: wb.table } },
+            { binding: 4, resource: { buffer: wb.pages } },
+            { binding: 5, resource: pool.createView() },
+            { binding: 6, resource: index.createView() },
+            { binding: 7, resource: albedo.createView() },
+          ],
+        }),
+      };
+    }
+    const enc = d.createCommandEncoder();
+    const time = this.query !== null && this.stamps !== null && !this.timing;
+    const pass = enc.beginComputePass(time ? { label: 'voxel light volume', timestampWrites: { querySet: this.query, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } } : { label: 'voxel light volume' });
+    pass.setPipeline(this.pipeline);
+    pass.setBindGroup(0, this.bind.group);
+    (pass as unknown as { dispatchWorkgroups(x: number, y: number): void }).dispatchWorkgroups(count, VOLUME_FACES);
+    pass.end();
+    let read: GpuBuffer | null = null;
+    if (time) {
+      read = d.createBuffer({ size: 16, usage: GPU_MAP_READ | GPU_BUFFER_USAGE.COPY_DST, label: 'voxel light volume timestamps read' });
+      enc.resolveQuerySet!(this.query, 0, 2, this.stamps!, 0);
+      enc.copyBufferToBuffer(this.stamps!, 0, read, 0, 16);
+    }
+    d.queue.submit([enc.finish()]);
+    if (read !== null) {
+      this.timing = true;
+      const r = read;
+      r.mapAsync(GPU_MAP_READ).then(
+        () => {
+          const t = new BigUint64Array(r.getMappedRange().slice(0));
+          r.unmap();
+          r.destroy();
+          this.timing = false;
+          const ms = Number(t[1]! - t[0]!) / 1e6;
+          if (ms > 0) timed(ms);
+        },
+        () => {
+          r.destroy();
+          this.timing = false;
+        },
+      );
+    }
+    return true;
+  }
+
+  /** Whole pool rows read back (a check of what the pass wrote). */
+  async readRows(rows: readonly number[]): Promise<Map<number, Uint32Array>> {
+    const out = new Map<number, Uint32Array>();
+    const pool = gpuTextureOf(this.renderer, this.pool) as GpuTexture | null;
+    if (pool === null || rows.length === 0) return out;
+    const d = this.device;
+    const bytes = VOLUME_POOL_WIDTH * 4;
+    const buf = d.createBuffer({ size: bytes * rows.length, usage: GPU_MAP_READ | GPU_BUFFER_USAGE.COPY_DST, label: 'voxel light volume read' });
+    const enc = d.createCommandEncoder();
+    rows.forEach((y, k) => enc.copyTextureToBuffer!({ texture: pool, origin: { x: 0, y, z: 0 } }, { buffer: buf, offset: k * bytes, bytesPerRow: bytes, rowsPerImage: 1 } as { buffer: GpuBuffer; bytesPerRow: number; rowsPerImage: number }, { width: VOLUME_POOL_WIDTH, height: 1, depthOrArrayLayers: 1 }));
+    d.queue.submit([enc.finish()]);
+    await buf.mapAsync(GPU_MAP_READ);
+    const all = new Uint32Array(buf.getMappedRange().slice(0));
+    buf.unmap();
+    buf.destroy();
+    rows.forEach((y, k) => out.set(y, all.subarray((k * bytes) / 4, ((k + 1) * bytes) / 4)));
+    return out;
+  }
+
+  dispose(): void {
+    for (const b of [this.params, this.list, this.lampBuf, this.stamps]) b?.destroy();
+    (this.query as { destroy?(): void } | null)?.destroy?.();
+    this.pool.dispose();
+    this.albedo.dispose();
+    this.indexTex.dispose();
+  }
+}
+
+/** The index texture's width (a window row of bricks across, by its depth) and its texels. */
+const INDEX_WIDTH = VOLUME_WINDOW_BRICKS[0] * VOLUME_WINDOW_BRICKS[2];
+const INDEX_TEXELS = INDEX_WIDTH * VOLUME_WINDOW_BRICKS[1];
+
+/** Pool rows `slots` slots take. */
+function rowsOf(slots: number): number {
+  return Math.ceil(slots / VOLUME_BRICKS_PER_ROW);
+}
+
+function uintTexture(width: number, height: number, name: string): THREE.StorageTexture {
+  const t = new THREE.StorageTexture(width, height);
+  t.format = THREE.RedIntegerFormat;
+  t.type = THREE.UnsignedIntType;
+  t.magFilter = t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.name = name;
+  return t;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The read
+
+/** The volume as a light of the scene: lit programs find its node among their lights (and are built again when it comes). */
+export class VoxelVolumeLight extends THREE.Light {
+  readonly isVoxelLightVolume = true;
+  /** The eye of the last frame drawn (world metres; NaN before one). */
+  readonly eye = [NaN, NaN, NaN];
+  constructor(readonly gpu: VolumeGpu, readonly read: boolean) {
+    super(0xffffff, 0);
+    this.name = 'voxel light volume';
+  }
+}
+
+/** The light node of {@link VoxelVolumeLight}: the voxel surfaces' read, built after every light the volume does not hold. */
+class VoxelVolumeLightNode extends (THREE.Node as unknown as new () => { updateType: string; [k: string]: unknown }) {
+  static get type(): string {
+    return 'VoxelVolumeLightNode';
+  }
+  readonly isVoxelLightVolumeNode = true;
+  private readonly pool: N;
+  private readonly index: N;
+
+  constructor(readonly light: VoxelVolumeLight) {
+    super();
+    this.pool = texelTexture(light.gpu.pool);
+    this.index = texelTexture(light.gpu.indexTex);
+    light.gpu.onTexture.push((pool) => void ((this.pool as { value: THREE.Texture }).value = pool));
+    this.updateType = TSL.NodeUpdateType.RENDER;
+  }
+
+  update(frame: { camera?: THREE.Camera | null }): void {
+    const c = frame.camera;
+    if (c === null || c === undefined) return;
+    const e = this.light.eye;
+    e[0] = c.matrixWorld.elements[12]!;
+    e[1] = c.matrixWorld.elements[13]!;
+    e[2] = c.matrixWorld.elements[14]!;
+  }
+
+  setup(builder: N): void {
+    const m = builder.material as { userData?: Record<string, unknown> } | undefined;
+    if (!this.light.read || m?.userData?.[VOLUME_READ_KEY] !== true || builder.renderer?.backend?.isWebGPUBackend !== true) return;
+    const ctx = builder.context;
+    const r = volumeRead(this.pool, this.index, this.light.gpu.originNode, positionWorld, normalWorldGeometry.normalize(), normalWorld);
+    const w = smoothstep(float(0), float(0.25), r.weight).toVar('tlVolumeWeight');
+    const replaced = ctx.irradiance.sub(KEPT_IRRADIANCE).add(ctx.iblIrradiance);
+    const darker = luminance(r.light).div(max(luminance(replaced), float(1e-4))).clamp(0, 1);
+    ctx.radiance.mulAssign(mix(float(1), darker, w));
+    ctx.irradiance.assign(mix(ctx.irradiance, KEPT_IRRADIANCE.add(r.light), w));
+    ctx.iblIrradiance.mulAssign(w.oneMinus());
+  }
+}
+
+/** A pool word's light (TSL; the CPU twin is `volumeDecode`). */
+function decodeNode(w: N): N {
+  const scale = TSL.exp2(float(w.shiftRight(uint(27))).sub(VOLUME_WORD.expBias + VOLUME_WORD.mantissaBits));
+  return vec3(float(w.bitAnd(uint(511))), float(w.shiftRight(uint(9)).bitAnd(uint(511))), float(w.shiftRight(uint(18)).bitAnd(uint(511)))).mul(scale);
+}
+
+/**
+ * The surfaces' read (TSL; the CPU reference is `volumeReadAt`): the light at `p` facing `n`, from the eight cells round
+ * the point half a cell off it along `ng`, and the weight of those holding light.
+ */
+function volumeRead(pool: N, index: N, origin: N, p: N, ng: N, n: N): { light: N; weight: N } {
+  const cellM = VOXEL_SIZE_M;
+  const g = p.add(ng.mul(VOLUME_READ_OFFSET_CELLS * cellM)).div(cellM).sub(0.5);
+  const i0 = g.floor().toVar('tlVolumeCell');
+  const f = g.sub(i0).toVar('tlVolumeFrac');
+  const sum = vec3(0).toVar('tlVolumeSum');
+  const ws = float(0).toVar('tlVolumeWeights');
+  const dims = vec3(VOLUME_WINDOW_BRICKS[0], VOLUME_WINDOW_BRICKS[1], VOLUME_WINDOW_BRICKS[2]);
+  const fx = select(n.x.lessThan(0), uint(1), uint(0));
+  const fy = select(n.y.lessThan(0), uint(3), uint(2));
+  const fz = select(n.z.lessThan(0), uint(5), uint(4));
+  const word = (base: N, face: N): N => {
+    const i = base.add(face);
+    return pool.load(ivec2(int(i.mod(uint(VOLUME_POOL_WIDTH))), int(i.div(uint(VOLUME_POOL_WIDTH))))).x;
+  };
+  for (let k = 0; k < 8; k++) {
+    const pick = (a: 'x' | 'y' | 'z', bit: number): N => (((k >> bit) & 1) === 1 ? f[a] : f[a].oneMinus());
+    const w = pick('x', 0).mul(pick('y', 1)).mul(pick('z', 2));
+    If(w.greaterThan(1e-4), () => {
+      const c = i0.add(vec3((k >> 0) & 1, (k >> 1) & 1, (k >> 2) & 1));
+      const b = c.div(4).floor();
+      const inside = b.greaterThanEqual(origin).all().and(b.lessThan(origin.add(dims)).all());
+      If(inside, () => {
+        const s = b.sub(dims.mul(b.div(dims).floor()));
+        const slot = index.load(ivec2(int(s.x.add(s.z.mul(VOLUME_WINDOW_BRICKS[0]))), int(s.y))).x;
+        If(slot.greaterThan(uint(0)), () => {
+          const l = c.sub(b.mul(4));
+          const local = uint(l.x.add(l.y.mul(4)).add(l.z.mul(16)));
+          const base = slot.sub(uint(1)).mul(uint(VOLUME_BRICK_TEXELS)).add(local.mul(uint(VOLUME_FACES))).toVar();
+          const wx = word(base, fx).toVar();
+          If(wx.notEqual(uint(0)), () => {
+            const lx = decodeNode(wx);
+            const ly = decodeNode(word(base, fy));
+            const lz = decodeNode(word(base, fz));
+            const e = ambientCubeSteps(TSL_SCALAR_OPS, n.x, n.y, n.z, [lx, lx, ly, ly, lz, lz]);
+            sum.addAssign(e.mul(w));
+            ws.addAssign(w);
+          });
+        });
+      });
+    });
+  }
+  return { light: sum.div(max(ws, float(1e-4))), weight: ws };
+}
+
+/** Teach a renderer the volume's light. */
+export function registerVoxelLightVolume(): void {
+  VoxelVolumeLight.registerNode(VoxelVolumeLightNode as never);
+}
+

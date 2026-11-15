@@ -95,6 +95,9 @@ import { pageSearch } from './renderer-factory';
 import { gpuPassHides } from './gpu-pass-hides';
 import { fineDeviceOf } from './voxel-fine-bricks';
 import { VoxelWalkGpu } from './voxel-walk-gpu';
+import { VoxelLightVolume, type VolumeDevice } from './voxel-light-volume';
+import type { RegionTextureRenderer } from './region-texture';
+import { SURFACE_READ_URL_PARAM } from './adapter-surface-light';
 
 /** One edit's way to the screen, as this page saw it (ms). */
 export interface VoxelEditToScreen {
@@ -308,6 +311,9 @@ export class VoxelWorldDraws {
   private readonly ground = (x: number, z: number): number | null => this.groundAt(x, z);
   /** The sun heights the key light's march reads past its map (WebGPU game pages with voxel shadows; null: none). */
   private sun: SunFieldHost | null = null;
+  /** The voxel light volume when it is the store (made with the first world walked on WebGPU), and that world. */
+  private volume: VoxelLightVolume | null = null;
+  private volumeWorld: string | null = null;
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.lightStore = opts.lighting === true ? voxelLightStoreFromUrl(pageSearch()) : 'off';
@@ -530,6 +536,7 @@ export class VoxelWorldDraws {
       for (const w of this.worlds.values()) w.surface.grids.frame();
       threadProfiler.end(VOXEL_GRIDS_SPAN);
       this.sunFrame();
+      this.volumeFrame();
       this.capArrays();
       if (this.worlds.size > 0 || this.waiting.length > 0) this.loop();
     };
@@ -547,6 +554,27 @@ export class VoxelWorldDraws {
     const budget = frameSliceMs('surfacePrepare');
     sun.field.frame(() => performance.now() - t0 < budget, this.opts.renderer() as unknown as SunFieldRenderer | null);
     threadProfiler.end(VOXEL_SUN_SPAN);
+  }
+
+  /** With the volume store: the volume made once a world walks on the GPU, and its frame's share. */
+  private volumeFrame(): void {
+    if (this.lightStore !== 'volume' || this.opts.lighting !== true) return;
+    if (this.volume === null) {
+      const world = [...this.walks.keys()][0];
+      const renderer = this.opts.renderer();
+      const scene = this.opts.scene();
+      const device = renderer === null ? null : fineDeviceOf(renderer);
+      if (world === undefined || renderer === null || scene === null || device === null || this.walks.get(world)!.buffers() === null) return;
+      this.volumeWorld = world;
+      this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), read: new URLSearchParams(pageSearch()).get(SURFACE_READ_URL_PARAM) !== '0' });
+      // The grids of chunks drawn before it came are not at hand: their bricks bounce the default grey until drawn again.
+    }
+    this.volume.frame();
+  }
+
+  /** The voxel light volume (null: the store is not the volume, or not made yet). */
+  lightVolume(): VoxelLightVolume | null {
+    return this.volume;
   }
 
   /** The sun march off (true) or back to the tier's (a page hook's comparison). */
@@ -651,6 +679,7 @@ export class VoxelWorldDraws {
     if (this.opts.lighting !== true || store === this.lightStore) return;
     const was = voxelStoreUsesCache(this.lightStore);
     this.lightStore = store;
+    if (store !== 'volume') this.dropVolume();
     const scene = this.opts.scene();
     if (scene === null || was === voxelStoreUsesCache(store)) return;
     if (was) {
@@ -658,6 +687,12 @@ export class VoxelWorldDraws {
       this.light = null;
     }
     for (const [name, w] of this.worlds) this.lightWorld(name, w.view, w.edge, w.webgpu, scene);
+  }
+
+  private dropVolume(): void {
+    this.volume?.dispose();
+    this.volume = null;
+    this.volumeWorld = null;
   }
 
   /** The surface cache's feed of the worlds' surfaces (null: the store is not the cache, or not WebGPU). */
@@ -681,10 +716,14 @@ export class VoxelWorldDraws {
       g = new VoxelWalkGpu(device as ConstructorParameters<typeof VoxelWalkGpu>[0]);
       this.walks.set(world, g);
     }
+    const v = world === this.volumeWorld ? this.volume : null;
+    const was = v?.beforeWalk(g.table, wires) ?? null;
     g.apply(wires);
+    if (was !== null) v!.afterWalk(g.table, was);
   }
 
   private close(name: string): void {
+    if (name === this.volumeWorld) this.dropVolume();
     this.walks.get(name)?.dispose();
     this.walks.delete(name);
     this.skies.delete(name);
@@ -723,6 +762,7 @@ export class VoxelWorldDraws {
     if (!ready) return false;
     const w = this.worlds.get(b.world)!;
     if (b.relief !== undefined) this.giveRelief(w, b.relief);
+    if (b.world === this.volumeWorld && this.volume !== null) for (const c of b.chunks) if ((c.level ?? 0) === 0) this.volume.chunkGrid(c.cx, c.cy, c.cz, c.kind === 'remove' ? null : (c.cells ?? null), c.kind === 'remove' ? -1 : (c.solid ?? (c.cells !== undefined ? -1 : 0)));
     this.applyWalk(b.world, b.walk);
     if (b.sky !== undefined) {
       let k = this.skies.get(b.world);
@@ -765,6 +805,7 @@ export class VoxelWorldDraws {
     this.groundLink = null;
     this.sun?.dispose();
     this.sun = null;
+    this.dropVolume();
     this.light?.unlink();
     this.light = null;
     if (this.raf !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.raf);

@@ -176,8 +176,8 @@ class ObjectTile {
   }
 }
 
-/** The irradiance of the lights the probes do not hold (set by the lights node before the held ones build). */
-const KEPT_IRRADIANCE = property('vec3', 'tlProbeKeptIrradiance');
+/** The irradiance of the lights the probes do not hold (set by the lights node before the held ones build; the voxel light volume's read replaces the same). */
+export const KEPT_IRRADIANCE = property('vec3', 'tlProbeKeptIrradiance');
 
 /** First-order spherical harmonics irradiance (the first two bands of three's `getShIrradianceAt`) from the packed light texels. */
 function shIrradiance(n: N, s: N[]): N {
@@ -410,7 +410,7 @@ class ProbeLightingNode extends (THREE.Node as unknown as new () => { updateType
   }
 }
 
-type LightNodeLike = { readonly isProbeLightingNode?: boolean; readonly light?: THREE.Light; build(builder: unknown): unknown };
+type LightNodeLike = { readonly isProbeLightingNode?: boolean; readonly isVoxelLightVolumeNode?: boolean; readonly light?: THREE.Light; build(builder: unknown): unknown };
 
 const isHeld = (n: LightNodeLike): boolean => n.light?.userData[PROBE_HELD_KEY] === true;
 
@@ -455,20 +455,23 @@ class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => {
     // A block chunk's corner shading darkens the indirect light whatever lights it.
     applyBlockOcclusion(builder);
     const probe = nodes.find((n) => n.isProbeLightingNode === true);
+    // The voxel light volume replaces the held light as the probes do, after them (where it holds light, its own).
+    const volume = nodes.find((n) => n.isVoxelLightVolumeNode === true);
     // A build reading the surface cache: its light first, the lights the cache holds give only their highlights.
     const read = buildSurfaceRead(builder) !== 0;
-    if (probe === undefined) {
+    if (probe === undefined && volume === undefined) {
       if (read) buildReadLights(builder, nodes, isCacheLight);
       else super.setupLights(builder, nodes);
       return;
     }
-    const later = nodes.filter((n) => n !== probe && isHeld(n));
-    const first = nodes.filter((n) => n !== probe && !later.includes(n));
+    const later = nodes.filter((n) => n !== probe && n !== volume && isHeld(n));
+    const first = nodes.filter((n) => n !== probe && n !== volume && !later.includes(n));
     if (read) buildReadLights(builder, first, isCacheLight);
     else for (const n of first) n.build(builder);
     KEPT_IRRADIANCE.assign(builder.context.irradiance);
     for (const n of later) n.build(builder);
-    probe.build(builder);
+    probe?.build(builder);
+    volume?.build(builder);
   }
 }
 

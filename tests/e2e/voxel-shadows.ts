@@ -421,6 +421,134 @@ export async function voxelCacheLightChecks(o: FarLightSetup): Promise<void> {
   expect(boxCache.lum, 'the moving box inside reads the probes: darker than by the flat term').toBeLessThan(HUT_DARK_SHARE * boxOff.lum);
 }
 
+/** The light volume's progress and a cell read back (the page's `__tlVoxelPlay.light.progress` / `volumeCells`). */
+interface VolumeProgress {
+  readonly texelsWritten: number;
+  readonly staleUnits: number;
+  readonly waiting: number;
+  readonly settled: boolean;
+}
+interface VolumeCell {
+  readonly cell: number[];
+  readonly kept: boolean;
+  readonly updates: number;
+  readonly holds: boolean;
+  readonly faces: (number[] | null)[];
+}
+
+const clum = (c: readonly number[] | null): number => (c === null ? 0 : 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!);
+
+/**
+ * The mean green over red of a picture over the hut's walls: pixels not near black where `walls` (the green-floor
+ * picture) is redder than green, so the green floor itself is left out of both pictures' readings.
+ */
+function greenOverRed(img: Png, walls: Png): { ratio: number; n: number } {
+  let g = 0;
+  let r = 0;
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const w = walls.pixel(x, y);
+    const p = img.pixel(x, y);
+    if (w[1]! >= w[0]! || p[0]! + p[1]! + p[2]! < 15) continue;
+    g += p[1]!;
+    r += p[0]!;
+    n++;
+  }
+  return { ratio: r === 0 ? 0 : g / r, n };
+}
+
+/**
+ * The voxel light volume (the store `volume`), on the hut the probe checks use: the store off, the shut hut's walls
+ * by the flat term; switched to the volume and settled, darker (sky occluded); the volume's cells read back from the
+ * GPU round the hut against the CPU's rule (which cells hold light), a cell over the roof under open sky against the
+ * sky term, a cell inside the shut hut near none; the roof opened, brighter once settled again; the floor repainted
+ * green under the open roof, the walls greener by its bounce than over the plaster floor; off again, the picture is
+ * the store-off one.
+ */
+export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
+  const { ids, away } = o;
+  const { control, counter, rel, place, still } = driver(o);
+  const hook = async <T>(f: string, arg?: unknown): Promise<T> => (await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate((_, a) => {
+    const l = (window as unknown as { __tlVoxelPlay: { light: Record<string, (x?: unknown) => unknown> } }).__tlVoxelPlay.light;
+    return l[a.f]!(a.arg);
+  }, { f, arg })) as T;
+  let last: VolumeProgress | null = null;
+  const settled = async (what: string): Promise<number> => {
+    const t0 = Date.now();
+    try {
+      await expect.poll(async () => {
+        last = await hook<VolumeProgress | null>('progress');
+        return last !== null && last.settled && last.texelsWritten > 0 && last.waiting === 0;
+      }, { timeout: 60_000, intervals: [250], message: `${what}: the light volume settles` }).toBe(true);
+    } catch (e) {
+      throw new Error(`${String(e).slice(0, 300)}; the last reading: ${JSON.stringify(last)}; ${JSON.stringify(await hook('volume')).slice(0, 1200)}`);
+    }
+    return Date.now() - t0;
+  };
+  const counted = async (cmd: string, name: string): Promise<void> => {
+    const n = await counter(name);
+    await control(cmd);
+    await expect.poll(() => counter(name), { timeout: 10_000 }).toBe(n + 1);
+  };
+  expect(await hook<string>('store')).toBe('off');
+  await place(ids.lamp, away);
+  const offBefore = await still('volume-off-before');
+  const eye = rel(0, 2.2, 9.5);
+  await counted('hut', 'hutBuilt');
+  await place(o.camera, eye);
+  const hutOff = await still('volume-hut-off');
+  await hook('setStore', 'volume');
+  const litMs = await settled('the store switched');
+  const shut = await still('volume-hut-shut');
+  // The cells round the hut read back from the GPU, the CPU's rule beside each.
+  const pts: number[][] = [];
+  for (let x = -3; x <= 3; x += 0.5) for (let y = -0.5; y <= 4; y += 0.5) for (let z = 1.5; z <= 11; z += 0.5) pts.push(rel(x + 0.25, y + 0.25, z + 0.25));
+  const cells = (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? [];
+  const updated = cells.filter((c) => c.updates > 0);
+  const holdsGpu = updated.filter((c) => c.faces.some((f) => f !== null)).length;
+  const differ = updated.filter((c) => c.holds !== c.faces.some((f) => f !== null));
+  const [inside, roof] = (await hook<VolumeCell[] | null>('volumeCells', [rel(0.25, 0.75, 6.25), rel(0.25, 3.75, 6.25)])) ?? [];
+  const sky = ((await hook<{ skyUp: number[] } | null>('volume'))?.skyUp ?? [0, 0, 0]) as number[];
+  const t0 = Date.now();
+  await counted('hutopen', 'hutOpened');
+  await expect.poll(async () => (await hook<VolumeProgress | null>('progress'))?.staleUnits ?? 0, { timeout: 10_000, intervals: [50], message: 'the opened roof makes bricks stale' }).toBeGreaterThan(0);
+  await settled('the hut opened');
+  const openMs = Date.now() - t0;
+  const open = await still('volume-hut-open');
+  // The floor repainted green under the open roof, then plaster again: the walls' bounce takes its colour.
+  await counted('hutgreen', 'hutGreen');
+  await expect.poll(async () => (await hook<VolumeProgress | null>('progress'))?.staleUnits ?? 0, { timeout: 10_000, intervals: [50], message: 'the repainted floor makes bricks stale' }).toBeGreaterThan(0);
+  await settled('the floor green');
+  const green = await still('volume-hut-green');
+  await counted('hutplain', 'hutPlain');
+  await expect.poll(async () => (await hook<VolumeProgress | null>('progress'))?.staleUnits ?? 0, { timeout: 10_000, intervals: [50], message: 'the floor plaster again makes bricks stale' }).toBeGreaterThan(0);
+  await settled('the floor plaster');
+  const plain = await still('volume-hut-plain');
+  const stats = await hook('volume');
+  await counted('hutshut', 'hutShut');
+  await hook('setStore', 'off');
+  await expect.poll(() => hook('volume'), { timeout: 10_000 }).toBeNull();
+  await place(o.camera, o.cameraAt);
+  await counted('unhut', 'hutDug');
+  const offAfter = await still('volume-off-after');
+  const same = changedPixels(offBefore, offAfter, () => true, 20);
+  const walls = { off: meanLum(hutOff, WALL_ROWS), shut: meanLum(shut, WALL_ROWS), open: meanLum(open, WALL_ROWS) };
+  const tint = { green: greenOverRed(green, green), plain: greenOverRed(plain, green) };
+  console.log(`[voxel-play] light volume: settled ${litMs} ms after the switch (${JSON.stringify(stats).slice(0, 900)}); hut walls off ${walls.off.toFixed(1)}, shut ${walls.shut.toFixed(1)}, open ${walls.open.toFixed(1)} (roof opened → settled ${openMs} ms); walls' green/red over the green floor ${tint.green.ratio.toFixed(4)} against ${tint.plain.ratio.toFixed(4)} over plaster (${tint.green.n} px); cells round the hut ${cells.length}, updated ${updated.length}, holding light on the GPU ${holdsGpu}, differing from the CPU's rule ${differ.length}; inside the shut hut ${JSON.stringify(inside?.faces)}; over its roof ${JSON.stringify(roof?.faces)} against the sky's ${JSON.stringify(sky)}; off before and after ${same} px apart`);
+  expect(updated.length, 'cells round the hut were updated').toBeGreaterThan(200);
+  expect(holdsGpu, 'cells round the hut hold light on the GPU').toBeGreaterThan(100);
+  expect(differ.length, JSON.stringify(differ.slice(0, 3))).toBe(0);
+  expect(inside?.holds, 'the cell over the shut hut floor holds light').toBe(true);
+  expect(Math.max(...(inside?.faces ?? []).map(clum)), 'inside the shut hut the volume holds next to no light').toBeLessThan(VOLUME_DARK_SHARE * clum(sky));
+  expect(clum(roof?.faces[2] ?? null), "over the roof, the up face holds about the sky's light").toBeGreaterThan(VOLUME_SKY_SHARE[0] * clum(sky));
+  expect(clum(roof?.faces[2] ?? null), "over the roof, the up face holds about the sky's light").toBeLessThan(VOLUME_SKY_SHARE[1] * clum(sky));
+  expect(walls.shut, 'the shut hut is darker inside by the volume than by the flat ambient term').toBeLessThan(HUT_DARK_SHARE * walls.off);
+  expect(walls.open, 'the roof opened, the hut is brighter inside').toBeGreaterThan(HUT_OPEN_FACTOR * walls.shut);
+  expect(tint.green.n, 'the walls are in view').toBeGreaterThan(5000);
+  expect(tint.green.ratio, "the walls take the green floor's bounce").toBeGreaterThan(VOLUME_TINT_FACTOR * tint.plain.ratio);
+  expect(same, 'switched off, the picture is the store-off one').toBeLessThan(CACHE_SAME_MAX_PX);
+}
+
 /** The resolve pass's voxel texels against its CPU twin's (the page's `__tlVoxelPlay.light.resolveCheck`). */
 interface ResolveCheck {
   readonly rays: number;
@@ -571,3 +699,14 @@ const EDIT_LIT_AGAIN_SHARE = 0.7;
 const HUT_DARK_SHARE = 0.5;
 const HUT_OPEN_FACTOR = 3;
 const RESOLVE_MISMATCH_MAX = 0;
+
+/**
+ * The light volume's bounds, set before its first run (not from a reading): a cell in the shut hut holds under a
+ * twentieth of the open sky's light on its brightest face (no light reaches it but by the walls' 0.5 m plaster); the
+ * up face of a cell over the roof within 0.6–1.3 of the sky's light facing up (rays past 24 m count as the sky, and a
+ * hill or the far field may close a little of it); the walls' green over red at least 2 % up over a green floor in the
+ * open hut than over plaster.
+ */
+const VOLUME_DARK_SHARE = 0.05;
+const VOLUME_SKY_SHARE: readonly [number, number] = [0.6, 1.3];
+const VOLUME_TINT_FACTOR = 1.02;

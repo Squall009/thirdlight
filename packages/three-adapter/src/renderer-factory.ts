@@ -34,6 +34,7 @@ import { registerLayeredLights } from './light-layers';
 import { registerScreenSpaceOcclusion } from './post-ao';
 import { registerContactShadows } from './post-contact-shadows';
 import { registerSunField } from './voxel-sun-field';
+import { registerVoxelLightVolume } from './voxel-light-volume';
 import { registerReflections } from './post-reflections';
 import { registerProbeLighting } from './probe-lighting';
 import { registerClusterHeat } from './cluster-heat';
@@ -360,6 +361,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     registerContactShadows();
     // And the voxel sun heights, a light the key light's shadow reads past its map.
     registerSunField();
+    // And the voxel light volume, a light voxel surfaces read their soft light from in place of the flat ambient.
+    registerVoxelLightVolume();
     registerReflections();
     // And objects that take no local light (their material's mode variant per draw).
     installLocalLightModes(r as never);

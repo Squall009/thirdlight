@@ -98,7 +98,7 @@ import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-
 import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
-import { voxelCacheLightChecks, voxelFarLightChecks, voxelShadowChecks } from './voxel-shadows';
+import { voxelCacheLightChecks, voxelFarLightChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -1037,6 +1037,9 @@ async function playProject(): Promise<[number, number, number]> {
     "    for (const _ of ctx.debug.command('hutopen')) ctx.game.add(v.dig(hutRoof).ok ? 'hutOpened' : 'hutRefused', 1);",
     `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(hutRoof, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
     "    for (const _ of ctx.debug.command('unhut')) ctx.game.add(v.dig(box(-2.5, 0, 2, 2.5, 3.5, 10.5)).ok ? 'hutDug' : 'hutRefused', 1);",
+    // The hut's floor slab repainted (its shape as it was): the light volume's bounce takes the floor's colour.
+    `    for (const _ of ctx.debug.command('hutgreen')) ctx.game.add(v.set(box(-2, 0, 2.5, 2, 0.5, 10), { material: ${MAT.grass}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutGreen' : 'hutRefused', 1);`,
+    `    for (const _ of ctx.debug.command('hutplain')) ctx.game.add(v.set(box(-2, 0, 2.5, 2, 0.5, 10), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutPlain' : 'hutRefused', 1);`,
     "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
     '    if (state.rooms) {',
     "      const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));",
@@ -1441,6 +1444,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     await voxelShadowChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
     await voxelFarLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
     await voxelCacheLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
+    await voxelVolumeLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);

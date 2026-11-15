@@ -1,0 +1,231 @@
+/**
+ * The light volume's layout: its words, the window's wrapped index, which cells hold light and which bricks are kept
+ * against a cell-by-cell reference on generated chunks, the bricks an edit changes and marks, and the surfaces' read
+ * (the ambient cube, and that a reader beside a 0.5 m wall reads only the cells on its own side).
+ */
+import { describe, expect, it } from 'vitest';
+import { CPU_SCALAR_OPS } from '@thirdlight/shared';
+import { OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView, type WalkSource } from '@thirdlight/voxel';
+
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeCellHolds, volumeChangedBricks, volumeDecode, volumeEncode, volumeIndexTexel, volumeMarkedUpdates, volumeReadAt, type VolumeBlockBricks } from './voxel-light-volume-layout';
+
+/** A level-0 source of 32³ blocks over a cell predicate (light and solid alike), known in `[lo, hi)` blocks. */
+function predicateSource(solid: (x: number, y: number, z: number) => boolean, lo: readonly number[], hi: readonly number[]): WalkSource {
+  const cache = new Map<string, WalkBlockView>();
+  return {
+    maxLevel: 0,
+    blockShift: () => 5,
+    block: (_level, bx, by, bz) => {
+      if (bx < lo[0]! || by < lo[1]! || bz < lo[2]! || bx >= hi[0]! || by >= hi[1]! || bz >= hi[2]!) return null;
+      const key = `${bx},${by},${bz}`;
+      const had = cache.get(key);
+      if (had !== undefined) return had;
+      const cells = new Uint8Array(32 ** 3);
+      let n = 0;
+      for (let x = 0; x < 32; x++) for (let z = 0; z < 32; z++) for (let y = 0; y < 32; y++) {
+        const s = solid(bx * 32 + x, by * 32 + y, bz * 32 + z);
+        cells[(x * 32 + z) * 32 + y] = s ? 1 : 0;
+        if (s) n++;
+      }
+      const bricks = new Uint8Array(512);
+      for (let i = 0; i < 512; i++) {
+        const [x0, y0, z0] = [Math.floor(i / 64), i % 8, Math.floor(i / 8) % 8];
+        let k = 0;
+        for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) for (let y = 0; y < 4; y++) k += cells[((x0 * 4 + x) * 32 + z0 * 4 + z) * 32 + y0 * 4 + y]!;
+        bricks[i] = k === 0 ? OCCUPANCY.empty : OCCUPANCY.mixed;
+      }
+      const v: WalkBlockView = { flag: n === 0 ? OCCUPANCY.empty : n === 32 ** 3 ? OCCUPANCY.solid : OCCUPANCY.mixed, brick: (i) => bricks[i]!, cell: (i) => cells[i] === 1 };
+      cache.set(key, v);
+      return v;
+    },
+  };
+}
+
+/** The source's blocks packed into a walk table (what the page holds). */
+function tableOf(src: WalkSource, lo: readonly number[], hi: readonly number[]): WalkTable {
+  const t = new WalkTable();
+  for (let bx = lo[0]!; bx < hi[0]!; bx++) for (let by = lo[1]!; by < hi[1]!; by++) for (let bz = lo[2]!; bz < hi[2]!; bz++) {
+    const p = packWalkBlock(src, 0, bx, by, bz);
+    if (p !== null) t.set(0, bx, by, bz, p);
+  }
+  return t;
+}
+
+/** A town-like scrap: rolling ground, two houses with 0.5 m walls (a door, a window), a dug tunnel, across negative cells. */
+function townCell(x: number, y: number, z: number): boolean {
+  const ground = Math.floor(2 + 2 * Math.sin(x * 0.11) + Math.cos(z * 0.07) * 2);
+  if (y <= ground && !(y > ground - 6 && y < ground - 1 && Math.abs(z - 10) < 3 && x > -20 && x < 20)) return true;
+  for (const [hx, hz] of [[-24, -18], [14, 20]] as const) {
+    const inX = x >= hx && x < hx + 16;
+    const inZ = z >= hz && z < hz + 12;
+    const floorY = 7;
+    if (!inX || !inZ || y < floorY || y > floorY + 8) continue;
+    const wall = x === hx || x === hx + 15 || z === hz || z === hz + 11 || y === floorY || y === floorY + 8;
+    const door = z === hz && x >= hx + 6 && x < hx + 8 && y < floorY + 5;
+    const window = x === hx + 15 && z >= hz + 4 && z < hz + 6 && y >= floorY + 3 && y < floorY + 5;
+    if (wall && !door && !window) return true;
+  }
+  return false;
+}
+
+const LO = [-2, -1, -2];
+const HI = [2, 1, 2];
+
+describe('the light volume layout', () => {
+  it('words: RGB9E5 within its precision, the word 0 only for none held', () => {
+    let worst = 0;
+    let s = 7;
+    const rnd = (): number => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+    for (let i = 0; i < 4000; i++) {
+      const top = 10 ** (rnd() * 8 - 4);
+      const c = [rnd() * top, rnd() * top, rnd() * top] as const;
+      const w = volumeEncode(c[0], c[1], c[2]);
+      expect(w).not.toBe(0);
+      const d = volumeDecode(w);
+      const m = Math.max(...c);
+      for (let k = 0; k < 3; k++) worst = Math.max(worst, Math.abs(d[k]! - c[k]!) / m);
+    }
+    // Nine bits of mantissa under the largest channel: within 1/256 of it.
+    expect(worst).toBeLessThan(1 / 256);
+    expect(volumeEncode(0, 0, 0)).not.toBe(0);
+    expect(volumeDecode(volumeEncode(0, 0, 0))).toEqual([0, 0, 0]);
+    expect(volumeDecode(0)).toEqual([0, 0, 0]);
+  });
+
+  it('the window index: a brick and its neighbours in distinct places, wrapped across negative bricks', () => {
+    const [W, H, D] = VOLUME_WINDOW_BRICKS;
+    for (const o of [[0, 0, 0], [-37, -5, 1201], [-4096, 900, -3]]) {
+      const seen = new Set<string>();
+      for (let x = 0; x < W; x += 3) for (let y = 0; y < H; y += 2) for (let z = 0; z < D; z += 3) {
+        const t = volumeIndexTexel(o[0]! + x, o[1]! + y, o[2]! + z);
+        expect(t[0]).toBeGreaterThanOrEqual(0);
+        expect(t[0]).toBeLessThan(W * D);
+        expect(t[1]).toBeGreaterThanOrEqual(0);
+        expect(t[1]).toBeLessThan(H);
+        seen.add(t.join(','));
+      }
+      expect(seen.size).toBe(Math.ceil(W / 3) * Math.ceil(H / 2) * Math.ceil(D / 3));
+    }
+    // A window moved by one brick keeps every place but the column that left.
+    expect(volumeIndexTexel(5, 1, 7)).toEqual(volumeIndexTexel(5 + W, 1 + H, 7 + D));
+  });
+
+  it('which cells hold light, against a cell-by-cell reference; every one in a kept brick', () => {
+    const src = predicateSource(townCell, LO, HI);
+    const table = tableOf(src, LO, HI);
+    const tsrc = table.source();
+    const blocks = new Map<string, VolumeBlockBricks | null>();
+    const lookup = (bx: number, by: number, bz: number): VolumeBlockBricks | null => {
+      const k = `${bx},${by},${bz}`;
+      if (!blocks.has(k)) {
+        const v = tsrc.block(0, bx, by, bz, 'light');
+        blocks.set(k, v === null ? null : volumeBlockBricks(v));
+      }
+      return blocks.get(k)!;
+    };
+    let holds = 0;
+    let kept = 0;
+    const keptBricks = new Set<string>();
+    for (let x = -60; x < 60; x++) for (let y = -8; y < 24; y++) for (let z = -60; z < 60; z++) {
+      // The reference: open by the predicate, with a solid one across a face (unknown space is open).
+      const known = (cx: number, cy: number, cz: number): boolean => cx >= LO[0]! * 32 && cy >= LO[1]! * 32 && cz >= LO[2]! * 32 && cx < HI[0]! * 32 && cy < HI[1]! * 32 && cz < HI[2]! * 32;
+      const solid = (cx: number, cy: number, cz: number): boolean => known(cx, cy, cz) && townCell(cx, cy, cz);
+      const ref = !solid(x, y, z) && [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => solid(x + dx!, y + dy!, z + dz!));
+      expect(volumeCellHolds(tsrc, x, y, z), `cell ${x},${y},${z}`).toBe(ref);
+      if (!ref) continue;
+      holds++;
+      const b = [x >> 2, y >> 2, z >> 2];
+      if (!keptBricks.has(b.join(','))) {
+        expect(volumeBrickKept(lookup, b[0]!, b[1]!, b[2]!), `brick ${b.join(',')} of cell ${x},${y},${z}`).toBe(true);
+        keptBricks.add(b.join(','));
+      }
+    }
+    // Kept bricks over the same box (some keep no cell: the rule is by bricks).
+    for (let bx = -15; bx < 15; bx++) for (let by = -2; by < 6; by++) for (let bz = -15; bz < 15; bz++) if (volumeBrickKept(lookup, bx, by, bz)) kept++;
+    expect(holds).toBeGreaterThan(10_000);
+    expect(keptBricks.size).toBeLessThanOrEqual(kept);
+    // Bricks kept that hold no light cell (by the update's rule) are a minority of those kept.
+    expect(kept - keptBricks.size).toBeLessThan(0.5 * kept);
+    console.log(`[light volume] ${holds} cells hold light in ${keptBricks.size} bricks; ${kept} kept (${((holds * 24) / 1024).toFixed(0)} KiB at 24 B a cell; ${((kept * 64 * 24) / 1024).toFixed(0)} KiB as kept bricks)`);
+  });
+
+  it('an edit box: the changed bricks are those whose cells changed, and the marks reach no farther than the rays', () => {
+    const lo = [0, 0, 0];
+    const hi = [1, 1, 1];
+    const before = predicateSource(townCell, lo, hi);
+    const box = { x0: 9, x1: 14, y0: 1, y1: 5, z0: 17, z1: 18 };
+    const inBox = (x: number, y: number, z: number): boolean => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1;
+    const after = predicateSource((x, y, z) => (inBox(x, y, z) ? !townCell(x, y, z) : townCell(x, y, z)), lo, hi);
+    const changed = volumeChangedBricks(before.block(0, 0, 0, 0, 'light'), after.block(0, 0, 0, 0, 'light')).map((bi) => volumeBlockBrick(bi).join(','));
+    const want = new Set<string>();
+    for (let x = box.x0; x <= box.x1; x++) for (let y = box.y0; y <= box.y1; y++) for (let z = box.z0; z <= box.z1; z++) want.add([x >> 2, y >> 2, z >> 2].join(','));
+    expect(new Set(changed)).toEqual(want);
+    expect(volumeChangedBricks(before.block(0, 0, 0, 0, 'light'), before.block(0, 0, 0, 0, 'light'))).toEqual([]);
+    // Every brick of a block arriving where none was known, that holds a solid cell, is changed.
+    const arrived = volumeChangedBricks(null, before.block(0, 0, 0, 0, 'light'));
+    expect(arrived.length).toBeGreaterThan(0);
+    // Marks: the reach (in bricks) of 12 round the box's bricks 2 … 3: those past it untouched, those near from nothing.
+    const b0 = [2, 0, 4];
+    const b1 = [3, 1, 4];
+    let marked = 0;
+    let fresh = 0;
+    for (let x = -20; x < 26; x++) for (let y = -14; y < 16; y++) for (let z = -14; z < 22; z++) {
+      const u = volumeMarkedUpdates([x, y, z], b0, b1, 8, 12, 8);
+      const gap = Math.max(Math.max(b0[0]! - x, 0, x - b1[0]!), Math.max(b0[1]! - y, 0, y - b1[1]!), Math.max(b0[2]! - z, 0, z - b1[2]!));
+      if (gap > 12) expect(u).toBeNull();
+      else expect(u).toBe(gap <= VOLUME_MARK_NEAR_BRICKS ? 0 : 4);
+      if (u !== null) marked++;
+      if (u === 0) fresh++;
+    }
+    expect(marked).toBe((2 + 24) * (2 + 24) * (1 + 24));
+    expect(fresh).toBe((2 + 4) * (2 + 4) * (1 + 4));
+    expect(VOLUME_BLOCK_BRICKS).toBe(8);
+  });
+
+  it('the ambient cube: a face along each axis, squares of the normal between, against a reference', () => {
+    const faces: [number, number, number, number, number, number] = [1, 2, 3, 4, 5, 6];
+    const at = (n: readonly number[]): number => ambientCubeSteps(CPU_SCALAR_OPS, n[0]!, n[1]!, n[2]!, faces);
+    expect(at([1, 0, 0])).toBe(1);
+    expect(at([-1, 0, 0])).toBe(2);
+    expect(at([0, 1, 0])).toBe(3);
+    expect(at([0, -1, 0])).toBe(4);
+    expect(at([0, 0, 1])).toBe(5);
+    expect(at([0, 0, -1])).toBe(6);
+    let s = 3;
+    const rnd = (): number => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32) * 2 - 1;
+    for (let i = 0; i < 500; i++) {
+      const v = [rnd(), rnd(), rnd()];
+      const l = Math.hypot(v[0]!, v[1]!, v[2]!) || 1;
+      const n = v.map((c) => c / l);
+      const ref = n[0]! ** 2 * (n[0]! >= 0 ? 1 : 2) + n[1]! ** 2 * (n[1]! >= 0 ? 3 : 4) + n[2]! ** 2 * (n[2]! >= 0 ? 5 : 6);
+      expect(at(n)).toBeCloseTo(ref, 12);
+    }
+  });
+
+  it('the read: a floor reads the cell over it, and a wall 0.5 m thick keeps each side to its own cells', () => {
+    const cellM = 0.5;
+    // A wall one cell thick at x = 10 (cells), from y 0 up; ground below y 0. Room side lit 1, street side 100.
+    const solid = (x: number, y: number): boolean => x === 10 || y < 0;
+    const faces = (x: number, y: number, _z: number): number[][] | null => {
+      if (solid(x, y) || !(solid(x + 1, y) || solid(x - 1, y) || solid(x, y - 1))) return null;
+      const v = x < 10 ? 1 : 100;
+      return Array.from({ length: 6 }, () => [v, v, v]);
+    };
+    for (let k = 0; k < 200; k++) {
+      // Points on the room side of the wall (its face at x = 5 m), at every height and across.
+      const p = [10 * cellM, 0.01 + (k % 20) * 0.37, (k * 0.173) % 3];
+      const r = volumeReadAt(p, [-1, 0, 0], cellM, faces, CPU_SCALAR_OPS);
+      expect(r.weight).toBeGreaterThan(0);
+      expect(r.light[0]).toBeCloseTo(1, 9);
+      const q = [11 * cellM, p[1]!, p[2]!];
+      const o = volumeReadAt(q, [1, 0, 0], cellM, faces, CPU_SCALAR_OPS);
+      expect(o.light[0]).toBeCloseTo(100, 9);
+    }
+    // A floor point reads the open cells over the ground with all its weight.
+    const f = volumeReadAt([2.1, 0, 1.3], [0, 1, 0], cellM, (x, y) => (y === 0 && x < 10 ? [[1, 1, 1], [2, 2, 2], [3, 3, 3], [4, 4, 4], [5, 5, 5], [6, 6, 6]] : null), CPU_SCALAR_OPS);
+    expect(f.weight).toBeCloseTo(1, 6);
+    expect(f.light).toEqual([3, 3, 3]);
+    // Past every cell holding light, no weight: the reader keeps its flat term.
+    expect(volumeReadAt([40, 40, 40], [0, 1, 0], cellM, () => null, CPU_SCALAR_OPS).weight).toBe(0);
+  });
+});
