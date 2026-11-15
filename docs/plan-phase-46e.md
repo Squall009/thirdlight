@@ -1014,7 +1014,10 @@ across chunks (the vitest does). The Play test 2.6–2.8 min alone (2.9 before);
 **Gate.** `gate-fast-20261115-120519` and `-123431` red on the Play test's first cache settle (60 s) under the
 all-areas load (the levels area beside it: probes 6,821 of 56,618 stale after 433 updates; alone 34 s): D686, watch;
 `gate-fast-20261115-125819` red on lint (ESLint out of heap), its rerun `gate-rerun-20261115-130123` green on the
-Play test (lit 32 s), red on two watched tests (`rendering.e2e.ts:491`, D643's terrain impostor ratio 0.583).
+Play test (lit 32 s), red on two watched tests (`rendering.e2e.ts:491`, D643's terrain impostor ratio 0.583). At the
+close (with the docs): `gate-fast-20261115-143421` (Play lit 40 s) red on four watched tests (block-editor D412,
+project-items D331, terrain-cdlod D643, frame-rate-cap D659), green in `gate-rerun-20261115-145359` (village perf 0/360
+missed, main 6.07 ms).
 
 ## 9. Decision log
 
