@@ -25,7 +25,7 @@ import type { EntityDoc } from './adapter-entities';
 import { SurfaceLights } from './adapter-surface-cache';
 import type { SceneLights } from './lights-shadows';
 import type { RenderGraph } from './render-graph';
-import type { SurfaceCacheHost } from './surface-cache-host';
+import type { SurfaceCacheHost, SurfaceVoxelDiagnostics } from './surface-cache-host';
 import { SurfaceLightRuntime, type SurfaceTextureSource } from './surface-light-runtime';
 import { TEXEL_POINT_FLOATS } from './surface-texels';
 import { cacheSuns } from './surface-light-frame';
@@ -44,6 +44,7 @@ import { AdapterSavedLight, LOOKUP_MS, type SavedLightDiagnostics, type SurfaceB
 import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
 import { AdapterLightingViews, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 import { gpuPassHides } from './gpu-pass-hides';
+import type { SurfaceCacheVoxelLink } from './voxel-world-light';
 
 /** How often (ms) the debug look is drawn again while texels change. */
 const VIEW_MS = 200;
@@ -193,7 +194,11 @@ export class AdapterSurfaceLight {
     const device = this.failed || this.host.relightBudgetMs <= 0 ? null : gpu;
     if (device !== this.device || (device !== null && this.host.cache.budgetBytes !== this.budgetFor)) this.drop(device, renderer);
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
-    if (this.runtime !== null) this.runtime.drawnSuns = this.lights.drawnSuns;
+    if (this.runtime !== null) {
+      this.runtime.drawnSuns = this.lights.drawnSuns;
+      // The voxel worlds lit here: their occupancy is traced with the rest.
+      this.runtime.pass.tracer.setVoxelWalk(this.host.voxels.walk());
+    }
     if (!this.gpuHidden) this.runtime?.frame(lights);
     this.syncRead(lights, renderer);
     // Until the light is live (WebGL 2, a level without a live budget, a live light still starting) the saved light is drawn.
@@ -354,6 +359,22 @@ export class AdapterSurfaceLight {
         this.failed = true;
       },
     );
+  }
+
+  /** The scene link's part for voxel worlds lit by the cache (voxel-world-light.ts's `SurfaceCacheVoxelLink`). */
+  voxelLink(): Required<SurfaceCacheVoxelLink> & { voxelDiagnostics(): SurfaceVoxelDiagnostics & { readonly texelsWritten: number; readonly live: boolean; readonly read: boolean } } {
+    const host = this.host;
+    return {
+      voxels: (src) => host.voxels.set(src),
+      voxelDiagnostics: () => ({ ...host.voxels.diagnostics(), texelsWritten: this.runtime?.texelsWritten ?? 0, live: this.runtime !== null, read: this.scene.userData[SURFACE_READ_LIVE_KEY] !== undefined }),
+      traceRays: async (rays) => {
+        const rt = this.runtime;
+        if (rt === null || !rt.pass.tracer.ready) return null;
+        rt.pass.tracer.setVoxelWalk(host.voxels.walk());
+        return rt.pass.tracer.trace(rays);
+      },
+      resolveHit: (hit) => host.resolveScene().scene.resolve(host.cache, hit),
+    };
   }
 
   /** "Bake lighting": this page's live light run to settled and read back (`adapter-surface-bake.ts`). */

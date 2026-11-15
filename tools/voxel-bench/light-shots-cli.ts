@@ -89,6 +89,37 @@ interface Hook {
   shadowDraws(): number | null;
   /** The sun heights the key light's march reads (null: none on the page). */
   sun?(): unknown;
+  /** The lighting store: which, what the surface cache holds of the worlds, and the GPU tracer's voxel hits against the CPU walk's. */
+  light?: { store(): string; cache(): CacheStats | null; check(at: number[], n: number): Promise<unknown> };
+}
+interface CacheStats {
+  tiles: number;
+  resident: number;
+  residentTexels: number;
+  litTexels: number;
+  staleUnits: number;
+  texelsWritten: number;
+  bytes: number;
+  live: boolean;
+  read: boolean;
+}
+
+/** The longest a shot waits for the surface cache to light what is resident (a store that is not the cache: not at all). */
+const CACHE_TIMEOUT_MS = 60_000;
+
+/** Waits until the surface cache's voxel texels are lit (nothing stale, texels written, held a second); how long it took and the stats then. */
+async function cacheLit(game: PlayGame): Promise<{ litS: number | null; cache: CacheStats | null }> {
+  const t0 = Date.now();
+  let calm = 0;
+  let last: CacheStats | null = null;
+  for (;;) {
+    last = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.cache() ?? null).catch(() => null)) as CacheStats | null;
+    if (last === null) return { litS: null, cache: null };
+    calm = last.live && last.resident > 0 && last.staleUnits === 0 && last.texelsWritten > 0 ? calm + 1 : 0;
+    if (calm >= 4) return { litS: Number(((Date.now() - t0) / 1000).toFixed(1)), cache: last };
+    if (Date.now() - t0 > CACHE_TIMEOUT_MS) return { litS: null, cache: last };
+    await game.page.waitForTimeout(250);
+  }
 }
 
 
@@ -183,6 +214,7 @@ async function main(): Promise<void> {
     const errors: string[] = [];
     page.on('console', (m) => void (m.type() === 'error' && errors.push(m.text().slice(0, 200))));
     const game = await openPlay(b, page, { viewport: O.viewport, query: O.query, quality: O.quality, world: O.world });
+    const playAt = Date.now();
     out['renderer'] = await game.frame.evaluate(() => { const c = document.querySelector('canvas[data-tl-renderer]'); return `${c?.getAttribute('data-tl-renderer')}/${c?.getAttribute('data-tl-renderer-state')}`; });
     // The meter exists once the page draws its voxel world.
     for (let i = 0; i < 240 && (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: unknown }).__tlVoxelPlay !== undefined)) === false; i++) await page.waitForTimeout(250);
@@ -195,6 +227,11 @@ async function main(): Promise<void> {
     for (const cam of [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS].filter((c) => O.only.includes(c.name))) {
       await game.debug(cam.command);
       const s = await settle(game);
+      // The surface cache's light caught up (the cache store only): from the camera's move and from Play's start.
+      const store = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.store() ?? 'off')) as string;
+      const lit = store === 'cache' || store === 'hybrid' ? await cacheLit(game) : { litS: null, cache: null };
+      const sincePlayS = Number(((Date.now() - playAt) / 1000).toFixed(1));
+      if (lit.cache !== null) console.log(`${cam.name}: cache lit after ${lit.litS ?? 'never'} s (${sincePlayS} s from Play): ${JSON.stringify(lit.cache)}`);
       await page.waitForTimeout(CONVERGE_MS);
       const file = join(OUT, `${cam.name}.png`);
       const shown = decodePng(await game.screenshot(file));
@@ -207,6 +244,9 @@ async function main(): Promise<void> {
       await meterSet(game, {});
       const voxelShare = changedShare(shown, hidden);
       const sun = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.sun?.() ?? null).catch(() => null);
+      // The cache's tracer through the voxels against the CPU walk: 1,200 rays round the eye.
+      const check = lit.cache === null ? null : await game.frame.evaluate((at) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.check(at, 1200) ?? null, [...cam.eye]).catch((e: unknown) => String(e));
+      if (check !== null) console.log(`${cam.name}: tracer check ${JSON.stringify(check).slice(0, 400)}`);
       let gpu: unknown = null;
       let afterGpuShare: number | null = null;
       let afterGpuLaterShare: number | null = null;
@@ -252,6 +292,11 @@ async function main(): Promise<void> {
         profile: report === null ? null : profileSummary(report),
         memory: report?.counters.memory ?? null,
         sun,
+        store,
+        cache: lit.cache,
+        cacheLitS: lit.litS,
+        sincePlayS,
+        tracerCheck: check,
         ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
         at: host(),
       });

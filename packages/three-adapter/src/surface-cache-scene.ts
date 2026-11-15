@@ -8,6 +8,9 @@
  * - Terrain: its rings (`surface-cache-terrain.ts`).
  * - Generated architecture: a tile per object (`architectureCharts`).
  * - Imported static models: a tile per placed piece (`modelChart`).
+ * - Voxel worlds: a tile per level-0 chunk drawn (`voxelChunkCharts`); a
+ *   hit names its level-0 cell and face (`TRACE_VOXELS`), found on that
+ *   face of the cell or its others (`locateVoxelHit`).
  *
  * Pure (no three.js, no device).
  */
@@ -21,7 +24,8 @@ import type { SurfaceChart } from './surface-cache-atlas';
 import type { TerrainRingSource } from './surface-cache-terrain';
 import { unpackUnorm2, type TraceHit } from './tracer-cpu-math';
 import type { TraceArchitecture, TraceModelInstance } from './tracer-objects';
-import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_TERRAIN, type TraceBlockLayer, type TraceSceneSource, type TraceTerrain } from './tracer-scene';
+import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_TERRAIN, TRACE_VOXELS, type TraceBlockLayer, type TraceSceneSource, type TraceTerrain } from './tracer-scene';
+import { locateVoxelHit, voxelHitCell, type VoxelChunkCharts, type VoxelTile } from './surface-cache-voxels';
 import { invertAffine, type Affine } from './tracer-words';
 
 /** A block layer: its grid, where it sits, which cells stop light, and which chunk columns are loaded. */
@@ -70,6 +74,8 @@ export interface SurfaceSceneInput {
   readonly models?: readonly SurfaceModel[];
   /** Placed models' tiles already made (after `models`'s, in this order). */
   readonly modelTiles?: readonly ModelTile[];
+  /** Voxel worlds' level-0 chunk tiles (made: their charts are asked here). */
+  readonly voxels?: readonly VoxelTile[];
   /** Block and architecture tiles already made, by key (a host's: their charts are not made again). */
   readonly made?: ReadonlyMap<string, SurfaceTile>;
 }
@@ -172,6 +178,9 @@ export class SurfaceScene {
   private readonly archTriStarts: number[] = [];
   private archBoxes = 0;
   private readonly modelTiles: ModelTile[] = [];
+  /** Voxel chunk tiles by their chunk ("x,y,z" of their corner cell ÷ their edge), and each one's charts' tile. */
+  private readonly voxelChunks = new Map<string, VoxelTile>();
+  private readonly voxelTileOf = new Map<VoxelChunkCharts, VoxelTile>();
 
   constructor(readonly input: SurfaceSceneInput) {
     (input.blocks ?? []).forEach((layer, li) => {
@@ -209,6 +218,12 @@ export class SurfaceScene {
       tris += nt;
       this.archObjects.push({ tile, boxes: pieces.boxes.length, triangles: nt });
       if (made.charts.length > 0) this.tiles.push(tile);
+    }
+    for (const tile of input.voxels ?? []) {
+      tile.charts();
+      this.voxelChunks.set(tile.cell0.map((v) => Math.floor(v / tile.edge)).join(','), tile);
+      this.voxelTileOf.set(tile.made!, tile);
+      if (tile.made!.charts.length > 0) this.tiles.push(tile);
     }
     for (const tile of [...(input.models ?? []).flatMap((m) => modelPieceTiles(m)), ...(input.modelTiles ?? [])]) {
       this.modelTiles.push(tile);
@@ -276,6 +291,15 @@ export class SurfaceScene {
       const local = tri - this.archTriStarts[o]!;
       return this.archTexel(cache, obj.tile, obj.boxes * 6 + local, trianglePoint(obj.tile.pieces, local, b1, b2));
     }
+    if (hit.kind === TRACE_VOXELS) {
+      const { cell, point } = voxelHitCell(hit);
+      const edge = this.input.voxels?.[0]?.edge ?? 0;
+      if (edge === 0) return null;
+      const at = locateVoxelHit((x, y, z) => this.voxelChunks.get(`${Math.floor(x / edge)},${Math.floor(y / edge)},${Math.floor(z / edge)}`)?.made ?? null, point, cell, hit.face);
+      const tile = at === null ? undefined : this.voxelTileOf.get(at.made);
+      if (at === null || tile === undefined || cache.levelOf(tile.key) === null) return null;
+      return cache.texelOf(tile.key, at.chart, at);
+    }
     if (hit.kind === TRACE_BRICKS) {
       const tile = this.modelTiles[hit.object];
       if (tile === undefined || tile.chart === null) return null;
@@ -294,8 +318,8 @@ export class SurfaceScene {
   }
 
   /** What the GPU resolve's tables are packed from (`surface-resolve.ts`), in the tracer's packing order. */
-  resolveView(): { blockTiles: ReadonlyMap<string, BlockTile>; arch: readonly { tile: ArchTile; boxes: number; triangles: number }[]; models: readonly ModelTile[] } {
-    return { blockTiles: this.blockTiles, arch: this.archObjects, models: this.modelTiles };
+  resolveView(): { blockTiles: ReadonlyMap<string, BlockTile>; arch: readonly { tile: ArchTile; boxes: number; triangles: number }[]; models: readonly ModelTile[]; voxels: readonly VoxelTile[] } {
+    return { blockTiles: this.blockTiles, arch: this.archObjects, models: this.modelTiles, voxels: this.input.voxels ?? [] };
   }
 
   /** The block tile of layer `layer`'s chunk column (for the checks). */

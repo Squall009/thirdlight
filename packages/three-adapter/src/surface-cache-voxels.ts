@@ -44,6 +44,8 @@ export const VOXEL_CHART_TURN = 0.7;
 export const VOXEL_KEY_MARGIN = 2;
 /** Floats a chart cell holds: its height (cells along the face's axis, absolute) and normal. */
 export const VOXEL_SAMPLE_FLOATS = 4;
+/** Bit of a keyed face's offset: the key is the cell behind its surface (a walk's hit there; a drawn pixel never lies in it). */
+export const VOXEL_KEY_BEHIND = 0x8000;
 /** Words of a chart's frame: face, first column along u and v (absolute cells), columns along u and v, first sample. */
 export const VOXEL_FRAME_WORDS = 6;
 
@@ -91,11 +93,52 @@ interface Layer {
   taken: boolean;
 }
 
-interface Sample {
-  readonly z: number;
-  readonly lo: number;
-  readonly hi: number;
-  readonly n: readonly [number, number, number];
+/** Buckets a chunk's samples can fall in: six faces × 256² columns. */
+const BUCKETS = 6 * 256 * 256;
+/** Per bucket, a count and then a start (reused by every charting; only the buckets used are cleared). */
+const bucketCount = new Int32Array(BUCKETS + 1);
+
+/** A chunk's samples as growable columns of numbers. */
+class Samples {
+  key = new Int32Array(1024);
+  z = new Float32Array(1024);
+  dh = new Float32Array(1024);
+  tri = new Int32Array(1024);
+  n = 0;
+  push(key: number, z: number, dh: number, tri: number): void {
+    if (this.n === this.key.length) {
+      const grow = <T extends Int32Array | Float32Array>(a: T): T => {
+        const b = new (a.constructor as new (n: number) => T)(a.length * 2);
+        b.set(a);
+        return b;
+      };
+      this.key = grow(this.key);
+      this.z = grow(this.z);
+      this.dh = grow(this.dh);
+      this.tri = grow(this.tri);
+    }
+    this.key[this.n] = key;
+    this.z[this.n] = z;
+    this.dh[this.n] = dh;
+    this.tri[this.n] = tri;
+    this.n += 1;
+  }
+  /** The samples' indices ordered by bucket (a counting sort over the buckets used). */
+  byBucket(): Int32Array {
+    const out = new Int32Array(this.n);
+    const used: number[] = [];
+    for (let i = 0; i < this.n; i += 1) if (bucketCount[this.key[i]!]!++ === 0) used.push(this.key[i]!);
+    used.sort((a, b) => a - b);
+    let at = 0;
+    for (const k of used) {
+      const c = bucketCount[k]!;
+      bucketCount[k] = at;
+      at += c;
+    }
+    for (let i = 0; i < this.n; i += 1) out[bucketCount[this.key[i]!]!++] = i;
+    for (const k of used) bucketCount[k] = 0;
+    return out;
+  }
 }
 
 /** Whether square [x0, x0 + 1] × [y0, y0 + 1] meets triangle (ax, ay), (bx, by), (cx, cy) (separating axes: the square's two, the triangle's three edges). */
@@ -114,25 +157,29 @@ function squareMeetsTriangle(x0: number, y0: number, t: readonly number[]): bool
       mx = -mx;
       my = -my;
     }
-    let least = Infinity;
-    for (const [qx, qy] of [[x0, y0], [x0 + 1, y0], [x0, y0 + 1], [x0 + 1, y0 + 1]] as const) least = Math.min(least, mx * (qx - ax) + my * (qy - ay));
+    // The square's corner farthest against the edge's outward normal.
+    const least = mx * ((mx >= 0 ? x0 : x0 + 1) - ax) + my * ((my >= 0 ? y0 : y0 + 1) - ay);
     if (least > e * Math.hypot(mx, my)) return false;
   }
   return true;
 }
 
-/** The barycentric weights of the point of triangle `t` (2D) nearest (px, py). */
-function nearestWeights(px: number, py: number, t: readonly number[]): [number, number, number] {
-  const [ax, ay, bx, by, cx, cy] = t as [number, number, number, number, number, number];
+/** The barycentric weights of the point of triangle `t` (2D) nearest (px, py), into `out`. */
+function nearestWeights(px: number, py: number, t: readonly number[], out: [number, number, number]): void {
+  const ax = t[0]!, ay = t[1]!, bx = t[2]!, by = t[3]!, cx = t[4]!, cy = t[5]!;
   const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
   if (Math.abs(d) > 1e-12) {
     const wa = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / d;
     const wb = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / d;
     const wc = 1 - wa - wb;
-    if (wa >= 0 && wb >= 0 && wc >= 0) return [wa, wb, wc];
+    if (wa >= 0 && wb >= 0 && wc >= 0) {
+      out[0] = wa;
+      out[1] = wb;
+      out[2] = wc;
+      return;
+    }
   }
   // Outside: the nearest point of the nearest edge.
-  let best: [number, number, number] = [1, 0, 0];
   let bestD = Infinity;
   for (let k = 0; k < 3; k += 1) {
     const i = k;
@@ -145,13 +192,11 @@ function nearestWeights(px: number, py: number, t: readonly number[]): [number, 
     const dd = (qx - px) ** 2 + (qy - py) ** 2;
     if (dd < bestD) {
       bestD = dd;
-      const w: [number, number, number] = [0, 0, 0];
-      w[i] = 1 - s;
-      w[j] = s;
-      best = w;
+      out[0] = out[1] = out[2] = 0;
+      out[i] = 1 - s;
+      out[j] = s;
     }
   }
-  return best;
 }
 
 /** Whether layer `b` continues layer `a` (one chart may hold both). */
@@ -179,10 +224,12 @@ export function walkSolidAt(src: WalkSource): (x: number, y: number, z: number) 
  * nowhere.
  */
 export function voxelChunkCharts(positions: ArrayLike<number>, indices: ArrayLike<number>, cell0: readonly [number, number, number], edge: number, solidAt?: (x: number, y: number, z: number) => boolean | null): VoxelChunkCharts {
-  // Samples by face and column (bucket coordinates from BUCKET_BIAS before the corner).
-  const buckets = new Map<number, Sample[]>();
+  // Samples (a triangle over a column): their bucket (face and column, from BUCKET_BIAS before the corner), height, spread and triangle.
+  const S = new Samples();
+  const normals: number[] = [];
   const P = [[0, 0, 0], [0, 0, 0], [0, 0, 0]] as [number, number, number][];
   const tri = [0, 0, 0, 0, 0, 0];
+  const w = [0, 0, 0] as [number, number, number];
   for (let t = 0; t + 2 < indices.length; t += 3) {
     for (let k = 0; k < 3; k += 1) {
       const v = indices[t + k]! * 3;
@@ -190,72 +237,97 @@ export function voxelChunkCharts(positions: ArrayLike<number>, indices: ArrayLik
     }
     const ux = P[1]![0] - P[0]![0], uy = P[1]![1] - P[0]![1], uz = P[1]![2] - P[0]![2];
     const vx = P[2]![0] - P[0]![0], vy = P[2]![1] - P[0]![1], vz = P[2]![2] - P[0]![2];
-    const n: [number, number, number] = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
-    const len = Math.hypot(n[0], n[1], n[2]);
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
     if (!(len > 1e-9)) continue;
-    n[0] /= len;
-    n[1] /= len;
-    n[2] /= len;
-    const an = n.map(Math.abs);
-    const axis = an[0]! >= an[1]! && an[0]! >= an[2]! ? 0 : an[1]! >= an[2]! ? 1 : 2;
-    const face = axis * 2 + (n[axis]! < 0 ? 1 : 0);
-    const [pu, pv] = FACE_PLANE_AXES[axis]!;
+    nx /= len;
+    ny /= len;
+    nz /= len;
+    const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+    const axis = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;
+    const na = axis === 0 ? nx : axis === 1 ? ny : nz;
+    const face = axis * 2 + (na < 0 ? 1 : 0);
+    const pu = axis === 0 ? 2 : 0;
+    const pv = axis === 1 ? 2 : 1;
     for (let k = 0; k < 3; k += 1) {
       tri[k * 2] = P[k]![pu]!;
       tri[k * 2 + 1] = P[k]![pv]!;
     }
     // How far the surface climbs along the axis over half a column.
-    const dh = (0.5 * (an[pu]! + an[pv]!)) / an[axis]!;
+    const dh = (0.5 * (ax + ay + az - Math.abs(na))) / Math.abs(na);
+    const tn = normals.length / 3;
+    normals.push(nx, ny, nz);
     const u0 = Math.floor(Math.min(tri[0]!, tri[2]!, tri[4]!));
-    const u1 = Math.ceil(Math.max(tri[0]!, tri[2]!, tri[4]!)) - 1;
+    const u1 = Math.max(u0, Math.ceil(Math.max(tri[0]!, tri[2]!, tri[4]!)) - 1);
     const v0 = Math.floor(Math.min(tri[1]!, tri[3]!, tri[5]!));
-    const v1 = Math.ceil(Math.max(tri[1]!, tri[3]!, tri[5]!)) - 1;
-    for (let iv = v0; iv <= Math.max(v0, v1); iv += 1) {
-      for (let iu = u0; iu <= Math.max(u0, u1); iu += 1) {
-        if (!squareMeetsTriangle(iu, iv, tri)) continue;
-        const w = nearestWeights(iu + 0.5, iv + 0.5, tri);
+    const v1 = Math.max(v0, Math.ceil(Math.max(tri[1]!, tri[3]!, tri[5]!)) - 1);
+    // A triangle inside one column meets it: no test.
+    const one = u0 === u1 && v0 === v1;
+    for (let iv = v0; iv <= v1; iv += 1) {
+      for (let iu = u0; iu <= u1; iu += 1) {
+        if (!one && !squareMeetsTriangle(iu, iv, tri)) continue;
+        nearestWeights(iu + 0.5, iv + 0.5, tri, w);
         const z = w[0] * P[0]![axis]! + w[1] * P[1]![axis]! + w[2] * P[2]![axis]!;
         const lu = iu - cell0[pu]! + BUCKET_BIAS;
         const lv = iv - cell0[pv]! + BUCKET_BIAS;
         if (lu < 0 || lv < 0 || lu >= 256 || lv >= 256) continue;
-        const key = (face * 256 + lu) * 256 + lv;
-        let list = buckets.get(key);
-        if (list === undefined) buckets.set(key, (list = []));
-        list.push({ z, lo: z - dh, hi: z + dh, n });
+        S.push((face * 256 + lu) * 256 + lv, z, dh, tn);
       }
     }
   }
-  // Each column's layers: samples a cell or less apart are one surface.
+  // Each column's layers: samples a cell or less apart are one surface (samples whose cell in front is a body: hidden).
   const columns = new Map<number, Layer[]>();
-  for (const [key, list] of buckets) {
-    list.sort((a, b) => a.z - b.z);
-    const layers: Layer[] = [];
-    let cur: Layer | null = null;
+  const order = S.byBucket();
+  const front = [0, 0, 0];
+  for (let a = 0; a < order.length; ) {
+    const key = S.key[order[a]!]!;
+    let b = a + 1;
+    while (b < order.length && S.key[order[b]!] === key) b += 1;
+    // By height within the column (a few samples: insertion).
+    for (let i = a + 1; i < b; i += 1) {
+      const x = order[i]!;
+      let j = i - 1;
+      while (j >= a && S.z[order[j]!]! > S.z[x]!) {
+        order[j + 1] = order[j]!;
+        j -= 1;
+      }
+      order[j + 1] = x;
+    }
     const face = Math.floor(key / 65536);
     const axis = face >> 1;
-    const [pu, pv] = FACE_PLANE_AXES[axis]!;
-    const front = [0, 0, 0];
+    const pu = axis === 0 ? 2 : 0;
+    const pv = axis === 1 ? 2 : 1;
     front[pu] = ((key >> 8) & 255) - BUCKET_BIAS + cell0[pu]!;
     front[pv] = (key & 255) - BUCKET_BIAS + cell0[pv]!;
-    for (const s of list) {
-      front[axis] = Math.floor(s.z + (face & 1 ? -0.5 : 0.5));
+    const layers: Layer[] = [];
+    let cur: Layer | null = null;
+    for (let i = a; i < b; i += 1) {
+      const k = order[i]!;
+      const z = S.z[k]!;
+      const lo = z - S.dh[k]!;
+      const hi = z + S.dh[k]!;
+      const tn = S.tri[k]! * 3;
+      front[axis] = Math.floor(z + (face & 1 ? -0.5 : 0.5));
       if (solidAt?.(front[0]!, front[1]!, front[2]!) === true) continue;
-      if (cur !== null && s.lo <= cur.hi + 1) {
-        cur.z += s.z;
+      if (cur !== null && lo <= cur.hi + 1) {
+        cur.z += z;
         cur.count += 1;
-        cur.lo = Math.min(cur.lo, s.lo);
-        cur.hi = Math.max(cur.hi, s.hi);
-        for (let a = 0; a < 3; a += 1) cur.n[a]! += s.n[a]!;
+        cur.lo = Math.min(cur.lo, lo);
+        cur.hi = Math.max(cur.hi, hi);
+        for (let q = 0; q < 3; q += 1) cur.n[q]! += normals[tn + q]!;
         continue;
       }
-      cur = { z: s.z, lo: s.lo, hi: s.hi, n: [s.n[0], s.n[1], s.n[2]], count: 1, taken: false };
+      cur = { z, lo, hi, n: [normals[tn]!, normals[tn + 1]!, normals[tn + 2]!], count: 1, taken: false };
       layers.push(cur);
     }
+    a = b;
     if (layers.length === 0) continue;
     for (const l of layers) {
       l.z /= l.count;
       const nl = Math.hypot(l.n[0], l.n[1], l.n[2]) || 1;
-      for (let a = 0; a < 3; a += 1) l.n[a]! /= nl;
+      for (let q = 0; q < 3; q += 1) l.n[q]! /= nl;
     }
     columns.set(key, layers);
   }
@@ -264,7 +336,7 @@ export function voxelChunkCharts(positions: ArrayLike<number>, indices: ArrayLik
   const frames: number[] = [];
   const samples: number[] = [];
   const keyed = new Map<number, number>();
-  const order = [...columns.keys()].sort((a, b) => Math.floor(a / 65536) - Math.floor(b / 65536) || (a & 255) - (b & 255) || ((a >> 8) & 255) - ((b >> 8) & 255));
+  const seeds = [...columns.keys()].sort((a, b) => Math.floor(a / 65536) - Math.floor(b / 65536) || (a & 255) - (b & 255) || ((a >> 8) & 255) - ((b >> 8) & 255));
   const pick = (face: number, lu: number, lv: number, ref: Layer, left: Layer | null): Layer | null => {
     if (lu >= 256 || lv >= 256) return null;
     const layers = columns.get((face * 256 + lu) * 256 + lv);
@@ -276,7 +348,7 @@ export function voxelChunkCharts(positions: ArrayLike<number>, indices: ArrayLik
     }
     return best;
   };
-  for (const key of order) {
+  for (const key of seeds) {
     const face = Math.floor(key / 65536);
     const lu0 = (key >> 8) & 255;
     const lv0 = key & 255;
@@ -328,7 +400,8 @@ export function voxelChunkCharts(positions: ArrayLike<number>, indices: ArrayLik
           for (let k = from; k <= to; k += 1) {
             cell[axis] = k;
             const fk = voxelFaceKey(cell0, edge, cell[0]!, cell[1]!, cell[2]!, face);
-            if (fk >= 0 && !keyed.has(fk)) keyed.set(fk, chart * 65536 + (i | (j << 8)));
+            const behind = k === (solidUp ? from : to) ? VOXEL_KEY_BEHIND : 0;
+            if (fk >= 0 && !keyed.has(fk)) keyed.set(fk, chart * 65536 + (i | (j << 8) | behind));
           }
         }
       }
@@ -371,7 +444,7 @@ export function locateVoxelFace(made: VoxelChunkCharts, cell: readonly number[],
   const e = entryOf(made, key);
   if (e < 0) return null;
   const o = made.offsets[e]!;
-  return { chart: made.chartOf[e]!, u: ((o & 255) + fu) * VOXEL_SIZE_M, v: ((o >> 8) + fv) * VOXEL_SIZE_M };
+  return { chart: made.chartOf[e]!, u: ((o & 255) + fu) * VOXEL_SIZE_M, v: (((o >> 8) & 0x7f) + fv) * VOXEL_SIZE_M };
 }
 
 /**
@@ -414,6 +487,25 @@ export function locateVoxelHit(chartsAt: (x: number, y: number, z: number) => Vo
   return best;
 }
 
+/** A voxel hit's (`TRACE_VOXELS`) level-0 cell and its point on the face it entered by (metres). */
+export function voxelHitCell(hit: { readonly face: number; readonly a0: number; readonly a1: number }): { cell: [number, number, number]; point: [number, number, number] } {
+  const cell: [number, number, number] = [(hit.a0 & 0xffff) - 32768, (hit.a1 & 0xffff) - 32768, (hit.a0 >>> 16) - 32768];
+  const axis = Math.min(2, hit.face >> 1);
+  const [pu, pv] = FACE_PLANE_AXES[axis]!;
+  const q = [cell[0], cell[1], cell[2]];
+  // The face it came in by: the cell's +axis side for a face looking +axis.
+  q[axis]! += hit.face & 1 ? 0 : 1;
+  q[pu]! += ((hit.a1 >>> 16) & 255) / 255;
+  q[pv]! += (hit.a1 >>> 24) / 255;
+  return { cell, point: [q[0]! * VOXEL_SIZE_M, q[1]! * VOXEL_SIZE_M, q[2]! * VOXEL_SIZE_M] };
+}
+
+/** A voxel hit's address words (`TRACE_VOXELS`): its level-0 cell, and its place across the face (0–1 along the face's u and v). */
+export function voxelHitWords(cell: readonly number[], fu: number, fv: number): { a0: number; a1: number } {
+  const q = (f: number): number => Math.round(Math.min(1, Math.max(0, f)) * 255);
+  return { a0: (((cell[0]! + 32768) & 0xffff) | (((cell[2]! + 32768) & 0xffff) << 16)) >>> 0, a1: (((cell[1]! + 32768) & 0xffff) | (q(fu) << 16) | (q(fv) << 24)) >>> 0 };
+}
+
 /** How far (m) from a traced hit its light may be read: a cell and a half (a smooth surface lies within a cell of the walk's face). */
 export const VOXEL_HIT_REACH = 1.5 * VOXEL_SIZE_M;
 
@@ -441,40 +533,41 @@ export function voxelChartFrame(made: VoxelChunkCharts, c: number): { face: numb
  * between their centres (held to the chart's columns at its edges).
  */
 export function voxelChartPoint(made: VoxelChunkCharts, c: number, u: number, v: number, out: Float32Array, at: number): void {
-  const { face, u0, v0, wc, hc, first } = voxelChartFrame(made, c);
+  const f = made.frames;
+  const fa = c * VOXEL_FRAME_WORDS;
+  const face = f[fa]!;
+  const wc = f[fa + 3]!;
+  const hc = f[fa + 4]!;
+  const first = f[fa + 5]!;
   const axis = face >> 1;
-  const [pu, pv] = FACE_PLANE_AXES[axis]!;
+  const pu = axis === 0 ? 2 : 0;
+  const pv = axis === 1 ? 2 : 1;
   const cu = Math.min(wc - 1, Math.max(0, u / VOXEL_SIZE_M - 0.5));
   const cv = Math.min(hc - 1, Math.max(0, v / VOXEL_SIZE_M - 0.5));
   const i0 = Math.floor(cu);
   const j0 = Math.floor(cv);
-  const i1 = Math.min(wc - 1, i0 + 1);
-  const j1 = Math.min(hc - 1, j0 + 1);
+  const di = i0 + 1 < wc ? 1 : 0;
+  const dj = j0 + 1 < hc ? wc : 0;
   const tu = cu - i0;
   const tv = cv - j0;
   const s = made.samples;
   const F = VOXEL_SAMPLE_FLOATS;
-  const w = [(1 - tu) * (1 - tv), tu * (1 - tv), (1 - tu) * tv, tu * tv];
-  const idx = [first + j0 * wc + i0, first + j0 * wc + i1, first + j1 * wc + i0, first + j1 * wc + i1];
-  let h = 0;
-  let nx = 0;
-  let ny = 0;
-  let nz = 0;
-  for (let k = 0; k < 4; k += 1) {
-    const o = idx[k]! * F;
-    h += w[k]! * s[o]!;
-    nx += w[k]! * s[o + 1]!;
-    ny += w[k]! * s[o + 2]!;
-    nz += w[k]! * s[o + 3]!;
-  }
+  const o00 = (first + j0 * wc + i0) * F;
+  const o10 = o00 + di * F;
+  const o01 = o00 + dj * F;
+  const o11 = o01 + di * F;
+  const w00 = (1 - tu) * (1 - tv);
+  const w10 = tu * (1 - tv);
+  const w01 = (1 - tu) * tv;
+  const w11 = tu * tv;
+  const h = w00 * s[o00]! + w10 * s[o10]! + w01 * s[o01]! + w11 * s[o11]!;
+  const nx = w00 * s[o00 + 1]! + w10 * s[o10 + 1]! + w01 * s[o01 + 1]! + w11 * s[o11 + 1]!;
+  const ny = w00 * s[o00 + 2]! + w10 * s[o10 + 2]! + w01 * s[o01 + 2]! + w11 * s[o11 + 2]!;
+  const nz = w00 * s[o00 + 3]! + w10 * s[o10 + 3]! + w01 * s[o01 + 3]! + w11 * s[o11 + 3]!;
   const nl = Math.hypot(nx, ny, nz) || 1;
-  const p = [0, 0, 0];
-  p[axis] = h * VOXEL_SIZE_M;
-  p[pu] = u0 * VOXEL_SIZE_M + u;
-  p[pv] = v0 * VOXEL_SIZE_M + v;
-  out[at] = p[0]!;
-  out[at + 1] = p[1]!;
-  out[at + 2] = p[2]!;
+  out[at + axis] = h * VOXEL_SIZE_M;
+  out[at + pu] = f[fa + 1]! * VOXEL_SIZE_M + u;
+  out[at + pv] = f[fa + 2]! * VOXEL_SIZE_M + v;
   out[at + 3] = nx / nl;
   out[at + 4] = ny / nl;
   out[at + 5] = nz / nl;
@@ -540,7 +633,7 @@ export interface VoxelTileMesh {
 }
 
 /** A level-0 chunk's tile (`key`: the world and chunk; `version`: its mesh's). */
-export function voxelChunkTile(key: string, version: number, cell0: readonly [number, number, number], edge: number, mesh: () => VoxelTileMesh | null): VoxelTile {
+export function voxelChunkTile(key: string, version: number, cell0: readonly [number, number, number], edge: number, mesh: () => VoxelTileMesh | null, solidAt?: (x: number, y: number, z: number) => boolean | null): VoxelTile {
   const m = VOXEL_SIZE_M;
   return {
     kind: 'voxels',
@@ -554,7 +647,7 @@ export function voxelChunkTile(key: string, version: number, cell0: readonly [nu
     charts() {
       if (this.made === null) {
         const g = mesh();
-        this.made = g === null ? voxelChunkCharts([], [], cell0, edge) : voxelChunkCharts(g.positions, g.indices, cell0, edge);
+        this.made = g === null ? voxelChunkCharts([], [], cell0, edge) : voxelChunkCharts(g.positions, g.indices, cell0, edge, solidAt);
       }
       return this.made.charts;
     },

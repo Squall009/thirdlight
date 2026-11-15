@@ -68,3 +68,26 @@ export const VOXEL_SUN_URL_PARAM = 'voxelSun';
 export function voxelSunFromUrl(search: string): boolean {
   return new URLSearchParams(search).get(VOXEL_SUN_URL_PARAM) !== 'off';
 }
+
+/**
+ * Where a game page's voxel worlds keep their light (the lighting store; one switch for the stores being compared):
+ * `off` draws them as before (sun, shadows and the clustered lights per pixel), `cache` lights their near surfaces in
+ * the surface cache (surface-cache-voxels.ts), `volume` in a voxel light volume and `hybrid` both, the cache near and
+ * the volume beyond. Set by the page's query, `?voxelLight=off|cache|volume|hybrid`.
+ */
+export const VOXEL_LIGHT_URL_PARAM = 'voxelLight';
+export const VOXEL_LIGHT_STORES = ['off', 'cache', 'volume', 'hybrid'] as const;
+export type VoxelLightStore = (typeof VOXEL_LIGHT_STORES)[number];
+/** The store a page without the flag uses: today's picture, until the stores are chosen between. */
+export const VOXEL_LIGHT_STORE_DEFAULT: VoxelLightStore = 'off';
+
+/** The lighting store a page's query names (absent or unknown: the default). */
+export function voxelLightStoreFromUrl(search: string): VoxelLightStore {
+  const v = new URLSearchParams(search).get(VOXEL_LIGHT_URL_PARAM);
+  return (VOXEL_LIGHT_STORES as readonly string[]).includes(v ?? '') ? (v as VoxelLightStore) : VOXEL_LIGHT_STORE_DEFAULT;
+}
+
+/** Whether a store keeps the near surfaces' light in the surface cache. */
+export function voxelStoreUsesCache(store: VoxelLightStore): boolean {
+  return store === 'cache' || store === 'hybrid';
+}

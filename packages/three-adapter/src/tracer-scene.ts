@@ -38,6 +38,13 @@ export const TRACE_TERRAIN = 2;
 export const TRACE_ARCH = 3;
 export const TRACE_BRICKS = 4;
 /**
+ * A voxel world's occupancy, walked (`voxel-walk-wgsl.ts`): the object is
+ * the world (0: the one the tracer walks), `a0` the level-0 cell's x and z
+ * (each + 32768, 16 bits), `a1` its y (+ 32768, 16 bits) and the hit's
+ * place across the face (u, v: a byte each, of the face's plane axes).
+ */
+export const TRACE_VOXELS = 5;
+/**
  * The step budget ran out before the ray was resolved, even after its
  * resumes (`TRACE_RESUMES`): the hit's `t` is where it stopped. Callers
  * treat it as unknown, never as a miss: a shadow ray is blocked and a

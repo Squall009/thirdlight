@@ -83,7 +83,8 @@ import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRec
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from './voxel-surface';
-import { voxelPathsFromUrl, voxelShadowsFromUrl, voxelSunFromUrl } from './voxel-surface-path';
+import { voxelLightStoreFromUrl, voxelPathsFromUrl, voxelShadowsFromUrl, voxelStoreUsesCache, voxelSunFromUrl, type VoxelLightStore } from './voxel-surface-path';
+import { VoxelLightFeed } from './voxel-world-light';
 import { SunFieldHost, type SunFieldRenderer } from './voxel-sun-field';
 import { sceneShadowsOf, type SceneShadowLink } from './shadow-casters';
 import { farFeedbackFromUrl } from './voxel-far-feedback';
@@ -145,6 +146,12 @@ export interface VoxelWorldDrawsOptions {
    * it off on a page (a comparison).
    */
   readonly shadows?: boolean;
+  /**
+   * The worlds' near surfaces may be lit by the page's lighting store (default false: the editor's Scene view): with
+   * `?voxelLight=cache` on WebGPU the scene's surface cache lights them (voxel-world-light.ts); the default store
+   * (`off`) draws them as before.
+   */
+  readonly lighting?: boolean;
 }
 
 /** The page's say over the voxel texture arrays' resident levels. */
@@ -290,6 +297,9 @@ export class VoxelWorldDraws {
   private readonly walks = new Map<string, VoxelWalkGpu>();
   /** Each world's sky heights by chunk column, as the batches bring them (every renderer: plain arrays). */
   private readonly skies = new Map<string, SkyColumns>();
+  /** The page's lighting store, and the surface cache's feed when it is the cache (made with the first world on WebGPU). */
+  readonly lightStore: VoxelLightStore;
+  private light: VoxelLightFeed | null = null;
   /** The scene shadow link whose ground this page tells (taken back on dispose). */
   private groundLink: SceneShadowLink | null = null;
   private readonly ground = (x: number, z: number): number | null => this.groundAt(x, z);
@@ -297,6 +307,7 @@ export class VoxelWorldDraws {
   private sun: SunFieldHost | null = null;
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
+    this.lightStore = opts.lighting === true ? voxelLightStoreFromUrl(pageSearch()) : 'off';
     this.unregister.push(
       gpuPassHides.register({ category: 'near', name: 'voxel near surfaces and kit pieces', present: () => [...this.worlds.values()].some((w) => w.view.count > 0), hide: (h) => this.showNear(!h) }),
       gpuPassHides.register({ category: 'far', name: 'voxel far field', present: () => [...this.worlds.values()].some((w) => w.view.far.nodes > 0), hide: (h) => this.showFar(!h) }),
@@ -587,7 +598,12 @@ export class VoxelWorldDraws {
     scene.add(view.root);
     const decals = voxelWorldDecalsOf(scene);
     view.setDecalLayers(decals?.layersOf(name));
-    view.setDecalSurfaces(decals?.surfaces ?? null);
+    if (webgpu && voxelStoreUsesCache(this.lightStore)) {
+      // The surface cache hears of the level-0 surfaces beside the decals.
+      this.light ??= new VoxelLightFeed({ buffers: (world) => this.walks.get(world)?.buffers() ?? null, source: (world) => this.walks.get(world)?.table.source() ?? null, worlds: () => this.walks.keys() }, () => this.opts.residency?.level() ?? null);
+      view.setDecalSurfaces(this.light.surfaces(name, edge, decals?.surfaces ?? null));
+      this.light.link(scene);
+    } else view.setDecalSurfaces(decals?.surfaces ?? null);
     // The world's object changed its layers or blend: both are draw data (no remesh; the blend a uniform).
     const unlink = decals?.onChange((world) => {
       if (world !== name) return;
@@ -617,6 +633,11 @@ export class VoxelWorldDraws {
     return top;
   }
 
+  /** The surface cache's feed of the worlds' surfaces (null: the store is not the cache, or not WebGPU). */
+  lightFeed(): VoxelLightFeed | null {
+    return this.light;
+  }
+
   /** A world's occupancy walk on the GPU (null: none yet, or not WebGPU). */
   walk(world: string): VoxelWalkGpu | null {
     return this.walks.get(world) ?? null;
@@ -640,6 +661,7 @@ export class VoxelWorldDraws {
     this.walks.get(name)?.dispose();
     this.walks.delete(name);
     this.skies.delete(name);
+    this.light?.dropWorld(name);
     this.sun?.field.far.removePrefixed(`${name}|`);
     const w = this.worlds.get(name);
     if (w === undefined) return;
@@ -716,6 +738,8 @@ export class VoxelWorldDraws {
     this.groundLink = null;
     this.sun?.dispose();
     this.sun = null;
+    this.light?.unlink();
+    this.light = null;
     if (this.raf !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.raf);
     this.kitLoaded?.();
     this.kitLoaded = null;

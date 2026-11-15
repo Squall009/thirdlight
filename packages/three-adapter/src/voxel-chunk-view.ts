@@ -297,6 +297,9 @@ export interface VoxelPreparedDraw {
 /** What the view tells of the surfaces clipped decals may be cut from (the scene's clipped decals). */
 export type VoxelDecalSurfaces = Pick<SurfaceListener, 'added' | 'removed' | 'moved'>;
 
+/** `mesh.userData[VOXEL_CELL_KEY]`: a chunk's (or node's) surface mesh's corner cell (level-0 cells), for whoever hears of its surfaces. */
+export const VOXEL_CELL_KEY = 'voxelCell';
+
 interface SeamDraw {
   readonly mesh: THREE.Mesh;
   /** The coarse node's corner, level-0 cells. */
@@ -668,6 +671,7 @@ export class VoxelChunkView {
       this.castStatic(mesh);
       mesh.userData['voxelChunk'] = key;
       mesh.userData['voxelLevel'] = level;
+      mesh.userData[VOXEL_CELL_KEY] = cell;
       mesh.userData[VOXEL_SURFACE_KEY] = surface;
       if (this.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = this.decalLayers;
       if (level === 0) {

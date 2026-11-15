@@ -296,7 +296,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const surfaceLight = surfaceCache !== null ? new AdapterSurfaceLight(surfaceCache, scene, entityDocs, graph, probes, { bakes: opts.lighting?.bakes ?? null, loadBytes: opts.lighting?.loadBytes, changed: () => opts.onChange?.() }) : null;
   surfaceLightNow = surfaceLight;
   surfaceLight?.followScenes(followed);
-  if (surfaceLight !== null) Object.assign(scene.userData[SURFACE_CACHE_KEY] as object, { setView: (on: boolean) => surfaceLight.setView(on), light: () => surfaceLight.diagnostics() });
+  if (surfaceLight !== null) Object.assign(scene.userData[SURFACE_CACHE_KEY] as object, { setView: (on: boolean) => surfaceLight.setView(on), light: () => surfaceLight.diagnostics(), ...surfaceLight.voxelLink() });
   /** The level's live-light time, and whether a host holds the light to its saved result (an editor's "live lighting" off). */
   const liveLight = { ms: 0, on: true };
   const liveLighting = {

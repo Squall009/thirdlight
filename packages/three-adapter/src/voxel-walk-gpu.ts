@@ -20,7 +20,7 @@
 import { applyWalkWires, WALK_ENTRY_WORDS, WALK_PAGE_WORDS, WalkTable, walkVoxels, type WalkBatchRay, type WalkBlockWire } from '@thirdlight/voxel';
 
 import { gpuPassHides } from './gpu-pass-hides';
-import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer, type GpuEncoder } from './tracer-gpu';
+import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer, type GpuEncoder, type VoxelWalkBuffers } from './tracer-gpu';
 import { voxelWalkWgsl, WALK_GPU_MAX_STEPS } from './voxel-walk-wgsl';
 
 /** The part of a `GPUDevice` the walk calls. */
@@ -141,6 +141,12 @@ export class VoxelWalkGpu {
     this.pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label: 'occupancy walk' });
     this.params = device.createBuffer({ size: 16, usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST, label: 'occupancy walk params' });
     this.unregister = gpuPassHides.register({ category: 'lighting', name: 'occupancy walk bench', present: () => this.bench !== null, hide: (h) => (this.benchHidden = h) });
+  }
+
+  /** The table and pages as a pass binds them (null: nothing uploaded yet): another pass walks the same buffers (the surface cache's tracer). */
+  buffers(): VoxelWalkBuffers | null {
+    if (this.tableBuf === null || this.pagesBuf === null) return null;
+    return { table: this.tableBuf, pages: this.pagesBuf, maxLevel: this.table.maxLevel };
   }
 
   /** Bytes on the GPU (the two buffers). */

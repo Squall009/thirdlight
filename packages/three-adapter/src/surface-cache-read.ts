@@ -32,9 +32,10 @@ import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
 import { LIT } from './custom-lit';
-import { SURFACE_CHART_METRES, SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
+import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
 import { buildReadsCopyColumns, instanceColumn } from './attribute-instancing';
-import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, BLOCK_LAYERS_HELD, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, RECT_TEXELS, SLOT_TEXELS, SURFACE_READ, SURFEL_KEY_BITS, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
+import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, BLOCK_LAYERS_HELD, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, RECT_TEXELS, SLOT_TEXELS, SURFACE_READ, SURFEL_KEY_BITS, TERRAIN_TEXELS, VOXEL_CELL_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
+import { VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { buildsHighlights, cacheVisibility } from './surface-highlights';
 import { UNCACHED_LIGHT_CONTEXT, type LightSums } from './cluster-lights';
@@ -44,7 +45,7 @@ import { texelTexture } from './texel-texture-node';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Break, Fn, If, Loop, abs, attribute, bool, clamp, cross, dot, float, floor, int, ivec2, max, mix, normalWorldGeometry, positionWorld, property, select, texture, uint, uintBitsToFloat, uniform, uniformArray, uv: uvOf, varying, vec2, vec3 } = TSL;
+const { Break, Fn, If, Loop, abs, attribute, bool, clamp, cross, dFdx, dFdy, dot, float, floor, int, ivec2, max, mix, normalWorldGeometry, positionWorld, property, select, texture, uint, uintBitsToFloat, uniform, uniformArray, uv: uvOf, varying, vec2, vec3 } = TSL;
 
 /** Rows of the lookup texture at first (it doubles when a scene's lookup outgrows it). */
 const TABLE_ROWS = 16;
@@ -147,6 +148,8 @@ export class SurfaceCacheTextures {
    */
   readonly head = uniform(new THREE.Vector4());
   readonly arch = uniform(new THREE.Vector4());
+  /** The voxel hash's slots, first slot and longest probe (header texel 2). */
+  readonly voxels = uniform(new THREE.Vector4());
   /** The first terrain's rings (centre x, z, half side, texel), how many and their first layer: read from uniforms, not the table (most scenes have one terrain). */
   readonly rings0 = uniformArray(Array.from({ length: TERRAIN_RINGS_MAX }, () => new THREE.Vector4()), 'vec4');
   readonly rings0Count = uniform(0, 'int');
@@ -208,6 +211,7 @@ export class SurfaceCacheTextures {
     data.set(words);
     (this.head.value as THREE.Vector4).set(words[0]!, words[1]!, words[2]!, words[3]!);
     (this.arch.value as THREE.Vector4).set(words[4]!, words[5]!, words[6]!, words[7]!);
+    (this.voxels.value as THREE.Vector4).set(words[8]!, words[9]!, words[10]!, words[11]!);
     const f = new Float32Array(words.buffer, words.byteOffset, words.length);
     const rings = (this.rings0 as unknown as { array: THREE.Vector4[] }).array;
     const at = words[3]! * 4;
@@ -447,6 +451,10 @@ function lookupNodes(builder: N, tex: SurfaceCacheTextures, kind: SurfaceReadKin
     modelLookup(builder, tex, texel, layer, uv, found);
     return { layer, uv, found, rings: false };
   }
+  if (kind === SURFACE_READ.voxels) {
+    voxelLookup(tex, texel, layer, uv, found);
+    return { layer, uv, found, rings: false };
+  }
   archLookup(tex, texel, chartAt);
   return { layer, uv, found, rings: false };
 }
@@ -526,6 +534,80 @@ function archLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, chartAt: (c0:
       const hm = TSL.min(cm, f1.w.sub(float(j).mul(cm)));
       chartAt(texel(at.add(uint(RECT_TEXELS)).add(j.mul(nu)).add(i)), r.uu.sub(float(i).mul(cm)), r.vv.sub(float(j).mul(cm)), wm, hm);
     });
+  });
+}
+
+/**
+ * A voxel pixel's place (`lookupVoxelCpu`'s twin): the face its triangle
+ * faces (the flat normal from the position's derivatives, turned to the
+ * geometry's side: a smooth vertex normal may lean past 45° to another face
+ * than its triangle's, whose charts hold it), its cell a little behind that
+ * face, its slot from the cell's home in the voxel hash, probing on at most
+ * the hash's longest probe; the slot names the chart's place and the
+ * pixel's column in it.
+ */
+function voxelLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, layer: N, uv: N, found: N): void {
+  const p = positionWorld;
+  const fn = cross(dFdx(p), dFdy(p));
+  const flat = select(dot(fn, normalWorldGeometry).lessThan(0), fn.negate(), fn).toVar('tlVoxelFlat');
+  const an = abs(flat);
+  const axis = int(0).toVar('tlVoxelAxis');
+  axis.assign(select(an.x.greaterThanEqual(an.y).and(an.x.greaterThanEqual(an.z)), int(0), select(an.y.greaterThanEqual(an.z), int(1), int(2))));
+  const comp = (v: N, a: N): N => select(a.equal(int(0)), v.x, select(a.equal(int(1)), v.y, v.z));
+  const neg = comp(flat, axis).lessThan(0);
+  const face = uint(axis.mul(2)).add(select(neg, uint(1), uint(0))).toVar('tlVoxelFace');
+  const sgn = select(neg, float(-1), float(1));
+  const inset = vec3(select(axis.equal(int(0)), sgn, float(0)), select(axis.equal(int(1)), sgn, float(0)), select(axis.equal(int(2)), sgn, float(0)));
+  const q = p.div(VOXEL_SIZE_M).sub(inset.mul(BLOCK_INSET)).toVar('tlVoxelQ');
+  const cell = TSL.ivec3(floor(q)).toVar('tlVoxelCell');
+  const k0 = uint(cell.x.add(32768)).bitAnd(uint(0xffff)).bitOr(uint(cell.z.add(32768)).bitAnd(uint(0xffff)).shiftLeft(uint(16))).toVar('tlVoxelK0');
+  const k1 = uint(cell.y.add(32768)).bitAnd(uint(0xffff)).bitOr(face.add(uint(1)).shiftLeft(uint(16))).toVar('tlVoxelK1');
+  const cap = uint(tex.voxels.x);
+  const hit = bool(false).toVar('tlVoxelHit');
+  const got = TSL.uvec4(0).toVar('tlVoxelSlot');
+  If(cap.notEqual(uint(0)), () => {
+    const h0 = k0.mul(uint(0x9e3779b1)).bitXor(k1.mul(uint(0x85ebca6b))).toVar();
+    h0.assign(h0.bitXor(h0.shiftRight(uint(16))).mul(uint(0x7feb352d)));
+    const s = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(cap.sub(uint(1))).toVar();
+    const done = bool(false).toVar();
+    const look = (): void => {
+      const slot = texel(uint(tex.voxels.y).add(s));
+      If(slot.y.equal(uint(0)), () => {
+        done.assign(true);
+      }).ElseIf(slot.x.equal(k0).and(slot.y.equal(k1)), () => {
+        done.assign(true);
+        hit.assign(true);
+        got.assign(slot);
+      });
+    };
+    look();
+    If(done.not().and(int(tex.voxels.z).greaterThan(int(0))), () => {
+      Loop(int(tex.voxels.z), () => {
+        s.assign(s.add(uint(1)).bitAnd(cap.sub(uint(1))));
+        look();
+        If(done, () => {
+          Break();
+        });
+      });
+    });
+  });
+  If(hit, () => {
+    const level = got.z.shiftRight(uint(28));
+    const wc = got.w.shiftRight(uint(16)).bitAnd(uint(255));
+    const hc = got.w.shiftRight(uint(24));
+    // `areaTexels` of the chart's sides at its level, in whole texels.
+    const span = (cells: N): N => float(TSL.min(uint(SURFACE_PAGE_TEXELS - 2 * SURFACE_CHART_BORDER), max(uint(1), cells.mul(uint(VOXEL_CELL_TEXELS)).add(uint(1).shiftLeft(level)).sub(uint(1)).shiftRight(level))));
+    const iw = span(wc);
+    const ih = span(hc);
+    const pu = select(axis.equal(int(0)), int(2), int(0));
+    const pv = select(axis.equal(int(1)), int(2), int(1));
+    const fu = clamp(comp(q, pu).sub(float(comp(cell, pu))), float(0), float(1));
+    const fv = clamp(comp(q, pv).sub(float(comp(cell, pv))), float(0), float(1));
+    const x = float(got.z.shiftRight(uint(12)).bitAnd(uint(255))).add(clamp(float(got.w.bitAnd(uint(255))).add(fu).div(float(wc)).mul(iw), float(0.5), iw.sub(0.5)));
+    const y = float(got.z.shiftRight(uint(20)).bitAnd(uint(255))).add(clamp(float(got.w.shiftRight(uint(8)).bitAnd(uint(255))).add(fv).div(float(hc)).mul(ih), float(0.5), ih.sub(0.5)));
+    layer.assign(got.z.bitAnd(uint(0xfff)));
+    uv.assign(vec2(x, y).div(SURFACE_PAGE_TEXELS));
+    found.assign(true);
   });
 }
 

@@ -138,6 +138,8 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   private readonly viewUnits = new Map<string, { points: Float32Array; light: Float32Array; texels: number; size: number }>();
   version = 0;
   viewReading = 0;
+  /** Texels lit and written into the textures so far (submitted to the GPU). */
+  texelsWritten = 0;
 
   /** Hears each timed run of the pass (GPU ms, texels, and its three passes' ms): the measurements read it. */
   onTimed: ((ms: number, texels: number, passes: readonly number[]) => void) | null = null;
@@ -407,6 +409,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
       p.end();
       if (read !== null) enc.copyBufferToBuffer(out, 0, read, part.first * 16, n * 16);
       d.queue.submit([enc.finish()]);
+      this.texelsWritten += n;
     }
     const lit = done < parts.length ? parts[done]!.first : texels;
     if (lit < texels) {
