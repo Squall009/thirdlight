@@ -1325,7 +1325,7 @@ min alone, 3.3 min in the gate (timeout 240 s, not raised); the 46e.6a hut's pla
 roof's picture to keep it so.
 
 **Gate.** `gate-fast-20261115-185454` GREEN at e3d86ffb (39 files: core, voxel, rendering, lighting, play; 70 passed;
-village perf at 60 Hz 0/361 missed, main 6.06 ms); voxel area 335 s (325 s at 46e.6a's every-area run). GATE2
+village perf at 60 Hz 0/361 missed, main 6.06 ms); voxel area 335 s (325 s at 46e.6a's every-area run). `gate-fast-20261115-205914` GREEN at db9e697e (with 4d04a538; core, voxel, lighting: 21 passed; village perf 0/361 missed, main 6.26 ms).
 
 **Notes for 46e.7 (the hand-over).** (1) *Skipping bricks inside the hand-over distance d:* the level-0 kept rule
 gets one more condition, the brick's box farther than d − w from the eye horizontally (`lookBrick`'s `keep`; the
