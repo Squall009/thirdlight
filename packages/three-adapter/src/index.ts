@@ -337,7 +337,9 @@ export { textureHolds, type TextureHolds } from './texture-holds';
 // Probe grids: the tile files of the earlier bakes and their loaded tiles (Play, export, the Scene view); the saved lighting's files.
 export { atlasFromSamples, decodeProbeArtifact, encodePng16, packProbeTexels } from './probe-artifact';
 export { decodeSavedSurface, encodeSavedSurface, savedSurfaceFiles, savedSurfaceFromFiles, SURFACE_BAKE_VERSION, type SavedProbeTile, type SavedSurfaceLight, type SavedTileRecord } from './surface-bake-file';
-export { SURFACE_TEXEL_METRES } from './surface-cache-atlas';
+export { SURFACE_LEVELS, SURFACE_TEXEL_METRES } from './surface-cache-atlas';
+// The surface cache's charts over voxel chunks (the checks chart real derived chunks).
+export { locateVoxelFace, locateVoxelHit, VOXEL_HIT_REACH, voxelCellOf, voxelChartBox, voxelChartBytes, voxelChartFrame, voxelChartPoint, voxelChunkCharts, voxelFaceKey, walkSolidAt, type VoxelChunkCharts } from './surface-cache-voxels';
 export { BAKE_TIMEOUT_MS, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
 export { LIGHTING_VIEW_OFF, type LightingReport, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 export { createProbeGridSet, createProbeLightingHost, type LoadedProbeTile, type ProbeBakeLike, type ProbeGridSet, type ProbeGridsObservation, type ProbeLightingHost, type ProbeTileEntry } from './probe-grids';
