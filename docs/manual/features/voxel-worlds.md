@@ -134,8 +134,9 @@ marks it as blocking light in a voxel world: its collider's shape (else the
 box of its model) is stamped into the world's light coverage, never into
 its cells and never into a save. Turn it on for large static props
 (boulders, trees), leave it off for small ones. Scripts read the result
-with `ctx.voxels.coverageAt`. Nothing draws from it yet: the world's own
-lighting comes later.
+with `ctx.voxels.coverageAt`. Nothing draws from it yet (shadows come from
+the drawn surfaces and pieces): the world's occlusion and bounce light come
+later.
 
 ## Streaming and memory
 
@@ -265,8 +266,17 @@ the plain surfaces: relief only ever recesses.
   point it orbits) and the voxel world page (the quality level's by default, none; `?relief=2` or `?relief=4` turns it on;
   `?relief=0` none; its **relief** switch, bottom right, draws the relief
   mesh flat to compare).
-- **Shadows.** Where the world casts shadows (the voxel world page's
-  `?shadows=1`; Play and exports do not cast voxel shadows yet), a relief
+- **Shadows.** In Play and exports a voxel world's surfaces and kit pieces
+  cast and receive shadows like any lit object: the sun's (its cached map,
+  drawn again only where chunks change: an edit, or chunks arriving and
+  leaving near the camera) and those of point, spot and area lights that
+  cast (the shadow atlas: a lamp's tiles are drawn again when a change
+  reaches them). The sun's shadow covers its light's **Shadow extent** round
+  the camera, centred on the world's ground under the camera (the top solid
+  cell there), so hills and caves are shadowed too; past it, and in the far
+  field, nothing casts yet. `?voxelShadows=off` on the editor page draws Play
+  without them (to compare); the editor's Scene view draws the world without
+  shadows. The voxel world page casts with `?shadows=1`. A relief
   chunk casts from its plain surfaces, not from the relief mesh: relief only
   ever recesses the surface, so the plain shape holds it, and the shadow map
   draws a fraction of the triangles. The relief surface looks its shadow up
@@ -846,8 +856,9 @@ These come later; worlds made now keep working when they arrive:
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
 - **Materials**: texture sets in the material Inspector (set over the API),
   and the physical section in the Inspector (profiles are set over the API).
-- **Lighting**: the world's own light and shadow, and what reads the light
-  coverage props stamp; culling and navigation over voxels.
+- **Lighting**: occlusion and bounce light from the voxels, the far field's
+  shadows, and what reads the light coverage props stamp; culling and
+  navigation over voxels.
 - **Structures** (rotated grids of their own, such as a ship or a moving
   building), voxel brushes and role painting in the editor, and more MCP
   voxel tools.

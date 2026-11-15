@@ -56,8 +56,12 @@ page in the same commit.
   says. Measured on the 8 km test world: 355 MB at 2 m, 1.36 GB at 1 m, 5.0 GB at 0.5 m.
 - **Relief displacement** is off on every tier and **detail-piece LODs** do not exist: both deferred by the
   owner. The **mesh far field** is a fallback behind a switch.
-- **Lighting of voxels** is not built (46e): voxel surfaces cast no shadows in Play; far bricks carry baked
-  occlusion.
+- **Lighting of voxels**: in Play and exports the near field's surfaces (level 0 and the level 1–2 mesh rings) and
+  kit pieces cast and receive like any lit draw, as static casters of the key light's cached map and the shadow
+  atlas: each chunk, node or seam shown, replaced or taken away is reported where it stands, and only the cached map
+  and the lamp faces it reaches are drawn again; the sun's square is centred on the voxel ground under the camera
+  (sky heights). The far field neither casts nor receives yet (46e.4b) and carries baked occlusion; no occlusion or
+  bounce light from voxels yet.
 
 ## 4. Streaming
 

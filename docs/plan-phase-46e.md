@@ -213,7 +213,7 @@ below, near and far absent; 131 s.
 | 46e.1 | Done 2026-11-14 (1129d456…16e5e566): Measure GPU (Profiler, overlay, `tl_diagnostics` gpu/gpuMeasure, benches) — ballast past the cap, a category hidden between two shown windows, GPU completion times burst to burst, 5 repeats; low town near 1.61, far 3.49, shadows 0.09 ms, run-to-run ≤ 0.45 ms (§4b); D660 near's hide, D661 post's |
 | 46e.2 | Done 2026-11-14 (f17f4a48…): one 6-connected walk (CPU; WGSL from the same steps) over level 0 and mips (the CPU also far nodes; the GPU not: D662); `ctx.voxels.raycast`; picks walk it; GPU = CPU 0 of 1,200 differ; rays/ms worker 360–430 / 170–215 / 19–20, GPU 28k / 17k / 1.6k (short, medium, long; §8a); D662–D664 |
 | 46e.3 | Done 2026-11-15 (531a2d5b, 5bf24807): open regions derived per section (v32, spec entry), stitched where the world runs, `ctx.voxels.regionAt`, voxel page overlay, sky heights to the page; town 120 enclosed / 3,181 portals; derive 7 % of a section; stitch 1.4 ms/frame loading, 0 settled; edit → answer 91 ms; 150 m/s sim spikes 1 → 14 (D667); D665–D669 |
-| 46e.4 | not started |
+| 46e.4 | a done 2026-11-15 (cd2ce0ac): near-field voxel surfaces and kit pieces cast and receive via the cached sun map, the dynamic map and the atlas; edits redraw only what they reach; sun square on the voxel ground; low shadows 0.21–0.47 vs off below resolution; edit → shadow 63–87 ms; D670–D672. b next (far shade at the hit, far sun march) |
 | 46e.5 | not started |
 | 46e.6 | not started |
 | 46e.7 | not started |
@@ -468,6 +468,111 @@ under the all-areas load, not touched here), green in `gate-rerun-20261115-01423
 6.2 ms). Fixed on the way: the stitch walked the whole outdoors on every new chunk (sim 63 ms/frame in the Play e2e,
 starving the Profiler's job lane); it now merges.
 
+### 46e.4a — sun and lamp shadows on the near field's voxel surfaces
+
+**Built.** On game pages (Play, exports; `VoxelWorldDraws` option `shadows`, set by game-host) every near-field voxel
+draw casts and receives like any lit draw: level-0 chunk surfaces, level 1–2 mesh-ring nodes and seams, the kit
+piece draws (rows of the culled-instance table; a shadow camera draws the chunks it or the view sees, 46f.3a's
+order) and a relief chunk through its plain caster. They are **static casters** of the key light's cached map
+(`STATIC_CASTER_KEY`; the voxel surface material is marked steady in shape, its position node moving relief vertices
+only), so the static map holds them and the dynamic map, drawn every frame, holds the static depths plus moving
+objects: moving objects shadow voxel surfaces and voxel surfaces shadow moving objects through the one map
+receivers sample. Point, spot and area lights draw them into their **shadow atlas** tiles. The far field neither
+casts nor receives (46e.4b). Shared foundation: the culled-instance table (row 6) for the pieces; nothing new culls.
+
+**An edit refreshes what it touched.** `VoxelChunkView` reports each chunk, node or seam shown, replaced or taken
+away as its box's sphere (grown 1 m for pieces) to the scene's `StaticShadowRevision` (`changedWithin`; the link
+is kept on the scene by the adapter, `attachSceneShadows`, as the decal link is). The cached map is drawn again
+only when a sphere lies in its frustum (drained at the frame's start). The atlas reads the same spheres
+(`takeLocal`): a light whose reach one touches is redrawn, and of a point or area light only the faces whose
+frustum holds it (`FaceRedraws`' static faces: no extra redraw the frame after). Hiding the near field (a GPU
+measurement) is a change everywhere. **Pacing:** chunk draws commit within the batch stage's `voxelBatch` slice of
+the frame arbiter, the cached map is drawn at most once a frame (on a frame whose drained changes lie in its reach),
+the atlas within its existing redraw share (a quarter of its texels a frame); no new constant. **At 150 m/s** no
+level 0 is built and the near field around the camera is level 1 or nothing, so the cached map holds what meshes
+lie in its square and steps with the camera (as for any caster); full shadows return with level 0 after the stop.
+
+**The ground under the camera.** The key light's square followed the camera on the plane y = 0; on a voxel world
+it is now centred on the top solid cell under the camera (`SkyColumns` through the scene's shadow link,
+`VoxelWorldDraws.groundAt`), else y = 0 as before: the cave 120 m up is inside the shadow camera's depth range
+(the street's town at y ≈ 0 is unchanged).
+
+**The ring edge.** The sun's shadow covers its light's square, ± (extent + 2) m round the ground under the camera:
+the scene's sun keeps the default 24 m, so 26 m (the cached static map 33 m), inside the detail ring (about 45 m at
+low). Past it nothing is shadowed by the sun on any level, so the hand-over at the detail ring's edge sees no
+shadow on either side and is not changed. A light with a larger extent shadows the level 1–2 meshes too, up to the
+far field's start, where the shadow stops (D670; 46e.4b's march).
+
+**Also fixed on the way.** The atlas's face and spot cameras took the view's layers only, so whatever is drawn off
+the view (a voxel relief chunk's plain caster, a cut-away roof, a room no portal shows) cast no lamp shadow; they
+now see the off-view layer as the key light's cameras do (found by the e2e: its high tier draws relief).
+
+**Tiers.** From the existing settings: the largest shadow map (`shadowMapSize`: low 2048; the scene's sun asks
+1024), the atlas side (low 2048, medium 4096, high 8192), contact shadows (medium, high). No new setting: the low
+tier affords voxel casting (below). **Switch:** `?voxelShadows=static` (a measurement, the old static-casters
+flag) is folded into the real path; `?voxelShadows=off` turns voxel shadows off on a page (comparisons; the
+editor passes it to Play). **GPU measurement:** no new registration: the `shadows` hide stops every casting
+light, which takes the voxel casters with it (the reading rises against §4b's 0.09 ms and falls below resolution
+with the switch off, below). **WebGL 2:** the same shared material and maps draw the shadows there too; the voxel
+area's smoke is green. The editor's Scene view draws voxel worlds without shadows as before.
+
+**Measured** 2026-11-15 02:57–03:40 UTC at cd2ce0ac (built), Iris Xe, WebGPU, 1280 × 720, each run alone
+(`thirdlight-gate` inactive) in the brief's 10G scope; uptime 22.4 d, load (1 min) 1.2–3.6. Raw files with an
+`*.uptime` beside each: `~/.cache/thirdlight-phase46e/work/46e.4a/` (`measure.sh`). On = the build as committed,
+off = the same with `&voxelShadows=off`, interleaved A B A B A.
+
+| What | On (voxel shadows) | Off | Against |
+|---|---|---|---|
+| GPU `shadows`, low, 8 km town orbit (`m-low-*`) | 0.47 ± 0.07, 0.21 ± 0.15, 0.37 ± 0.25 ms (median 0.37) | below resolution both (−0.09, −0.05) | §4b 0.09 |
+| GPU near / far, low | 1.60 / 1.77 / 1.81 and 3.11 / 3.37 / 3.43 | 1.55 / 1.76 and 3.50 / 3.41 | §4b 1.61, 3.49: unchanged |
+| GPU lighting budget row (shadows + lighting) of 6.67 ms | 0.37 (6 %) | — | §4b ≤ 0.2 |
+| GPU `shadows` at the five cameras (`light-shots --gpu --gpu-only shadows,lighting`) | street below (0.45, spread 3.76), room 0.31, cave 0.21, night 0.82, far below (0.20) | below, below, below, 0.44 (the lamps' other casters), below | §4b 0.13 / below / below / 0.40 / below |
+| Page ms a frame, orbit (profile) | 6.68 / 7.32 / 7.79 | 7.33 / 6.57 | §4a 4.57 / 4.13: the orbit's profile here caught streaming (jobs 3.5–12.6 ms), on and off alike |
+| Page `lighting` (orbit) of 2.0 ms | 0.082 / 0.084 / 0.086 (worst 0.3) | 0.088 / 0.079 | §4a 0.050 / 0.045 |
+| Page at the five cameras (street, room, cave, night, far) | 5.52 / 4.54 / 2.99 / 4.13 / 4.24; render 4.68 / 3.86 / 2.51 / 3.56 / 3.69 | 5.60 / 3.82 / 2.59 / 3.68 / 3.45; render 4.63 / 3.09 / 2.12 / 3.12 / 2.92 | +0.4–0.8 ms of render at four cameras: the shadow passes' submission (D672); lighting 0.13–0.21 both |
+| Worst page frame while settling (street, render) | 12.1 ms | 15.1 ms | one run each |
+| Memory (orbit, after the fill) | page heap 637 / 608 / 579 MiB, GPU process 938 / 959 / 941 | 559 / 596, 897 / 892 | low's 1,536 / 2,560: under; GPU +~45 MiB on (pipelines with shadows received; one reading a run, ±30) |
+| Shadow maps and atlas | fixed allocations, not table entries: sun dynamic 1,024² depth (4 MiB), static 1,288² (6.3 MiB), atlas 2,048² at low (12 MiB) — all there before (the sun cast with nothing to cast) | | new bytes: the change spheres (≤ 4,096 × 4 numbers, twice), none on the GPU |
+| Edit → shadow (`light-shots` edits: 1 m digs in the street) | mesh 54.6 / 30.9 / 30.4 ms, static map drawn again 87.0 / 64.1 / 62.8 ms (one frame later, read once a frame: 0–1 frame) | — | §4a floor 22–53 ms |
+| Medium, 60 Hz, one run (unverified on target hardware) | near 2.41, far 3.94, shadows 0.31, lighting 0.18 ms: 35 / 58 / 4.5 / 2.6 % | — | §4b shadows below |
+| High, 60 Hz, one run (unverified on target hardware) | near 6.56, far 8.17, shadows 0.55 ± 0.44, lighting 0.32: 42 / 52 / 3.5 / 2 % (20 of 160 missed with no load) | — | §4b shadows below |
+| 150 m/s, export, low, one round each (`cov-150-*`) | longest 49.2 ms, 0 > 100, missed 1.8 a min, detail 7.65 s, pending 10.62 s, sim spikes 5, holes 0, falls 0/34 | 43.2 ms, 0, 0.9, 8.19 s, 10.79 s, 6, 0, 0/34 | the same within one round's noise |
+
+`light-shots` exits 1 on both runs for its after-measurement pictures (they differ from the first by 0.8–3.5 %,
+softer, as in 46e.1 with only `shadows` and `lighting` measured: D660); the five pictures are the first ones.
+
+**The five pictures** (low, `shots/` and `shots-off/` beside each other, against 46e.0's `46e.0/shots/`; looked
+at; where on and off differ mapped by 20–32 px blocks): `street-noon.png` — the brick house on the right throws
+its shadow across the street's grass, the eave and ridge pieces darken the roof tiles under them, the fence's foot
+a little; the houses 30 m and further down the street throw none (the sun's square ends at 26 m: D670).
+`room-window.png` — the room is now in its house's shadow: the floor and stairs a step darker, the walls slightly
+(the ceiling was never sunlit); the sun through the west windows lands in a band 0.2–0.6 m wide at the foot of that
+wall, out of this eye's sight; no light leaks under the walls at the 0.5 m cells. `cave.png` — the tube is in the hill's shadow (darker walls and floor than 46e.0), the sunlit floor at
+the mouth stays bright: the square now follows the ground (120 m up). `night-lamps.png` — the lamps' shadows: the
+fence posts and rails throw shadows on the grass behind them, the near posts' feet are dark, the eaves' kit pieces
+throw a stepped shadow on the white house's gable. `far-view.png` — no block differs from off: the square lies under
+the camera, out of the picture's ground, and the far field casts nothing yet. No acne or peter-panning seen at these
+cameras; the town's shadows are soft-edged (the map's 2.5 cm texels, 4-tap PCF).
+
+**Tested.** vitest `voxel-chunk-view.test.ts`: with shadows, every surface and piece draw casts, receives and is
+a static caster; one report a chunk drawn, its sphere round the chunk's 16 m box; an edit to one chunk reports that
+chunk twice (gone, come) and nothing else; a map whose reach lies 60 m off is not drawn again; of a lamp 12 m out
+along +x some (not all) faces reach the change, those are drawn and nothing the frame after; a lamp 40 m off is not
+reached; a chunk taken away reports; hiding the near field bumps; without shadows nothing casts or reports.
+`lighting-cameras.test.ts`: the edit → shadow timing from watched frames. Playwright `voxel-world.e2e.ts` Play
+(WebGPU, high tier, the preview's 670 × 253 picture; checks in `tests/e2e/voxel-shadows.ts`): a 4 m wall built by
+the script — its sun shadow on the grass (1,161 px past 1.06 × darker; bound 400) goes when the wall is dug (a shot
+without it 179–196 ms after the command, screenshots included), a blue moving box in it is 1.62 × as bright without
+it (bound 1.25); a red lamp's light on the grass east of the rebuilt wall is gone once its tile is drawn again
+(16,120 px; bound 5,000); a moving box shadows the voxel grass (375 px; bound 120). **With voxel shadows off**
+(`?voxelShadows=off`, run once by hand: `e2e-off.log`): 0 px, 1.00, 1 px and 0 px — each check fails. With the
+chunk view's change reports cut (run once: `broken-no-reports-vitest.log`) the vitest fails at the first count (0 of
+8 chunks reported); the e2e was not run so. Before the atlas fix the lamp check read 0–3 px (relief chunks cast
+from their plain caster at the high tier). The Play test 1.4 min in the gate; the voxel area 222 → 224 s.
+
+**Gate.** `gate-fast-20261115-024306` GREEN at cd2ce0ac (39 e2e files: core, voxel, rendering, lighting, play
+and `shadows.e2e.ts`; 70 passed; village perf at 60 Hz 0/360 missed, main 6.38 ms).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -529,6 +634,20 @@ starving the Profiler's job lane); it now merges.
   section); the overlay is the voxel page's (`?regions=1`), not Play's.
 - 2026-11-15 (46e.3, default chosen, owner to confirm): `ctx.voxels.regionAt(x, y, z)` takes numbers like `get` and
   `coverageAt`; the region part is in the canonical bytes (derived v32).
+
+- 2026-11-15 (46e.4a, default chosen, owner to confirm): voxel surfaces (every near-field level) and kit pieces cast
+  and receive on game pages only (Play, exports); the editor's Scene view stays without (an edit view; one flag
+  turns it on). They are static casters; a change is reported as the changed draw's whole box (a chunk's 16 m
+  sphere, not the edit's cells): cheap, and the cached map is one draw either way.
+- 2026-11-15 (46e.4a, default chosen, owner to confirm): the key light's square is centred on a voxel world's top
+  solid cell under the camera (else y = 0, as before); the top cell, not the camera's height, so what stands over a
+  room or a cave stays in range.
+- 2026-11-15 (46e.4a, default chosen, owner to confirm): no new tier setting: low affords voxel shadows (0.37 ms of
+  its 6.67 ms lighting row, page render +0.4–0.8 ms at four of five cameras); the existing shadow map size, atlas
+  side and contact-shadow settings decide per tier. `?voxelShadows=off` replaces `?voxelShadows=static`.
+- 2026-11-15 (46e.4a, default chosen, owner to confirm): the atlas's lamp and spot cameras see the off-view layer
+  (what is hidden from the view still casts, as for the sun), so a relief chunk's plain caster, a cut-away roof and a
+  room no portal shows cast lamp shadows too.
 
 ## 10. Open questions for the owner (asked with the plan)
 
