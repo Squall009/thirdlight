@@ -550,6 +550,9 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'voxels.materialAt',
       'voxels.materialOf',
       'voxels.paint',
+      // A ray's origin and direction are points (no graph input yet), a region an object (no graph output yet).
+      'voxels.raycast',
+      'voxels.regionAt',
       // A save is bytes and a field list a list of names: not graph inputs.
       'voxels.restore',
       // A world's distances are an object of groups: not a graph input or output yet.
