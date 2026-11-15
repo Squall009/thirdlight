@@ -432,7 +432,7 @@ function meanOf(img: Png, test: (p: readonly number[]) => boolean): { lum: numbe
  * its floor. Shut, then its roof opened by an edit (the probes stale where it changed, lit again), then shut again.
  * Pictures once the cache and probes settle; the readings go back for the checks after the store-off picture. The
  * bounce's colour is not checked: the floor dug from plaster to the pad's grass moved the walls' red over green by
- * under 1 either way (D682).
+ * under 1 either way (the plan's results).
  */
 async function probeHutChecks(o: FarLightSetup, settled: (what: string) => Promise<void>, hook: <T>(f: string, arg?: unknown) => Promise<T>): Promise<{ eye: number[]; box: number[]; shut: Png; resolve: ResolveCheck | null; walls: { shut: number; open: number }; openMs: number; probes: unknown }> {
   const { ids, away } = o;
