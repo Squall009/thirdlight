@@ -24,7 +24,7 @@
  *
  *   --origin URL  --token-file FILE (default ~/thirdlight-staging-p45/owner-token)  --project ID (voxel-slice)
  *   --world NAME (far)  --quality low|medium|high (default low)  --viewport WxH (default 1280x720)
- *   --only LIST   cameras by name (default all five)   --query Q   more of the editor page's query (Play is
+ *   --only LIST   cameras by name (default all five; also far-lamp-a, far-lamp-b, far-view-1m, street-noon-1m)   --query Q   more of the editor page's query (Play is
  *                 passed its flags: a later item's lighting arrangement), starting with `&`
  *   --hold S (default 3)  --timeout S a camera (default 180)  --edits N (default 3, 0: none)
  *   --gpu         the GPU measurement at each camera (about two minutes each)   --gpu-repeats N (default 5)
@@ -48,7 +48,7 @@ import { commandEnvelope } from '../../tests/support/commands';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { BENCH_LAMP_LIGHT, BENCH_LAMPS, caveStroke, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
+import { BENCH_LAMP_LIGHT, BENCH_LAMPS, caveStroke, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { openPlay, type PlayGame } from './travel-page';
 import { settleAfter, type CountSample } from './travel';
@@ -138,15 +138,16 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   const dug = await b.api('commands', commandEnvelope('editVoxels', O.project, undefined, { world: O.world, command: caveStroke() }, 'voxel-bench-light-shots'));
   if (dug.json['ok'] !== true && (dug.json['error'] as { code?: string } | undefined)?.code !== 'no_change') throw new Error(`the cave: ${JSON.stringify(dug.json).slice(0, 400)}`);
   console.log(`the cave: ${dug.json['ok'] === true ? `dug, ${String(dug.json['cells'] ?? '?')} cells` : 'there already'}`);
-  for (const lamp of BENCH_LAMPS) {
+  const lamps = [...BENCH_LAMPS.map((l) => ({ ...l, light: BENCH_LAMP_LIGHT })), ...(O.only.some((n) => n.startsWith('far-lamp')) ? [{ ...FAR_CHECK_LAMP, light: FAR_CHECK_LAMP_LIGHT }] : [])];
+  for (const lamp of lamps) {
     const had = sceneEntities().find((e) => e.name === lamp.name);
     if (had !== undefined) await b.command('deleteEntity', { entityId: had.id });
-    await b.command('createEntity', { sceneId: 'scene-main', kind: 'group', name: lamp.name, transform: { position: [...lamp.position] }, components: { light: { ...BENCH_LAMP_LIGHT } } });
+    await b.command('createEntity', { sceneId: 'scene-main', kind: 'group', name: lamp.name, transform: { position: [...lamp.position] }, components: { light: { ...lamp.light } } });
   }
   const before = cameraBehaviour(PROJECT_DIR);
   await publishCameraBehaviour(b, PROJECT_DIR, BEHAVIOR, lightShotsSource());
   return async () => {
-    for (const lamp of BENCH_LAMPS) {
+    for (const lamp of lamps) {
       const e = sceneEntities().find((x) => x.name === lamp.name);
       if (e !== undefined) await b.command('deleteEntity', { entityId: e.id }).catch((err: unknown) => console.error(`lamp not taken out: ${String(err)}`));
     }
@@ -191,7 +192,7 @@ async function main(): Promise<void> {
     await page.waitForTimeout(4000);
     out['loadingSpans'] = regionSpans((await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null)) as ProfileReport | null);
     console.log(`loading: ${JSON.stringify(out['loadingSpans'])}`);
-    for (const cam of LIGHTING_CAMERAS.filter((c) => O.only.includes(c.name))) {
+    for (const cam of [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS].filter((c) => O.only.includes(c.name))) {
       await game.debug(cam.command);
       const s = await settle(game);
       await page.waitForTimeout(CONVERGE_MS);

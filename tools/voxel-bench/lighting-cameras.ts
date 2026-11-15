@@ -13,7 +13,9 @@
 
 /** The pictures' names, fixed (a later item compares files of the same name). */
 export const LIGHT_SHOT_NAMES = ['street-noon', 'room-window', 'cave', 'night-lamps', 'far-view'] as const;
-export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number];
+/** Checks beside the five, taken only when named (`--only`): a far lamp from two places, two cameras moved 1 m. */
+export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m'] as const;
+export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number] | (typeof LIGHT_CHECK_NAMES)[number];
 
 /** The looks the cameras use: environment presets the bench writes into the project. */
 export const LIGHT_PRESET_IDS = ['bench-noon', 'bench-night'] as const;
@@ -96,6 +98,29 @@ export const LIGHTING_CAMERAS: readonly LightingCamera[] = Object.freeze([
   { name: 'far-view', command: 'shot5', eye: [140, 40, 10], yaw: yawOf(-1, 0.05), pitch: 0.1, preset: 'bench-noon', near: false, shows: 'from over the town’s east edge across the town to the western massif' },
 ] satisfies LightingCamera[]);
 
+/**
+ * The far lamp: a lamp 2 m out from the cave's hillside at its foot (a rock face the far field draws from 230 m),
+ * brighter and wider than the street's so its patch shows from there; only placed when a far-lamp camera is named.
+ */
+export const FAR_CHECK_LAMP = Object.freeze({ name: 'Bench far lamp', position: Object.freeze([CAVE.foot[0] - CAVE.into[0] * 2, CAVE.foot[1] + 2, CAVE.foot[2] - CAVE.into[1] * 2] as const) });
+export const FAR_CHECK_LAMP_LIGHT = Object.freeze({ ...BENCH_LAMP_LIGHT, range: 20, intensity: 1 });
+/** A camera `out` metres out from the far lamp along the valley (away from the hill), `side` metres across, 20 m over it, looking at it. */
+function farLampCamera(name: 'far-lamp-a' | 'far-lamp-b', command: string, side: number): LightingCamera {
+  const [lx, ly, lz] = FAR_CHECK_LAMP.position;
+  const out = 230;
+  const eye: [number, number, number] = [lx - CAVE.into[0] * out + CAVE.into[1] * side, ly + 20, lz - CAVE.into[1] * out - CAVE.into[0] * side];
+  const d = Math.hypot(lx - eye[0], lz - eye[2]);
+  return { name, command, eye, yaw: yawOf(lx - eye[0], lz - eye[2]), pitch: Math.atan2(eye[1] - ly, d), preset: 'bench-night', near: false, shows: 'at night, a lamp 2 m before the cave hillside, drawn by the far field from 230 m' };
+}
+const moved = (c: LightingCamera, name: 'far-view-1m' | 'street-noon-1m', command: string): LightingCamera => ({ ...c, name, command, eye: [c.eye[0] + 1, c.eye[1], c.eye[2]] });
+/** The checks' cameras (LIGHT_CHECK_NAMES): the far lamp from two places 60 m apart, far view and street moved 1 m. */
+export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
+  farLampCamera('far-lamp-a', 'shot6', 30),
+  farLampCamera('far-lamp-b', 'shot7', -30),
+  moved(LIGHTING_CAMERAS[4]!, 'far-view-1m', 'shot8'),
+  moved(LIGHTING_CAMERAS[0]!, 'street-noon-1m', 'shot9'),
+]);
+
 /** Runtime edits for the edit-to-screen time: a 1 m ball dug in the street in front of the street camera, each its own command. */
 export const EDIT_DIGS: ReadonlyArray<{ readonly command: string; readonly center: readonly [number, number, number] }> = Object.freeze(
   [0, 1, 2].map((i) => Object.freeze({ command: `dig${i + 1}`, center: Object.freeze([-30 + 3 * i, 0, STREET_Z] as const) })),
@@ -135,7 +160,7 @@ export const LIGHTING_PRESETS = Object.freeze([
  * after holds it there; each dig command digs its ball through `ctx.voxels` (a runtime edit: never written to
  * the world's files).
  */
-export function lightShotsSource(cameras: readonly LightingCamera[] = LIGHTING_CAMERAS): string {
+export function lightShotsSource(cameras: readonly LightingCamera[] = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS]): string {
   return `
 const SHOTS = ${JSON.stringify(cameras.map((c) => ({ command: c.command, eye: c.eye, yaw: c.yaw, pitch: c.pitch, preset: c.preset })))};
 const DIGS = ${JSON.stringify(EDIT_DIGS)};
@@ -221,7 +246,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
   const quality = arg('quality') ?? 'low';
   if (quality !== 'low' && quality !== 'medium' && quality !== 'high') throw new Error(`--quality: low, medium or high, not ${quality}`);
   const only = (arg('only') ?? LIGHT_SHOT_NAMES.join(',')).split(',').filter((s) => s !== '');
-  for (const n of only) if (!(LIGHT_SHOT_NAMES as readonly string[]).includes(n)) throw new Error(`--only: names among ${LIGHT_SHOT_NAMES.join(', ')}, not ${n}`);
+  for (const n of only) if (![...LIGHT_SHOT_NAMES, ...LIGHT_CHECK_NAMES].includes(n as LightShotName)) throw new Error(`--only: names among ${[...LIGHT_SHOT_NAMES, ...LIGHT_CHECK_NAMES].join(', ')}, not ${n}`);
   const query = arg('query') ?? '';
   if (query !== '' && !query.startsWith('&')) throw new Error(`--query: more of the page's query, starting with & (e.g. &voxelShadows=off), not ${query}`);
   const vp = arg('viewport') ?? '1280x720';

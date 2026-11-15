@@ -189,7 +189,7 @@ below, near and far absent; 131 s.
 | 46e.1 | **GPU time per pass in the profiler (D655).** The meter's hide-a-pass measurement callable from the page: an on-demand "Measure GPU" in the Profiler tab, the overlay and `tl_diagnostics`, filling the GPU budget rows per category (near, far, shadows, lighting, post, effects); the bench reads the same routine. |
 | 46e.2 | **One occupancy walk.** A 6-connected walk (R99) over level-0 cells, skipping empty space by the chunk tree's flags and continuing into far bricks; one definition for the CPU and the GPU; partial cells by light coverage; `ctx.voxels.raycast`; the editor's voxel picking through it. Measured: rays a millisecond on both. |
 | 46e.3 | **Open regions.** Connected non-solid cells labelled per chunk in the derive workers and stitched across chunk faces as chunks arrive: face connectivity (R97), sky columns (R98), regions with an enclosed flag, volume and portals from the opening role (R101); rebuilt for one chunk on an edit; `ctx.voxels.regionAt`; a tint overlay to see them. A derived output: an add-only note in the format spec (§8, owner). |
-| 46e.4 | Done 2026-11-15 (cd2ce0ac; a3a8f2cf, 76f3ef48): near voxel draws and kit pieces in the sun's cached map and the atlas; past the map sun heights (sky heights, far bricks' tops) marched in compute into shade lines, faded in at its edge; far shade lit at the hit; low shadows 0.63 vs 0.43 ms off; edit → field 0.6–1.2 s; D670 fixed, D607/D671 narrowed, D673–D675 |
+| 46e.4 | Done 2026-11-15 (cd2ce0ac; a3a8f2cf, 76f3ef48): near voxel draws and kit pieces in the sun's cached map and the atlas; past the map sun heights (sky heights, far bricks' tops) marched in compute into shade lines, faded in at its edge; far shade lit at the hit; low shadows 0.63 vs 0.43 ms off; edit → field 0.6–1.2 s; D607, D670 fixed, D671 narrowed, D673–D675 |
 | 46e.5 | **The surface cache on voxels.** Phase 42's cache fed by voxel surfaces: a voxel tile source (charts over the mesher's faces by their main axis, as block chunk columns and terrain rings are charted today), the tracer walking voxel occupancy as a scene kind (46e.2's walk), direct light and live probes over it, edits marking tiles stale. A candidate, built only as far as a fair measurement needs. |
 | 46e.6 | **The voxel light volume.** R104's volume on the same town: air-side cells beside surfaces with six directional values, the 1/2/4 m levels for open air, sky and sun by the walk, one bounce, local lights; read by voxel surfaces, kit pieces and moving objects. A candidate, to the same depth. |
 | 46e.7 | **The lighting storage A/B (R110), same scene, same cameras.** Three arrangements on the town inside the 8 km world: the cache alone, the volume alone, and the cache near with the volume beyond a distance (the owner's hybrid, the hand-over distance a setting); §4's table and pictures for each, on the low tier at the cap, with medium and high as shares. |
@@ -668,6 +668,24 @@ ends within ~60 m, the lit ground was the near field's, and the reading was the 
 **Gate.** `gate-fast-20261115-061406` (every area: project-model changed) red on three watched tests under the
 all-areas load (layered-material D349, ui-editor D653, frame-rate-cap D659), green in `gate-rerun-20261115-064824`
 (village perf at 60 Hz 0/360 missed, main 6.34 ms); the voxel area 238 s (224 s before).
+
+**Follow-ups (the lead's review, 2026-11-15 07:50–08:06 UTC, alone, uptime 22.6 d, load 1.5–3.4; raw in
+`~/.cache/thirdlight-phase46e/work/46e.4b/` `f1/`, `f2-nofix/`, `cov2-*`).** (1) **D607 seen.** `light-shots --only
+far-lamp-a,far-lamp-b` (bench checks beside the five cameras, not in the default set): a lamp 2 m before the cave's
+hillside at its foot (range 20 m, the night look), the far field drawing it from 230 m, two cameras 60 m apart. With
+the fix the lit ring round the cave mouth stays on the rock at the lamp from both places (`f1/far-lamp-a.png`,
+`f1/far-lamp-b.png`: 373 and 387 orange pixels, centred at 638,368 and 637,367); with the shade's context taken out
+(a local stub, not committed) nothing is lit (`f2-nofix/far-lamp-a.png`, `-b.png`: 0 pixels; the lamp lights at the
+camera, 230 m off). Kept as a bench check: the Play e2e's world ends within ~60 m, so no lamp there reaches far-field
+ground. (2) **150 m/s at 2d3314b3** (export, low, one round each): on longest 47.9 ms, 0 > 100, missed 8.2 a min,
+detail 6.79 s, pending 12.8 s, sim spikes 20, falls 0/34; `?voxelSun=off` 51.3 ms, 0, 3.7, 5.91 s, 10.94 s, 5, 0/34.
+The `voxel sun heights` span in the kept long frames (two page frames each) 0.2–5.9 ms, so up to about 3 ms a frame
+at speed: the slice bounds composition only; the first tile of each window, the range uploads and the march's
+dispatch and copy lie outside it (D675). (3) **Swimming.** `far-view` and `street-noon` against the same cameras 1 m
+over (`f1/*-1m.png`): 26,498 and 44,701 sampled pixels differ, all parallax and, at the far view, the near field
+drawn a level coarser at the moved camera (it arrived by a jump); the shade lines beside the houses and on the
+valley move with the ground, no strip seen to pop or crawl. A sub-pixel crawl under the frame's jitter is not
+resolved by this comparison (unverified).
 
 ## 9. Decision log
 
