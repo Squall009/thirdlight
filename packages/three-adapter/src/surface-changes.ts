@@ -298,15 +298,17 @@ export class SurfaceChanges {
     }
     const rooms = this.rooms;
     const spread = sunSpread();
+    // Grouped by what marked them (the box, each sun, each light), so the probes hear of each region apart.
     return this.relight.markWhere((u) => {
-      if (boxesTouch(u.min, u.max, min, max)) return true;
-      for (const s of suns) if (boxShadowsBoxFromSun(s.direction, spread, min, max, u.min, u.max)) return true;
-      for (const { l, reach, size, held } of lights) {
+      if (boxesTouch(u.min, u.max, min, max)) return 0;
+      for (let i = 0; i < suns.length; i += 1) if (boxShadowsBoxFromSun(suns[i]!.direction, spread, min, max, u.min, u.max)) return 1 + i;
+      for (let i = 0; i < lights.length; i += 1) {
+        const { l, reach, size, held } = lights[i]!;
         if (boxDistance(u.min, u.max, l.position) > reach || facesAway(u, l.position)) continue;
         if (held !== null && !rooms!.marks(u.min, u.max, held)) continue;
-        if (boxShadowsBox(l.position, size, min, max, u.min, u.max)) return true;
+        if (boxShadowsBox(l.position, size, min, max, u.min, u.max)) return 1 + suns.length + i;
       }
-      return false;
+      return -1;
     });
   }
 

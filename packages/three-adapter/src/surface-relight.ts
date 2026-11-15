@@ -210,24 +210,27 @@ export class SurfaceRelight {
   }
 
   /**
-   * Every unit `keep` takes is stale; listeners hear of the box round them
-   * (not of the region tested). Returns the units marked.
+   * Every unit `group` puts in a group (0, 1, …; −1: none) is stale;
+   * listeners hear of each group's box round its units (not of the region
+   * tested, and never one box round all of them: groups far apart would
+   * cover everything between). Returns the units marked.
    */
-  markWhere(keep: (unit: RelightUnit) => boolean): number {
+  markWhere(group: (unit: RelightUnit) => number): number {
     this.marks += 1;
     let n = 0;
-    const min = [Infinity, Infinity, Infinity];
-    const max = [-Infinity, -Infinity, -Infinity];
+    const boxes: { min: number[]; max: number[] }[] = [];
     for (const s of this.units.values()) {
-      if (!keep(s.unit)) continue;
+      const g = group(s.unit);
+      if (g < 0) continue;
       this.stale(s);
       n += 1;
+      const b = (boxes[g] ??= { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] });
       for (let k = 0; k < 3; k += 1) {
-        min[k] = Math.min(min[k]!, s.unit.min[k]!);
-        max[k] = Math.max(max[k]!, s.unit.max[k]!);
+        b.min[k] = Math.min(b.min[k]!, s.unit.min[k]!);
+        b.max[k] = Math.max(b.max[k]!, s.unit.max[k]!);
       }
     }
-    if (n > 0) for (const l of this.listeners) l(min, max);
+    for (const b of boxes) if (b !== undefined) for (const l of this.listeners) l(b.min, b.max);
     return n;
   }
 

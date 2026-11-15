@@ -217,8 +217,8 @@ export class VoxelFaceTable {
 
   private rebuild(live: readonly { tile: VoxelTile; r: VoxelFaceResident }[], need: number): void {
     let cap = 2;
-    // Made for twice what it holds now, so it grows again only once the faces doubled.
-    while (cap * this.maxLoad * 0.5 < need) cap *= 2;
+    // Room for a third more than it holds now at the least, so it is made again only after the faces grew by that.
+    while (cap * this.maxLoad * 0.75 < need) cap *= 2;
     this.cap = need === 0 ? 0 : cap;
     this.words = new Uint32Array(this.cap * VOXEL_FACE_SLOT_WORDS);
     this.owner = new Int32Array(this.cap).fill(-1);

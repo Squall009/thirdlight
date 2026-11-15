@@ -317,12 +317,17 @@ export async function voxelCacheLightChecks(o: FarLightSetup): Promise<void> {
   await hook('setStore', 'cache');
   let stats: CacheStats | null = null;
   const settled = async (what: string): Promise<void> => {
-    await expect.poll(async () => {
-      stats = await hook<CacheStats | null>('cache');
-      const p = stats?.probes;
-      const probes = p !== undefined && p.lit > 0 && p.settled && p.drawn && !p.behind;
-      return stats !== null && stats.live && stats.read && stats.resident > 0 && stats.litTexels > 0 && stats.texelsWritten > 0 && stats.waiting === 0 && stats.staleUnits === 0 && probes;
-    }, { timeout: 60_000, intervals: [250], message: `${what}: the cache's voxel texels and probes are lit` }).toBe(true);
+    try {
+      await expect.poll(async () => {
+        stats = await hook<CacheStats | null>('cache');
+        const p = stats?.probes;
+        const probes = p !== undefined && p.lit > 0 && p.settled && p.drawn && !p.behind;
+        return stats !== null && stats.live && stats.read && stats.resident > 0 && stats.litTexels > 0 && stats.texelsWritten > 0 && stats.waiting === 0 && stats.staleUnits === 0 && probes;
+      }, { timeout: 60_000, intervals: [250], message: `${what}: the cache's voxel texels and probes are lit` }).toBe(true);
+    } catch (e) {
+      // What was not lit, for whoever reads the failure.
+      throw new Error(`${String(e).slice(0, 300)}; the last reading: ${JSON.stringify(stats).slice(0, 1500)}`);
+    }
   };
   const t0 = Date.now();
   await settled('the store switched');
