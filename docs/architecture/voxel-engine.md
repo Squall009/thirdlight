@@ -66,7 +66,12 @@ page in the same commit.
   read by the key light's shadow node (near draws at their vertices, the far field's one shade at its pixels), the map
   fading into them across its edge (`voxel-sun-field.ts`, `sun-heights.ts`; the tier's `voxelSunSteps`). The far
   field's one shade lights every light at its hit. It casts nothing into the maps and carries baked occlusion; no
-  occlusion or bounce light from voxels yet.
+  occlusion or bounce light from voxels yet. **The lighting store** is one page switch, `?voxelLight=off|cache|
+  volume|hybrid` (`off`, today's picture, by default; `__tlVoxelPlay.light.setStore` changes it at run time). With
+  `cache` (a candidate for the storage A/B, WebGPU only) phase 42's surface cache lights the level-0 chunks' surfaces:
+  each chunk's drawn mesh charted on the page by its triangles' main axis (`surface-cache-voxels.ts`), lit by the
+  light pass with soft shadow rays that also walk the voxels' occupancy (the one walk, in the tracer's second program),
+  read by the voxel surfaces through a hash of their cells and faces; no probes, sky occlusion or bounce on it yet.
 
 ## 4. Streaming
 

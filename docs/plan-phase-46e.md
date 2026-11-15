@@ -214,7 +214,7 @@ below, near and far absent; 131 s.
 | 46e.2 | Done 2026-11-14 (f17f4a48…): one 6-connected walk (CPU; WGSL from the same steps) over level 0 and mips (the CPU also far nodes; the GPU not: D662); `ctx.voxels.raycast`; picks walk it; GPU = CPU 0 of 1,200 differ; rays/ms worker 360–430 / 170–215 / 19–20, GPU 28k / 17k / 1.6k (short, medium, long; §8a); D662–D664 |
 | 46e.3 | Done 2026-11-15 (531a2d5b, 5bf24807): open regions derived per section (v32, spec entry), stitched where the world runs, `ctx.voxels.regionAt`, voxel page overlay, sky heights to the page; town 120 enclosed / 3,181 portals; derive 7 % of a section; stitch 1.4 ms/frame loading, 0 settled; edit → answer 91 ms; 150 m/s sim spikes 1 → 14 (D667); D665–D669 |
 | 46e.4 | a done 2026-11-15 (cd2ce0ac): near-field voxel surfaces and kit pieces cast and receive via the cached sun map, the dynamic map and the atlas; edits redraw only what they reach; sun square on the voxel ground; low shadows 0.21–0.47 vs off below resolution; edit → shadow 63–87 ms; D670–D672. b next (far shade at the hit, far sun march) |
-| 46e.5 | not started |
+| 46e.5 | a done 2026-11-15 (19992ba8, 3be854df, 2b11b6ec): `?voxelLight=cache` lights level-0 voxel meshes in phase 42's cache (page-side charts, tracer walks the voxels, read by hash); town ring fits 32 MiB (≤ 24 MB); GPU lighting below res. still, orbit unresolved; page 4–11 ms (D676–D678); lit 29 s after Play; D676–D680. b next |
 | 46e.6 | not started |
 | 46e.7 | not started |
 | 46e.8 | not started |
@@ -687,6 +687,125 @@ drawn a level coarser at the moved camera (it arrived by a jump); the shade line
 valley move with the ground, no strip seen to pop or crawl. A sub-pixel crawl under the frame's jitter is not
 resolved by this comparison (unverified).
 
+### 46e.5a — the surface cache lights voxel surfaces (a candidate, behind a switch)
+
+**Built.** Less than the item's words: tiles, direct light with soft traced shadows, and the read; no probes, bounce,
+sky occlusion, kit-piece or moving-object reading, no measured edit path (46e.5b).
+
+- **The switch.** `?voxelLight=off|cache|volume|hybrid` on a game page (default `off`: today's picture; the editor
+  passes it to Play), read where the page's voxel worlds are drawn (`voxel-surface-path.ts`, `VoxelWorldDraws`);
+  `__tlVoxelPlay.light.setStore` changes it at run time (checks, benches). `cache` acts on WebGPU only; `volume` and
+  `hybrid` exist as values for 46e.6/46e.7. Query only, not a project field (§9).
+- **Tiles** (`surface-cache-voxels.ts`, `surface-cache-host-voxels.ts`). Each level-0 chunk's drawn surface mesh (the
+  draw batch's ground and construction faces; a page-side structure from existing derived data, nothing new derived or
+  stored) is a cache tile, versioned by its mesh (a chunk drawn again is a new version; the old tile stays until the new
+  charts are made). A triangle is charted by its main axis into the 0.5 m columns its projection covers (a height and a
+  normal a column; columns more than a cell apart are separate layers); columns whose surfaces lie within 1.5 cells and
+  turn less than ~45° make one chart (greedy rectangles: a flat wall or floor one chart, as block faces; a slope a
+  projected chart per axis and slab, its texels on the surface's height). A surface with a body half a cell in front of
+  it (the ground under a floor: 21 % of the town's drawn triangle points) is charted nowhere. Faces are keyed by cell
+  and face, as block faces: the cells a column's surface spans and the cell behind them (a walk's hit). Charting runs in
+  steps, nearest chunk first, inside the `surfacePrepare` slice (1 ms).
+- **Texels and bytes.** Phase 42's levels by distance (10 cm to 12 m, 20 cm to 24, 40 cm to 48, 80 cm to 96 m …).
+  A town chunk (Node, the test town, 32 chunks): **714 / 290 / 154 / 58 / 35 / 25 KiB** at levels 0–5 (caves: 936 /
+  456 / 229 / 89 / 50 / 33); ~114 charts and ~1,600 chart cells a chunk.
+- **The tracer's voxel kind** (`tracer-wgsl.ts`, `tracer-gpu.ts`, `TRACE_VOXELS`). A second tracer program also walks
+  the first voxel world's occupancy by calling 46e.2's `voxel_walk` (stop `light`): bindings 7 and 8 are the walk's
+  table and pages (six storage buffers in all, within the default eight); pages without voxels keep the first program.
+  A hit names its level-0 cell and its place across the face (a0, a1); `SurfaceScene.resolve` → `locateVoxelHit`
+  (the hit's face, then the cell's others, nearest charted point within 0.75 m) gives the texel or "not resident".
+  GPU only (the CPU tracer twin has no voxel kind; the page's check walks the same rays on the CPU walk).
+- **Direct light.** The existing light pass, scheduler and arbiter slices light the voxel units' stale texels: the
+  sun's share (taken back out where the sun is drawn per pixel) and point/spot/area lights with soft traced shadows.
+  On the low tier (no live budget of its own) the cache takes the tier's GPU `lighting` row (6.67 ms) while texels
+  are stale, none once settled. Registered under `lighting` by phase 42's own registration (`measureGpu` reads it).
+- **The read** (`surface-cache-lookup.ts`, `surface-cache-read.ts`, `SURFACE_READ.voxels`). Level-0 chunk meshes read
+  their local lights' diffuse from the texel under the pixel: the cell behind the face the geometry normal faces most
+  (else the next axis) in a hash of every resident chunk's faces; not found, the pixel keeps its per-pixel lights.
+- **Resident bytes**: in the cache's own reading and its 32 MiB budget (`voxelDiagnostics`, `__tlVoxelPlay.light.cache()`).
+
+**Measured** 2026-11-15 09:32–10:02 UTC at 2b11b6ec (built), Iris Xe, WebGPU, 1280 × 720, low, 30 Hz cap, each run
+alone (`thirdlight-gate` inactive), the brief's 10G scope; uptime 22.7 d, load (1 min) 1.6–3.2. Raw files with an
+`*.uptime` beside each: `~/.cache/thirdlight-phase46e/work/46e.5a/` (`measure.sh`). Store `cache` unless said.
+
+| What | Numbers | Against |
+|---|---|---|
+| GPU `lighting`, still cameras, settled (`light-shots --gpu`) | below resolution at all five (0.09–0.3 ms) | §4b: no pass |
+| GPU `shadows` at the cameras | 0.70 / 0.61 / 0.42 / 1.10 / 0.55 ms (street, room, cave, night, far) | 46e.4b 0.59 / 0.49 / 0.32 / 0.95 / 0.52 |
+| GPU `near` at the cameras (the read inside it) | 0.30 / below / below / 0.75 / 2.21 ms | D660: near reads below at close cameras |
+| GPU on the 8 km town orbit (`headroom`, 2 rounds cache, 2 without the read, interleaved; 1 off) | **not resolved**: the frame's GPU 22.6 / 31.8 ms with the read, 38.8 / 43.0 without, 17.8 off; resolution 8–16 ms (off 0.10). On the moving orbit the cache relights all the time (levels change with distance, each new or relevelled tile marks lights' reach: D678), so windows differ by whole relights; `lighting` read 6.4 / 2.4 / 0.29 / 8.6 ms, near 3.0 / 5.9 / 3.8 / −0.6. The read's own cost is under this noise: not measured | §4b frame 8–9 ms |
+| Page `lighting` at the cameras (profile) | page 10.7 / 9.0 / 5.0 / 9.7 / 4.2 ms a frame; of it `surface lookup packed` mean 3.8 / 3.4 / 1.1 / 2.0 / 0 (worst 54 / 40 / 19 / 24 / 0), `surface cache residency` 0.5 / 0.5 / 0.7 / 1.2 / 0.0 (worst 2–8), `surface light pass` 0.1 / 0.1 / 0.3 / 1.9 / 0.0 (worst 13) | 2.0 ms budget: **over** at four cameras (D676, D677); 46e.4b page 6.4 / 4.5 / 3.1 / 4.3 / 3.9 |
+| Night camera first (`--only night-lamps`): Play start → walls fully lit | **29.4 s** (the scene settled at 10.8 s, the cache 13.7 s later: charting in the 1 ms slice, D676); 37.8 M texels written for 1.3 M resident (D678); page lighting spans then residency 1.7, light pass 1.8, lookup 2.5 ms mean (worst 9 / 15 / 45) | |
+| Surface cache memory at the cameras | 23.5 / 23.1 / 12.7 / 23.6 / 3.2 MB of 32 MiB, every level-0 chunk resident at its distance's level (street levels 0–4: 13 / 17 / 50 / 100 / 12 tiles): the whole detail ring fits; 1.2–1.4 M texels | `MEMORY_BUDGET_BY_TIER` surfaceCache 32 MiB |
+| Memory, orbit | page heap 628–667 MiB, GPU process 1,021–1,063 MiB; off 582 / 953 | low's 1,536 / 2,560 |
+| Tracer through the voxels, GPU vs CPU (1,200 rays a camera) | hits 883 / 999 / 1,035 / 753 / 0 (the far view's eye is 40 m up), 0 hit mismatches; texel mismatches 0 / 0 / **1** / 0 / 0 (cave: the same cell, face and t; the place across the face one byte apart → the next texel) | target 0 |
+
+**The pictures** (low, `shots/`, looked at beside `46e.4b/shots/`; pixels differing by >10 a channel): `night-lamps.png`
+— 22,939 px: the lamps' light on the grass, fences and house fronts from the cache, softer pools on the grass; the
+stepped shadow the eave pieces threw on the brick gable is gone (kit pieces cast nothing into the cache's rays: D679);
+no seams at chart borders, light leaking through walls or blockiness seen at this distance (texels 10–80 cm).
+`street-noon.png` — 11,859 px, `far-view.png` — 2,428, `cave.png` — 338, `room-window.png` — 0: no local lights there,
+the sun is drawn per pixel, so the cache changes almost nothing (the differences are the TAA's settle, by eye none).
+`street-noon-1m.png` beside `street-noon.png`: parallax only (398,666 px), no popping seen (1 m, not 2: the bench's
+moved cameras). The pictures after each GPU measurement differ by 1.1–3.4 % (D660, as in 46e.1).
+
+**Tested.** vitest `tools/voxel-bench/surface-voxels.test.ts` on the town's and the caves' derived chunks: 99.90 /
+99.95 % of points on drawn (not hidden) triangles found in a chart under their own face, on the drawn surface (≤ 0.75
+m); every chart cell found back at itself (≥ 99.9 %: two surfaces of one face two cells apart share keys); no keys
+deeper than two cells in bodies; walk hits aimed at surface points (1,452 / 1,945) resolved within 0.75 m 100 / 99.9
+%, to the aimed point's own texel 90 / 92 %; chart bytes by level. `packages/three-adapter/src/surface-cache-voxels.test.ts`:
+the lookup finds every drawn point's texel where the cache addresses it; a voxel hit's words resolve to the same texel
+(> 99 %); the host lists a page's chunks, plans texels on their surface, makes a chunk drawn again a new version, and
+the source's budget stands in where the tier has none. Playwright `voxel-world.e2e.ts` Play (high tier; checks in
+`voxel-shadows.ts` `voxelCacheLightChecks`): the store off, the page has no cache tiles; switched to the cache, its
+voxel texels are lit (the page's counters, waited for: 29.5 s after the switch, 351 chunks); the lamp adds red to
+28,835 px by the cache's light (bound 8,000); a pillar's traced shadow keeps it off 554 px (bound 250); the cache
+changes the picture in 1,793 px (bound 500); off again, the picture equals the store-off one (0 px, bound 40).
+**Broken:** the tracer's voxel walk always missing (run once, `e2e-broken-walk/`): the pillar's shadow 5 px, the test
+fails; a tile source returning nothing would fail the "texels lit" wait (resident 0), not run. The Play test 1.6 →
+2.4–2.6 min alone.
+
+**Gate.** `gate-fast-20261115-091250` at 2b11b6ec red on the Play test's projected wall mark (0 px at the first
+picture: D566, on watch; passed alone before) and the m41 upgrade vitest under load (passed alone), green in
+`gate-rerun-20261115-092837` (village perf at 60 Hz 0/361 missed, main 6.06 ms).
+
+**Notes for 46e.5b** (what 46e.5a leaves, and where it plugs in).
+
+- *Probes over voxels.* `SurfaceCacheHost.probeGeometry` places probe bricks from block, architecture and model tiles
+  only; voxel tiles are skipped. Their geometry is at hand: each `VoxelTile.made` holds every chart cell's surface
+  height and normal (`samples`), so `ProbeMarks.mark` can take a box per chart (or per chart cell row) as
+  `blockTileMarks` does per face; what is solid for probe validity (`probeSolid`) can read the walk's blocks on the
+  page (`walkSolidAt` over `VoxelWalkGpu.table.source()`). Rooms: phase 42's `SurfaceRooms` come from architecture
+  (`LightingRooms`); a voxel stand-in is the open regions (46e.3): `regionIdAt` on the CPU where the world runs, so a
+  probe's room is its region id, enclosed regions as rooms and `portalsOf` as their portals. The page has no region
+  ids (they stay in the simulation): either the batches carry a per-chunk region map, or the probes are placed where
+  the world runs.
+- *Sky occlusion.* The probe pass's sky rays walk the voxels already (the tracer's second program): a probe under a
+  roof or in the cave sees the walk's hit, not the sky. A texel's own sky term needs the probes (or a sky ray a texel
+  in the light pass: the pass's sun share does this for the sun only).
+- *Bounce.* The GPU resolve (`surface-resolve-wgsl.ts`) must learn `TRACE_VOXELS` (D680): the hit's cell and face
+  (a0, a1) → the chunk's tile → its chart → texel, the CPU twin being `SurfaceScene.resolve` → `locateVoxelHit`
+  (its own face, then the cell's others, nearest charted point within 0.75 m). A hash of resident voxel faces in the
+  resolve table (as the materials' lookup packs one, `packVoxels`) gives the GPU the same.
+- *Edits.* A chunk drawn again is a new tile version already (`VoxelLightFeed` counts a chunk's mesh arrivals); the
+  host keeps the old tile until the new charts are made, then lets it go and marks its box as a geometry change
+  (lights reaching it relight; D678). The walk table is updated by the same batch, so shadow rays see the edit at
+  once. Not measured: the edit → light time (46e.0's edits with the cache store), and whether the mark is too wide.
+- *Kit pieces and moving objects.* They do not read the cache (no `SURFACE_READ_KEY`); kit pieces could read their
+  dressing cell's face (the lookup by position and normal works for any mesh over a charted face) or the probes;
+  moving objects the probes. Neither casts into the cache's rays (D679).
+- *Costs to take on* (performance first): charting on the page (D676: a worker), the lookup packed whole (D677:
+  incremental), the relight churn while streaming (D678).
+
+**For 46e.6 (the volume), what a fair A/B needs from it**: the same switch (`voxelLightStoreFromUrl`,
+`VOXEL_LIGHT_STORES`; `VoxelWorldDraws.lightStore` and `setLightStore`, which today only acts on `cache`/`hybrid`),
+the same GPU time while stale (`frameBudgetMs(level, 'gpu', 'lighting')`), its passes registered under `lighting`
+(`gpuPassHides`), the same depth (local lights' soft light with traced shadows through the same walk; read by voxel
+surfaces), and the same readings on the bench: `__tlVoxelPlay.light.cache()`-like stats (`store`, resident bytes,
+lit/stale, waiting) for `light-shots`' wait (`cacheLit`) and record, the tracer-style check against the CPU walk,
+and its page spans (the bench's `LIGHTING_SPANS`). `light-shots --query '&voxelLight=volume'` and `run.mjs headroom
+--query …` take it as they take the cache.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -777,6 +896,29 @@ resolved by this comparison (unverified).
 - 2026-11-15 (46e.4b, default chosen, owner to confirm): near draws read the lines at their vertices (D673), the far
   shade at its pixels; the map hands over across 0.8–0.96 of its half side; inside it only casters past its near plane
   (farther across than (20 − 0.5) m × the sun's horizontal share) shade.
+
+- 2026-11-15 (46e.5a, default chosen, owner to confirm): the cache's voxel charts are made on the page from each
+  level-0 chunk's drawn mesh (the draw batch's ground and construction faces), not in the derive workers: no new
+  derived output, no format step. A triangle is charted by its main axis into the 0.5 m columns its projection covers;
+  columns whose surfaces lie within 1.5 cells and whose normals turn less than about 45° (cos 0.7) are one chart
+  (greedy rectangles); a surface with a body half a cell in front of it (the walk's blocks on the page) is hidden and
+  charted nowhere. Texels as phase 42's levels by distance (10 cm to 12 m, doubling to 3.2 m); no new constant.
+- 2026-11-15 (46e.5a, default chosen, owner to confirm): only level-0 chunks (the detail ring) are cache tiles; the
+  level 1–2 mesh rings, kit pieces and the far field keep their lights per pixel (46e.5b and the hybrid decide more).
+- 2026-11-15 (46e.5a, default chosen, owner to confirm): where the tier gives live light no GPU time (low), a page
+  lighting voxels by the cache takes its tier's GPU `lighting` row (20 % of the frame: 6.67 ms at low) for the work
+  while texels are stale, none once settled; medium and high keep `surfaceLightMs`. The volume (46e.6) takes the
+  same row.
+- 2026-11-15 (46e.5a, default chosen, owner to confirm): the lighting store is a page query, `?voxelLight=off|cache|
+  volume|hybrid` (default `off`), passed from the editor to Play, and `__tlVoxelPlay.light.setStore` at run time for
+  checks and benches; not a project field yet (a `voxelWorld` field would need its validator, canonicalizer,
+  descriptor and the world option carried to the page's draws: more than a small add-only field).
+- 2026-11-15 (46e.5a, default chosen, owner to confirm): the tracer walks one voxel world (the first with walk blocks
+  on the GPU) in a second program, so pages without voxels keep the first; a shadow ray that starts inside a body
+  (its own surface's partly filled cell) goes on from where it leaves that cell, twice at most. GPU only: the CPU
+  tracer twin has no voxel kind (the page's check walks the same rays on the CPU walk instead).
+- 2026-11-15 (46e.5a, default chosen, owner to confirm): a voxel pixel finds its face by the geometry normal's main
+  axis, else the next axis (a flat normal from derivatives flickered at triangle edges under the upscale's jitter).
 
 ## 10. Open questions for the owner (asked with the plan)
 
