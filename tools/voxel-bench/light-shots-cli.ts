@@ -149,6 +149,20 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   };
 }
 
+/** Spans the open regions are measured by, with the job's whole derive beside them: own ms a frame on each thread. */
+const REGION_SPANS = ['open regions stitched', 'open regions', 'job derive', 'voxel streaming'];
+function regionSpans(r: ProfileReport | null): Record<string, number> | null {
+  if (r === null) return null;
+  const out: Record<string, number> = {};
+  for (const thread of ['sim', 'jobs'] as const) {
+    const frames = r.threads[thread];
+    if (frames.length === 0) continue;
+    for (const f of frames) for (const sp of f.spans) if (REGION_SPANS.includes(sp.name)) out[`${thread}/${sp.name}`] = (out[`${thread}/${sp.name}`] ?? 0) + sp.selfMs;
+    for (const k of Object.keys(out)) if (k.startsWith(`${thread}/`)) out[k] = Number((out[k]! / frames.length).toFixed(3));
+  }
+  return out;
+}
+
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   const b = benchApi({ origin: O.origin, token: TOKEN, project: O.project, clientId: 'voxel-bench-light-shots' });
@@ -166,6 +180,11 @@ async function main(): Promise<void> {
     // The meter exists once the page draws its voxel world.
     for (let i = 0; i < 240 && (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: unknown }).__tlVoxelPlay !== undefined)) === false; i++) await page.waitForTimeout(250);
     await meterSet(game, {});
+    // While the town streams in (the first camera's view, before anything settles): the regions' spans a frame.
+    await game.debug(LIGHTING_CAMERAS[0]!.command);
+    await page.waitForTimeout(4000);
+    out['loadingSpans'] = regionSpans((await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null)) as ProfileReport | null);
+    console.log(`loading: ${JSON.stringify(out['loadingSpans'])}`);
     for (const cam of LIGHTING_CAMERAS.filter((c) => O.only.includes(c.name))) {
       await game.debug(cam.command);
       const s = await settle(game);
@@ -204,7 +223,11 @@ async function main(): Promise<void> {
       const shotProblemsFound = shotProblems({ settled: s.settledS !== null, chunks: c['chunks'] ?? 0, l0: c['l0'] ?? 0, farBricks: c['farBricks'] ?? 0, voxelShare, near: cam.near });
       for (const p of shotProblemsFound) problems.push(`${cam.name}: ${p}`);
       const report = profile === null ? null : (profile as ProfileReport);
+      const counters = (await game.observe().catch(() => null))?.counters ?? {};
+      const region = Object.fromEntries(['known', 'enclosed', 'volume', 'sky', 'portals', 'id'].map((k) => [k, counters[`region_${k}`] ?? 0]));
       (out['shots'] as unknown[]).push({
+        region,
+        spans: regionSpans(report),
         name: cam.name,
         file,
         hiddenFile,
@@ -246,6 +269,26 @@ async function main(): Promise<void> {
       const obs = await game.observe().catch(() => null);
       out['edits'] = { digs: edits, refused: obs?.counters?.['light_dig_refused'] ?? 0, issued: obs?.counters?.['light_digs'] ?? 0 };
       console.log(`edits: ${JSON.stringify(edits.map((e) => (e as { edit: { visibleMs?: number; frames?: number } | null }).edit === null ? null : { visibleMs: (e as { edit: { visibleMs: number } }).edit.visibleMs, frames: (e as { edit: { frames: number } }).edit.frames }))}`);
+    }
+    // Open regions where the world runs (counts, bytes, derive µs), then a hole dug through the room camera's wall:
+    // wall ms from the command until the room's region answer at its eye changes (polled every 50 ms), and the steps.
+    out['regions'] = (await game.sim().catch(() => null))?.['regions'] ?? null;
+    const room = LIGHTING_CAMERAS.find((c) => c.name === 'room-window')!;
+    if (O.only.includes(room.name)) {
+      await game.debug(room.command);
+      await settle(game);
+      const before = (await game.observe().catch(() => null))?.counters ?? {};
+      const t0 = Date.now();
+      await game.debug('region_dig');
+      let ms: number | null = null;
+      for (let i = 0; i < 400 && ms === null; i++) {
+        await page.waitForTimeout(50);
+        const c = (await game.observe().catch(() => null))?.counters ?? {};
+        if ((c['region_edit_steps'] ?? 0) > 0) ms = Date.now() - t0;
+      }
+      const after = (await game.observe().catch(() => null))?.counters ?? {};
+      out['regionEdit'] = { ms, steps: after['region_edit_steps'] ?? null, before: { enclosed: before['region_enclosed'], volume: before['region_volume'] }, after: { enclosed: after['region_enclosed'], volume: after['region_volume'], sky: after['region_sky'] }, refused: after['region_dig_refused'] ?? 0 };
+      console.log(`regions: ${JSON.stringify(out['regions'])}; room wall dug → region changed ${JSON.stringify(out['regionEdit'])}`);
     }
     out['errors'] = errors.slice(0, 5);
     await game.stop();

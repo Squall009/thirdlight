@@ -142,10 +142,27 @@ const DIGS = ${JSON.stringify(EDIT_DIGS)};
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
 export default {
   prepare() { return {}; },
-  instantiate() { return { at: 0 }; },
+  instantiate() { return { at: 0, wallDug: -1, wasEnclosed: 0 }; },
   step(s: any, ctx: any) {
     if (ctx.phase === 'intent') {
       SHOTS.forEach((shot: any, i: number) => { for (const _ of ctx.debug.command(shot.command)) { s.at = i; ctx.environment?.set(shot.preset); } });
+      // The open region at the camera's eye, each step (gauges: a counter set to the value).
+      const v = ctx.voxels;
+      const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));
+      const eye = SHOTS[s.at].eye;
+      const r = v?.regionAt(eye[0], eye[1], eye[2]) ?? null;
+      put('region_known', r === null ? 0 : 1); put('region_enclosed', r?.enclosed ? 1 : 0); put('region_volume', r === null ? 0 : Math.round(r.volume));
+      put('region_sky', r?.sky ? 1 : 0); put('region_portals', r?.portals ?? 0); put('region_id', r?.id ?? 0);
+      // A hole dug through the wall the camera looks at (found by a ray): the steps until the eye's region changes.
+      for (const _ of ctx.debug.command('region_dig')) {
+        const yaw = SHOTS[s.at].yaw;
+        const hit = v?.raycast(eye, [-Math.sin(yaw), 0, -Math.cos(yaw)], 30) ?? null;
+        const d = hit === null ? undefined : v.dig({ center: hit.at, radius: 1 });
+        s.wallDug = d !== undefined && d.ok ? ctx.stepIndex : -1;
+        s.wasEnclosed = r?.enclosed ? 1 : 0;
+        ctx.game.add(s.wallDug >= 0 ? 'region_dug' : 'region_dig_refused', 1);
+      }
+      if (s.wallDug >= 0 && (r === null || (r.enclosed ? 1 : 0) !== s.wasEnclosed)) { put('region_edit_steps', ctx.stepIndex - s.wallDug); s.wallDug = -1; }
       for (const d of DIGS) for (const _ of ctx.debug.command(d.command)) {
         const r = ctx.voxels?.dig({ center: d.center, radius: ${EDIT_DIG_RADIUS_M} });
         ctx.game.add('light_digs', 1);
