@@ -212,7 +212,7 @@ below, near and far absent; 131 s.
 | 46e.0 | Done 2026-11-14 (bec4c31d, d2cc91a3): three.js 0.187.0 = pin; five lighting cameras + `run.mjs light-shots` (cave dug, lamps, two looks; refuses unsettled or voxel-less shots); baseline §4a: room 23.1 ms, page 4.1–4.6 / sim 1.8–2.0 ms, lighting 0.05 of 2.0 ms, edit to screen 22–53 ms (no light responds); D654 traced, profiler spike fixes, cause open |
 | 46e.1 | Done 2026-11-14 (1129d456…16e5e566): Measure GPU (Profiler, overlay, `tl_diagnostics` gpu/gpuMeasure, benches) — ballast past the cap, a category hidden between two shown windows, GPU completion times burst to burst, 5 repeats; low town near 1.61, far 3.49, shadows 0.09 ms, run-to-run ≤ 0.45 ms (§4b); D660 near's hide, D661 post's |
 | 46e.2 | Done 2026-11-14 (f17f4a48…): one 6-connected walk (CPU; WGSL from the same steps) over level 0 and mips (the CPU also far nodes; the GPU not: D662); `ctx.voxels.raycast`; picks walk it; GPU = CPU 0 of 1,200 differ; rays/ms worker 360–430 / 170–215 / 19–20, GPU 28k / 17k / 1.6k (short, medium, long; §8a); D662–D664 |
-| 46e.3 | not started |
+| 46e.3 | Done 2026-11-15 (531a2d5b, 5bf24807): open regions derived per section (v32, spec entry), stitched where the world runs, `ctx.voxels.regionAt`, voxel page overlay, sky heights to the page; town 120 enclosed / 3,181 portals; derive 7 % of a section; stitch 1.4 ms/frame loading, 0 settled; edit → answer 91 ms; 150 m/s sim spikes 1 → 14 (D667); D665–D669 |
 | 46e.4 | not started |
 | 46e.5 | not started |
 | 46e.6 | not started |
@@ -402,6 +402,72 @@ said on the console. The Play test 90 s → 84–86 s alone (the GPU check 25–
 all-areas load, block-editor's Paint step (D412) and shadows' cached map (D645), both green in
 `gate-rerun-20261114-200347` (village perf at 60 Hz 0/360 missed, main 6.16 ms); the voxel area 216 s (216 s before).
 
+### 46e.3 — open regions
+
+**Built.** Shared foundation 2 (voxel-engine.md §6). Per level-0 derive unit, in the derive job beside the other
+consumers (`@thirdlight/voxel` `open-regions.ts`, derived v32, radius 0: only the unit's own cells): the open cells
+labelled 6-connected into components, each with its cells, the unit faces it reaches and its region–portal contacts;
+the 15 face pairs joined through open cells (R97); the highest solid cell + 1 of each column (R98). Where the world
+runs (the simulation worker in Play and exports, the page on the voxel world page) `OpenRegionStitch`
+(`open-region-stitch.ts`) joins each storage chunk's units into its components (a uniform air or solid chunk is one
+value) and those across chunk faces: a region that lost a node is walked again from its remaining nodes (the largest
+part keeps the id), a new node joins the regions it touches (the largest takes in the others, keeping its id). A chunk
+derived again with the same regions is left standing. It runs in the derive slice (`voxelDerive`, at least one chunk
+an update). Sky heights a column are stitched upward over the chunks known and sent to the page with the draw batches
+(`sky-columns.ts`, `SkyColumns`: 2 KB a chunk column, plain arrays on every renderer, counted in `voxelStream`).
+
+**Definitions.** *Open cell*: not drawn as a body (the derived occupancy; the walk's `solid` stop): air, liquid,
+openings, rails, posts, beams' bars. *Region*: open cells joined across faces (never by an edge alone), `opening`
+cells excepted. *Portal*: joined `opening` cells, a boundary between regions (a doorway separates the room from the
+street; a dug hole is air and joins them). *Sky*: a cell at or above its column's sky height (nothing solid above
+it in the chunks known; space no chunk knows counts as open, the walk's rule). *Complete*: no node of the region
+reaches a chunk face whose neighbour has no piece yet. *Enclosed*: complete, no cell under sky, not at the world's
+edge; a region reaching a chunk not loaded is never enclosed.
+
+**API.** `ctx.voxels.regionAt(x, y, z)` → `{ id, portal, enclosed, complete, volume (m³), sky (this cell),
+seesSky, portals }` or null (solid, not loaded, not stitched yet). On the CPU where the world runs (runtime host
+`openRegions`): `regionAt`, `regionIdAt(x, y, z)` (a number, 0 solid/unknown: what a light store compares to stop
+leaks), `region(id)`, `portalsOf(id)` (extent, cells, regions joined), `skyHeight(x, z)`, `skyAt`, `columnSky`,
+`stats()`, `bytes`. On the page: `VoxelWorldDraws.sky(world)` → `SkyColumns.heightAt(x, z)` (Play hook
+`__tlVoxelPlay.skyHeight`). No GPU buffer yet, no region ids on the GPU (default below).
+
+**Measured** 2026-11-15 01:46–02:30 UTC, built at 5bf24807, each run alone (gate inactive), the brief's 10G scope,
+uptime 22.4 d, load (1 min) 1.3–3.2; raw `~/.cache/thirdlight-phase46e/work/46e.3/` (`*.uptime` beside each).
+
+| What | Numbers |
+|---|---|
+| Derive a section (Node, the town box, 864 sections, 2 rounds; `derive-node.log`) | regions p50 68 / p95 383 µs (mean 126–143); mesh producers p50 0 / p95 1,992–2,268 (mean 756–850); the whole derive p50 242–335 / p95 4,295–4,582; regions **7.0–7.4 %** of it |
+| Derive in Play's job workers (8 km town, low, 80,286 sections; `light-shots.log`) | regions p50 0 / p95 100 µs, mesh p95 500, whole p50 100 / p95 800: the workers' clock steps 100 µs (D669) |
+| Stitch on the simulation (profile spans, `voxelStream`) | the town loading (first 4 s): **1.39 ms a frame** beside voxel streaming 17.7; settled at the five cameras: 0 (no stitch); Play e2e at high while loading: 1.5–1.7 ms of voxelStream's 3.3 ms budget; Node: 0.2–0.3 ms a chunk, an edit's chunk ~1 ms |
+| Memory at the town (low) | stitch 4.17 MB (3,376 pieces, 5,816 nodes); the region part 9.3 KB a chunk in the town box (25.6 KB a mixed chunk; 18 % of 51 KB derived), in derived bytes; voxelStream resident 89–140 MiB of 768; page sky 2 KB a chunk column (not read) |
+| Town counts | 121 regions, **120 enclosed**, 3,181 portals (each door and window run); room camera: enclosed, 653 m³, 24 portals; street: sky; cave: the outdoors' region (open to the valley), not under sky. Node box: 19 whole houses = 19 enclosed regions, 340–1,528 m³, 12–49 portals each (storeys join by the stair holes: one region a house) |
+| Edit → regions | a 1 m hole through the room camera's wall: the answer at the eye changed 91 ms after the command (4 steps; 50 ms polls included), enclosed → the outdoors; e2e: four room edits → answers 173 ms, a shaft → 155 ms |
+| 150 m/s, export, low, base 05b4e44b vs HEAD, 1 round each same hour | longest 46.9 / 50.6 ms, 0 / 0 > 100, missed 3.7 / 2.7 a min, detail 4.6 / 5.4 s, pending 9.1 / 10.7 s, sim spikes 1 / **14** (a tick with 8.3 ms of stitching): D667 |
+
+**Pictures** (looked at). Voxel page, staging's 8 km world, low, `?regions` hooks, at the lighting cameras
+(`~/.cache/thirdlight-phase46e/work/46e.3/overlay/`): `room-window-on.png` (every wall, the floor, ceiling and stairs
+of the room one hue, the five windows cyan; `-off` beside it), `street-noon-on.png` (windows cyan; thin green slivers
+along the eaves: the attic's tinted faces show above the roof planes, D668), `cave-on.png` (untinted: the cave is the
+outdoors' region). E2e (`e2e-shots/regions-on.png`, `-off`): from inside a test hut's first room, its walls one hue,
+the door in the partition cyan, the second room behind.
+
+**Tested.** vitest `packages/voxel/src/open-regions.test.ts` (labels against a flood fill; face pairs with a tunnel;
+sky columns against a scan and through `SkyColumns`; radius 0 with junk in the pad; closed box; door portal; two
+rooms and one portal; cave open vs sealed cavity; 2 × 2 × 2 chunks one region; edge contact apart; four shuffled
+arrival orders equal; unload → not complete, reload → enclosed; an edit re-derives one chunk (1 derive, 1 piece
+built) and merges, then splits), `tools/voxel-bench/open-regions-town.test.ts` (≥ 15 enclosed houses of 190–2,000 m³
+with portals; the street under sky). Playwright `voxel-world.e2e.ts`: Play, two rooms dug under the pad (enclosed,
+apart, one portal, 20–60 m³; the pad under sky), a shaft → not enclosed, sees sky; the voxel page's hut, overlay on
+differs from off by > 20,000 px. **Broken** (openings not portals, run once: `broken-no-portals-vitest.log`): 7 of 14
+vitest fail (door, two rooms, town, order, edit…); with nothing labelled the Play gauge `roomKnown` stays 0; with
+stitching skipped no room is complete (never enclosed); all cells one region: rooms not apart. The voxel area 216 →
+222 s.
+
+**Gate.** `gate-fast-20261114-211154` (every area) red on `rendering.e2e.ts:491` (export box field, 240 s timeout
+under the all-areas load, not touched here), green in `gate-rerun-20261115-014237` (village perf 0/360 missed, main
+6.2 ms). Fixed on the way: the stitch walked the whole outdoors on every new chunk (sim 63 ms/frame in the Play e2e,
+starving the Profiler's job lane); it now merges.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -450,6 +516,19 @@ all-areas load, block-editor's Paint step (D412) and shadows' cached map (D645),
   and no far node knows a place, a ray passes as through air (light reaches it).
 - 2026-11-14 (46e.2, default chosen, owner to confirm): `ctx.voxels.raycast` stops at `solid` by default; hits in the
   mips or far nodes carry no voxel (`far: true`).
+
+- 2026-11-15 (46e.3, default chosen, owner to confirm): open = not drawn as a body (the walk's `solid` stop), so
+  liquid, rails, posts and beams' bars are open; `opening` cells are portals apart; damaged walls stay closed.
+- 2026-11-15 (46e.3, default chosen, owner to confirm): stitched per storage chunk where the world runs, in the
+  derive slice (`voxelDerive`, no new constant), at least one chunk an update; space no chunk knows counts as open
+  for sky; enclosed needs complete, no sky and not the world's edge; ids: the largest part or the largest merged
+  region keeps its id (the outdoors' id moves as the ring moves).
+- 2026-11-15 (46e.3, default chosen, owner to confirm): the page gets sky heights as plain arrays per chunk column
+  with the batches; the GPU form (a texture over the resident area through `region-texture.ts`, or beside the walk's
+  buffers) is 46e.4's first step, made in the shape its shader reads; region labels stay on the CPU (4 KB a mixed
+  section); the overlay is the voxel page's (`?regions=1`), not Play's.
+- 2026-11-15 (46e.3, default chosen, owner to confirm): `ctx.voxels.regionAt(x, y, z)` takes numbers like `get` and
+  `coverageAt`; the region part is in the canonical bytes (derived v32).
 
 ## 10. Open questions for the owner (asked with the plan)
 
