@@ -74,7 +74,7 @@ page in the same commit.
   occupancy (the one walk, in the tracer's second program), read by the voxel surfaces through a hash of their cells
   and faces kept across changes (`surface-voxel-faces.ts`, the resolve table's too); live probes over the charts hold
   the sky and one bounce, read by surfaces, kit pieces and moving objects; a chunk that comes, goes or changes marks
-  what it can shadow. Its measured column: plan-46e §8a 46e.5c.
+  what it can shadow. Its measured column: plan-46e §8a 46e.5c. With `volume` (the other candidate, WebGPU only) a **light volume** keeps light in the open cells beside surfaces (`voxel-light-volume.ts`): six values a cell (an ambient cube), 2 m bricks in a pool texture round the camera, updated in compute by walk rays (the sky past 24 m; at a surface its colour times the sun and lamps seen by walks and the volume's own light there), read per pixel by the voxel surfaces from the open cells on their side only, in place of the flat ambient term; no coarse levels, kit pieces or moving objects yet (plan-46e §8a 46e.6a).
 
 ## 4. Streaming
 
