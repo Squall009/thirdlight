@@ -43,7 +43,8 @@ import { GPU_BUFFER_USAGE as USAGE, GPU_TEXTURE_USAGE as TEXTURE, RAY_COST_WEIGH
 import { DEFAULT_STORAGE_BINDING_BYTES, TraceScenePacker } from './tracer-scene-packer';
 import { SurfaceProbePass } from './surface-probe-pass';
 import { SurfaceReflectionPass } from './surface-reflection-pass';
-import { packResolveTable } from './surface-resolve';
+import { VOXEL_R_WORDS, packResolveTableParts, voxelResolveFaces } from './surface-resolve';
+import { writeSlotRuns } from './surface-voxel-faces';
 import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, albedoWords } from './surface-cache-lookup';
 
 /**
@@ -132,6 +133,10 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   private resolvedFor = -1;
   /** The resolve table on the GPU now (the checks resolve the same hits on the CPU from it). */
   resolveWords: Uint32Array | null = null;
+  /** The voxel faces the resolve reads, kept across packs (only the chunks that came, went or moved are written). */
+  private readonly resolveFaces = voxelResolveFaces();
+  /** Packs, whole uploads, faces changed and slots written, and bytes uploaded. */
+  readonly resolveStats = { packs: 0, whole: 0, faces: 0, touched: 0, uploadBytes: 0 };
 
   /** Bytes of the resolve table the probe and reflection rays read. */
   get resolveBytes(): number {
@@ -324,12 +329,43 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     // The tables follow the packed scene (the same version), never a newer one the pack has not caught up with.
     const version = this.host.traceVersion;
     if (version === this.sceneVersion && (version !== this.resolvedFor || this.host.residencyVersion !== this.resolvedResidency)) {
-      this.resolveWords = packResolveTable(this.host.resolveScene().scene, this.host.cache).words;
-      this.probePass.resolve.setTable(this.resolveWords);
+      this.packResolve();
       this.resolvedFor = version;
       this.resolvedResidency = this.host.residencyVersion;
     }
     return this.resolvedFor >= 0;
+  }
+
+  /**
+   * The resolve table packed again: its words before the voxel faces' slots
+   * are packed; when they are as uploaded last and the faces' table was not
+   * made again, only the voxel slots that changed are written (runs of them
+   * into the GPU table), else the whole table goes up.
+   */
+  private packResolve(): void {
+    const faces = this.resolveFaces;
+    const p = packResolveTableParts(this.host.resolveScene().scene, this.host.cache, faces, false);
+    const dirty = faces.takeDirty();
+    const was = this.resolveWords;
+    const s = this.resolveStats;
+    s.packs += 1;
+    s.faces += p.sync.faces;
+    s.touched += p.sync.touched;
+    const fits = was !== null && was.length === p.voxelsAt + faces.words.length;
+    if (fits && !dirty.whole && was.subarray(0, p.voxelsAt).every((w, i) => i === 14 || w === p.words[i]) && this.probePass.resolve.hasTable) {
+      s.uploadBytes += writeSlotRuns(dirty.slots, faces.words, VOXEL_R_WORDS, (from, to) => {
+        was.set(faces.words.subarray(from, to), p.voxelsAt + from);
+        this.probePass.resolve.writeWords(p.voxelsAt + from, faces.words.subarray(from, to));
+      });
+      return;
+    }
+    const words = new Uint32Array(p.voxelsAt + faces.words.length);
+    words.set(p.words);
+    words.set(faces.words, p.voxelsAt);
+    this.resolveWords = words;
+    this.probePass.resolve.setTable(words);
+    s.whole += 1;
+    s.uploadBytes += words.byteLength;
   }
 
   /**

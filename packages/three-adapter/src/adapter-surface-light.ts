@@ -39,7 +39,8 @@ import { RESOLVE_PAGE, resolveHitCpu } from './surface-resolve';
 import { SURFACE_PAGE_BYTES } from './surface-cache-atlas';
 import { TERRAIN_RING_SHARE } from './surface-cache';
 import { TERRAIN_RINGS_MAX, TERRAIN_RING_BYTES } from './surface-cache-terrain';
-import { packSurfaceLookup, SURFACE_READ } from './surface-cache-lookup';
+import { LOOKUP_WIDTH, packSurfaceLookupParts, SURFACE_READ, voxelLookupFaces } from './surface-cache-lookup';
+import type { RegionUploadRenderer } from './region-texture';
 import { SURFACE_READ_ALL, SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
 import { savedLights, type CacheLight, type ColourChanges } from './surface-changes';
 import { runSurfaceBake, type BakePart, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
@@ -148,6 +149,12 @@ export class AdapterSurfaceLight {
   /** The kinds of surface that read (a bit per `SURFACE_READ` kind). */
   private readonly readKinds: number;
   private lookupAt = -Infinity;
+  /** The voxel faces the lookup reads, kept across packs (only the chunks that came, went or moved are written). */
+  private readonly lookupFaces = voxelLookupFaces();
+  /** The lookup's words before the voxel slots as last uploaded whole (null: none yet). */
+  private lookupRest: Uint32Array | null = null;
+  /** Packs, whole uploads, faces changed and slots written, and bytes uploaded since the page started. */
+  readonly lookupStats = { packs: 0, whole: 0, faces: 0, touched: 0, uploadBytes: 0 };
   /** The budget the textures were made for (another quality level's makes them again). */
   private budgetFor = -1;
   private albedoDrawn: number | null = null;
@@ -284,7 +291,7 @@ export class AdapterSurfaceLight {
     const now = performance.now();
     if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
       threadProfiler.begin(SPANS.lookup);
-      tex.setTable(packSurfaceLookup(this.host.resolveScene().scene, this.host.cache, (tileKey) => this.host.modelSlots.peek(tileKey)));
+      this.packLookup(tex, renderer);
       threadProfiler.end(SPANS.lookup);
       this.lookupFor = key;
       this.lookupAt = now;
@@ -311,6 +318,37 @@ export class AdapterSurfaceLight {
       this.albedoAt = now;
       this.readAlbedo(renderer);
     }
+  }
+
+  /**
+   * The lookup packed again: its words before the voxel faces' slots are
+   * packed (cheap on a voxel page: nothing else is read there); when they are
+   * as uploaded last and the faces' table was not made again, only the voxel
+   * slots that changed are written, else the whole table goes up.
+   */
+  private packLookup(tex: SurfaceCacheTextures, renderer: AnyRenderer): void {
+    const faces = this.lookupFaces;
+    const p = packSurfaceLookupParts(this.host.resolveScene().scene, this.host.cache, (tileKey) => this.host.modelSlots.peek(tileKey), faces, false);
+    const dirty = faces.takeDirty();
+    const was = this.lookupRest;
+    const same = was !== null && !dirty.whole && was.length === p.words.length && was.every((w, i) => (i >= 8 && i < 12) || w === p.words[i]);
+    const s = this.lookupStats;
+    s.packs += 1;
+    s.faces += p.sync.faces;
+    s.touched += p.sync.touched;
+    const bytes = same ? tex.writeVoxelSlots(renderer as unknown as RegionUploadRenderer, p.voxelsAt, faces.words, dirty.slots, faces.probe) : null;
+    if (bytes !== null) {
+      s.uploadBytes += bytes;
+      return;
+    }
+    const rows = Math.max(1, Math.ceil((p.voxelsAt + faces.cap) / LOOKUP_WIDTH));
+    const words = new Uint32Array(rows * LOOKUP_WIDTH * 4);
+    words.set(p.words);
+    words.set(faces.words, p.voxelsAt * 4);
+    tex.setTable(words);
+    this.lookupRest = p.words;
+    s.whole += 1;
+    s.uploadBytes += words.byteLength;
   }
 
   /** Counts the surfaces' colours the materials drew (a diagnostics read: asked by `diagnostics`, done a frame or two later). */
@@ -345,6 +383,7 @@ export class AdapterSurfaceLight {
     delete this.scene.userData[SURFACE_READ_LIVE_KEY];
     delete this.scene.userData[REFLECTION_TRACER_KEY];
     this.lookupFor = '';
+    this.lookupRest = null;
     this.textures?.dispose();
     this.textures = null;
     this.device = device;

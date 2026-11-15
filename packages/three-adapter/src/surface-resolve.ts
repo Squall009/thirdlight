@@ -45,10 +45,11 @@
  * - voxel worlds (header 14 the hash's slots, a power of two, 0: none; 15
  *   its first slot): one hash of every resident level-0 chunk's keyed faces
  *   (`surface-cache-voxels.ts`: the cells a surface spans and the cell behind
- *   them, where a walk's hit stops), a slot (`VOXEL_R_WORDS`) the face's keys
- *   (`voxelSlotKeys`; the second 0: free), its chart's record, and its column
- *   in the chart with the chart's columns (u | v << 8 | w << 15 | h << 23).
- *   A face two chunks key (their margins) keeps the first resident one's.
+ *   them, where a walk's hit stops), after every other word; a slot
+ *   (`VOXEL_R_WORDS`) as `surface-voxel-faces.ts` keeps it: the face's keys
+ *   (the second 0: free), its chart's place on its page and level, and its
+ *   column in the chart with the chart's columns (u | v << 8 | w << 16 | h <<
+ *   24).
  *
  * Pure (no three.js, no device).
  */
@@ -60,8 +61,7 @@ import { FACE_PLANE_AXES } from './surface-cache-blocks';
 import type { SurfaceCache, SurfaceTexel } from './surface-cache';
 import type { SurfaceScene } from './surface-cache-scene';
 import { HIT_WORDS, TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_TERRAIN, TRACE_VOXELS } from './tracer-scene';
-import { voxelSlotHash, voxelSlotKeys } from './surface-cache-lookup';
-import { VOXEL_FRAME_WORDS, VOXEL_KEY_MARGIN, type VoxelChunkCharts, type VoxelTile } from './surface-cache-voxels';
+import { VoxelFaceTable, voxelAreaTexels, voxelSlotHash, voxelSlotKeys, type VoxelFaceSync } from './surface-voxel-faces';
 import { Words, invertAffine, worldToLocalOf } from './tracer-words';
 
 export const RESOLVE_HEADER_WORDS = 16;
@@ -73,8 +73,6 @@ export const COMP_WORDS = 14;
 export const MODEL_R_WORDS = 21;
 export const HASH_WORDS = 4;
 export const VOXEL_R_WORDS = 4;
-/** The voxel hash's most slots per keyed face (a power of two at least this many times the faces: at most 3/4 full). */
-const VOXEL_SLOTS_PER_FACE = 4 / 3;
 export const EMPTY_SLOT = 0xffffffff;
 export const RESOLVE_PAGE = 1;
 export const RESOLVE_RING = 2;
@@ -159,8 +157,14 @@ function packSurfels(w: Words, s: SurfelSet, k: number, uv1: boolean): PackedSur
   return { cell, hash, cap, pos, uv };
 }
 
-/** Pack the resolve table of `scene` with what `cache` holds resident now (packed again when residency changes). */
-export function packResolveTable(scene: SurfaceScene, cache: SurfaceCache): ResolveTable {
+/** The resolve table packed: its voxel faces' slots' first word, and what syncing the voxel faces' table did. */
+export interface PackedResolve extends ResolveTable {
+  readonly voxelsAt: number;
+  readonly sync: VoxelFaceSync;
+}
+
+/** `packResolveTable`'s parts: with `withVoxels` the whole table; without, the words before the voxel faces' slots (header 15 naming where they start). */
+export function packResolveTableParts(scene: SurfaceScene, cache: SurfaceCache, voxels: VoxelFaceTable, withVoxels: boolean): PackedResolve {
   const w = new Words();
   w.alloc(RESOLVE_HEADER_WORDS);
   const view = scene.resolveView();
@@ -318,62 +322,26 @@ export function packResolveTable(scene: SurfaceScene, cache: SurfaceCache): Reso
     w.setU(at + 19, sl.pos);
     w.setU(at + 20, sl.uv);
   });
-  packVoxelFaces(w, view.voxels, resident);
-  return { words: w.done(), terrains: ringKeys };
+  const sync = voxels.sync(view.voxels, (key) => resident.get(key));
+  // The voxel faces' slots last: a caller whose words before them did not change writes only the slots that did.
+  const at = w.end;
+  w.setU(14, voxels.cap);
+  w.setU(15, at);
+  if (!withVoxels) return { words: w.done().slice(), terrains: ringKeys, voxelsAt: at, sync };
+  const slots = w.alloc(voxels.cap * VOXEL_R_WORDS);
+  if (voxels.cap > 0) w.views(slots, voxels.cap * VOXEL_R_WORDS).u.set(voxels.words);
+  return { words: w.done(), terrains: ringKeys, voxelsAt: at, sync };
 }
 
-/** The resident voxel chunks' keyed faces in one hash (header 14, 15). */
-function packVoxelFaces(w: Words, tiles: readonly VoxelTile[], resident: ReadonlyMap<string, Resident>): void {
-  const live = tiles.filter((t) => t.made !== null && resident.has(t.key));
-  let n = 0;
-  for (const t of live) n += t.made!.keys.length;
-  if (n === 0) return;
-  const cap = grownCapacity(1, Math.ceil(n * VOXEL_SLOTS_PER_FACE));
-  const slots = w.alloc(cap * VOXEL_R_WORDS);
-  for (const tile of live) {
-    const m = tile.made!;
-    const charts = putCharts(w, resident.get(tile.key));
-    const e = voxelFaceEntries(m);
-    for (let i = 0; i < e.length; i += 4) {
-      const k0 = e[i]!;
-      const k1 = e[i + 1]!;
-      for (let at = voxelSlotHash(k0, k1, cap); ; at = (at + 1) & (cap - 1)) {
-        const sa = slots + at * VOXEL_R_WORDS;
-        if (w.getU(sa + 1) === 0) {
-          w.setU(sa, k0);
-          w.setU(sa + 1, k1);
-          w.setU(sa + 2, charts + (e[i + 2]! >>> 16) * CHART_WORDS);
-          w.setU(sa + 3, e[i + 3]!);
-          break;
-        }
-        if (w.getU(sa) === k0 && w.getU(sa + 1) === k1) break;
-      }
-    }
-  }
-  w.setU(14, cap);
-  w.setU(15, slots);
+/** Pack the resolve table of `scene` with what `cache` holds resident now (packed again when residency changes); `voxels`: the voxel faces' table kept across packs (a new one: made from the resident chunks now). */
+export function packResolveTable(scene: SurfaceScene, cache: SurfaceCache, voxels: VoxelFaceTable = voxelResolveFaces()): ResolveTable {
+  const p = packResolveTableParts(scene, cache, voxels, true);
+  return { words: p.words, terrains: p.terrains };
 }
 
-/** A chunk's keyed faces as (k0, k1, chart << 16, its column and the chart's columns as the slot holds them), made once with its charts. */
-const faceEntries = new WeakMap<VoxelChunkCharts, Uint32Array>();
-
-function voxelFaceEntries(m: VoxelChunkCharts): Uint32Array {
-  let out = faceEntries.get(m);
-  if (out !== undefined) return out;
-  const s = m.edge + 2 * VOXEL_KEY_MARGIN;
-  out = new Uint32Array(m.keys.length * 4);
-  for (let i = 0; i < m.keys.length; i += 1) {
-    const key = m.keys[i]!;
-    const lc = Math.floor(key / 6);
-    const [k0, k1] = voxelSlotKeys((lc % s) - VOXEL_KEY_MARGIN + m.cell0[0], Math.floor(lc / (s * s)) - VOXEL_KEY_MARGIN + m.cell0[1], (Math.floor(lc / s) % s) - VOXEL_KEY_MARGIN + m.cell0[2], key % 6);
-    const c = m.chartOf[i]!;
-    out[i * 4] = k0;
-    out[i * 4 + 1] = k1;
-    out[i * 4 + 2] = (c << 16) >>> 0;
-    out[i * 4 + 3] = ((m.offsets[i]! & 0x7fff) | (m.frames[c * VOXEL_FRAME_WORDS + 3]! << 15) | (m.frames[c * VOXEL_FRAME_WORDS + 4]! << 23)) >>> 0;
-  }
-  faceEntries.set(m, out);
-  return out;
+/** A table of the resident voxel chunks' keyed faces with the cells behind their surfaces (where a walk's hit stops), as the resolve keeps one: at most 3/4 full. */
+export function voxelResolveFaces(): VoxelFaceTable {
+  return new VoxelFaceTable(true, 0.75);
 }
 
 /** The order a voxel hit's faces are asked in: its own first, then the cell's others (`locateVoxelHit`'s). */
@@ -408,13 +376,16 @@ function resolveVoxelCpu(u: Uint32Array, f: Float32Array, face: number, a0: numb
       if (u[sa + 1] === 0) break;
       if (u[sa] !== k0 || u[sa + 1] !== k1) continue;
       const [pu, pv] = FACE_PLANE_AXES[fc >> 1]!;
+      const pl = u[sa + 2]!;
       const o = u[sa + 3]!;
-      const c = u[sa + 2]!;
-      const iw = u[c + 2]! & 0xffff;
-      const ih = u[c + 2]! >>> 16;
-      const x = (u[c + 1]! & 0xffff) + Math.min(iw - 1, Math.floor((((o & 255) * 255 + q[pu]!) * iw) / (((o >>> 15) & 255) * 255)));
-      const y = (u[c + 1]! >>> 16) + Math.min(ih - 1, Math.floor((((o >>> 8) & 0x7f) * 255 + q[pv]!) * ih / ((o >>> 23) * 255)));
-      return [((RESOLVE_PAGE << 30) | u[c]!) >>> 0, (x | (y << 16)) >>> 0];
+      const level = pl >>> 28;
+      const wc = (o >>> 16) & 255;
+      const hc = o >>> 24;
+      const iw = voxelAreaTexels(wc, level);
+      const ih = voxelAreaTexels(hc, level);
+      const x = ((pl >>> 12) & 255) + Math.min(iw - 1, Math.floor((((o & 255) * 255 + q[pu]!) * iw) / (wc * 255)));
+      const y = ((pl >>> 20) & 255) + Math.min(ih - 1, Math.floor(((((o >>> 8) & 0x7f) * 255 + q[pv]!) * ih) / (hc * 255)));
+      return [((RESOLVE_PAGE << 30) | (pl & 0xfff)) >>> 0, (x | (y << 16)) >>> 0];
     }
   }
   return NONE;

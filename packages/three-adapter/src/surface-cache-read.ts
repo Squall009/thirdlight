@@ -42,6 +42,7 @@ import { UNCACHED_LIGHT_CONTEXT, type LightSums } from './cluster-lights';
 import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
 import { CHUNK_SIZE } from '@thirdlight/project-model';
 import { texelTexture } from './texel-texture-node';
+import { uploadTextureRegion, type RegionUploadRenderer } from './region-texture';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -232,6 +233,40 @@ export class SurfaceCacheTextures {
     }
     data.fill(0, words.length);
     this.table.needsUpdate = true;
+  }
+
+  /**
+   * The voxel faces' slots that changed written in place, the rest of the
+   * lookup's words as they are (`slotsAt`: the first slot's texel; `words`:
+   * the faces' table, four words a slot; `probe`: its longest probe), each
+   * run of rows they lie in uploaded alone. Returns the bytes uploaded, or
+   * null when the slots do not fit the texture (pack it whole).
+   */
+  writeVoxelSlots(renderer: RegionUploadRenderer, slotsAt: number, words: Uint32Array, slots: readonly number[], probe: number): number | null {
+    const data = (this.table.image as { data: Uint32Array }).data;
+    if ((slotsAt + words.length / 4) * 4 > data.length) return null;
+    let bytes = 0;
+    let first = -1;
+    let last = -1;
+    const flush = (): void => {
+      if (first < 0) return;
+      const rows = last - first + 1;
+      bytes += uploadTextureRegion(renderer, this.table, data.subarray(first * LOOKUP_WIDTH * 4, (last + 1) * LOOKUP_WIDTH * 4), { x: 0, y: first, z: 0, width: LOOKUP_WIDTH, height: rows, depth: 1 }, 16);
+    };
+    for (const s of slots) {
+      const at = (slotsAt + s) * 4;
+      data.set(words.subarray(s * 4, s * 4 + 4), at);
+      const row = Math.floor((slotsAt + s) / LOOKUP_WIDTH);
+      if (row === last || row === last + 1) last = row;
+      else {
+        flush();
+        first = last = row;
+      }
+    }
+    flush();
+    data[10] = probe;
+    (this.voxels.value as THREE.Vector4).setZ(probe);
+    return bytes;
   }
 
   /**

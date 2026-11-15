@@ -8,7 +8,8 @@
  * table, 2 the tracer's hits (two vec4u each), 3 the texels (a vec2u each).
  */
 import { ARCH_R_WORDS, CHART_WORDS, COMP_WORDS, EMPTY_SLOT, HASH_WORDS, LAYER_R_WORDS, MODEL_R_WORDS, RESOLVE_PAGE, RESOLVE_RING, TERRAIN_R_WORDS, VOXEL_R_WORDS } from './surface-resolve';
-import { SURFACE_CHART_METRES } from './surface-cache-atlas';
+import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
+import { VOXEL_CELL_TEXELS } from './surface-voxel-faces';
 import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_TERRAIN, TRACE_VOXELS } from './tracer-scene';
 
 /** Threads per workgroup. */
@@ -215,6 +216,11 @@ fn voxelSlot(k0: u32, k1: u32, cap: u32) -> u32 {
   return (h ^ (h >> 15u)) & (cap - 1u);
 }
 
+// A voxel chart's interior texels across its columns at a level (voxelAreaTexels).
+fn voxelAreaTexels(cells: u32, level: u32) -> u32 {
+  return min(${SURFACE_PAGE_TEXELS - 2 * SURFACE_CHART_BORDER}u, max(1u, (cells * ${VOXEL_CELL_TEXELS}u + (1u << level) - 1u) >> level));
+}
+
 // A voxel hit's texel: its cell's face it entered by, then the cell's others (resolveVoxelCpu).
 fn resolveVoxels(face: u32, a0: u32, a1: u32) -> vec2u {
   let cap = T[14];
@@ -236,13 +242,16 @@ fn resolveVoxels(face: u32, a0: u32, a1: u32) -> vec2u {
       if (T[sa + 1u] == 0u) { break; }
       if (T[sa] == k0 && T[sa + 1u] == k1) {
         let p = planeAxes(fc >> 1u);
+        let pl = T[sa + 2u];
         let o = T[sa + 3u];
-        let c = T[sa + 2u];
-        let iw = T[c + 2u] & 0xffffu;
-        let ih = T[c + 2u] >> 16u;
-        let x = (T[c + 1u] & 0xffffu) + min(iw - 1u, ((o & 255u) * 255u + q[p.x]) * iw / (((o >> 15u) & 255u) * 255u));
-        let y = (T[c + 1u] >> 16u) + min(ih - 1u, (((o >> 8u) & 0x7fu) * 255u + q[p.y]) * ih / ((o >> 23u) * 255u));
-        return vec2u((${RESOLVE_PAGE}u << 30u) | T[c], x | (y << 16u));
+        let level = pl >> 28u;
+        let wc = (o >> 16u) & 255u;
+        let hc = o >> 24u;
+        let iw = voxelAreaTexels(wc, level);
+        let ih = voxelAreaTexels(hc, level);
+        let x = ((pl >> 12u) & 255u) + min(iw - 1u, ((o & 255u) * 255u + q[p.x]) * iw / (wc * 255u));
+        let y = ((pl >> 20u) & 255u) + min(ih - 1u, (((o >> 8u) & 0x7fu) * 255u + q[p.y]) * ih / (hc * 255u));
+        return vec2u((${RESOLVE_PAGE}u << 30u) | (pl & 0xfffu), x | (y << 16u));
       }
       at = (at + 1u) & (cap - 1u);
     }

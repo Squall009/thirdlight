@@ -33,6 +33,17 @@ export class GpuResolve {
     this.device.queue.writeBuffer(this.table, 0, words);
   }
 
+  /** Whether a table is up. */
+  get hasTable(): boolean {
+    return this.table !== null;
+  }
+
+  /** Words of the table up now written in place from word `at` (the table's size unchanged). */
+  writeWords(at: number, words: Uint32Array): void {
+    if (this.table === null) throw new Error('surface resolve: no table');
+    this.device.queue.writeBuffer(this.table, at * 4, words);
+  }
+
   /** The texels of the last pass (`TEXEL_WORDS` per hit). */
   get texels(): GpuBuffer | null {
     return this.out;
