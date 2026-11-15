@@ -625,6 +625,11 @@ export class LiveProbes implements ProbeLookup {
     return this.rooms.length;
   }
 
+  /** Probes waiting for an update (a count kept as they are marked and updated). */
+  get staleProbes(): number {
+    return this.staleCount;
+  }
+
   private markProbe(i: number): void {
     if (this.excluded[i] === 1) return;
     if (this.stale[i] === 0) {

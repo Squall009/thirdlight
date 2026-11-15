@@ -138,6 +138,11 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   /** Packs, whole uploads, faces changed and slots written, and bytes uploaded. */
   readonly resolveStats = { packs: 0, whole: 0, faces: 0, touched: 0, uploadBytes: 0 };
 
+  /** Page bytes of the resolve's voxel faces' table (its slots, their owners, the chunks' entries). */
+  get resolveFacesBytes(): number {
+    return this.resolveFaces.bytes;
+  }
+
   /** Bytes of the resolve table the probe and reflection rays read. */
   get resolveBytes(): number {
     return this.resolveWords?.byteLength ?? 0;

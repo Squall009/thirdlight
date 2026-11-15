@@ -378,6 +378,11 @@ export class SurfaceRelight {
     return this.staleCount === 0;
   }
 
+  /** Units waiting for light (cheap: a count kept as they are marked and lit). */
+  get staleUnits(): number {
+    return this.staleCount;
+  }
+
   /** Units touching a box (for the checks and the probes). */
   unitsIn(min: readonly number[], max: readonly number[]): string[] {
     const out: string[] = [];

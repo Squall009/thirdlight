@@ -105,6 +105,15 @@ export interface VoxelProbeDiagnostics {
   readonly captures: number;
 }
 
+/** The voxel faces' hashes (`surface-voxel-faces.ts`) as a voxel page reports them. */
+export interface VoxelFacesDiagnostics {
+  readonly lookupBytes: number;
+  readonly lookupSlots: number;
+  readonly lookup: { readonly packs: number; readonly whole: number; readonly faces: number; readonly touched: number; readonly uploadBytes: number };
+  readonly resolveBytes: number;
+  readonly resolve: { readonly packs: number; readonly whole: number; readonly faces: number; readonly touched: number; readonly uploadBytes: number };
+}
+
 /** The live light on the page: whether it runs, why not, and the debug look's squares. */
 export interface SurfaceLightDiagnostics {
   readonly live: boolean;
@@ -436,11 +445,13 @@ export class AdapterSurfaceLight {
   }
 
   /** The scene link's part for voxel worlds lit by the cache (voxel-world-light.ts's `SurfaceCacheVoxelLink`). */
-  voxelLink(): Required<SurfaceCacheVoxelLink> & { voxelDiagnostics(): SurfaceVoxelDiagnostics & { readonly texelsWritten: number; readonly live: boolean; readonly read: boolean; readonly probes: VoxelProbeDiagnostics } } {
+  voxelLink(): Required<SurfaceCacheVoxelLink> & { voxelDiagnostics(): SurfaceVoxelDiagnostics & { readonly texelsWritten: number; readonly live: boolean; readonly read: boolean; readonly probes: VoxelProbeDiagnostics; readonly faces: VoxelFacesDiagnostics } } {
     const host = this.host;
     return {
       voxels: (src) => host.voxels.set(src),
-      voxelDiagnostics: () => ({ ...host.voxels.diagnostics(), texelsWritten: this.runtime?.texelsWritten ?? 0, live: this.runtime !== null, read: this.scene.userData[SURFACE_READ_LIVE_KEY] !== undefined, probes: this.voxelProbes() }),
+      voxelDiagnostics: () => ({ ...host.voxels.diagnostics(), texelsWritten: this.runtime?.texelsWritten ?? 0, live: this.runtime !== null, read: this.scene.userData[SURFACE_READ_LIVE_KEY] !== undefined, probes: this.voxelProbes(), faces: this.voxelFaces() }),
+      voxelRelightAll: () => host.relight.markAll(),
+      voxelProgress: () => ({ texelsWritten: this.runtime?.texelsWritten ?? 0, staleUnits: host.relight.staleUnits, waiting: host.voxels.waiting, probesSettled: host.probesSettled, probesStale: host.probes.staleProbes }),
       traceRays: async (rays) => {
         const rt = this.runtime;
         if (rt === null || !rt.pass.tracer.ready) return null;
@@ -485,6 +496,19 @@ export class AdapterSurfaceLight {
       lit[i] = blocks.some((b) => b.lit && b.page === page && x >= b.x && x < b.x + b.side && y >= b.y && y < b.y + b.side) ? 1 : 0;
     }
     return { hits, gpu, cpu, lit };
+  }
+
+  /** The voxel faces' hashes of the lookup and the resolve table: page bytes, and their packs, whole uploads, faces changed, slots written and bytes uploaded so far. */
+  private voxelFaces(): VoxelFacesDiagnostics {
+    const resolve = this.runtime?.resolveStats ?? { packs: 0, whole: 0, faces: 0, touched: 0, uploadBytes: 0 };
+    return { lookupBytes: this.lookupFaces.bytes, lookupSlots: this.lookupFaces.cap, lookup: { ...this.lookupStats }, resolveBytes: this.runtime?.resolveFacesBytes ?? 0, resolve: { ...resolve } };
+  }
+
+  /** The live probes' bytes on the GPU (the pass's records and the probe lighting's tiles; null: none placed): the memory table's probes row on a page whose probes are live. */
+  liveProbeBytes(): { probes: number; gpuBytes: number } | null {
+    const p = this.host.probes;
+    if (this.runtime === null || p.count === 0) return null;
+    return { probes: p.count, gpuBytes: p.state.byteLength + (this.liveProbes?.tileBytes ?? 0) };
   }
 
   /** The live probes as a voxel page's lighting store reports them: how many, lit, stale, settled and drawn, and their bytes. */

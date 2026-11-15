@@ -714,6 +714,10 @@ function voxelLightHooks(draws: VoxelWorldDraws) {
     /** Another store from now on (`off`, `cache`, …): the drawn worlds' surfaces join the cache or leave it. */
     setStore: (store: string) => draws.setLightStore((VOXEL_LIGHT_STORES as readonly string[]).includes(store) ? (store as VoxelLightStore) : 'off'),
     cache: () => draws.lightFeed()?.diagnostics() ?? null,
+    /** How far the cache's light has caught up (texels written, units stale, chunks waiting, probes settled): cheap, read every frame by a bench. */
+    progress: () => draws.lightFeed()?.progress() ?? null,
+    /** Every texel and probe of the cache stale at once (a bench keeps it relighting while it measures the GPU). */
+    relightAll: () => draws.lightFeed()?.relightAll(),
     check: (at: number[], n: number) => draws.lightFeed()?.check(at, n) ?? Promise.resolve(null),
     /** The resolve pass's voxel texels for traced rays against its CPU twin's (the probes' bounce reads them). */
     resolveCheck: (at: number[], n = 1200) => draws.lightFeed()?.resolveCheck(at, n) ?? Promise.resolve(null),

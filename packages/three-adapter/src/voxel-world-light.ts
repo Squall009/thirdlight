@@ -34,12 +34,25 @@ import { solidBlocksOf, type VoxelSolidBlocks } from './voxel-chart-worker';
 export interface SurfaceCacheVoxelLink {
   voxels?(src: SurfaceVoxelSource | null): void;
   voxelDiagnostics?(): SurfaceVoxelDiagnostics;
+  /** How far the light has caught up, cheap enough to read every frame: texels written so far, units stale, chunks waiting for charts, the probes settled and stale. */
+  voxelProgress?(): VoxelLightProgress;
+  /** Every texel and probe stale (a bench keeps the cache relighting to measure its GPU time while it has work). */
+  voxelRelightAll?(): void;
   /** Traces `rays` (`RAY_FLOATS` each) on the GPU with the cache's tracer and reads the hits back (null: no live light yet). */
   traceRays?(rays: Float32Array): Promise<Uint32Array | null>;
   /** The texel a traced hit's light is in (null: a miss, or not resident). */
   resolveHit?(hit: TraceHit): SurfaceTexel | null;
   /** Traces `rays` and resolves their hits on the GPU and by the CPU twin over the same table (null: no live light or table yet). */
   resolveRays?(rays: Float32Array): Promise<VoxelResolveRays | null>;
+}
+
+/** How far a voxel page's cache light has caught up (`SurfaceCacheVoxelLink.voxelProgress`). */
+export interface VoxelLightProgress {
+  readonly texelsWritten: number;
+  readonly staleUnits: number;
+  readonly waiting: number;
+  readonly probesSettled: boolean;
+  readonly probesStale: number;
 }
 
 /** The probe rays' resolve on the GPU against its CPU twin (`SurfaceCacheVoxelLink.resolveRays`): the hits, the two texels a hit (two words each), and whether each GPU texel is lit. */
@@ -170,6 +183,16 @@ export class VoxelLightFeed implements SurfaceVoxelSource {
   /** What the cache holds of the worlds (null: no cache linked). */
   diagnostics(): SurfaceVoxelDiagnostics | null {
     return this.linked?.voxelDiagnostics?.() ?? null;
+  }
+
+  /** Every texel and probe of the cache stale (a bench measuring the light's GPU time while it has work). */
+  relightAll(): void {
+    this.linked?.voxelRelightAll?.();
+  }
+
+  /** How far the cache's light has caught up (null: no cache linked): read every frame by a bench timing an edit. */
+  progress(): VoxelLightProgress | null {
+    return this.linked?.voxelProgress?.() ?? null;
   }
 
   /**
