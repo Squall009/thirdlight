@@ -570,12 +570,13 @@ export class VoxelWorldDraws {
     }
     const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), ...(this.opts.farSeen !== undefined && farFeedbackFromUrl(pageSearch()) ? { onFarSeen: (seen: FarSeenWire) => this.opts.farSeen!(name, seen) } : {}), ...(this.opts.fineUnavailable !== undefined ? { onFineUnavailable: () => this.opts.fineUnavailable!(name) } : {}), ...((t) => (t !== null ? { fineTexture: t } : {}))(fineTextureFromUrl(pageSearch())) });
     view.rebuilt = () => this.rebuilt(name);
-    if (webgpu && link !== null && edge === SUN_TILE_TEXELS) {
+    // `?voxelSun=off` makes none (a comparison draws as before the field).
+    if (webgpu && link !== null && edge === SUN_TILE_TEXELS && voxelSunFromUrl(pageSearch())) {
       this.sun ??= new SunFieldHost(scene, link, edge, VOXEL_SIZE_M, () => this.skies.values(), {
         // Its march sits inside every sun-lit program: the measurement's hide skips it there.
         hide: (h) => gpuPassHides.register({ category: 'shadows', name: 'voxel sun march', present: () => (this.sun?.steps ?? 0) > 0, hide: h }),
         bytes: (read) => residentBytes.register('voxelStream', read),
-      }, voxelSunFromUrl(pageSearch()));
+      });
       const sun = this.sun;
       view.far.nodesChanged = (added, removed) => {
         for (const k of removed) sun.field.farRemoved(`${name}|${k}`);

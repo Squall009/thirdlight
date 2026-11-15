@@ -193,17 +193,27 @@ export class SunField {
   }
 
   /**
-   * The frame's share: every near tile waiting composed (a chunk column's copy each), far tiles while `more()` says
-   * so, and what changed uploaded.
+   * The frame's share while the march is on: tiles composed while `more()` says so, what changed uploaded, and a
+   * row of the lines marched while anything changed.
    */
   frame(more: () => boolean, renderer: SunFieldRenderer | null): void {
     if (Number.isNaN(this.near.tileX)) return;
     const t0 = performance.now();
-    for (let t = this.near.next(); t !== null; t = this.near.next()) {
+    // Nothing is composed while the march is off (the tiles wait, marked, for it to come on).
+    if ((this.steps.value as number) === 0) return;
+    // Near tiles first (a chunk column's copy each), then far ones, while the slice lasts (one of each at least): a
+    // tile not composed yet reads as unknown, never as another place's.
+    let first = true;
+    for (let t = this.near.next(); t !== null; t = first || more() ? this.near.next() : null) {
       composeSkyTile(this.near, t[0], t[1], this.skies(), this.voxelM);
       this.stats.nearTiles++;
+      first = false;
     }
-    while (more() && this.far.composeNext()) this.stats.farTiles++;
+    first = true;
+    while ((first || more()) && this.far.composeNext()) {
+      this.stats.farTiles++;
+      first = false;
+    }
     const T2 = SUN_WINDOW_TEXELS * SUN_WINDOW_TEXELS;
     let runs = 0;
     for (const [w, base] of [[this.near, 0], [this.far.window, T2]] as const) {
@@ -582,8 +592,6 @@ export class SunFieldHost {
     voxelM: number,
     skies: () => Iterable<SkyColumns>,
     register: { hide(apply: (hidden: boolean) => void): () => void; bytes(read: () => number): () => void },
-    /** The page's flag (`?voxelSun=off`: off whatever the tier). */
-    private readonly allowed: boolean,
   ) {
     this.field = new SunField(edge, voxelM, skies);
     this.light = new SunFieldLight(this.field);
@@ -606,7 +614,7 @@ export class SunFieldHost {
 
   /** The samples marches take when shown (0: off). */
   get steps(): number {
-    return !this.allowed || this.off ? 0 : this.tierSteps;
+    return this.off ? 0 : this.tierSteps;
   }
 
   private apply(): void {

@@ -189,7 +189,7 @@ below, near and far absent; 131 s.
 | 46e.1 | **GPU time per pass in the profiler (D655).** The meter's hide-a-pass measurement callable from the page: an on-demand "Measure GPU" in the Profiler tab, the overlay and `tl_diagnostics`, filling the GPU budget rows per category (near, far, shadows, lighting, post, effects); the bench reads the same routine. |
 | 46e.2 | **One occupancy walk.** A 6-connected walk (R99) over level-0 cells, skipping empty space by the chunk tree's flags and continuing into far bricks; one definition for the CPU and the GPU; partial cells by light coverage; `ctx.voxels.raycast`; the editor's voxel picking through it. Measured: rays a millisecond on both. |
 | 46e.3 | **Open regions.** Connected non-solid cells labelled per chunk in the derive workers and stitched across chunk faces as chunks arrive: face connectivity (R97), sky columns (R98), regions with an enclosed flag, volume and portals from the opening role (R101); rebuilt for one chunk on an edit; `ctx.voxels.regionAt`; a tint overlay to see them. A derived output: an add-only note in the format spec (§8, owner). |
-| 46e.4 | **Direct light.** Voxel surfaces and kit pieces cast and receive sun shadows in Play through the cached static map plus the dynamic map, and local-light shadows through the atlas; an edit refreshes what it touched; the far shade lit at the hit (D607); a far sun shadow by a short march through distance bricks, kept only on the tiers that afford it. |
+| 46e.4 | Done 2026-11-15 (cd2ce0ac; a3a8f2cf, 76f3ef48): near voxel draws and kit pieces in the sun's cached map and the atlas; past the map sun heights (sky heights, far bricks' tops) marched in compute into shade lines, faded in at its edge; far shade lit at the hit; low shadows 0.63 vs 0.43 ms off; edit → field 0.6–1.2 s; D670 fixed, D607/D671 narrowed, D673–D675 |
 | 46e.5 | **The surface cache on voxels.** Phase 42's cache fed by voxel surfaces: a voxel tile source (charts over the mesher's faces by their main axis, as block chunk columns and terrain rings are charted today), the tracer walking voxel occupancy as a scene kind (46e.2's walk), direct light and live probes over it, edits marking tiles stale. A candidate, built only as far as a fair measurement needs. |
 | 46e.6 | **The voxel light volume.** R104's volume on the same town: air-side cells beside surfaces with six directional values, the 1/2/4 m levels for open air, sky and sun by the walk, one bounce, local lights; read by voxel surfaces, kit pieces and moving objects. A candidate, to the same depth. |
 | 46e.7 | **The lighting storage A/B (R110), same scene, same cameras.** Three arrangements on the town inside the 8 km world: the cache alone, the volume alone, and the cache near with the volume beyond a distance (the owner's hybrid, the hand-over distance a setting); §4's table and pictures for each, on the low tier at the cap, with medium and high as shares. |
@@ -573,6 +573,102 @@ from their plain caster at the high tier). The Play test 1.4 min in the gate; th
 **Gate.** `gate-fast-20261115-024306` GREEN at cd2ce0ac (39 e2e files: core, voxel, rendering, lighting, play
 and `shadows.e2e.ts`; 70 passed; village perf at 60 Hz 0/360 missed, main 6.38 ms).
 
+### 46e.4b — the far field lit at its hit; the sun past the shadow map
+
+**The far shade at its hit (D607).** The far field's one shade gives three's lights and the clustered lights the hit's
+view and world position through its context (`positionView`, `positionWorld`; voxel-far-visibility.ts): a point or
+spot light's reach, cluster cell, spot cone and atlas shadow are read where the pixel's surface is. Area lights in such
+a build take the form-factor path that reads the context (three's rect-area term reads the fragment's own place;
+cluster-area.ts). The shade receives the key light's shadow at the hit, with the hit's own normal.
+
+**What the far sun shadow is.** Not a per-pixel march and not a cascade: a **shade line per column** over two
+camera-following windows of column tops (`@thirdlight/voxel` sun-heights.ts, three-adapter voxel-sun-field.ts):
+
+- **Tops.** Near: the worlds' sky heights (46e.3), 0.5 m columns, 1,024² over 512 m, a chunk column a tile. Far: the
+  far field's drawn brick nodes, 4 m columns over 4 km: a node's tops are where its stored field first falls below the
+  march's hit distance coming down each sample column (the field is linear between samples along a column, so this is
+  the surface the brick march converges to: vitest compares every column with the CPU brick march, worst 0.35 cell);
+  a column takes the highest of the drawn nodes over it. Both windows are wrapped by tile (a move writes only what
+  enters, cleared to "unknown" at once), composed on the page within the lighting preparation slice
+  (`surfacePrepare`), uploaded as ranges of one storage buffer.
+- **Lines.** A compute pass marches each column toward the sun over the tops (geometric samples from 0.5 m to the
+  reach or the highest top: a house beside the column and a mountain kilometres off each get samples at their scale;
+  the tier's samples) and keeps two lines: the height below which the column cannot see the sun over any caster, and
+  over casters farther across than the key light's map reaches toward the sun (its near plane). One tile row of each
+  window a frame, while anything changed (tops, the windows' place, the sun turning by 0.01°): a change is in the
+  lines within 32 rows (32 frames); written to a storage texture, copied row by row into the texture lit programs read.
+- **Read.** The key light's shadow node is wrapped (`sunShadowed`): inside the map's square the map times the far line,
+  past it the whole line, blended across the square's outer fifth (0.8–0.96 of its half side), so the map hands over
+  with no step. A point is offset by 0.75 of its column's width along its normal and lit by
+  clamp((y − line) / width + 1). Near draws read at their vertices (a varying), the far shade at its pixels: with the
+  read in the voxel surfaces' fragment stage (a storage buffer, then a texture) their draws flickered frame to frame
+  in the Play e2e, the values used or not (D673; bisected: no read, no flicker; the read at the vertices, none).
+- **The way there.** A per-pixel march over the tops (24 samples, bilinear reads) was built first: at the high tier
+  the Play e2e's pictures never settled and nothing was gained by fewer reads; the lines march once per column and a
+  pixel reads two texels.
+
+**What it cannot show.** A line is a height field's: what stands over a column shades all of it, so no sun under an
+arch, a bridge or an eave seen past the map, none through a window past the map; overhangs shade the whole column under
+them. Near the camera past the map an edge is as fine as the mesh's vertices (merged flat faces interpolate over
+their size); the far field's are 4 m columns. Walls thinner than a far cell are not in the far tops (D663). Casters
+are voxels only: props and models cast only through the map.
+
+**The 26 m gap (D670), how it is closed.** Option (a): near surfaces past the map's reach take the same lines (the near
+window's 0.5 m columns cover the load ring), faded in across the map's edge; not a wider map (b): a cascade would draw
+every caster again into a second map when the camera steps, and would still end; the lines also give the far field
+its shadow, so one term serves both.
+
+**Tiers.** `LightingTierSettings.voxelSunSteps` (project-model quality-levels.ts): low 12, medium 16, high 24 samples
+a column; 0 off. `?voxelSun=off` on the editor page turns it off in Play (comparisons). The GPU measurement registers
+it under `shadows` ("voxel sun march": the hide skips the march pass and the reads).
+
+**Measured** 2026-11-15 06:52–07:38 UTC at 76f3ef48 (built), Iris Xe, WebGPU, 1280 × 720, each run alone
+(`thirdlight-gate` inactive) in the brief's 10G scope; uptime 22.6 d, load (1 min) 1.2–2.2. Raw files with an
+`*.uptime` beside each: `~/.cache/thirdlight-phase46e/work/46e.4b/` (`measure.sh`). On = as committed, off = the same
+with `&voxelSun=off`, interleaved A B A B A. (At 76f3ef48 an off page still composed the tops, only the march and the
+reads were off; since then `?voxelSun=off` makes no field and nothing is composed while the march is off.)
+
+| What | On | Off | Against |
+|---|---|---|---|
+| GPU `shadows`, low, 8 km town orbit (the camera moving: the lines march every frame) | 0.73 ± 0.13, 0.63 ± 0.24, 0.56 ± 0.21 ms (median 0.63) | 0.42 ± 0.07, 0.43 ± 0.05 | 46e.4a 0.37: the field ≈ +0.2 ms |
+| GPU near / far, low orbit | 2.22 / 1.56 / 1.89 and 3.34 / 3.17 / 3.46 | 1.92 / 1.70 and 3.31 / 3.38 | unchanged within the runs' spread |
+| GPU lighting row (shadows + lighting) of 6.67 ms | 0.63 (9 %) | 0.43 | |
+| GPU at the five cameras (street, room, cave, night, far; `light-shots --gpu`) | far 1.20 / 0.96 / 1.14 / 1.96 / 4.19; shadows 0.59 / 0.49 / 0.32 / 0.95 / 0.52 | far 1.23 / 1.03 / 1.15 / 1.93 / 4.16; shadows 0.57 / 0.39 / 0.20 / 0.86 / 0.49 | still cameras (no march): the reads +0.02–0.12 ms |
+| Page ms a frame, orbit (profile) | 6.71 / 6.69 / 6.74; lighting 0.10 / 0.12 / 0.12 (worst 0.4–2.1) of 2.0 | 6.56 / 6.89; lighting 0.12 / 0.13 | |
+| Page at the five cameras | 6.43 / 4.49 / 3.08 / 4.31 / 3.94 | 6.22 / 4.31 / 3.03 / 4.48 / 4.27 | |
+| Memory (orbit) | page heap 601 / 585 / 642 MiB, GPU process 940 / 933 / 953 | 578 / 585, 917 / 903 | the field: tops buffer 8 MiB and two line textures of 16 MiB on the GPU, the tops 8 MiB and the far nodes' tops (4.3 KB a node, ~1,100 nodes) on the page: ≈ 55 MB in `voxelStream`'s resident bytes; no budget entry |
+| Medium, 60 Hz, one run (unverified on target hardware) | near 2.04, far 3.52, shadows 0.63, lighting below | — | 46e.4a shadows 0.31 |
+| High, 60 Hz, one run (unverified on target hardware) | near 6.77, far 7.60, shadows 0.86, lighting below (40 of 159 missed with no load) | — | 46e.4a shadows 0.55 |
+| Edit → in the field (Play e2e, high tier: the long wall) | built: 1.05–1.24 s from the command; dug: 0.62–0.63 s (the batch, the tops composed, 32 rows marched a row a frame) | — | the map's redraw (town, `light-shots` edits) 95 / 63 / 57 ms, as 46e.4a |
+| 150 m/s, export, low, one round each | longest 49.7 ms, 0 > 100, missed 5.5 a min, detail 6.22 s, pending 11.5 s, sim spikes 26, falls 2/34 (none through) | 60.6 ms, 0, 4.6, 9.23 s, 11.84 s, 54, 0/34 | the same within one round's noise; both show page frames with 2.5–3.4 ms of `voxel sun heights` (the near tiles were composed whole: now within the slice) |
+
+**The five pictures** (low; `shots/` and `shots-off/` beside 46e.4a's `46e.4a/shots/`; looked at; differing pixels at
+>10 a channel, a quarter sampled): `far-view.png` — 4,941 against off: the ground in the town's lanes is darker beside
+houses past the map (their short noon shadows toward +x, −z); the mountains put no shadow in the valley at noon (the
+sun 63° up); no banding or seam seen. `street-noon.png` — 54: the houses 30 m and more down the street throw their
+short noon shadows mostly behind themselves from this eye; nothing visibly new. `room-window.png` — 117, `cave.png` —
+19: unchanged to the eye. `night-lamps.png` — 0 against off and 34 against 46e.4a: no lamp reaches a far-field
+surface at this camera, so the shade at the hit changes nothing seen (D607 stays open). Two shots 1 m apart: not
+taken (the cameras are fixed); swimming unverified.
+
+**Tested.** vitest `packages/voxel/src/sun-heights.test.ts`: a far node's tops against the CPU brick march straight
+down every sample column (worst under 0.35 cell); the far window the highest of the nodes over a column, composed again
+as nodes come and go; a move clears the entering tiles and keeps the rest (wrapped by tile); the near window from two
+worlds' sky heights; the shade line's reference (the wall's far side shaded, its near side and past the shadow lit;
+the far line leaves the map's part; a low sun and no samples shade nothing). `lights-shadows.test.ts`: the cached
+node found under the wrappers. Playwright `voxel-world.e2e.ts` Play (high tier, `voxel-shadows.ts`
+`voxelFarLightChecks`): a long wall 8 m tall from 4 to 38 m ahead, the camera 10 m back and 15 m up: the march shades
+731 grass pixels past the map that the map alone leaves lit (bound 300); along the strip the wall/dug brightness
+ratio is 0.854–0.866 band to band, largest step 0.008 (bound 0.03); **with the march off** (`setSunOff`, read in the
+same run) the strip is lit past the map (ratio 1.0, the step 0.058, required > 2 × on). The field caught up 1.05–1.24 s
+after the build and 0.62 s after the dig. The D607 lamp check (a red lamp 45 or 56 m out) was dropped: the test world
+ends within ~60 m, the lit ground was the near field's, and the reading was the same with the fix taken out (90 px,
+0.99 ×). The Play test 1.4 → 1.6 min alone.
+
+**Gate.** `gate-fast-20261115-061406` (every area: project-model changed) red on three watched tests under the
+all-areas load (layered-material D349, ui-editor D653, frame-rate-cap D659), green in `gate-rerun-20261115-064824`
+(village perf at 60 Hz 0/360 missed, main 6.34 ms); the voxel area 238 s (224 s before).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -648,6 +744,21 @@ and `shadows.e2e.ts`; 70 passed; village perf at 60 Hz 0/360 missed, main 6.38 m
 - 2026-11-15 (46e.4a, default chosen, owner to confirm): the atlas's lamp and spot cameras see the off-view layer
   (what is hidden from the view still casts, as for the sun), so a relief chunk's plain caster, a cut-away roof and a
   room no portal shows cast lamp shadows too.
+
+- 2026-11-15 (46e.4b, default chosen, owner to confirm): the far sun shadow and the gap past the map are one term,
+  shade lines a column over the sun heights (the sky heights near, the far field's brick tops far) marched in compute,
+  not a per-pixel march through the bricks (a second far pass's cost at low, and a GPU far-node lookup, D662) nor a
+  cascade (a second map, still ending). The brick tops are a column scan of the field the brick march walks (vitest:
+  within 0.35 cell of the CPU march), not the march itself, whose cost a column is far higher.
+- 2026-11-15 (46e.4b, default chosen, owner to confirm): the windows: near 1,024² columns of 0.5 m (512 m, a chunk
+  column a tile), far 1,024² of 4 m (4 km), the march's reach the far window's half side; tops composed within the
+  lighting preparation slice (`surfacePrepare`); the lines marched one tile row of each window a frame while anything
+  changed in the last full pass (32 frames); no new slice or budget constant.
+- 2026-11-15 (46e.4b, default chosen, owner to confirm): `voxelSunSteps` on the lighting tiers, low 12, medium 16,
+  high 24 samples a column (0 off): low affords it (+0.2 ms moving, +0.02–0.12 ms still, of 6.67).
+- 2026-11-15 (46e.4b, default chosen, owner to confirm): near draws read the lines at their vertices (D673), the far
+  shade at its pixels; the map hands over across 0.8–0.96 of its half side; inside it only casters past its near plane
+  (farther across than (20 − 0.5) m × the sun's horizontal share) shade.
 
 ## 10. Open questions for the owner (asked with the plan)
 

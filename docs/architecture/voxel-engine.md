@@ -60,8 +60,13 @@ page in the same commit.
   kit pieces cast and receive like any lit draw, as static casters of the key light's cached map and the shadow
   atlas: each chunk, node or seam shown, replaced or taken away is reported where it stands, and only the cached map
   and the lamp faces it reaches are drawn again; the sun's square is centred on the voxel ground under the camera
-  (sky heights). The far field neither casts nor receives yet (46e.4b) and carries baked occlusion; no occlusion or
-  bounce light from voxels yet.
+  (sky heights). Past the square, and in the far field, the **sun heights** shade: the top of what is solid in each
+  column round the camera (the sky heights, 0.5 m columns over 512 m; the far field's drawn bricks, 4 m columns over
+  4 km), marched toward the sun in compute into two shade lines a column (every caster's; those past the map's reach),
+  read by the key light's shadow node (near draws at their vertices, the far field's one shade at its pixels), the map
+  fading into them across its edge (`voxel-sun-field.ts`, `sun-heights.ts`; the tier's `voxelSunSteps`). The far
+  field's one shade lights every light at its hit. It casts nothing into the maps and carries baked occlusion; no
+  occlusion or bounce light from voxels yet.
 
 ## 4. Streaming
 

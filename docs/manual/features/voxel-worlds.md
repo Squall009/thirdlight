@@ -273,9 +273,23 @@ the plain surfaces: relief only ever recesses.
   cast (the shadow atlas: a lamp's tiles are drawn again when a change
   reaches them). The sun's shadow covers its light's **Shadow extent** round
   the camera, centred on the world's ground under the camera (the top solid
-  cell there), so hills and caves are shadowed too; past it, and in the far
-  field, nothing casts yet. `?voxelShadows=off` on the editor page draws Play
-  without them (to compare); the editor's Scene view draws the world without
+  cell there), so hills and caves are shadowed too. Past it, and in the far
+  field, the sun is hidden by what stands toward it in the world's **sun
+  heights**: the top of what is solid in each column round the camera
+  (half-metre columns over 512 m from the near field, 4 m columns over 4 km
+  from the far field), marched toward the sun into a shade line a column, so
+  mountains shade valleys and houses the ground beside them. Inside the map's
+  square the map shades and the heights add only what lies past its reach (a
+  far mountain); across the square's edge one fades into the other. A shade
+  line is a height field's: what stands over a column shades all of it, so
+  past the map there is no sun under an arch, a bridge or eaves, nor through
+  a window; near the camera it is read at the mesh's vertices, so its edges
+  are as coarse as they are. Its samples are the quality level's lighting
+  tier's (low 12, medium 16, high 24); a change (an edit, the far field
+  arriving, the sun turning) is in it within 32 frames. Point, spot and area
+  lights light the far field at the surface each pixel shows.
+  `?voxelShadows=off` on the editor page draws Play without voxel shadows, and
+  `?voxelSun=off` without the sun heights (to compare); the editor's Scene view draws the world without
   shadows. The voxel world page casts with `?shadows=1`. A relief
   chunk casts from its plain surfaces, not from the relief mesh: relief only
   ever recesses the surface, so the plain shape holds it, and the shadow map
