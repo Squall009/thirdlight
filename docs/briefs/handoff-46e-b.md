@@ -139,9 +139,18 @@ many-lamps scene too.
 - **The Play test of `voxel-world.e2e.ts` ran 3.3–3.5 min against a 240 s timeout.** 46e.9 removes the cache and
   hybrid checks; record the new time. Anything that grows it again is split or moved to vitest; the timeout is not
   raised.
-- **Disk.** About 9 GB is free. Agents leave Playwright output folders and exports in
-  `~/.cache/thirdlight-phase46e/work/<item>/`; this filled the disk to 4.7 GB once. Tell every agent to delete them
-  when done (keep pictures, JSON, logs) and check `df -h ~` between items.
+- **Disk.** About 17 GB is free after a clean-up on 2026-11-16 (the owner has grown this disk three times). Two
+  things fill it, and both are ours:
+  - **Staging exports.** Every `run.mjs coverage --export` leaves a 1.1 GB exported game in
+    `~/thirdlight-staging-p45/exports/` and nothing removes it (five in two days). An agent that makes an export
+    deletes it when its runs are done; you check that folder is empty between items. In 46e.10, make the coverage
+    bench remove the export it made (a flag to keep one), so this stops depending on anyone remembering.
+  - **Agents' scratch.** Playwright output folders and trace files in `~/.cache/thirdlight-phase46e/work/<item>/`
+    reached 7 GB once. Every brief says: delete them when done, keep pictures, JSON and logs (the plan and the D-rows
+    cite the pictures). Run `df -h ~` between items and record it; stop and clean before a heavy run if less than
+    10 GB is free.
+  The scratch project `voxel-cut` (1.1 GB, 46d-c's baked 0.5 m world) was deleted in that clean-up: an item that
+  needs a baked world regenerates it.
 - **An agent can die on the usage limit mid-item.** Its work is saved: check `git status`, the gate and staging
   yourself, then resume it with a message that says what state you found. Finished agents sometimes report again
   from a leftover waiter; check that nothing of theirs is still running before the next measurement.
