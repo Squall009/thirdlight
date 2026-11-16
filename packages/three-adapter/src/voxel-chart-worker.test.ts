@@ -130,7 +130,7 @@ describe('voxel charts on a worker', () => {
     expect(plain(made)).toEqual(plain(voxelChunkCharts(m.positions, m.indices, CELL0, EDGE, src)));
   });
 
-  it('starts no worker on a page without voxel worlds, and the host\'s dispose ends the one it started', async () => {
+  it('starts no worker on a page without voxel worlds, and its dispose ends the one it started', async () => {
     let started = 0;
     let ended = 0;
     const counted = (): VoxelChartPort => {
@@ -143,7 +143,7 @@ describe('voxel charts on a worker', () => {
     plainPage.setLive(true);
     let now = performance.now();
     for (let f = 0; f < 5; f++) plainPage.update([0, 2, 0], (now += 300));
-    plainPage.dispose();
+    plainPage.voxels.dispose();
     expect(started).toBe(0);
     const m = mesh();
     const host = new SurfaceCacheHost(deps, 32 * 1024 * 1024);
@@ -151,7 +151,7 @@ describe('voxel charts on a worker', () => {
     host.setLive(true);
     for (let f = 0; f < 3; f++) host.update([CELL0[0] * VOXEL_SIZE_M + 8, 4, CELL0[2] * VOXEL_SIZE_M + 8], (now += 300));
     expect(started).toBe(1);
-    host.dispose();
+    host.voxels.dispose();
     expect(ended).toBe(1);
   });
 });

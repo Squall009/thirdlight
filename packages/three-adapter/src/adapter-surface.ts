@@ -91,7 +91,8 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
     // loop, no stale GPU state).
     // The cache's GPU work before its device goes with the renderer.
     p.surfaceLight?.dispose();
-    p.surfaceCache?.dispose();
+    // The voxel chart worker the cache started (a worker per adapter otherwise outlives it).
+    p.surfaceCache?.voxels.dispose();
     p.renderer.dispose();
     p.entities.dispose();
     p.batcher?.dispose();
