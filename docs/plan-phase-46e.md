@@ -1341,6 +1341,136 @@ measurement hides both at once: register the hybrid's two passes apart or read t
 texture node swapped by value (D696) — do not grow either store's texture while lit draws bind it; `near` rises with any
 store on (D693), so compare hybrid against both alone, not against off.
 
+### 46e.8 — travel fixes (D667, D675, D694)
+
+The owner's travel criterion (owner-decisions 2026-11-11: up to 150 m/s judged by hitches and the settle after a
+stop). Three defects this phase brought into travel, two on the default path (no lighting store), one with the volume.
+
+**What changed, in plain words.**
+
+- **Open regions when chunks leave** (`open-region-stitch.ts`, D667). A region that lost nodes was walked whole from
+  its remaining nodes: each row the ring left behind walked the whole outdoors (2,208 nodes in the vitest ring of
+  24 × 24 chunks). Now a search starts from each live node that touched a lost one, the searches take a node each in
+  turn and join when they meet, and once at most one can still grow the rest is its part (every part holds such a
+  node): a row left behind reaches 192 nodes. The same parts and ids as the whole walk (the largest part keeps the
+  id; ties by the region's list order). The sky heights of the chunk columns a stitch changed are refreshed inside the
+  same `voxelDerive` slice (at least one column a call; the stitch says it has work until they are done); before, they
+  were all refreshed after the slice's last chunk.
+- **The sun heights' frame** (`voxel-sun-field.ts`, `sun-heights.ts`, D675). Everything the field does in a frame is
+  inside the `surfacePrepare` slice: the march's row first (its dispatch carries the uploads of the tops changed
+  since), then tiles while the slice lasts. One piece goes whatever the slice says: the row, or, when the last frame
+  composed no tile while tiles waited, a tile in its place (before: the first tile of each window always, and the
+  dispatch, uploads and copy after the slice). A far tile reads, of each node over it, only the columns the node can
+  cover (before: all 1,024 of the tile's for each node).
+- **The near sun window at speed.** While the camera moves faster than the streamer's level-0 speed
+  (`STREAM_DETAIL_SPEED`, 40 m/s on 0.5 m cells) the near window stays where it was and reads as no window: nothing
+  is composed into it, the march skips its columns, and lit points past the key light's map read the far window's
+  lines (4 m columns) instead of the near window's (0.5 m). It is let go once the camera stayed slower for the
+  streamer's stop time (`STREAM_STOPPED_MS`, 200 ms): the window comes to the camera, composes nearest first within
+  the slice and its lines are marched again (32 rows, a row a frame). **What the picture shows meanwhile:** at speed
+  the near field draws levels 1–2 anyway; past the map the sun's shade on near surfaces is the far field's 4 m
+  columns (a house's shadow past the map coarser or, under 4 m, gone); inside the map nothing changes. After a stop
+  the 0.5 m lines return over about 1–2 s (unverified to the eye: no picture taken of the held state or the return).
+- **The light volume's batch** (`voxel-light-volume.ts`, `-layout.ts`, `walk-pages.ts`, D694). Its share of a batch
+  shown now has spans of its own (`voxel light volume grids`, `voxel light volume walk changes`); the spike capture
+  then named the cause (below). A block is copied by its page (`WalkTable.viewCopy`) instead of cell by cell; a brick
+  with nothing that stops light on either side is skipped, and a marked brick against nothing differs without reading
+  its cells (a page marks a brick only for a stopping cell); the batch's boxes are marked in one pass over the kept
+  bricks (`volumeMarkBoxes`: what marking them box by box gives, the stale list in the same order) instead of a pass
+  per block.
+
+**D694's cause** (spike capture, `diag-volume-150.*`, built at aba4985b with the spans): the 200 ms page frame at the
+flight's start was 191.7 ms of `voxel light volume walk changes`: when the flight starts, level 0 leaves the whole
+ring in one batch, and for each of its walk blocks the volume copied the block cell by cell (32,768 calls), compared
+it 64 cells a brick against nothing, and marked every kept brick (3.5–9.8 k) against it. Node, 72 blocks taken out:
+copy 0.6 ms, the brick scan 2.4 ms and the marks 6.7 → 1.6 ms (best of five, warmed).
+
+**The way there** (all raw in the work folder): set 1 (05:41–06:10 UTC, C at 5609d287) showed C missing more frames
+than B (15.5 / 10.1 against 8.2 / 4.6 a minute), the volume frame gone; set 2 (06:24–06:53, C2 at 83ac15af: the held
+window hidden from the march) the same (15.5 / 11.9 against 7.3 / 9.1); set 3 (06:55–07:03) with `&voxelSun=off`
+read B 1.8 / 1.8 and C2 2.7 / 2.7: the sun field, not the stitch. Cause: the flight's camera is posed by the
+simulation's steps, so a page frame can show the last pose again; the one-frame speed read 0, the window was let go,
+jumped (clearing and composing what entered, up to the whole window, uploaded at once) and was held again the next
+frame. Fixed by the stop time (e4832067, set 4, 07:13–07:42: C3 4.6 / 0.9 against B 7.3 / 10.1); then the one-piece rule
+and the splat (9ec1e77a), measured as set 5 below.
+A last change tried in Node (searches stepping only the growing ones) gained nothing measurable and was not kept.
+
+**Measured** (set 5) 2026-11-16 08:04–08:34 UTC, Iris Xe, WebGPU, 1280 × 720, low, the 30 Hz cap, each run alone
+(`thirdlight-gate` inactive, nothing else running), the brief's 10G scope; uptime 23.7 d, load (1 min) 2.6–3.9.
+Coverage bench from exports made of the same staging world (`voxel-slice`, world `far`) by each code's own staging
+backend, served with the backend stopped. **A** = the phase base 2ff4af22 plus the profiler's measurement fix
+d2cc91a3 (`page-profile.ts` only: the 1.25-interval spike rule and the reader's cursor; without it A's spikes would be
+counted by the old rule), in a scratch worktree with a copy of the branch's node_modules, built with
+`node tools/build.mjs`, removed after; **B** = 1da714dd (the head before these fixes), the same way; **C** = 9ec1e77a.
+The exports differ only in their code and the scene's revision number (the world's content files were identical
+and linked into one copy); A derives v31 (no regions, no sun field: nothing of 46e) at run time as built. The bench
+is the head's (`run.mjs coverage --dir <export> --quality low --speed <s> [--query]`). Order A B C, A B C (150 m/s),
+A B C (60 m/s), then B C, B C with `&voxelLight=volume`. Raw: `~/.cache/thirdlight-phase46e/work/46e.8-fix/`
+(`s5-*.json` / `.log` / `.uptime`; `measure5.sh`, `lib.sh`, `summ.py`). "Sim spikes": the profiler's simulation
+spikes in flight (top span: the largest tick's first span); "sun": the page's worst `voxel sun heights` span in the
+kept spikes (over the page frames it covers); falls: 0 through the true ground in every run (the 60 m/s fall is onto
+lower ground, as at 46e.0).
+
+| Run | Longest ms | > 100 | Missed /min | Sim spikes (stitch in the flight's first 0.5 s) | Sun span ms (frames) | Ground s | Full detail s | Nothing pending s | Holes |
+|---|---|---|---|---|---|---|---|---|---|
+| A 150, r1 / r2 | 48.3 / 44.1 | 0 / 0 | 0.9 / 1.8 | 3 / 1 (none) | — | 0.06 / 0.03 | 5.18 / 4.98 | 7.81 / 8.32 | 0 / 0 |
+| B 150, r1 / r2 | 48.9 / 49.1 | 0 / 0 | 7.3 / 5.5 | 5 / 2 (7.3 / 6.8 ms) | 4.3 (2) / 4.3 (2) | 0.03 / 0.07 | 5.85 / 5.45 | 10.34 / 10.46 | 0 / 0 |
+| C 150, r1 / r2 | 46.2 / 55.1 | 0 / 0 | 4.6 / 3.7 | 1 / 7 (7.5 / 8.0 ms) | 0.2 (1) / 4.5 (2) | 0.03 / 0.03 | 7.17 / 6.51 | 11.02 / 11.25 | 2 / 0 of 1,970 |
+| A 60 | 61.0 | 0 | 1.1 | 1 (none) | — | 0.03 | 5.77 | 8.17 | 0 |
+| B 60 | 57.9 | 0 | 4.4 | 3 (7.5 ms) | 2.7 (1) | 0.03 | 6.92 | 9.71 | 0 |
+| C 60 | 54.8 | 0 | 1.8 | 2 (10.0 ms) | 0.4 (2) | 0.03 | 7.74 | 10.66 | 1 of 4,920 |
+| B volume 150, r1 / r2 | **228.3 / 244.3** | 1 / 1 | 8.2 / 6.4 | 8 / 11 | 4.8 (2) / 7.7 (4) | 0.02 / 0.03 | 7.11 / 9.62 | 11.23 / 11.56 | 2 / 0 |
+| C volume 150, r1 / r2 | **47.9 / 59.3** | 0 / 0 | 5.5 / 4.6 | 13 / 12 | 4.9 (2) / 4.7 (2) | 0.02 / 0.03 | 11.75 / 8.11 | 13.47 / 12.22 | 0 / 0 |
+
+Set 4 (07:13–07:42, C at e4832067, the same A and B) read alike: A 2.7 / 4.6 missed, B 7.3 / 10.1, C 4.6 / 0.9; at
+60 m/s A 1.1, B 2.9, C 1.8; volume B 274.7 / 214.6 ms longest, C 57.7 / 52.0. Set 3 (sun field off, `&voxelSun=off`):
+B 1.8 / 1.8, C2 2.7 / 2.7 missed a minute. B's long volume frame is `voxel draws made` 183–257 ms (no volume spans at
+B); C's volume runs kept no page spike at all.
+
+**Still worse than the base, with the cause** (none blocks):
+
+- **Missed frames at 150 m/s:** C 3.7–4.6 a minute against A 0.9–1.8 in the same hour (B 5.5–7.3), though within
+  A's own spread over the session (0–4.6, eight rounds). With the sun field off both heads read 1.8–2.7: what is left
+  is the sun field at speed. Its composition is inside the slice now; the piece left is the march's row itself
+  (`renderer.compute` with the uploads it carries, then the copy), about 2 ms of page a frame while the far window
+  changes (a row every frame), over the 1.0 ms `surfacePrepare` slice; and its GPU march (D675, narrowed).
+- **The flight's first stitch tick:** 6.8–10.0 ms of `open regions stitched` in one simulation tick 0.4–0.5 s into
+  every flight, in B and C alike (A has no stitching). The ring narrows from 192 m to ~48 m and ~3,000 chunks unload
+  at once: each call drops 2 ms of them (the slice) and then searches the regions that lost nodes, which in Node costs
+  about 0.6 times the drops again; the searches are outside the slice (D667, narrowed).
+- **The settle after the stop:** full detail +1–2 s and nothing pending +2–3 s against A, in B and C (C's nothing
+  pending 0.6–0.9 s over B's at 150 m/s, 1 s at 60 m/s, but within B's spread over sets 4–5: 10.2–11.2 s). After the
+  stop level 0 comes back up to a second later than at A in some rounds, and the outer ring's level 1 about 3 s later
+  (`afterSeries`). Not traced here (D701).
+
+**D654** (150 m/s missed against the 0.9–1.8 baseline): A, the base without 46e, reads 0–4.6 a minute over eight
+rounds this session (sets 1, 2, 4, 5), so the base still shows it in some rounds; it is not this phase's.
+
+**Tested.** vitest `packages/voxel/src/open-regions.test.ts` (three new: a row unloaded at the open air's edge in a
+24 × 24 ring reaches at most 192 nodes, the region keeps its id and equals a flood fill; a tunnel cut by unloads
+splits as a whole walk does, the larger part keeping the id, twice, and rejoins; sky heights stitched in slices on a
+clock that steps 1 ms a reading: 6 calls, one with columns only, a column seen stale on the way, then every column and
+every region as one unbounded update and a flood fill); `packages/three-adapter/src/voxel-sun-field.test.ts` (new: with
+the slice spent, 21 frames march 10 rows and compose 11 tiles, never both in one; at 150 m/s with every fifth frame
+repeating its pose the near window stays, composes nothing and reads as no window, the far window follows; held until
+200 ms after the stop; then it comes, composes the 480 tiles that entered within ceil(480 / 64) + 1 frames, marches
+32 rows and holds the same tops as a field that never moved); `packages/voxel/src/sun-heights.test.ts` (new: every
+column of five far nodes smaller and larger than a tile, off the tiles' grid, against a reference over all nodes);
+`packages/three-adapter/src/voxel-light-volume-layout.test.ts` (new: a batch of 32 town blocks, half taken out, half
+dug: the copies equal the blocks before, an uncopied view does not, the changed bricks equal a cell-by-cell
+reference, and the one-pass marks equal box-by-box marking in updates and stale order: 34 k of 118 k bricks of four
+levels marked).
+**Broken** (each run once, logs `broken-*-vitest.log`): the whole walk back (searches to exhaustion) fails the ring
+test; column refreshes never done or not counted as work fail the slice test; the sun field as at 1da714dd fails both
+its tests; a hold never let go, or let go on one slow frame, fails the hold test; the marks taking the first box
+instead of the nearest, the stale list out of order, a wrong skip in the changed bricks, the shortcut that reports a
+marked brick against nothing as unchanged, or stopping at a box one brick too far, each fail the batch test; a far
+node's column range three columns short fails the reference test.
+
+**Gate.** `gate-fast-20261116-052148` (5609d287; every area of the changed files: 745 vitest files, 21 e2e, village
+perf 0/360 missed), `gate-fast-20261116-061315` (ec61172d), `gate-fast-20261116-070248` (e4832067),
+`gate-fast-20261116-074634` (9ec1e77a): all GREEN on the first run. The voxel area 337–343 s (no e2e file touched).
+
 ## 8b. The lighting storage A/B (46e.7)
 
 ### What was built for it: the hybrid
@@ -1730,6 +1860,16 @@ differ by 0.7–3.9 % (D660, as before).
 - 2026-11-16 (46e.7): the GPU measurement can hold a pass by name (`gpuPassHides.hold`; `__tlVoxelPlay.light.holdPass`,
   `headroom --hold`), so the hybrid's `lighting` is read a store at a time; the ballast line's whole-frame GPU ms is not
   used in the A/B (it swung −1 … 18 ms at a still camera, §8b).
+- 2026-11-16 (46e.8, default chosen, owner to confirm): at speed the near sun window is held: the page reads the
+  camera's ground speed against the streamer's own two values (held past `STREAM_DETAIL_SPEED`, let go once slower for
+  `STREAM_STOPPED_MS`) rather than the streamer sending its state to the page. Meanwhile, past the key light's map,
+  near surfaces take the far window's 4 m lines; after a stop the 0.5 m lines return over about 1–2 s (unverified to
+  the eye).
+- 2026-11-16 (46e.8, default chosen, owner to confirm): the sun field does one piece a frame whatever the slice says
+  (the march's row, or a tile in its place when the last frame composed none), so neither the lines nor the tops wait
+  behind the other; its worst frame is about one row's dispatch (~2 ms of page at low, over the 1.0 ms slice: D675).
+- 2026-11-16 (46e.8): the travel A/B's base ran with the profiler's measurement fix (d2cc91a3, `page-profile.ts`
+  only) applied to 2ff4af22, so its spikes are counted by the rule the heads use; the bench was the head's for all.
 
 ## 10. Open questions for the owner (asked with the plan)
 
