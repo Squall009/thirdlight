@@ -29,6 +29,8 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | 2026-11-12 | The demo project comes in after the merge to main (48), as the stress scene with real art. | `roadmap.md` |
 | 2026-11-14 | 46f's five defaults stand. 46e runs in two parts with a stop at the lighting storage choice; the A/B runs both stores on voxels on one scene (the surface cache ported, the light volume, and the cache near with the volume beyond). | `plan-phase-46f.md` §10, `plan-phase-46e.md` §9 |
 | 2026-11-14 | The format spec may gain an add-only entry for three derived outputs, never stored: region labels, chunk face connectivity, sky columns (for 46e's lighting and regions). Nothing else in an approved spec changes. | `plan-phase-46e.md` §8 |
+| 2026-11-16 | The lighting storage for voxel worlds is the voxel light volume. 46e-b's order: remove the cache's voxel port and the hybrid; every light type into the volume (per-brick lamp list in world space, spot cones, area lights, emissive materials); fix the observed defects on the update side; only then tune, on the town and a many-lamps scene; low tier 720p at the 30 Hz cap. Shadows and the sun field stay on at every tier. | `plan-phase-46e.md` §6, §9 |
+| 2026-11-16 | Emissive light is a property of the voxel's material, never stored per voxel; the volume keeps it per cell as it keeps the bounce colour. The add-only material format entry is proposed for approval before it is built. | `plan-phase-46e.md` 46e.11 |
 
 ## Dropped, superseded or deferred (do not rebuild without the owner's word)
 
@@ -47,9 +49,12 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | Plan 45 §8's water rendering and simulation (smooth mesher surface, cellular settle) | superseded by the water research; static first, bodies regenerate in the editor | 2026-11-12 |
 | Froxel fog as the first fog step | reordered: the interactive ground fog first, froxels last | 2026-11-12 |
 | Retiring the level 1–2 mesh rings | not yet: they stay for worlds baked to 2 m | 2026-11-13 (46d-c) |
+| The surface cache on voxel surfaces (charts, face hashes, chart worker) and the hybrid of cache near, volume far | removed in 46e.9 after the A/B; the hybrid with the cache's texels near not measured | 2026-11-16 |
+| A compute build of the clustered light lists | not in scope (the CPU build is 0.2–1.6 ms; the Iris Xe is GPU-bound) | 2026-11-16 |
+| Baking the light volume to disk | a possible later item; needs a format entry | 2026-11-16 |
 
 ## Format proposals waiting for the owner's note
 
-Each is a hard stop when its phase arrives: a `gas` role (value 10) with shape as density and a mip rule like
+Each is a hard stop when its phase arrives: an emissive entry in the material record, read by the light volume (46e-b, 46e.11); a `gas` role (value 10) with shape as density and a mip rule like
 liquid's (47b); a fill stroke kind in the edit command (47b); narrowed feeds for liquid edits (47a); a liquid
 derived part per chunk (49); a medium channel (liquid and fog) on far-cache nodes (49).

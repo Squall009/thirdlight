@@ -1,6 +1,6 @@
 # Phase 46e — Lighting, regions and the walk graph
 
-Status: **46e-a done 2026-11-16, stopped for the owner's lighting storage choice (`docs/briefs/acceptance-46e-a.md`); 46e-b not started** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
+Status: **46e-a done 2026-11-16, the owner chose the voxel light volume (2026-11-16); 46e-b planned in the owner's order (§6), not started** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
 32faf2c0; main frozen at d4053cab). Planned from `docs/roadmap.md` (order of 2026-11-12), plan 45's 46e scope and
 §5c, requirements R40, R45, R97–R104 and R110 (`docs/architecture/voxel-format-requirements.md`),
 `docs/architecture/voxel-engine.md` §6 (foundations 2 and 7) and the 46f close (`docs/plan-phase-46f.md` §10: the
@@ -195,15 +195,32 @@ below, near and far absent; 131 s.
 | 46e.7 | **The lighting storage A/B (R110), same scene, same cameras.** Three arrangements on the town inside the 8 km world: the cache alone, the volume alone, and the cache near with the volume beyond a distance (the owner's hybrid, the hand-over distance a setting); §4's table and pictures for each, on the low tier at the cap, with medium and high as shares. **Built as** (§8b): the hybrid measured is the cache's live probes near (its texels lit but not read per pixel, its lookup hash made but unused: D699) and the volume beyond, not the cache's surfels near. |
 | 46e.8 | Close of 46e-a: the gate, the independent review, fixes, results, an acceptance page (pictures of the three side by side, at most five questions, the lead's recommendation by "performance first"), STATUS. **Stop for the owner.** |
 
-### 46e-b (outline; made final after the owner's choice)
+### 46e-b (owner 2026-11-16: the volume; the order below is the owner's)
+
+The store is the voxel light volume. Nothing is tuned until every light type is in it and its observed defects are
+fixed, so the tuning is done once, on the whole thing. The low tier's target is 720p at the 30 Hz cap. The item
+numbers 46e.9–46e.13 of the plan's first outline are replaced by these.
 
 | Item | Builds |
 |---|---|
-| 46e.9 | The chosen storage built out: tiers and budgets, updates after edits, props through the coverage channel (D448), moving objects and particles reading the same light, the old path it replaces switched off for voxel worlds. |
-| 46e.10 | Rooms from regions: light kept indoors, cut-away and see-through "enclosed air", a room size for audio. |
-| 46e.11 | Connectivity culling measured against the depth pyramid on the town's interiors and the caves; built only if it wins. |
-| 46e.12 | The walk graph (R100) on a generic A* core; `ctx.voxels` path and reach queries; the path-finding span in the profiler. |
-| 46e.13 | Close: gate, review, acceptance page, STATUS, the design page. A saved light bake for the low tier is a format proposal (O19) and a hard stop if the measurements ask for it. |
+| 46e.9 | **Remove the cache's voxel port and the hybrid.** The voxel tile source and charts, the faces' hashes, the chart worker, the tracer's voxel scene kind, the probes over voxel marks, the hand-over, the `cache` and `hybrid` values of `?voxelLight` (left: `off`, `volume`) and their bench flags and tests. Phase 42's own stack is not touched (it retires in 48). The rows that only described them are closed as superseded (D679, D682–D686, D699, D700, D704, D706). The e2e Play test loses their checks. |
+| 46e.10 | **The default path's cost** (owner's answer 5; shadows and the sun field stay on at every tier): fix D667 (stitching at speed), D675 (the sun field's march at speed), D701 (the later settle after a stop); trace D672 (page render +0.9–1.8 ms with no store on) and the end-of-phase round that held only 7 copies of room at the cap. Same-hour, interleaved against the 46e base. |
+| 46e.11 | **The emissive material entry: a proposal, then a stop.** The glow is a property of the voxel's material, never stored per voxel; the volume keeps it per cell as it keeps the bounce colour. This item writes the add-only entry for the material record (`voxel-render-spec.md`) and what the volume reads of it, for the owner's approval. Nothing of it is built before the owner's note. Written first so the approval can arrive while 46e.12 is built. |
+| 46e.12 | **Every light type in the volume.** (a) A lamp list per brick, in world space, built in compute, in place of the flat loop over every lamp in the window (`voxel-light-volume-wgsl.ts` `direct_light`); the clustered lists are per camera and cannot serve bricks off screen. (b) Spot lights bounce with their cone, not as points. (c) Area lights add bounce. (d) Emissive materials light the cells beside them, after the owner's note on 46e.11. |
+| 46e.13 | **The observed defects, fixed on the update side.** Blotches (D692), rooms too dark, the gable patches (D695), the stale texture swap (D696), the update running over its budget (D690, a pacing bug). The look is fixed where cells are written (accumulate while idle, filter as cells are written), not in the per-pixel read, so the tuning that follows cannot undo it. |
+| 46e.14 | **A many-lamps scene, then the tuning.** First an engine-owned bench scene with many lamps of every type beside the town (every figure so far is from a town with a few lamps). Then, measured on both: the per-pixel read's cost (D705), the update's share of the frame, the low tier's setting; the volume's bare constants become tier settings or table entries as they are tuned (D702, D703, D708). The volume is switched on per tier here. |
+| 46e.15 | Props through the coverage channel (D448) and particles reading the volume: what is left of the first outline's build-out. (Placement after the tuning is the lead's default, owner to confirm: props entering the volume's rays change its cost, so if it should count in the tuning it moves before 46e.14.) |
+| 46e.16 | Rooms from regions: light kept indoors, cut-away and see-through "enclosed air", a room size for audio. |
+| 46e.17 | Connectivity culling measured against the depth pyramid on the town's interiors and the caves; built only if it wins. |
+| 46e.18 | The walk graph (R100) on a generic A* core; `ctx.voxels` path and reach queries; the path-finding span in the profiler. |
+| 46e.19 | Close: gate, review, acceptance page, STATUS, the design page. |
+
+**Not in 46e-b (owner 2026-11-16):** a compute build of the clustered light lists (the CPU build is 0.2–1.6 ms and
+the Iris Xe is bound by its GPU); baking the volume to disk (a possible later item; it would need a format entry);
+measuring the hybrid with the cache's texels near.
+
+**Owner stops in 46e-b:** the emissive material entry (46e.11) before anything of 46e.12 (d) is built; any other
+change to an approved format or spec; a newer three.js.
 
 ## 7. Progress
 
@@ -218,6 +235,17 @@ below, near and far absent; 131 s.
 | 46e.6 | Done 2026-11-15 (a; b: e3d86ffb, 4d04a538): coarse 1/2/4 m levels, read by every lit draw; one pool (D691 fixed); settled no GPU, updating 8.9–11.2 ms (D690), orbit 5.9–6.5; near +1.3–4.8 read or not (invalid: the read was not off, D698; see §8b); 29.8 MB; edit → light 0.07–0.11 s, settled 0.5–1.7 s; Play → settled ≈ 20 s |
 | 46e.7 | Done 2026-11-16 (225ec7b5, b99489b2): `?voxelLight=hybrid` (cache probes near, volume past `voxelLightHandoverM`, 12 m low); A/B in one session, §8b: orbit room off 136 / cache 1 / volume 76 / hybrid −1 copies; settled near over off +2.3 / +4.1 / +5.9 ms (room); edit → settled 2.5 / 1.7 / 4.7 s; D693 = the read (D698); D697–D700 |
 | 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `docs/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
+| 46e.9 | not started |
+| 46e.10 | not started |
+| 46e.11 | not started |
+| 46e.12 | not started |
+| 46e.13 | not started |
+| 46e.14 | not started |
+| 46e.15 | not started |
+| 46e.16 | not started |
+| 46e.17 | not started |
+| 46e.18 | not started |
+| 46e.19 | not started |
 
 ## 8. Format and spec steps (owner stops)
 
@@ -1997,6 +2025,24 @@ differ by 0.7–3.9 % (D660, as before).
   stores were held to is in the agent brief's 46e-a section and each slice's brief.
 
 
+- 2026-11-16 (OWNER, answers at the 46e-a stop): (1) the store is **the voxel light volume**; (2) the cache's
+  voxel port (charts, face hashes, chart worker) and the hybrid switch are removed first in 46e-b, phase 42's own
+  stack still retires in 48; (3) the hybrid with the cache's texels near is not measured; (4) **no tuning first**:
+  the order is remove → every light type in the volume (a per-brick lamp list in world space built in compute,
+  spot lights with their cone, area lights' bounce, emissive materials) → the observed defects fixed on the update
+  side (D692, dark rooms, D695, D696, D690) → only then the tuning (the read's cost D705, the update's share, the
+  low tier's setting), on the town and on a many-lamps scene added before it, the low tier at 720p and the 30 Hz
+  cap; (5) shadows and the sun field stay on at every tier; D667, D675 and D701 are fixed, D672 and the round with
+  7 copies of room are traced. Emissive: "the glow is a property of the voxel's material, not stored per voxel. The
+  volume keeps it per cell the way it keeps the bounce colour. Propose the add-only material format entry for my
+  approval before building it." Not in scope: a compute build of the clustered light lists; baking the volume to
+  disk.
+- 2026-11-16 (lead, default chosen, owner to confirm): where the owner's order is silent — the default-path work
+  (answer 5) runs as 46e.10, straight after the removal and before the light types, so later lighting figures are
+  taken on a settled base; the emissive proposal (46e.11) is written before 46e.12 starts so the approval does not
+  hold the other light types; props through the coverage channel and particles (46e.15) come after the tuning;
+  rooms, culling and the walk graph keep their place after the lighting work.
+
 ## 10. Open questions for the owner (asked with the plan)
 
 1. The two parts with a stop at the lighting choice. **Owner 2026-11-14: yes.**
@@ -2006,7 +2052,7 @@ differ by 0.7–3.9 % (D660, as before).
 
 ### At the 46e-a stop (2026-11-16): five questions, each with the default that stands if unanswered
 
-The page with pictures and the table: `docs/briefs/acceptance-46e-a.md` (published as acc46e-a).
+The page with pictures and the table: `docs/briefs/acceptance-46e-a.md` (published as acc46e-a). **Owner 2026-11-16: answered** — 1 the volume; 2 remove, first in 46e-b; 3 no; 4 changed: no tuning first, the order of §6's 46e-b table; 5 keep on, fix D667, D675, D701, trace D672 and the 7-copy round (§9).
 
 1. **Which lighting store?** Default: the voxel light volume, switched on per tier in 46e-b.
 2. **The other one.** Default: the voxel port of the cache (charts, face hashes, chart worker) and the hybrid switch
