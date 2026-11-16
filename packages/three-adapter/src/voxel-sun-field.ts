@@ -34,8 +34,10 @@
  *   `STREAM_DETAIL_SPEED`) the near window stays where it was: no level 0
  *   is built there, so the sky heights it would read ahead are unknown, and
  *   moving it would only clear and compose tiles the camera leaves within a
- *   second. Points outside it read the far window's lines (4 m columns);
- *   once the camera slows, the window comes to it and composes nearest first.
+ *   second. While held it reads as no window (its tops are kept for later):
+ *   the march skips its columns and lit points read the far window's lines
+ *   (4 m columns); once the camera slows, the window comes to it, composes
+ *   nearest first and its lines are marched again.
  * - **Quality.** The march's sample count is the tier's (`voxelSunSteps`; 0
  *   off); the GPU measurement's hide skips the march and the reads.
  *
@@ -165,6 +167,7 @@ export class SunField {
     const l = this.last;
     const dt = (now - l.t) / 1000;
     // A second follow in the same instant (another pass of the frame) keeps what the first one found.
+    const held = this.nearHeld;
     if (dt > 0) this.nearHeld = Math.hypot(x - l.x, z - l.z) / dt > STREAM_DETAIL_SPEED * this.voxelM && !Number.isNaN(this.near.tileX);
     if (dt > 0 || Number.isNaN(l.t)) {
       l.x = x;
@@ -173,7 +176,8 @@ export class SunField {
       if (this.nearHeld) this.stats.heldFrames++;
     }
     const nearMoved = !this.nearHeld && this.near.follow(x, z);
-    if (this.far.window.follow(x, z) || nearMoved) this.dirty();
+    // Held or let go, the near window's lines are marched again: unknown while held, its columns once let go.
+    if (this.far.window.follow(x, z) || nearMoved || held !== this.nearHeld) this.dirty();
     const sun = this.sun.value as THREE.Vector3;
     sun.copy(dir).negate();
     this.farFrom.value = farFrom;
@@ -289,12 +293,12 @@ export class SunField {
   }
 
   private rects(): void {
-    const set = (u: N, w: SunHeightWindow): void => {
+    const set = (u: N, w: SunHeightWindow, shown: boolean): void => {
       const [x, z] = Number.isNaN(w.tileX) ? [0, 0] : w.origin;
-      (u.value as THREE.Vector4).set(x, z, w.cellM, this.made && !Number.isNaN(w.tileX) ? 1 : 0);
+      (u.value as THREE.Vector4).set(x, z, w.cellM, shown && this.made && !Number.isNaN(w.tileX) ? 1 : 0);
     };
-    set(this.nearRect, this.near);
-    set(this.farRect, this.far.window);
+    set(this.nearRect, this.near, !this.nearHeld);
+    set(this.farRect, this.far.window, true);
     this.topMax.value = Math.max(this.near.topMax, this.far.window.topMax);
   }
 

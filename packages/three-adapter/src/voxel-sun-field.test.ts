@@ -4,9 +4,9 @@
  *
  * - with the slice spent before anything is done, a frame still does one piece of work, the march's row or (when the
  *   last frame composed none) a tile, never a tile of each window besides;
- * - past the streamer's level-0 speed the near window stays where it was and composes nothing; once the camera stops
- *   it comes to the camera, composes what entered within the slice, and holds the same tops as a field that never
- *   travelled.
+ * - past the streamer's level-0 speed the near window stays where it was, composes nothing and reads as no window (the
+ *   march skips it); once the camera stops it comes to the camera, composes what entered within the slice, its lines
+ *   are marched again, and it holds the same tops as a field that never travelled.
  */
 import * as THREE from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
@@ -94,6 +94,8 @@ describe('the sun field a frame', () => {
       f.follow(x, 0, DIR, 100, t);
       f.frame(() => true, r);
       expect(f.held).toBe(true);
+      // Held, the near window reads as none (the march skips its columns; lit points read the far window).
+      expect((f.nearRect.value as THREE.Vector4).w).toBe(0);
     }
     expect(f.near.tileX).toBe(tileX);
     expect(f.stats.nearTiles).toBe(near);
@@ -105,6 +107,8 @@ describe('the sun field a frame', () => {
     f.follow(x, 0, DIR, 100, t);
     expect(f.held).toBe(false);
     expect(f.near.tileX).toBe(Math.floor(x / 16) - 16);
+    expect((f.nearRect.value as THREE.Vector4).w).toBe(1);
+    expect(f.marching).toBe(32);
     const entered = f.near.waiting;
     expect(entered).toBe(18 * 32);
     // 64 tiles a frame (the slice), nearest first: done within the frames that takes.
