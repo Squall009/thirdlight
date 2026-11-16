@@ -1,6 +1,7 @@
 /**
  * The sun heights: a far node's tops against the brick march coming straight down, the far window composed from
- * nodes as they come and go (the highest over a column, cleared tiles on a move, wrapped uploads), the near window
+ * nodes as they come and go (the highest over a column, every column a node covers against a reference, cleared tiles
+ * on a move, wrapped uploads), the near window
  * from sky heights, and the march's reference: what stands toward the sun shades, what lies before a map's exit is
  * left to the map.
  */
@@ -83,6 +84,54 @@ describe('the far window', () => {
     while (f.composeNext());
     expect(f.window.topAt(4.5, 4.5)).toBe(SUN_HEIGHT_UNKNOWN);
     expect(f.bytes).toBe(0);
+  });
+
+  it('composes every column a node covers, from nodes smaller than a tile and larger, as a reference over all of them', () => {
+    // 1 m columns in 32 m tiles; level-0 nodes span 16 m (half a tile), level-1 nodes 32 m, placed off the tiles' grid.
+    const f = new FarSunTops(32, 0.5, 1);
+    f.window.follow(0, 0);
+    while (f.composeNext());
+    const nodes = [
+      { key: 'a', at: { level: 0, nx: 0, ny: 0, nz: 0 }, h: 10 },
+      { key: 'b', at: { level: 0, nx: -3, ny: 0, nz: 1 }, h: 14 },
+      { key: 'c', at: { level: 1, nx: 1, ny: 0, nz: -1 }, h: 6 },
+      { key: 'd', at: { level: 0, nx: 3, ny: 1, nz: 3 }, h: 3 },
+      { key: 'e', at: { level: 0, nx: 1, ny: 0, nz: 0 }, h: 22 },
+    ];
+    const placed = nodes.map((n) => {
+      const b = flatNode(n.h);
+      f.add(n.key, n.at, b);
+      const tops = farBrickTops(b);
+      const cellM = 2 ** n.at.level * 0.5;
+      const span = 32 * cellM;
+      return { tops, n: Math.round(Math.sqrt(tops.length)), cellM, x0: n.at.nx * span, z0: n.at.nz * span, y0: n.at.ny * span };
+    });
+    while (f.composeNext());
+    const lerp = (t: Float32Array, n: number, u: number, v: number): number => {
+      const a = Math.min(n - 2, Math.floor(u));
+      const b = Math.min(n - 2, Math.floor(v));
+      const q = [t[b * n + a]!, t[b * n + a + 1]!, t[(b + 1) * n + a]!, t[(b + 1) * n + a + 1]!];
+      if (q.some((x) => x === -Infinity)) return Math.max(...q);
+      const fu = u - a;
+      const fv = v - b;
+      return (q[0]! * (1 - fu) + q[1]! * fu) * (1 - fv) + (q[2]! * (1 - fu) + q[3]! * fu) * fv;
+    };
+    let covered = 0;
+    let bad = 0;
+    for (let i = -64; i < 128; i++) for (let j = -64; j < 128; j++) {
+      let want = SUN_HEIGHT_UNKNOWN;
+      for (const p of placed) {
+        const u = (i + 0.5 - p.x0) / p.cellM;
+        const v = (j + 0.5 - p.z0) / p.cellM;
+        if (u < 0 || v < 0 || u > p.n - 1 || v > p.n - 1) continue;
+        const top = lerp(p.tops, p.n, u, v);
+        if (top !== -Infinity) want = Math.max(want, p.y0 + top * p.cellM);
+      }
+      if (want !== SUN_HEIGHT_UNKNOWN) covered++;
+      if (Math.abs(f.window.topAt(i + 0.5, j + 0.5) - want) > 1e-4) bad++;
+    }
+    expect(covered).toBeGreaterThan(4 * 16 * 16 + 32 * 32 - 64);
+    expect(bad).toBe(0);
   });
 
   it('clears the tiles that enter on a move and keeps the rest', () => {

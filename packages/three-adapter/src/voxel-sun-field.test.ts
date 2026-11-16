@@ -3,7 +3,7 @@
  * to a renderer that counts them; times are given, never read from the clock):
  *
  * - with the slice spent before anything is done, a frame still does one piece of work, the march's row or (when the
- *   last frame composed none) a tile, never a tile of each window besides;
+ *   last frame composed none) a tile in its place, never two;
  * - past the streamer's level-0 speed the near window stays where it was (a frame repeating the last pose does not let
  *   it go), composes nothing and reads as no window (the march skips it); once the camera has stopped for the
  *   streamer's stop time it comes to the camera, composes what entered within the slice, its lines
@@ -62,7 +62,7 @@ function settle(f: SunField, r: SunFieldRenderer, tiles: number): number {
 describe('the sun field a frame', () => {
   const sky = skies();
 
-  it('with the slice spent, does one piece of work a frame: the row, or a tile when the last frame composed none', () => {
+  it('with the slice spent, does one piece of work a frame: the row, or a tile in its place when the last frame composed none', () => {
     const f = new SunField(EDGE, VOXEL_M, () => [sky]);
     f.setSteps(12);
     const r = counting();
@@ -70,9 +70,9 @@ describe('the sun field a frame', () => {
     const waiting = f.near.waiting + f.far.window.waiting;
     expect(waiting).toBe(2 * 32 * 32);
     for (let i = 0; i < 21; i++) f.frame(() => false, r);
-    // Frame 1 has nothing to march yet and composes one tile; then a row every frame and a tile every other.
-    expect(r.computes).toBe(20);
-    expect(r.copies).toBe(20);
+    // Frame 1 has nothing to march yet and composes one tile; then a row and a tile frame about (never both in one).
+    expect(r.computes).toBe(10);
+    expect(r.copies).toBe(10);
     expect(f.stats.nearTiles + f.stats.farTiles).toBe(11);
     expect(f.near.waiting + f.far.window.waiting).toBe(waiting - 11);
   });

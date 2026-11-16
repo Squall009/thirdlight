@@ -456,10 +456,15 @@ export class FarSunTops {
   private splat(node: FarTopsNode, i0: number, j0: number): void {
     const w = this.window;
     const last = node.n - 1;
-    for (let j = 0; j < w.tile; j++) {
+    // Only the tile's columns the node can cover (a column further in or out by one, each still tested): a node much
+    // smaller than the tile reads its own few columns, not all of the tile's.
+    const span = (o: number, c0: number): [number, number] => [Math.max(0, Math.floor(o / w.cellM - c0 - 0.5) - 1), Math.min(w.tile - 1, Math.ceil((o + last * node.cellM) / w.cellM - c0 - 0.5) + 1)];
+    const [ja, jb] = span(node.z0, j0);
+    const [ia, ib] = span(node.x0, i0);
+    for (let j = ja; j <= jb; j++) {
       const v = ((j0 + j + 0.5) * w.cellM - node.z0) / node.cellM;
       if (v < 0 || v > last) continue;
-      for (let i = 0; i < w.tile; i++) {
+      for (let i = ia; i <= ib; i++) {
         const u = ((i0 + i + 0.5) * w.cellM - node.x0) / node.cellM;
         if (u < 0 || u > last) continue;
         const top = bilinearTop(node.tops, node.n, u, v);

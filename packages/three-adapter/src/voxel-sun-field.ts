@@ -27,9 +27,8 @@
  *   windows' place, the sun) in the last full pass: a change shows within
  *   that many frames. The frame's work (the march's row with the uploads it
  *   carries, then tiles composed) runs within the lighting preparation
- *   slice; a frame that has spent it before doing anything still does one
- *   piece (the row, or a tile when the last frame composed none), so both
- *   move on.
+ *   slice; one piece goes whatever the slice says (the row, or a tile in its
+ *   place when the last frame composed none), so both move on.
  * - **At speed** (the camera faster than the streamer's level-0 speed,
  *   `STREAM_DETAIL_SPEED`, until it stayed slower for the streamer's stop
  *   time, `STREAM_STOPPED_MS`) the near window stays where it was: no level 0
@@ -246,21 +245,22 @@ export class SunField {
   /**
    * The frame's share while the march is on, within `more()` (the slice): a row of the lines marched while anything
    * changed (its dispatch uploads the tops changed since), then tiles composed (near ones first, none while the near
-   * window is held), what they changed set to go up with the next row. When the slice is spent before anything was
-   * done the row still goes, or one tile when the last frame composed none while tiles waited: both move on.
+   * window is held), what they changed set to go up with the next row. One piece goes whatever the slice says: the
+   * row, or, when the last frame composed no tile while tiles waited, a tile in its place (never both): both move on.
    */
   frame(more: () => boolean, renderer: SunFieldRenderer | null): void {
     if (Number.isNaN(this.near.tileX)) return;
     const t0 = performance.now();
     // Nothing is composed while the march is off (the tiles wait, marked, for it to come on).
     if ((this.steps.value as number) === 0) return;
+    // One piece goes whatever the slice says: the row, or a tile in its place when the last frame composed none.
     let did = false;
-    if (renderer !== null && this.rowsLeft > 0 && this.made) {
+    if (renderer !== null && this.rowsLeft > 0 && this.made && !this.starved) {
       this.march(renderer);
       did = true;
     }
     // A tile not composed yet reads as unknown, never as another place's.
-    const force = !did || this.starved;
+    const force = !did;
     let composed = 0;
     const go = (): boolean => (force && composed === 0) || more();
     if (!this.nearHeld) {
