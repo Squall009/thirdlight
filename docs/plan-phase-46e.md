@@ -241,7 +241,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.7 | Done 2026-11-16 (225ec7b5, b99489b2): `?voxelLight=hybrid` (cache probes near, volume past `voxelLightHandoverM`, 12 m low); A/B in one session, §8b: orbit room off 136 / cache 1 / volume 76 / hybrid −1 copies; settled near over off +2.3 / +4.1 / +5.9 ms (room); edit → settled 2.5 / 1.7 / 4.7 s; D693 = the read (D698); D697–D700 |
 | 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `docs/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
 | 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
-| 46e.10 | not started |
+| 46e.10 | Done 2026-11-16 (cb7229fa…e2c35bee): stitch searches in the slice (each call ≤ slice + a unit; a catch-up tick still 4 × 2 ms); far sun tiles under changed nodes wait at speed (sun page 1.6 → 0.4 ms/frame at 150 m/s); bench removes its exports; D701 traced to the walk-block feed + stitch (pending 10.9–11.8 → 8.6–9.2 s without), open; D672 not shadows/sun; low rounds D711 |
 | 46e.11 | Proposed 2026-11-16 (24296e84), published as acc46e-11: `docs/briefs/proposal-46e.11-emissive.md` — no new stored field (the voxel path reads the record's `params.emissive` × `params.emissiveIntensity`; the volume keeps one more word a cell, 28 → 32 B); three questions with defaults. **Waiting for the owner's note; nothing built.** |
 | 46e.12 | not started |
 | 46e.13 | not started |
@@ -1839,6 +1839,153 @@ object after the program that went over is gone; the voxel surface program sampl
 with the volume) and D700 (the volume's 29.8 MB shows in the memory table's `surfaceCache` row; it has no row of its
 own). D702 lost its `CHART_JOBS_IN_FLIGHT` clause. D696 stays open.
 
+### 46e.10 — the default path's cost (stitching, the sun field at speed, the settle, render, the low room rounds)
+
+The default path is a voxel world in Play or an export with no lighting store (`?voxelLight` absent): voxel
+shadows, the sun field and open regions all on. Commits cb7229fa (the bench's export), 739ff180 (the stitch's
+searches in the slice), 4cf29470, 61af1694, 0f1e7361 (spans and bench readings), 1aa3b312 (the sun field at speed);
+a45be84e (the stitch's slice once a simulation frame) reverted by e2c35bee (below). Work folder `~/.cache/thirdlight-phase46e/work/46e.10/`
+(`lib.sh`, `trace1.sh`, `trace2.sh`, `measure.sh`, `measure2.sh`, `split.sh`, `summ.py`, `table.py`; every raw
+`*.json` / `*.log` with an `*.uptime` beside it).
+
+**What changed, in plain words.**
+
+- **The coverage bench cleans up** (`coverage-cli.ts`, `export-cleanup.ts`). `coverage --export` now exports, puts
+  the project back, stops staging (`tools/staging.sh stop`), flies in the export served statically and removes the
+  folder it made when the run ends, also on failure and on SIGINT/SIGTERM. Only a folder that was not in the exports
+  folder before the call and that the backend named (or, after a failed call, the one half-written folder of the
+  project) is removed. `--export --keep-export` is the old behaviour (export only, folder printed); `--dir` runs
+  remove nothing. Verified: `exports-before-plain.txt` and `exports-after-plain.txt` (both empty), the run's log
+  `t1-plain-150.log` ("removed the export this run made, …@r3275"), staging stopped after it.
+- **Open regions' searches in the slice** (`open-region-stitch.ts`, D667). A region that lost nodes keeps its search
+  (seeds, queues, the searches' joins) between calls. Chunks stitched, columns refreshed and searches (16 nodes a
+  unit) all read the clock before each unit after a call's first; the first unit goes to each stage in turn, so a call
+  passes its slice by at most one unit and the stages go round again while time is left. A lost node a search had
+  reached starts that search again from its seeds; a new node of a region under search is taken by the search that
+  reached a node it touches (not made a seed: a ring's leading row would search its way across the region). While its
+  search is under way a region answers **not complete** (so never enclosed) under the id it had; a query of a cell
+  in a region not yet re-searched gets that id.
+- **The flight's first tick, still 8 ms of stitching** (`longSim`). The trace showed that tick holding four stitch
+  calls of exactly 2.0 ms each, every one within the slice: the tick ran four catch-up steps after a 35 ms streaming
+  step, and the slice is per step, as every simulation slice is. Tried: the steps of one frame sharing one
+  `voxelDerive` slice (a45be84e, measured as C2 below: one 2.0 ms call in that tick). Reverted (e2c35bee): in a normal
+  frame of two steps it halved the stitch's rate, and the Play e2e's far-light check then found no march shade past
+  the map (0 px, `gate-fast-20261116-225321`; 731 px at 1aa3b312): a dig's sky heights reached the page too late.
+- **The sun field at speed** (`sun-heights.ts` `FarSunTops.hold`, `voxel-sun-field.ts`, D675). Traced with the new
+  spans: at 150 m/s the field's page time was its **tiles** (1.41–1.44 ms a frame), not the march's row (dispatch
+  0.09–0.13 ms, copy 0.03): the far window composed 13.8–13.9 k tiles in a 65 s flight (about 0.2 ms each in the
+  browser), of which about 2.5 k entered the window; the rest were tiles composed again because the far field's nodes
+  came and went over them (10 k node changes a flight). While the near window is held (the camera past
+  `STREAM_DETAIL_SPEED`), a far node drawn or taken away over a tile already composed leaves the tile waiting; tiles
+  that enter are composed as before; once the field lets go after the stop (`STREAM_STOPPED_MS`) the waiting tiles
+  compose nearest first in the slice. A far line at speed can be up to the flight's length late where only the far
+  field's level changed under it (4 m columns; not seen at 150 m/s: unverified to the eye). Standing still nothing
+  changes (pictures below). Tried and not kept: writing a far tile's columns at the tile's own offset instead of the
+  window's index (Node, `probe-sun-before.log` / `-after.log`: 0.033 → 0.030 and 0.120 → 0.106 ms a tile).
+- **Spans and bench readings** (kept): the sun field's frame as `voxel sun march`, `voxel sun copy`, `voxel sun
+  tiles`; the key light's `static shadow map`, `dynamic shadow map` and `static map check` (inside the draw submit,
+  category render); the coverage bench keeps every profiler frame it reads (`spanTotals`: each thread's span means
+  in flight, in the 12 s after the stop and second by second; `longSim`: the longest simulation ticks' spans one entry
+  a call) and the sun field's counters (`sunField`); the headroom meter keeps span means (`spans`) and, with each
+  window, the profiler's spikes taken in during it and the sun field's work left (`window.page`).
+
+**Measured** 2026-11-16 21:19–22:53 UTC, Iris Xe, WebGPU, 1280 × 720, low, the 30 Hz cap, each run alone
+(`thirdlight-gate` inactive), the brief's 10G scope; uptime 24.2 d, load (1 min) 1.5–5.1. Exports of staging's world
+(`voxel-slice`, world `far`) made by each code's own staging backend, served with the backend stopped. **A** = the
+phase base 2ff4af22 + d2cc91a3 (`page-profile.ts`, the base-profiler patch of 46e.8), **B** = a7669a34, **C** =
+0f1e7361 (the searches in the slice, the sun hold), **C2** = a45be84e (C + the slice once a frame, since reverted), in scratch
+worktrees built with `node tools/build.mjs`, removed after. Order A B C, A B C at 150 m/s, A B C at 60 m/s (21:19–
+21:41); then C2, D, A, C2, D at 150 m/s and C2 at 60 m/s (22:31–22:44), D being the trace build below. "Sim spikes (stitch)": the profiler's
+simulation spikes in flight, and the most stitching in one tick of the flight's first second (`longSim`); "sun": the
+field's page ms a frame over the flight (its spans' means).
+
+| Run | Longest ms | > 100 | Missed /min | Sim spikes (stitch ms in a tick, first 1 s) | Sun ms a frame | Ground s | Full detail s | Nothing pending s | Holes |
+|---|---|---|---|---|---|---|---|---|---|
+| A 150, r1 / r2 / r3 | 50.5 / 54.4 / 55.8 | 0 | 8.2 / 10.1 / 14.6 | 2 / 3 / 1 (—) | — | 0.03 | 4.61 / 4.13 / 4.24 | 8.02 / 8.41 / 7.92 | 0 |
+| B 150, r1 / r2 | 46.3 / 49.4 | 0 | 12.8 / 11.0 | 4 / 5 (3.4 / 8.2) | 1.57 / 1.61 | 0.03 | 6.25 / 5.50 | 10.76 / 10.72 | 0 |
+| C 150, r1 / r2 | 50.2 / 54.1 | 0 | 14.6 / 12.8 | 1 / 9 (8.0 / 11.4: four calls of 2.0) | 0.39 / 0.41 | 0.03 / 0.05 | 6.62 / 6.75 | 10.88 / 11.53 | 0 |
+| C2 150 (reverted variant), r1 / r2 | 54.1 / 51.7 | 0 | 10.1 / 15.5 | 62 / 10 (2.0 / 2.0: one call) | 0.40 / 0.40 | 0.03 | 6.73 / 8.36 | 11.26 / 11.77 | 0 |
+| A 60 | 50.3 | 0 | 3.7 | 2 (—) | — | 0.03 | 3.60 | 7.48 | 1 of 4,922 |
+| B 60 | 54.6 | 0 | 7.7 | 7 (6.8) | 0.76 | 0.03 | 9.13 | 10.86 | 0 |
+| C 60 / C2 60 (reverted variant) | 53.2 / 57.3 | 0 | 4.8 / 7.3 | 8 / 4 (4.9 / 3.1) | 0.17 / 0.15 | 0.03 | 4.61 / 6.74 | 10.61 / 10.91 | 0 |
+| D 150 (trace build: C2 without walk blocks and stitch), r1 / r2 | 56.0 / 52.3 | 0 | 13.7 / 14.6 | 3 / 2 (—) | 0.39 | 0.03 | 7.53 / 5.69 | 8.61 / 9.18 | 0 |
+
+Falls through the true ground: 0 in every run (34 drops at 150 m/s, 83 at 60). Missed frames were high in every
+code this hour (A 8.2–14.6 a minute against 0.9–1.8 in set 5 of 46e.8): the page's own time a frame in flight is
+small in all (its spans 2.7–3.0 ms of 33.3), and the late frames carry no page span over the interval (D654's kind).
+C's and C2's missed frames (10.1–15.5) lie within A's spread this hour (8.2–14.6) but for one round; not resolved.
+
+**D701, traced** (`afterBySecond`, `spanTotals.after` in each `cov-150-*.json`): after the stop the job workers ran
+1.2–1.35 s of derive a second at A (seconds 4–6) and 0.5–1.0 s at B, C and C2, while the simulation's `voxel
+streaming` span took as long or longer (C2 9.4–10.2 ms a frame against A's 7.8–8.9) and the simulation also packed
+walk blocks (1.29–1.31 ms a frame) and stitched (0.49–0.51): fewer derive jobs went out a second, and the derive's
+own cost per job did not rise. The trace build D (no walk blocks in the batches, no stitch; never committed) settled
+nothing pending in 8.61 / 9.18 s (C2 11.26 / 11.77, A 7.92–8.41), its derive rate back to A's (0.9–1.3 s a second by
+seconds 3–6) and its streaming span 7.2–8.6 ms. So the settle's lag is the simulation thread's per-batch work for
+the page's GPU walk (the walk blocks every batch carries, which with the store off only the volume and the bench hooks
+read) together with the stitch, not the derive's regions (+7 %). Not fixed here: the store can be switched to the
+volume at run time (`setStore`), so the blocks cannot simply stop at Play start; the fix is a feed the page turns on
+while something reads the GPU walk, with the loaded chunks' blocks sent on turning it on (and the Play e2e's GPU-walk
+check turning it on). D701 stays open, narrowed.
+
+**D672, traced** (orbit, store off): the shadow maps' own spans are 0.25–0.28 ms (dynamic) and 0.05–0.06 (static)
+a frame, the static map's check 0.01; with `&voxelShadows=off` the round read page 6.21 ms, render 5.33, draw
+submit 4.30, as with shadows on (6.14–6.44 / 5.32–5.67 / 4.29–4.52); with `&voxelSun=off` 7.05 / 6.15 / 4.99 (a low
+room round, below). So neither voxel shadows nor the sun field make the +0.9–1.8 ms. What the rounds do show: a
+run's first round after Play start reads page 6.0–6.4 ms (render 5.2–5.7), its second 4.4–5.1 (render 3.9–4.4)
+(`rounds-C-run1..3.json`); 46e.0's two rounds (4.57 / 4.13) were also first and second. The difference against 46e.0
+is mostly a first-round effect not yet traced, in the main view's draw submit; a same-hour A orbit was not run.
+D672 narrowed.
+
+| Orbit, store off (1 round a run) | Room | Page / sim ms | Render / lighting ms (page) | GPU near / far / shadows ms |
+|---|---|---|---|---|
+| B r1 / r2 | 176 / **7** | 6.10 / 2.22, 6.23 / 2.23 | 5.35 / 0.07, 5.51 / 0.08 | 1.83 / 3.47 / 0.49, 1.87 / 3.42 / 0.83 |
+| C r1 / r2 | 176 / 176 | 6.14 / 2.32, 6.44 / 2.61 | 5.32 / 0.10, 5.67 / 0.09 | 1.68 / 3.31 / 0.61, 1.73 / 3.26 / 0.60 |
+| C, shadows off / sun off | 176 / **7** | 6.21 / —, 7.05 / — | 5.33, 6.15 | 1.27 / 3.35 / below, 1.85 / 3.55 / 0.46 |
+
+**The low room rounds** (`rounds-C-run1..3.json`, three runs of two rounds on C; the orbit runs; `t2-headroom.json`):
+13 rounds today held 7, 176, 176, 176, 192, 176, 176, 176, 176, 176, 176, 7, 7 copies (C six alone: 192, 176, 176,
+176, 176, 176). The three low ones were each a run's **first round after Play start**, and each stopped at the
+search's first doubling: the 8-copy window missed 2–5 of 89 frames (longest 44.6–59.5 ms), past the meter's 2 %
+share, so the search bisected down to 7. In two of them the profiler took no spike in that window (the frames
+started on time and no page frame's spans passed the interval: D654's kind); in the third one 41 ms simulation tick.
+The sun field was idle (not marching, nothing waiting) or off in all three. Cause not found; new row D711.
+
+**Pictures, store off** (`run.mjs light-shots --quality low`, B at a7669a34 and C at 0f1e7361; pixels differing by
+more than 10 a channel, `tool/compare.ts`; `compare-B-C.txt`): street 0.025 %, room 0.000, cave 0.000, night
+0.000, far view 0.020 % (B against 46e.9's `shots-off`: 0.20 / 0 / 0 / 0 / 0.025 %). Looked at: `shots-B/` and
+`shots-C/` `street-noon.png`, `far-view.png`; `shots-C/room-window.png`, `cave.png`, `night-lamps.png`: the same
+pictures. Not taken: the far window's lines during a flight (the hold) or the moment after the let-go (unverified).
+
+**A moving sun** (a day cycle): not measured here (46e.14); the hold applies only to far node changes at speed, so a
+turning sun marches as before.
+
+**Memory**: no buffer or texture added; the far tops' waiting map (tiles, at most the window's 1,024 keys) and the
+searches' state (released when they end) are the only new resident data, not counted in the resident table.
+
+**Tested.** `packages/voxel/src/open-regions.test.ts`: (new) a ring of 24 × 24 chunks narrows to 6 × 6 at once
+(3,240 chunks unload) with a tunnel that splits off and a sealed cave, stitched in 4 ms slices on a clock that steps
+1 ms a reading, a row arriving into the region while its search is under way: no call stitches or refreshes more than
+5 units or searches more than 80 nodes, a region answering complete meanwhile is its flood fill's size, and the end
+equals an unbounded twin and a flood fill; (new) three corridors cut at their junction, the short part's search ends
+first and a chunk arrives against it: it joins that part; the slice test of 46e.8 rewritten for the one-unit rule
+(4 units a call where the old rule made 5). `packages/voxel/src/sun-heights.test.ts` (new): held, node changes over
+composed tiles wait (8 tiles) while the 32 entering tiles compose, one under a node drawn meanwhile; let go, the
+tops equal a field never held. `packages/three-adapter/src/voxel-sun-field.test.ts`: a far node drawn while held
+waits, and goes with the let-go. `tools/voxel-bench/export-cleanup.test.ts` (new): only the folder the call made is removed;
+`travel.test.ts`: the span means.
+**Broken** (each once, logs in the work folder): the searches run to their end in one call (`broken-search-unsliced`:
+637 nodes in a call, fails); no restart when a reached node is lost (`broken-no-restart`: the cave not enclosed at
+the end, fails); a new node not attached (`broken-no-attach`: 4 regions, not 3, fails); node changes never held
+(`broken-sun-no-hold`) or never let go (`broken-sun-never-released`) fail the far window test; the slice taken per
+step (`broken-share-per-step`: 8 ms, not 2, failed; the share and its test went with the revert).
+
+**Gate.** `gate-fast-20261116-201638` (739ff180, 15 min), `gate-fast-20261116-205744` (1aa3b312, 20 min; the
+spans' commits in its changed set): GREEN. `gate-fast-20261116-225321` (a45be84e, every area for the shared change,
+36 min): RED, 4 of 322: the Play test's far-light check (above: reverted), `sockets.e2e.ts:236`, `timeline.e2e.ts:305`,
+`terrain-cdlod.e2e.ts:133` (D643's family); `gate-rerun-20261116-233052` (e2c35bee, 7 min): GREEN, the four passed (the far-light check 731 px again). The Play test
+(`voxel-world.e2e.ts:1369`) 2.3–2.4 min in the gates (46e.9: 2.5), voxel area 272–278 s (288).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -2140,6 +2287,22 @@ own). D702 lost its `CHART_JOBS_IN_FLIGHT` clause. D696 stays open.
   `gate-rerun-20261116-193012` green, the leak test in `gate-area-20261116-193623`, the room picture with the volume
   looked at (`46e.9/shots-volume/room-window.png`: 46e-a's look, blotches and all). The leak test runs only with the
   `area` or `phase` modes: an item that adds an adapter-lifetime resource runs `gate.sh start area play`.
+
+- 2026-11-16 (46e.10, default chosen, owner to confirm): while the camera is past the streamer's level-0 speed, the
+  sun field's far tiles whose far-field nodes changed wait until the field lets go after the stop (tiles entering the
+  window still compose at once): a far shade line can be late by the flight where only the far field's level changed
+  under it. At 150 m/s the field's page time went from 1.6 to 0.4 ms a frame (§8c 46e.10).
+- 2026-11-16 (46e.10, default chosen, owner to confirm): the open-region stitch keeps a `voxelDerive` slice per
+  simulation step, so a catch-up frame runs one per step (the flight's first: four, 8 ms). One slice a frame was tried
+  and reverted: it halved the stitch's rate in normal frames and an edit's sky heights reached the sun field too late
+  for the Play test's far-light check (§8c 46e.10).
+- 2026-11-16 (46e.10, default chosen, owner to confirm): D701 left open with its cause measured (the batches' walk
+  blocks for the page's GPU walk, which nothing reads with the store off, and the stitch, on the simulation thread
+  after the stop): the fix (a feed the page turns on while something reads the GPU walk, the loaded chunks' blocks
+  sent on turning it on) touches the page–worker protocol, the run-time store switch and the Play e2e's walk check,
+  more than this item's local fixes; a later item, placed by the lead.
+- 2026-11-16 (46e.10, default chosen, owner to confirm): `run.mjs coverage --export` stops staging and flies in the
+  export it made, then removes it; `--keep-export` keeps the old export-only step.
 
 ## 10. Open questions for the owner (asked with the plan)
 
