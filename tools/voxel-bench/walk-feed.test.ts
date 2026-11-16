@@ -41,7 +41,7 @@ function byCells(src: WalkSource): WalkSource {
 /** What a batch carries besides the walk: its draws, seams, swaps and far changes, as keys and sizes. */
 function drawsOf(batches: readonly ChunkDrawBatch[]): string[] {
   return batches.flatMap((b) => [
-    ...b.chunks.map((c) => `${c.kind} ${c.level ?? 0}:${c.cx},${c.cy},${c.cz} ${c.kind === 'draw' ? `${c.ground.vertexCount}/${c.base.vertexCount}/${c.instances.count}` : ''}`),
+    ...b.chunks.map((c) => `${c.kind} ${c.level ?? 0}:${c.cx},${c.cy},${c.cz} ${c.kind === 'draw' ? `${c.ground?.vertexCount}/${c.base?.vertexCount}/${c.instances?.count}` : ''}`),
     ...(b.seams ?? []).map((s) => `seam ${s.kind} ${s.level}:${s.nx},${s.ny},${s.nz},${s.face}`),
     ...b.swaps.map((s) => `swap ${s.chunks}`),
   ]);

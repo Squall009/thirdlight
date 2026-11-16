@@ -38,7 +38,8 @@
  *   --light-out   the light volume's light taken out of the scene's lights before each GPU measurement (and left out)
  *   --texture-units STORE  the texture-unit guard's record on (the device's limit, each program's sampled fragment
  *                 textures by name, admitted or refused), then the store (`off` or `volume`) set on the page (run
- *                 with `--query &voxelLight=off`); each shot keeps the record (`textureUnits`)
+ *                 with `--query &voxelLight=off`); each shot keeps the record (`textureUnits`); with `volume`, after the
+ *                 shots the store goes off again and the page's walk is read before and after (`walkRelease`)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
  *
  * How to (staging running, nothing else on the GPU):
@@ -536,6 +537,19 @@ async function main(): Promise<void> {
       const after = (await game.observe().catch(() => null))?.counters ?? {};
       out['regionEdit'] = { ms, steps: after['region_edit_steps'] ?? null, before: { enclosed: before['region_enclosed'], volume: before['region_volume'] }, after: { enclosed: after['region_enclosed'], volume: after['region_volume'], sky: after['region_sky'] }, refused: after['region_dig_refused'] ?? 0 };
       console.log(`regions: ${JSON.stringify(out['regions'])}; room wall dug → region changed ${JSON.stringify(out['regionEdit'])}`);
+    }
+    if (O.textureUnits === 'volume') {
+      // The store switched at run time and back: the page's walk (its table and GPU buffers, in the voxelStream row of
+      // the resident table) held while the volume reads it, released once nothing does.
+      const walkNow = async (): Promise<unknown> => game.frame.evaluate((w) => {
+        const h = (window as unknown as { __tlVoxelPlay: { walk: { stats(w: string): unknown } }; __tlProfiler?: { read(): { counters: { memory?: { rows: Array<{ id: string; resident: number }> } } } } });
+        return { walk: h.__tlVoxelPlay.walk.stats(w), voxelStream: h.__tlProfiler?.read().counters.memory?.rows.find((r) => r.id === 'voxelStream')?.resident ?? null };
+      }, O.world);
+      const held = await walkNow();
+      await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay: { light: { setStore(s: string): void } } }).__tlVoxelPlay.light.setStore('off'));
+      await page.waitForTimeout(2000);
+      out['walkRelease'] = { volume: held, off: await walkNow() };
+      console.log(`walk: ${JSON.stringify(out['walkRelease'])}`);
     }
     out['errors'] = errors.slice(0, 5);
     await game.stop();
