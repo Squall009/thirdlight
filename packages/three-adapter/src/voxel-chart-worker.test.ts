@@ -129,4 +129,29 @@ describe('voxel charts on a worker', () => {
     const made = (host.resolveScene().scene.resolveView().voxels[0]!).made!;
     expect(plain(made)).toEqual(plain(voxelChunkCharts(m.positions, m.indices, CELL0, EDGE, src)));
   });
+
+  it('starts no worker on a page without voxel worlds, and the host\'s dispose ends the one it started', async () => {
+    let started = 0;
+    let ended = 0;
+    const counted = (): VoxelChartPort => {
+      started++;
+      const w = portWorker();
+      return { ...w, terminate: () => (ended++, w.terminate()) };
+    };
+    const deps = { layers: () => [], terrains: () => [], architecture: () => [], models: () => [], bricks: () => null, voxelChartWorker: counted };
+    const plainPage = new SurfaceCacheHost(deps, 32 * 1024 * 1024);
+    plainPage.setLive(true);
+    let now = performance.now();
+    for (let f = 0; f < 5; f++) plainPage.update([0, 2, 0], (now += 300));
+    plainPage.dispose();
+    expect(started).toBe(0);
+    const m = mesh();
+    const host = new SurfaceCacheHost(deps, 32 * 1024 * 1024);
+    host.voxels.set({ chunks: () => [{ key: 'w/1,0,-2', version: 1, cell0: CELL0, edge: EDGE, mesh: () => m }], walk: () => null, relightMs: 6.67 });
+    host.setLive(true);
+    for (let f = 0; f < 3; f++) host.update([CELL0[0] * VOXEL_SIZE_M + 8, 4, CELL0[2] * VOXEL_SIZE_M + 8], (now += 300));
+    expect(started).toBe(1);
+    host.dispose();
+    expect(ended).toBe(1);
+  });
 });

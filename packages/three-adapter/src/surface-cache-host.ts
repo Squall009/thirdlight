@@ -615,6 +615,11 @@ export class SurfaceCacheHost {
     return out;
   }
 
+  /** The adapter goes: what the host started outside the page (the voxel chart worker) goes with it. */
+  dispose(): void {
+    this.voxels.dispose();
+  }
+
   /** Something loaded or changed (a scene, a chunk built, an edit): the surfaces are listed again on the next frame. */
   touch(): void {
     this.listedAt = -Infinity;

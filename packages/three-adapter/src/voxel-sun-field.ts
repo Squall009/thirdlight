@@ -480,6 +480,8 @@ export class SunField {
   dispose(): void {
     this.shadeWrite.dispose();
     this.shadeRead.dispose();
+    // The heights' GPU buffer (8 MB) goes now, not when the page's renderer does.
+    this.buffer.dispose();
   }
 }
 

@@ -857,6 +857,10 @@ export class VoxelWorldDraws {
     this.kitLoaded?.();
     this.kitLoaded = null;
     for (const name of [...this.worlds.keys()]) this.close(name);
+    // Walks and sky heights of worlds whose draws never came (a batch's blocks arrive before its first draw).
+    for (const g of this.walks.values()) g.dispose();
+    this.walks.clear();
+    this.skies.clear();
     for (const q of this.waiting) q.stage?.discard();
     this.waiting.length = 0;
     if (this.arrays !== null) for (const t of Object.values(this.arrays.textures)) if (t !== undefined) this.opts.release?.(t);

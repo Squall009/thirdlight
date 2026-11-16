@@ -283,6 +283,8 @@ export class HostVoxels {
 
   /** Charts chunks, nearest `eye` first, until the frame's slice (from `t0`) is spent (or on the worker); each done goes to the host. */
   step(eye: ArrayLike<number>, t0: number): void {
+    // No worker is started before there is a chunk to chart: a page without voxel worlds never holds one.
+    if (this.worker === null && this.charting.size === 0) return;
     const w = this.charter();
     if (w !== null) {
       const start = performance.now();
