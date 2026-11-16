@@ -65,16 +65,17 @@ page in the same commit.
   4 km), marched toward the sun in compute into two shade lines a column (every caster's; those past the map's reach),
   read by the key light's shadow node (near draws at their vertices, the far field's one shade at its pixels), the map
   fading into them across its edge (`voxel-sun-field.ts`, `sun-heights.ts`; the tier's `voxelSunSteps`). The far
-  field's one shade lights every light at its hit. It casts nothing into the maps and carries baked occlusion; no
-  occlusion or bounce light from voxels yet. **The lighting store** is one page switch, `?voxelLight=off|cache|
-  volume|hybrid` (`off`, today's picture, by default; `__tlVoxelPlay.light.setStore` changes it at run time). With
-  `cache` (a candidate for the storage A/B, WebGPU only) phase 42's surface cache lights the level-0 chunks' surfaces:
-  each chunk's drawn mesh charted by its triangles' main axis (`surface-cache-voxels.ts`) on a worker of the view's
-  worker script (`voxel-chart-worker.ts`), lit by the light pass with soft shadow rays that also walk the voxels'
-  occupancy (the walk's WGSL twin, in the tracer's second program), read by the voxel surfaces through a hash of their cells
-  and faces kept across changes (`surface-voxel-faces.ts`, the resolve table's too); live probes over the charts hold
-  the sky and one bounce, read by surfaces, kit pieces and moving objects; a chunk that comes, goes or changes marks
-  what it can shadow. Its measured column: plan-46e §8a 46e.5c. With `volume` (the other candidate, WebGPU only) a **light volume** keeps light in the open cells beside surfaces (`voxel-light-volume.ts`): six values a cell (an ambient cube), 2 m bricks in a pool texture round the camera, updated in compute by walk rays (the sky past 24 m; at a surface its colour times the sun and lamps seen by walks and the volume's own light there), and three coarse levels of 1, 2 and 4 m cells for open air (a clipmap to ±24, ±48 and ±96 m; a coarse cell open where no level-0 cell in it stops light), all in one pool made once (29.8 MB); read per pixel by every lit draw (voxel surfaces, kit pieces, props, moving objects; the far shade opts out) from the cells holding light on its side, level 0 first and the coarse levels for what it leaves, in place of the flat ambient term. Its measured column: plan-46e §8a 46e.6b. With `hybrid` both run (`voxel-light-handover.ts`): the cache lists only the chunks within a hand-over distance d (+ a quarter of d) of the eye across, its probes give sky and bounce there, and the volume keeps no brick wholly inside d less a quarter and fades in over that quarter by the distance across; the voxel surfaces do not read the cache's texels there (both reads pass the Iris Xe's 16 textures a fragment stage, D699), so lamps stay per pixel; d is the tier's `voxelLightHandoverM` (low 12 m, medium and high 24 m). Three arrangements behind the one switch, `off` by default: the owner chooses (plan-46e §8b, the A/B).
+  field's one shade lights every light at its hit. It casts nothing into the maps and carries baked occlusion. Sky
+  occlusion and bounce from voxels come only from **the lighting store**, which is the **voxel light volume** (owner's choice
+  after the 46e-a A/B; the surface cache's voxel port and the hybrid were removed, code at tag `ab-46e-a`), behind one
+  page switch, `?voxelLight=off|volume` (`off` on every tier until it is tuned; any other value is `off`;
+  `__tlVoxelPlay.light.setStore` changes it at run time; `?surfaceRead=0` lights it without reading it). WebGPU only: it
+  keeps light in the open cells beside surfaces (`voxel-light-volume.ts`): six values a cell (an ambient cube), 2 m
+  bricks in a pool texture round the camera, updated in compute by walk rays (the sky past 24 m; at a surface its
+  colour times the sun and lamps seen by walks and the volume's own light there), and three coarse levels of 1, 2 and
+  4 m cells for open air (a clipmap to ±24, ±48 and ±96 m), all in one pool made once (29.8 MB); read per pixel by
+  every lit draw (voxel surfaces, kit pieces, props, moving objects; the far shade opts out) in place of the flat
+  ambient term. The sun's and lamps' direct light stay per pixel. Measured: plan-46e §8a 46e.6b, §8b.
 
 ## 4. Streaming
 
