@@ -87,13 +87,31 @@ export function fragmentTextureNamesOf(ro: Pick<RenderObjectLike, 'getBindings' 
   const names: string[] = [];
   let staged = false;
   for (const g of ro.getBindings()) {
-    for (const b of g.bindings as readonly { readonly isSampledTexture?: boolean; readonly visibility: number; readonly name?: string; readonly texture?: { readonly name?: string } | null }[]) {
+    for (const b of g.bindings as readonly { readonly isSampledTexture?: boolean; readonly visibility: number; readonly name?: string; readonly texture?: TextureLike | null }[]) {
       if (b.visibility !== 0) staged = true;
-      if (b.isSampledTexture === true && (b.visibility & FRAGMENT_STAGE) !== 0) names.push(b.texture?.name ? `${b.name ?? '?'} (${b.texture.name})` : (b.name ?? '?'));
+      if (b.isSampledTexture === true && (b.visibility & FRAGMENT_STAGE) !== 0) names.push(b.texture ? `${b.name ?? '?'} (${textureLabel(b.texture)})` : (b.name ?? '?'));
     }
   }
   if (staged) return names;
   return [...(ro.getNodeBuilderState().fragmentShader?.match(GLSL_SAMPLER) ?? [])].map((m) => m.split(/\s+/).pop() ?? m);
+}
+
+/** What a texture's label reads of it. */
+interface TextureLike {
+  readonly name?: string;
+  readonly isDepthTexture?: boolean;
+  readonly image?: { readonly width?: number; readonly height?: number; readonly depth?: number } | null;
+}
+
+/** A texture's name, else its kind and size (most engine textures carry no name): `DataArrayTexture 1024×1024×12`. */
+function textureLabel(t: TextureLike): string {
+  if (t.name) return t.name;
+  // three's own flags, not the class's name (a minified build renames classes).
+  const flags = t as Record<string, unknown>;
+  const kind = ['isDataArrayTexture', 'isData3DTexture', 'isCompressedArrayTexture', 'isCompressedTexture', 'isCubeTexture', 'isStorageTexture', 'isFramebufferTexture', 'isRenderTargetTexture', 'isDataTexture', 'isCanvasTexture', 'isVideoTexture'].find((f) => flags[f] === true)?.slice(2) ?? (t.isDepthTexture === true ? 'DepthTexture' : 'Texture');
+  const i = t.image;
+  const size = i?.width !== undefined && i.height !== undefined ? ` ${i.width}×${i.height}${i.depth !== undefined && i.depth > 1 ? `×${i.depth}` : ''}` : '';
+  return `${kind}${t.isDepthTexture === true && kind !== 'DepthTexture' ? ' (depth)' : ''}${size}`;
 }
 
 /** A program the guard saw while recording: its material, the textures it samples and whether it was admitted. */

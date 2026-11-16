@@ -20,6 +20,9 @@ describe('the texture-unit guard', () => {
     const fits = program([['nodeTexture_1', 'voxel albedo', 2], ['nodeTexture_2', null, 2], ['vertexOnly', 'heights', 1]]);
     expect(fragmentTexturesOf(fits)).toBe(2);
     expect(fragmentTextureNamesOf(fits)).toEqual(['nodeTexture_1 (voxel albedo)', 'nodeTexture_2']);
+    // An unnamed texture is told by its kind and size.
+    const grid = new THREE.Data3DTexture(new Uint8Array(8), 2, 2, 2);
+    expect(fragmentTextureNamesOf({ getBindings: () => [{ bindings: [{ isSampledTexture: true, visibility: 2, name: 'g', texture: grid }] }], getNodeBuilderState: () => ({ fragmentShader: null }) } as never)).toEqual(['g (Data3DTexture 2×2×2)']);
     const guard = new TextureUnitGuard({ renderObject: () => undefined, backend: { device: { limits: { maxSampledTexturesPerShaderStage: 2 } } } });
     expect(guard.admit(fits as never, fits.material, fits.scene)).toBe(true);
     // Not recording: nothing kept.
