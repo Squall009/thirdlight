@@ -1,6 +1,6 @@
 # Phase 46e — Lighting, regions and the walk graph
 
-Status: **46e: planned 2026-11-14, not started** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
+Status: **46e-a done 2026-11-16, stopped for the owner's lighting storage choice (`docs/briefs/acceptance-46e-a.md`); 46e-b not started** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
 32faf2c0; main frozen at d4053cab). Planned from `docs/roadmap.md` (order of 2026-11-12), plan 45's 46e scope and
 §5c, requirements R40, R45, R97–R104 and R110 (`docs/architecture/voxel-format-requirements.md`),
 `docs/architecture/voxel-engine.md` §6 (foundations 2 and 7) and the 46f close (`docs/plan-phase-46f.md` §10: the
@@ -217,7 +217,7 @@ below, near and far absent; 131 s.
 | 46e.5 | Done 2026-11-15 (a, b; c: 52c88694…f6c8bcd0): charts on the view's worker, faces' hashes kept across changes, a chunk marks what it can shadow; street lit 18.9 s from Play (30), 1.5 M texels for 1.4 M; settled GPU lighting below res., page 0.25–0.44 ms; relighting 6.7–18.9 ms GPU; orbit no room at 30 Hz; edit → light 0.3 s, settled 2.4–2.9 s (§8a 46e.5c) |
 | 46e.6 | Done 2026-11-15 (a; b: e3d86ffb, 4d04a538): coarse 1/2/4 m levels, read by every lit draw; one pool (D691 fixed); settled no GPU, updating 8.9–11.2 ms (D690), orbit 5.9–6.5; near +1.3–4.8 read or not (invalid: the read was not off, D698; see §8b); 29.8 MB; edit → light 0.07–0.11 s, settled 0.5–1.7 s; Play → settled ≈ 20 s |
 | 46e.7 | Done 2026-11-16 (225ec7b5, b99489b2): `?voxelLight=hybrid` (cache probes near, volume past `voxelLightHandoverM`, 12 m low); A/B in one session, §8b: orbit room off 136 / cache 1 / volume 76 / hybrid −1 copies; settled near over off +2.3 / +4.1 / +5.9 ms (room); edit → settled 2.5 / 1.7 / 4.7 s; D693 = the read (D698); D697–D700 |
-| 46e.8 | not started |
+| 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `docs/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
 
 ## 8. Format and spec steps (owner stops)
 
@@ -1471,6 +1471,39 @@ node's column range three columns short fails the reference test.
 perf 0/360 missed), `gate-fast-20261116-061315` (ec61172d), `gate-fast-20261116-070248` (e4832067),
 `gate-fast-20261116-074634` (9ec1e77a): all GREEN on the first run. The voxel area 337–343 s (no e2e file touched).
 
+### 46e.8 — the close
+
+**Phase gate** `gate-phase-20261116-083948` (start 2ff4af22, at 9ee771fd; 37 min against 46f's 30 and 46d-c's 28):
+build, lint, every unit test green (923 files, 518 s); e2e 324 of 328 in 20.8 min, by area: core 31 s, startup 7,
+voxel 374 (46f: 171–189; the Play test grew from about 1 to 3.5 min with the shadow, cache, volume and hybrid checks),
+rendering 429, materials 338, lighting 189, environment 138, effects 64, levels 400, editor-ui 326, scenes 141,
+content 232, play 328, mcp 120, physics 144, audio 57, input 72, scripting 146, animation 60 s. Of the four failures
+three passed alone in the gate's own rerun step (`frame-rate-cap.e2e.ts:70` D659, `terrain-cdlod.e2e.ts:133` D428 /
+D610 / D643's family, `memory.e2e.ts:494` D710: watch rows). The fourth failed alone too and was real:
+`memory.e2e.ts:342`, workers alive 7 → 27 across renderer backend swaps: every scene adapter's surface cache started a
+voxel chart worker on its first frame and nothing ended it (46e.5c). Fixed (4eadd022, 918efa3f: the worker starts
+with the first chunk to chart and ends with the adapter; the sun heights' 8 MB buffer and undrawn worlds' walks are
+released too); `gate-rerun-20261116-092339` green (workers +0), then `gate-fast-20261116-103007` green at the review
+fixes. The phase gate was run once. The gate's growth is the voxel area's: new coverage in one existing file, no new
+e2e file; the Play test is at 3.3–3.5 min of its 240 s timeout and must be split before it grows again.
+
+**The default path before and after** (no lighting store; low, the 30 Hz cap, alone; after: 048f1f83, 2026-11-16
+10:42–10:52 UTC, load 2.1–3.5, `~/.cache/thirdlight-phase46e/work/46e.8-end/`, `measure.sh`, the baseline's commands):
+
+| Measure | 46e.0 / 46e.1 | End of 46e-a | Note |
+|---|---|---|---|
+| GPU `near` / `far` / `shadows` ms, town orbit | 1.61 (0.45) / 3.49 (0.39) / 0.09 (3 runs) | 1.80, 1.81 / 3.13, 3.50 / 0.60, 0.69 (2 rounds) | shadows +0.5–0.6: voxels cast, the sun field; near +0.2 inside the baseline's run-to-run range |
+| GPU lighting row (shadows + lighting) of 6.67 | ≤ 0.2 | 0.60–0.69 | no store on |
+| Room at the cap | 176 copies × 0.131 = 23.1 ms, both rounds | 176 × 0.130 in round 1; **7 copies in round 0**, which missed 8 of 89 at its clock check and 1 of 89 at no load | one round as the baseline, one not: not settled; the 46e.7 off rounds read 60–192 |
+| Page a frame, orbit (profile) | 4.57 / 4.13 (render 3.91 / 3.48) | **6.32 / 5.03** (render 5.56 / 4.42; lighting 0.09 / 0.10 of 2.0) | +0.9–1.8 ms, in render: more than D672's 0.4–0.8 at the cameras; D672 widened, not traced |
+| Simulation a frame, orbit | 2.05 / 1.82 | 2.23 / 1.88 | |
+| Page heap / GPU process at the town | 594 / 936 MiB | 611 / 923 MiB | |
+| `voxelStream` resident at the five cameras (of 768 MiB) | 47–98 MiB | 137–186 MiB | sun field ≈ 55 MB, walk blocks, sky columns, stitch (D703: no budget entry of their own) |
+| Edit → mesh; → shadow | 22–53 ms; no light | 30–59 ms; 61–93 ms | |
+| Travel 150 m/s (46e.8 travel fixes, same hour) | longest 48.3 / 44.1, missed 0.9 / 1.8 a min, detail 5.0–5.2 s | 46.2 / 55.1, 4.6 / 3.7, 6.5–7.2 s | D667, D675, D701 open |
+
+**Overstatements, in plain words** (the review's five; the item text of §6 keeps the contract, the rows say what was built): the list is at the end of §8b.
+
 ## 8b. The lighting storage A/B (46e.7)
 
 ### What was built for it: the hybrid
@@ -1930,9 +1963,57 @@ differ by 0.7–3.9 % (D660, as before).
 - 2026-11-16 (46e.8): the travel A/B's base ran with the profiler's measurement fix (d2cc91a3, `page-profile.ts`
   only) applied to 2ff4af22, so its spikes are counted by the rule the heads use; the bench was the head's for all.
 
+- 2026-11-16 — **46e-a review (independent, a fresh agent that built none of it; `~/.cache/thirdlight-phase46e/review-46e-a.md`).**
+  Verdict: **close after fixes.** The scope fence held (no 46e-b work, no stored light, no stored format; the only
+  touch to retiring code is one export line in the shared worker barrel; phase 42's stack extended, not retired); no
+  spec sentence changed beyond the approved derived-outputs entry; ratchets only shrank; no history comments. Its
+  spot-checks of §8b against the raw files all matched (orbit room, `lighting`, page `lighting`, settled `near`,
+  edit times, all eight travel rows, the D693 readings), and the five sheets match their descriptions. Must-fix and
+  what was done: (1) `DERIVED_FORMAT_VERSION` still 31 in code against the approved 32: set (36ef2a17; nothing stored
+  keys on it). (2) results the D698 fix disproved still read as findings: each marked invalid. (3) §8b stale on
+  D694: the travel row measured again for all four arrangements after the fix. (4) D699 without evidence: counted
+  (the voxel surface program samples 11 textures with no store, 15 with the cache, 13 with the volume, 17 of the
+  Iris Xe's 16 with both reads) and the white fallback pictured; the smallest fit named, not built. Logged as rows:
+  the volume's bare constants (D702), default-path memory without a budget entry (D703), the hybrid's lighting miss
+  (D704), the volume's read cost (D705), the hybrid's unexplained `near` (D706), a third copy of the walk's
+  addressing in WGSL (D707), the volume's unsliced batch work (D708), WebGL 2 voxel shadows never pictured (D709);
+  D692 back to open, D688 to watch. The reviewer's "white shape at the far view's top left" is the sky above the
+  ridge (lead looked): no row. **Tests the review judged weak (logged, not fixed in this phase):** the hybrid's fade
+  check passes with the fade stubbed (it proves residency and darkness, not the hand-over); the cache's caster-mark
+  check passes without the marks (lit wall and pillar share a chunk); the volume's tint bound is +2 % and the cache
+  has no colour-bounce check (D682); the "broken variant" runs were done once by hand and are not repeatable; the Play
+  test sits at its timeout. Not checked by the review: the four largest new files line by line, the raw files of
+  46e.0–46e.6 and 46e.8, anything run.
+- 2026-11-16 (lead, default chosen, owner to confirm): every lighting store stays **off** by default until the
+  owner's choice; voxel shadows and the sun field are on at every tier.
+- 2026-11-16 (lead): recommendation at the stop, by "performance first": **the volume** (the only store that keeps
+  the cap on a moving eye: 76 [60–88] copies of room against none for the cache and the hybrid; least memory;
+  fastest after an edit; travel like no store), its per-pixel read (+3.2 to +5.3 ms of `near` standing still, D705)
+  and its update's pacing (D690) the first work of 46e-b. The acceptance page and its five questions:
+  `docs/briefs/acceptance-46e-a.md`.
+- 2026-11-16 (lead): 46e.5 and 46e.6 were each run as slices (5a tile source, tracer kind, direct light, read; 5b
+  probes and readers; 5c the port's wiring costs and the column; 6a store, update, read; 6b coarse levels, readers,
+  wiring costs, the column), 46e.4 as a (near shadows) and b (far shade, sun field); the fair-depth contract both
+  stores were held to is in the agent brief's 46e-a section and each slice's brief.
+
+
 ## 10. Open questions for the owner (asked with the plan)
 
 1. The two parts with a stop at the lighting choice. **Owner 2026-11-14: yes.**
 2. The A/B on different scenes. **Owner 2026-11-14: no; both on voxels, same scene, and the hybrid (§9).**
 3. The add-only spec entry for the derived region outputs (§8). **Owner 2026-11-14: approved** ("Yes I approve of
    the spec change for the proposed testing of lighting voxels in this phase").
+
+### At the 46e-a stop (2026-11-16): five questions, each with the default that stands if unanswered
+
+The page with pictures and the table: `docs/briefs/acceptance-46e-a.md` (published as acc46e-a).
+
+1. **Which lighting store?** Default: the voxel light volume, switched on per tier in 46e-b.
+2. **The other one.** Default: the voxel port of the cache (charts, face hashes, chart worker) and the hybrid switch
+   are removed at the start of 46e-b; phase 42's own stack retires in 48 as planned.
+3. **The owner's hybrid measured for real** (cache texels near; needs both reads fitted into 16 textures)? Default:
+   no.
+4. **First work of 46e-b.** Default: cut the volume's per-pixel read and pace its update inside the lighting budget,
+   a cheaper read as the low tier's setting if it still does not fit.
+5. **The default path's cost** (shadows and the sun field on: GPU +0.5–0.6 ms, page about +1 ms, about 90 MB,
+   more missed frames at 150 m/s). Default: keep them on at every tier; D667, D675, D701 fixed in 46e-b's first item.
