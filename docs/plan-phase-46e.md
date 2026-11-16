@@ -186,13 +186,13 @@ below, near and far absent; 131 s.
 | Item | Builds |
 |---|---|
 | 46e.0 | The three.js check; the baseline (§4's numbers and five pictures as they are today, on the town inside the 8 km world); a bounded trace of D654 with the profiler's spike capture. |
-| 46e.1 | **GPU time per pass in the profiler (D655).** The meter's hide-a-pass measurement callable from the page: an on-demand "Measure GPU" in the Profiler tab, the overlay and `tl_diagnostics`, filling the GPU budget rows per category (near, far, shadows, lighting, post, effects); the bench reads the same routine. |
-| 46e.2 | **One occupancy walk.** A 6-connected walk (R99) over level-0 cells, skipping empty space by the chunk tree's flags and continuing into far bricks; one definition for the CPU and the GPU; partial cells by light coverage; `ctx.voxels.raycast`; the editor's voxel picking through it. Measured: rays a millisecond on both. |
-| 46e.3 | **Open regions.** Connected non-solid cells labelled per chunk in the derive workers and stitched across chunk faces as chunks arrive: face connectivity (R97), sky columns (R98), regions with an enclosed flag, volume and portals from the opening role (R101); rebuilt for one chunk on an edit; `ctx.voxels.regionAt`; a tint overlay to see them. A derived output: an add-only note in the format spec (§8, owner). |
-| 46e.4 | Done 2026-11-15 (cd2ce0ac; a3a8f2cf, 76f3ef48): near voxel draws and kit pieces in the sun's cached map and the atlas; past the map sun heights (sky heights, far bricks' tops) marched in compute into shade lines, faded in at its edge; far shade lit at the hit; low shadows 0.63 vs 0.43 ms off; edit → field 0.6–1.2 s; D607, D670 fixed, D671 narrowed, D673–D675 |
+| 46e.1 | **GPU time per pass in the profiler (D655).** The meter's hide-a-pass measurement callable from the page: an on-demand "Measure GPU" in the Profiler tab, the overlay and `tl_diagnostics`, filling the GPU budget rows per category (near, far, shadows, lighting, post, effects); the bench reads the same routine. **Built as** (§4b, §8a 46e.1): a category's ms is the frame's GPU time with that category hidden, under ballast past the cap, net of what the hide changes elsewhere (D660, D661); not a timestamp per pass. |
+| 46e.2 | **One occupancy walk.** A 6-connected walk (R99) over level-0 cells, skipping empty space by the chunk tree's flags and continuing into far bricks; one definition for the CPU and the GPU; partial cells by light coverage; `ctx.voxels.raycast`; the editor's voxel picking through it. Measured: rays a millisecond on both. **Built as** (§8a 46e.2): not one definition. Three arithmetic step helpers (`walk-steps.ts`: crossing time, first of three, order of two) are shared and generated into the WGSL; the loop, the block and brick traversal, the hash lookup and the box crossings are written twice (`occupancy-walk.ts`, `voxel-walk-wgsl.ts`) and held equal by a 1,200-ray check; the GPU walk stops at the mips (D662), the CPU's goes on into far nodes. |
+| 46e.3 | **Open regions.** Connected non-solid cells labelled per chunk in the derive workers and stitched across chunk faces as chunks arrive: face connectivity (R97), sky columns (R98), regions with an enclosed flag, volume and portals from the opening role (R101); rebuilt for one chunk on an edit; `ctx.voxels.regionAt`; a tint overlay to see them. A derived output: an add-only note in the format spec (§8, owner). **Built as** (§8a 46e.3): regions come from derived occupancy (open = not drawn as a body), not from roles; only portals use a role (`opening`); "enclosed" means no sky column, complete and not at the world's edge. |
+| 46e.4 | **Direct light.** Voxel surfaces and kit pieces cast and receive sun shadows in Play through the cached static map plus the dynamic map, and local-light shadows through the atlas; an edit refreshes what it touched; the far shade lit at the hit (D607); a far sun shadow by a short march through distance bricks, kept only on the tiers that afford it. **Built as** (§8a 46e.4a, 46e.4b): the far sun shadow is a per-column height-field shade line, not a march per pixel through distance bricks: two windows of column tops (sky heights; far bricks' tops) are marched toward the sun in compute, a tile row a frame, and lit pixels past the map read their column's line; on every tier (`voxelSunSteps` 12 / 16 / 24), WebGPU only. |
 | 46e.5 | **The surface cache on voxels.** Phase 42's cache fed by voxel surfaces: a voxel tile source (charts over the mesher's faces by their main axis, as block chunk columns and terrain rings are charted today), the tracer walking voxel occupancy as a scene kind (46e.2's walk), direct light and live probes over it, edits marking tiles stale. A candidate, built only as far as a fair measurement needs. |
-| 46e.6 | Done 2026-11-15 (a; b: e3d86ffb, 4d04a538): coarse 1/2/4 m levels, read by every lit draw (kit pieces, moving objects); one pool (stale bindings: D691 fixed); settled no GPU, updating 8.9–11.2 ms (D690), orbit 5.9–6.5; near +1.3–4.8 read or not (D693); 29.8 MB; edit → light 0.07–0.11 s, settled 0.5–1.7 s; Play → settled ≈ 20 s (§8a 46e.6b) |
-| 46e.7 | **The lighting storage A/B (R110), same scene, same cameras.** Three arrangements on the town inside the 8 km world: the cache alone, the volume alone, and the cache near with the volume beyond a distance (the owner's hybrid, the hand-over distance a setting); §4's table and pictures for each, on the low tier at the cap, with medium and high as shares. |
+| 46e.6 | **The voxel light volume.** R104's volume on the same town: air-side cells beside surfaces with six directional values, the 1/2/4 m levels for open air, sky and sun by the walk, one bounce, local lights; read by voxel surfaces, kit pieces and moving objects. A candidate, to the same depth. **Built as** (§8a 46e.6a, 46e.6b): the volume holds sky light and one bounce (of the sun and of lamps); the sun's and lamps' direct light stay per pixel (the shadow maps and the atlas), not in the volume; level 0 in 2 m bricks in a fixed window round the eye (one size on every tier) and a pool of fixed size (D702). |
+| 46e.7 | **The lighting storage A/B (R110), same scene, same cameras.** Three arrangements on the town inside the 8 km world: the cache alone, the volume alone, and the cache near with the volume beyond a distance (the owner's hybrid, the hand-over distance a setting); §4's table and pictures for each, on the low tier at the cap, with medium and high as shares. **Built as** (§8b): the hybrid measured is the cache's live probes near (its texels lit but not read per pixel, its lookup hash made but unused: D699) and the volume beyond, not the cache's surfels near. |
 | 46e.8 | Close of 46e-a: the gate, the independent review, fixes, results, an acceptance page (pictures of the three side by side, at most five questions, the lead's recommendation by "performance first"), STATUS. **Stop for the owner.** |
 
 ### 46e-b (outline; made final after the owner's choice)
@@ -211,11 +211,11 @@ below, near and far absent; 131 s.
 |---|---|
 | 46e.0 | Done 2026-11-14 (bec4c31d, d2cc91a3): three.js 0.187.0 = pin; five lighting cameras + `run.mjs light-shots` (cave dug, lamps, two looks; refuses unsettled or voxel-less shots); baseline §4a: room 23.1 ms, page 4.1–4.6 / sim 1.8–2.0 ms, lighting 0.05 of 2.0 ms, edit to screen 22–53 ms (no light responds); D654 traced, profiler spike fixes, cause open |
 | 46e.1 | Done 2026-11-14 (1129d456…16e5e566): Measure GPU (Profiler, overlay, `tl_diagnostics` gpu/gpuMeasure, benches) — ballast past the cap, a category hidden between two shown windows, GPU completion times burst to burst, 5 repeats; low town near 1.61, far 3.49, shadows 0.09 ms, run-to-run ≤ 0.45 ms (§4b); D660 near's hide, D661 post's |
-| 46e.2 | Done 2026-11-14 (f17f4a48…): one 6-connected walk (CPU; WGSL from the same steps) over level 0 and mips (the CPU also far nodes; the GPU not: D662); `ctx.voxels.raycast`; picks walk it; GPU = CPU 0 of 1,200 differ; rays/ms worker 360–430 / 170–215 / 19–20, GPU 28k / 17k / 1.6k (short, medium, long; §8a); D662–D664 |
+| 46e.2 | Done 2026-11-14 (f17f4a48…): one 6-connected walk (CPU; a WGSL twin sharing 3 step helpers, equal by check) over level 0 and mips (the CPU also far nodes; the GPU not: D662); `ctx.voxels.raycast`; picks walk it; GPU = CPU 0 of 1,200 differ; rays/ms worker 360–430 / 170–215 / 19–20, GPU 28k / 17k / 1.6k (short, medium, long; §8a); D662–D664 |
 | 46e.3 | Done 2026-11-15 (531a2d5b, 5bf24807): open regions derived per section (v32, spec entry), stitched where the world runs, `ctx.voxels.regionAt`, voxel page overlay, sky heights to the page; town 120 enclosed / 3,181 portals; derive 7 % of a section; stitch 1.4 ms/frame loading, 0 settled; edit → answer 91 ms; 150 m/s sim spikes 1 → 14 (D667); D665–D669 |
-| 46e.4 | a done 2026-11-15 (cd2ce0ac): near-field voxel surfaces and kit pieces cast and receive via the cached sun map, the dynamic map and the atlas; edits redraw only what they reach; sun square on the voxel ground; low shadows 0.21–0.47 vs off below resolution; edit → shadow 63–87 ms; D670–D672. b next (far shade at the hit, far sun march) |
+| 46e.4 | Done 2026-11-15 (cd2ce0ac; a3a8f2cf, 76f3ef48): near voxel draws and kit pieces in the sun's cached map and the atlas; past the map sun heights (sky heights, far bricks' tops) marched in compute into per-column shade lines, faded in at its edge; far shade lit at the hit; low shadows 0.63 vs 0.43 ms off; edit → field 0.6–1.2 s; D607, D670 fixed, D671 narrowed, D673–D675 |
 | 46e.5 | Done 2026-11-15 (a, b; c: 52c88694…f6c8bcd0): charts on the view's worker, faces' hashes kept across changes, a chunk marks what it can shadow; street lit 18.9 s from Play (30), 1.5 M texels for 1.4 M; settled GPU lighting below res., page 0.25–0.44 ms; relighting 6.7–18.9 ms GPU; orbit no room at 30 Hz; edit → light 0.3 s, settled 2.4–2.9 s (§8a 46e.5c) |
-| 46e.6 | a done 2026-11-15 (b6ef5f9e…b7b90f44): light in open cells beside surfaces, 2 m bricks round the eye, six RGB9E5 faces, walk rays in compute (4 a face × 8 updates, sky, sun and lamp bounce), read per pixel by voxel surfaces; room 5.9 (cache 10.0, off 119.8); settled no pass, updating 10.9 ms (D690); 15–30 MB GPU of 160; settled ≤ 10 s after arriving; b next |
+| 46e.6 | Done 2026-11-15 (a; b: e3d86ffb, 4d04a538): coarse 1/2/4 m levels, read by every lit draw; one pool (D691 fixed); settled no GPU, updating 8.9–11.2 ms (D690), orbit 5.9–6.5; near +1.3–4.8 read or not (invalid: the read was not off, D698; see §8b); 29.8 MB; edit → light 0.07–0.11 s, settled 0.5–1.7 s; Play → settled ≈ 20 s |
 | 46e.7 | Done 2026-11-16 (225ec7b5, b99489b2): `?voxelLight=hybrid` (cache probes near, volume past `voxelLightHandoverM`, 12 m low); A/B in one session, §8b: orbit room off 136 / cache 1 / volume 76 / hybrid −1 copies; settled near over off +2.3 / +4.1 / +5.9 ms (room); edit → settled 2.5 / 1.7 / 4.7 s; D693 = the read (D698); D697–D700 |
 | 46e.8 | not started |
 
@@ -929,7 +929,7 @@ inside the shut hut, 5.6 against 19.1). An edit opening a roof brightens the roo
 alone (`thirdlight-gate` inactive), the brief's 10G scope; uptime 22.9 d, load (1 min) 1.2–2.0. Raw:
 `~/.cache/thirdlight-phase46e/work/46e.5c/` (`measure.sh`; `m-*`, `shots/`, `shots-off/`, `room-first/`, `cov-150-*`,
 `*.uptime`). Cameras: one run `cache` (`shots`) and one `off` (`shots-off`) back to back; orbit: cache / off / cache
-without the texel read (`&surfaceRead=0`), interleaved, two rounds. Cameras in order street / room / cave / night / far.
+without the texel read (`&surfaceRead=0`) (invalid: the read was not off, D698; see §8b), interleaved, two rounds. Cameras in order street / room / cave / night / far.
 
 | What | Cache | Off | Note |
 |---|---|---|---|
@@ -938,7 +938,7 @@ without the texel read (`&surfaceRead=0`), interleaved, two rounds. Cameras in o
 | GPU settled, `shadows` | 1.46 / 1.45 / 1.14 / 1.96 / 0.68 | 0.59 / 0.36 / 0.36 / 0.84 / 0.44 | higher with the cache, not explained (one run each) |
 | GPU settled, frame (ballast line) | 22.3 / 9.4 / 8.1 / 12.2 / 10.7 | 13.1 / 6.8 / 5.9 / 8.5 / 9.6 | |
 | GPU while relighting (every texel and probe kept stale), `lighting` | 15.0 / 12.6 / not read (the ballast line failed) / 6.7 / 18.9 | — | against the 6.67 ms row: over at four (D685) |
-| GPU, 8 km town orbit (moving eye) | **no room at no load** (2–7 of 89 frames missed), so not resolved: `lighting` 10.5 ± 2.3 (r2), 7.6 ± 4.2 and 11.6 ± 2.8 without the read; frame line 40.6 (r2), 29.3 without the read; resolution 7.6–9.5 ms | room 44 / 152 copies; near 2.00 / 1.93, far 3.43 / 3.47, shadows 0.52 / 0.59; frame 8.5 / 9.4 | the moving eye relevels tiles and streams chunks all the time: the cache relights at its budget every frame (D685); the read's own cost on the orbit is under this noise |
+| GPU, 8 km town orbit (moving eye) | **no room at no load** (2–7 of 89 frames missed), so not resolved: `lighting` 10.5 ± 2.3 (r2), 7.6 ± 4.2 and 11.6 ± 2.8 without the read; frame line 40.6 (r2), 29.3 without the read (invalid: the read was not off, D698; see §8b); resolution 7.6–9.5 ms | room 44 / 152 copies; near 2.00 / 1.93, far 3.43 / 3.47, shadows 0.52 / 0.59; frame 8.5 / 9.4 | the moving eye relevels tiles and streams chunks all the time: the cache relights at its budget every frame (D685); the read's own cost on the orbit is under this noise (invalid: the read was not off, D698; see §8b) |
 | Page ms a frame, settled (profile) | 6.47 / 4.75 / 3.05 / 4.82 / 4.40; `lighting` 0.44 / 0.30 / 0.25 / 0.41 / 0.28 (worst 10 / 8 / 5 / 17 / 12) | 6.49 / 4.53 / 2.84 / 4.27 / 4.56; 0.26 / 0.16 / 0.14 / 0.17 / 0.16 | of 2.0: under |
 | Page while relighting | `lighting` 5.6 / 6.0 / 8.8 / 12.3 / 2.6 (residency 4.0–4.6, light pass 0.8–6.8) | — | over 2.0 (D685) |
 | Page on the orbit | 9.1 / 9.3 ms; `lighting` 3.0 / 2.6 (worst 25 / 38) | 6.4 / 6.6; 0.16 / 0.17 | over 2.0 (D685) |
@@ -1091,7 +1091,7 @@ Cameras in order street / room / cave / night / far.
 | GPU settled, `shadows` | 1.38 / 1.16 / 1.03 / 1.83 / 0.58 | cache 1.46 / 1.45 / 1.14 / 1.96 / 0.68; off 0.59 / 0.36 / 0.36 / 0.84 / 0.44 | higher with either store on, not explained (one run each) |
 | GPU settled, frame (ballast line) | 12.0 / 9.4 / 9.5 / 11.4 / 10.6 | cache 22.3 / 9.4 / 8.1 / 12.2 / 10.7; off 13.1 / 6.8 / 5.9 / 8.5 / 9.6 | |
 | GPU while updating (room, every brick stale from nothing every 0.5 s; `--gpu-stale`) | `lighting` **10.89 ± 0.57 ms** (frame 18.8); `near` below | cache 12.6 at the room | over its 6.67 ms row: paced by its own timestamps, which under-read at the cap (D690) |
-| GPU, 8 km town orbit (moving eye; 2 rounds, interleaved with off and with the read off) | no load 0 / 1 of 89 missed; frame 11.0 / 9.4 ms; `lighting` 6.15 ± 3.46 (r1), not present in r2's windows; `near` below / 3.34 ± 1.31; resolution 2.6 / 0.9 ms | off: 1 / 1 missed, frame 9.4 / 8.9, near 1.88 / 2.00, shadows 0.67 / 0.71 (res 0.4 / 0.1). Read off: frame 9.7 / 4.8, `lighting` — / 4.44 ± 1.97, near below / 3.34 | the cache had no room at no load on the orbit; the read's own cost is under this noise: not resolved |
+| GPU, 8 km town orbit (moving eye; 2 rounds, interleaved with off and with the read off) | no load 0 / 1 of 89 missed; frame 11.0 / 9.4 ms; `lighting` 6.15 ± 3.46 (r1), not present in r2's windows; `near` below / 3.34 ± 1.31; resolution 2.6 / 0.9 ms | off: 1 / 1 missed, frame 9.4 / 8.9, near 1.88 / 2.00, shadows 0.67 / 0.71 (res 0.4 / 0.1). Read off (invalid: the read was not off, D698; see §8b): frame 9.7 / 4.8, `lighting` — / 4.44 ± 1.97, near below / 3.34 | the cache had no room at no load on the orbit; the read's own cost is under this noise: not resolved (invalid: the read was not off, D698; see §8b) |
 | Page a frame, settled (profile) | 6.31 / 4.62 / 2.93 / 4.40 / 4.41; span `voxel light volume` 0.09 / 0.12 / 0.04 / 0.05 / 0.04 (worst 3.0 / 0.5 / 0.2 / 0.2 / 0.2) | cache 6.47 / 4.75 / 3.05 / 4.82 / 4.40, `lighting` 0.25–0.44 | of the 2.0 ms `lighting` row: under |
 | Page while updating (room) | 3.63 ms; span 0.24 (worst 0.6) | cache `lighting` 6.0 | under |
 | Page on the orbit | 7.80 / 7.88; `lighting` 0.88 / 0.86 (worst 3.6 / 4.3) | off 7.15 / 6.88; 0.19 / 0.14 | under 2.0; worst frames over (new blocks looked at, window moves) |
@@ -1238,7 +1238,7 @@ order street / room / cave / night / far.
 | What | Volume | Off / unread | Note |
 |---|---|---|---|
 | GPU settled, `lighting` | nothing dispatched (no brick stale): absent at e3d86ffb, below resolution since | — | cache 0.12 / below ×4 |
-| GPU settled, `near` (run 1, run 2) | — (ballast line failed) / 1.29 / 2.93 / 4.77 / 4.82; 3.64 / 1.52 / 2.95 / 4.75 / 4.93 | off below ×3 / 0.16 / 1.93; below ×3 / 0.05 / 1.84. Unread 3.61 / 1.63 / 3.00 / 4.73 / 4.79 | **+1.3–4.8 ms on**, the same with the read off (within 0.15): the read's own cost is below resolution at the cameras; the rise comes with the store (D693; the cache's column shows the same, +0.5–3.7) |
+| GPU settled, `near` (run 1, run 2) | — (ballast line failed) / 1.29 / 2.93 / 4.77 / 4.82; 3.64 / 1.52 / 2.95 / 4.75 / 4.93 | off below ×3 / 0.16 / 1.93; below ×3 / 0.05 / 1.84. Unread 3.61 / 1.63 / 3.00 / 4.73 / 4.79 | **+1.3–4.8 ms on**, the same with the read off (within 0.15): the read's own cost is below resolution at the cameras; the rise comes with the store (D693; the cache's column shows the same, +0.5–3.7) (invalid: the read was not off, D698; see §8b) |
 | GPU settled, `shadows` | —, 0.88 / 0.69, 0.74 / 0.50, 0.46 / 1.09, 1.08 / 0.56, 0.56 | off 0.67, 0.56 / 0.46, 0.50 / 0.37, 0.31 / 0.97, 0.88 / 0.55, 0.52 | +0.1–0.3 |
 | GPU settled, frame (ballast line) | 14.2 / 10.2, 10.0 / 9.7, 9.4 / 12.9, 13.0 / 12.7, 12.6 | off 4.8, 10.7 / 5.9, 5.8 / 5.1, 5.3 / 8.5, 8.2 / 9.6, 9.8 | |
 | GPU while updating (every brick stale every 0.5 s), `lighting` | **10.14 / 11.17 / 9.64 / 8.91** / not read (ballast line failed) | — | over its 6.67 ms row; its own stamps read 5.2–8.6 ms a dispatch (D690) |
@@ -1259,7 +1259,7 @@ order street / room / cave / night / far.
 
 **The volume's column for 46e.7**
 
-- GPU settled at the five cameras: `lighting` nothing dispatched (below resolution); `near` 1.3–4.8 ms over off, the same with the read off; frame 9.4–14.2 ms (off 4.8–10.7).
+- GPU settled at the five cameras: `lighting` nothing dispatched (below resolution); `near` 1.3–4.8 ms over off, the same with the read off (invalid: the read was not off, D698; see §8b); frame 9.4–14.2 ms (off 4.8–10.7).
 - GPU while updating: `lighting` 8.9–11.2 ms at four cameras against its 6.67 ms row.
 - GPU on the moving orbit: room at the cap with no load (44–60 copies; off 26–30); `lighting` 5.9–6.5 ms (the update at its row all the time); `near` 4.4 ms (off 1.8–2.0), the read's share not resolved.
 - Page a frame: settled 2.9–6.6 ms, `lighting` 0.18–0.33 (worst 3.2) of 2.0; updating `lighting` 0.42–0.81; orbit 7.0–7.1 ms, `lighting` 0.82–0.93 (worst 4.4).
@@ -1272,7 +1272,7 @@ order street / room / cave / night / far.
 of GPU against its 6.67 ms row: paced by its own stamps, which read it 1.3–1.7× short at the cap (D690: the pass's
 cost outside its stamps, the pool's barrier and the reads waiting on it, is the volume's); (2) open air: the coarse
 levels are 864 bricks a level of cells that all cast rays, so a settle from nothing takes 13–14 s in the e2e (10 s
-without them in 46e.6a); (3) `near` +1.3–4.8 ms with the store on, read or not (D693); (4) a fixed 29.8 MB pool;
+without them in 46e.6a); (3) `near` +1.3–4.8 ms with the store on, read or not (D693) (invalid: the read was not off, D698; see §8b); (4) a fixed 29.8 MB pool;
 (5) the look at 32 rays a face: blotches (D692). The wiring costs are gone: the pool's stale bindings, the stalled
 stamps, the presence for the measurement.
 
@@ -1641,11 +1641,41 @@ differ by 0.7–3.9 % (D660, as before).
   camera (the largest single cost measured here, D693); soft blotches at 32 rays a face (D692), gable patches from 40 m
   up (D695); a fixed 29.8 MB pool; its update holds ~6 ms of GPU on a moving eye; a 180–220 ms frame when it joins a
   flight's first draws (D694); reach 96 × 48 × 96 m at 0.5 m, coarse levels to ±96 m, the flat term past them.
-- **Hybrid:** both stores' work on a moving eye (orbit `lighting` 13 ms, no room, page `lighting` 2.9–4.0 ms), both
-  reads in every near program (`near` +5.5–7.2 ms over off, more than either alone), the volume's update at half the row
+- **Hybrid:** both stores' work on a moving eye (orbit `lighting` 13 ms, no room, page `lighting` 2.9–4.0 ms), `near`
+  +5.5–7.2 ms over off, 1.6–1.8 ms more than the volume alone at every camera though the probes' read measured
+  +0.1–0.25: unexplained (D706), the volume's update at half the row
   (a window dug settles in 4.7 s against 1.7–2.5 alone; Play → settled 27–30 s), the 29.8 MB pool beside the cache's
   smaller set; no per-pixel cache texel read (16 textures, D699), so the cache's soft lamp shadows are not seen;
   the cache's lookup hash made but unused; the volume's D694 frame.
+
+### Overstatements, in plain words (the independent review, 46e.8)
+
+- **"One occupancy walk, one definition":** three arithmetic helpers (`walk-steps.ts`: crossing time, first of three,
+  order of two) are shared and generated into the WGSL; the loop, block and brick traversal, hash lookup and box
+  crossings are written twice (`occupancy-walk.ts`, `voxel-walk-wgsl.ts`) and held equal by a 1,200-ray check; the
+  GPU walk stops at the mips (D662).
+- **"Open regions from roles" (R101):** regions come from derived occupancy; only portals use a role (`opening`);
+  "enclosed" means no sky, complete and not at the world's edge.
+- **"A far sun shadow by a march through distance bricks":** a per-column height-field shade line over two windows of
+  column tops, marched in compute a row a frame; lit pixels read their column's line.
+- **"GPU time per pass":** the frame's GPU time with a category hidden, under ballast, net of what the hide changes
+  elsewhere (D660, D661).
+- **"The hybrid: the cache near, the volume beyond":** the cache's probes near (its texels lit but not read per pixel,
+  its lookup hash made but unused: D699), the volume beyond.
+
+### Tests the review judged weak (logged, not fixed in this phase)
+
+- Hybrid fade, Play e2e: passes with the volume's share stubbed to 0 (`e2e-stub-cache-everywhere2.log`): it proves the
+  residency rules, not the hand-over. Real: the far wall outside the cache's reach (> 1.25 d), or a pixel row read
+  across d.
+- Cache caster marks, e2e: passes with `castersChanged` marking nothing; the lit wall must lie in another chunk than
+  the pillar.
+- Volume and cache tint: the volume's bound is +2 % (`VOLUME_TINT_FACTOR` 1.02, measured 1.062); the cache's colour
+  check (`HUT_TINT_MIN` 1.5) was deleted when it failed (D682): the cache has no colour-bounce test.
+- Play test timeout raised 180 → 240 s; it runs 3.3–3.5 min: the next growth splits the test, never a longer timeout.
+- The "broken" runs were stubbed once by hand: believable from the test code, none repeatable.
+- Fixed here (minutes each): the known GPU pass's ratio bounds no longer skip a missing ballast reading (it fails);
+  the light volume's lamp bounce must exceed 480 (a third of the least of 1,461–1,921 logged), not 0.
 
 ## 9. Decision log
 
