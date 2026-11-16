@@ -240,7 +240,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.6 | Done 2026-11-15 (a; b: e3d86ffb, 4d04a538): coarse 1/2/4 m levels, read by every lit draw; one pool (D691 fixed); settled no GPU, updating 8.9–11.2 ms (D690), orbit 5.9–6.5; near +1.3–4.8 read or not (invalid: the read was not off, D698; see §8b); 29.8 MB; edit → light 0.07–0.11 s, settled 0.5–1.7 s; Play → settled ≈ 20 s |
 | 46e.7 | Done 2026-11-16 (225ec7b5, b99489b2): `?voxelLight=hybrid` (cache probes near, volume past `voxelLightHandoverM`, 12 m low); A/B in one session, §8b: orbit room off 136 / cache 1 / volume 76 / hybrid −1 copies; settled near over off +2.3 / +4.1 / +5.9 ms (room); edit → settled 2.5 / 1.7 / 4.7 s; D693 = the read (D698); D697–D700 |
 | 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `docs/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
-| 46e.9 | not started |
+| 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
 | 46e.10 | not started |
 | 46e.11 | not started |
 | 46e.12 | not started |
@@ -1772,6 +1772,73 @@ differ by 0.7–3.9 % (D660, as before).
 - Fixed here (minutes each): the known GPU pass's ratio bounds no longer skip a missing ballast reading (it fails);
   the light volume's lamp bounce must exceed 480 (a third of the least of 1,461–1,921 logged), not 0.
 
+## 8c. Results, 46e-b
+
+### 46e.9 — the cache's voxel port and the hybrid removed
+
+**What went** (0c832013; the code stays at the tag `ab-46e-a`): the surface cache's voxel tile source and charts
+(`surface-cache-voxels.ts`, `surface-cache-host-voxels.ts`), the faces' hashes (`surface-voxel-faces.ts`), the chart
+worker (`voxel-chart-worker.ts`, and its place in the view's worker script and in the export's worker bundle, which
+again ships only for games with block layers), the page's feed of voxel chunks to the cache (`voxel-world-light.ts`),
+the tracer's voxel scene kind, the live probes placed over voxel charts, the voxel chunks' caster marks, the
+hand-over (`voxel-light-handover*.ts`), the tier setting `voxelLightHandoverM`, the editor's Play passthrough of
+`voxelLightHandover`, and the page hooks that served them (`cache`, `check`, `resolveCheck`, `handover`,
+`setHandover`, `holdPass`, `setHybridTexels`); the benches' cache and hybrid branches (`--hold`, `hybrid-texels`, the
+tracer check, the cache's settle wait); their tests (six vitest files, the bench's `surface-voxels.test.ts`, the Play
+e2e's cache checks and the hybrid's). 54 files, +206 −5,089 lines (tests −1,467).
+
+**What stayed.** Phase 42's files (`adapter-live-probes`, `adapter-surface-cache`, `probe-geometry`, the
+`surface-cache-*`, `surface-changes`, `surface-light-runtime`, `surface-probes`, `surface-relight`, `surface-resolve*`,
+`surface-texels`, `tracer-*`) are byte for byte as at the 46e start (2ff4af22); `adapter-surface-light.ts` and
+`adapter-surface.ts` keep only the GPU measurement's hide of the live light (46e.1); `probe-lighting.ts` keeps the
+volume's place after the probes (`KEPT_IRRADIANCE`). The volume keeps its full GPU `lighting` row (the hybrid halved
+it), its read, `?surfaceRead=0` and the light-out switch; `gpuPassHides.hold` (now unused outside its test) and the
+texture-unit guard's record (`light-shots --texture-units off|volume`) stay as measurement tools. `VoxelWalkBuffers`
+moved to `voxel-walk-gpu.ts` (the volume binds the walk). The switch: `?voxelLight=off|volume`, any other value is
+`off` (a vitest); the volume stays off on every tier.
+
+**Gate.** `gate-fast-20261116-185445` (35 min; build, lint, the whole unit suite since files were deleted: 918 files,
+531 s; e2e 319/322) → `gate-rerun-20261116-193012` green: the three failures were known rows, not this item's area —
+two exports refused with "the configured exportRoot is not a directory" (D642's watch: `painted-terrain.e2e.ts`,
+`physics-3d-colliders.e2e.ts`) and `terrain-cdlod.e2e.ts:520` at 0.594 against 0.6 (D643). `tests/e2e/memory.e2e.ts`
+is opt-in (`TL_MEMORY=1`), so the fast gate skipped it though named; `gate-area-20261116-193623` (the `play` area, the
+leak test on) green: the backend swap ×10 workers +0/−0. **The Play test** (`voxel-world.e2e.ts:1369`, in the gate,
+2 e2e workers): 3.4–3.8 min in the gates before (gate-fast-20261116-074634, gate-phase-20261116-083948,
+gate-fast-20261116-092847) → 2.5 min, under its 240 s timeout (not run alone; the gate's readings both sides).
+Voxel area 364–374 s → 288 s.
+
+**Nothing visible changed** (from committed, built 086737dc, staging's 8 km world, low, the 30 Hz cap, each run alone;
+work folder `~/.cache/thirdlight-phase46e/work/46e.9/`; pixels differing by more than 10 a channel, `tool/compare.ts`):
+- Store off (`shots-off/`) against 46e-a's end (`46e.8-end/shots/`): street 0.30 %, room 0.000, cave 0.000, night
+  0.000, far 0.02 % (46e.0's run-to-run: up to 0.2 %). Looked at: the same pictures.
+- Volume (`shots-volume/`) against 46e.7's (`46e.7/shots-volume-r1`, `-r2`, b99489b2): room 9.0 %, cave 3.2–3.7 %,
+  far 0.6–0.7 % (46e.7's two rounds 0.000 / 0.15 / 0.4 % apart). Traced: not this item. Interleaved A B A B
+  against the tag `ab-46e-a` built in a worktree of its own (`ab-base-r1/2`, `ab-head-r1/2`, `ab.sh`): the room
+  0.000 % in every pair, so the 9 % came from 46e.8's volume commits after the 46e.7 pictures (5609d287, ec61172d);
+  base against head street 0.12–1.11 %, cave 0.61–1.59 %, night 0.00–0.08 %, far 0.00–0.84 %, within each version's
+  own spread (base r1/r2 street 0.26, cave 0.65; head r1/r2 street 0.86, cave 1.16, far 0.84 %: head r2 the noisy run
+  against both). Looked at: the cave pair (the same risers, treads and floor blotches), head's street, room, night and
+  far view: the volume's look as in 46e.7 (§8b's pictures table), the gable patches (D695) and room blotches (D692) where
+  they were.
+- `?surfaceRead=0` reaches Play: the room camera with the volume lit but not read (`shots-noread/`, the volume settled,
+  9,910 bricks kept) against the store-off room: 0.002 %; against the volume read: 99.6 %.
+
+**Default path, a sanity reading** (`headroom-low.json`, one round, the town orbit; 46e.10 measures it properly): room
+192 ballast copies held at the cap (46e-a end 176; 46e.7's off 136 [60–192]), near 1.58 ms, shadows 0.70 ms, no
+`lighting` pass, page 7.1 ms a frame at no load (one reading; 46e-a end 5.0–6.3, 46e.7 orbit 6.4–7.0); uptime 24.1 d,
+load (1 min) 5.3 → 1.7. No per-frame work was added (the off path lost the hand-over's uniform set each frame and the
+cache host's voxel residency pass).
+
+**Page memory freed with no store:** nothing measurable. The memory table's rows at the street camera, off, equal
+46e-a's end (voxelStream 187.23 MB both; no surfaceCache or probes row): the chart worker only started with a chunk
+to chart under the cache store, and the faces' hashes were empty arrays until a voxel tile came.
+
+**D-rows.** Superseded by 0c832013: D679, D682, D683, D684, D685, D686, D704, D706 (they described the cache's port
+or the hybrid only). Left open, narrowed to what survives: D699 (the texture-unit guard's plain fallback stays on an
+object after the program that went over is gone; the voxel surface program samples 11 of 16 with the store off, 13
+with the volume) and D700 (the volume's 29.8 MB shows in the memory table's `surfaceCache` row; it has no row of its
+own). D702 lost its `CHART_JOBS_IN_FLIGHT` clause. D696 stays open.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -2054,6 +2121,12 @@ differ by 0.7–3.9 % (D660, as before).
   confirm): a moving-sun measurement in 46e.14, the many-lamps scene at about 32, 128 and 512 lights, an interim
   look page after 46e.14 without stopping, and no tuning without emissive (46e.15–46e.18 run first if the owner's
   note on 46e.11 is late).
+
+- 2026-11-16 (46e.9, default chosen, owner to confirm): `?voxelLight=` with any value but `off` or `volume` (the removed
+  `cache` and `hybrid` among them) draws as `off`, not an error; the export no longer ships the view's worker bundle
+  for a game with voxel worlds only (it was added for the chart worker alone); D699 and D700 stay open, narrowed to
+  what survives the removal, rather than closed with the rest (the sticky fallback and the missing volume row are
+  the volume's and the guard's, not the hybrid's).
 
 ## 10. Open questions for the owner (asked with the plan)
 
