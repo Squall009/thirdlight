@@ -337,15 +337,11 @@ export { textureHolds, type TextureHolds } from './texture-holds';
 // Probe grids: the tile files of the earlier bakes and their loaded tiles (Play, export, the Scene view); the saved lighting's files.
 export { atlasFromSamples, decodeProbeArtifact, encodePng16, packProbeTexels } from './probe-artifact';
 export { decodeSavedSurface, encodeSavedSurface, savedSurfaceFiles, savedSurfaceFromFiles, SURFACE_BAKE_VERSION, type SavedProbeTile, type SavedSurfaceLight, type SavedTileRecord } from './surface-bake-file';
-export { SURFACE_LEVELS, SURFACE_TEXEL_METRES } from './surface-cache-atlas';
-// The surface cache's charts over voxel chunks (the checks chart real derived chunks).
-export { locateVoxelFace, locateVoxelHit, VOXEL_HIT_REACH, voxelCellOf, voxelChartBox, voxelChartBytes, voxelChartFrame, voxelChartPoint, voxelChunkCharts, voxelFaceKey, walkSolidAt, type VoxelChunkCharts } from './surface-cache-voxels';
+export { SURFACE_TEXEL_METRES } from './surface-cache-atlas';
 export { BAKE_TIMEOUT_MS, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
 export { LIGHTING_VIEW_OFF, type LightingReport, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 export { createProbeGridSet, createProbeLightingHost, type LoadedProbeTile, type ProbeBakeLike, type ProbeGridSet, type ProbeGridsObservation, type ProbeLightingHost, type ProbeTileEntry } from './probe-grids';
 export { PROBE_ATLAS_SLACK, PROBE_RESIDENT_BYTES } from './probe-residency';
-export { PROBE_PLACED_DROPPED, ProbeMarks, brickSide, placeProbeBricks, type PlacedBricks } from './probe-bricks';
-export { probeSolid, voxelTileMarks } from './probe-geometry';
 export { fragmentTexturesOf, TEXTURE_UNIT_PROBLEM_KEY, textureUnitGuardOf, type GuardedProgram, type TextureUnitGuard } from './texture-unit-guard';
 export { PROBE_PACK_MAX_EDGE } from './probe-atlas';
 // Poses a model from an animator pose (the Animator window's live preview).
@@ -414,8 +410,7 @@ export { markHostDrawing, markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occl
 export { CRACK_TEXELS, crackTexelsFromPixels, engineCrackTexels, browserCrackDecoder, type CrackImageDecoder } from './voxel-crack-texture';
 export { createVoxelSurface, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_GRID_MAX_EDGE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, VoxelShaderGrids, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceLayout, type VoxelReliefSettings, type VoxelSurfaceObject, type VoxelSurfaceOptions, type VoxelSurfaceTextureArrays } from './voxel-surface';
 export { SURFACE_READ_URL_PARAM } from './adapter-surface-light';
-export { VOXEL_HANDOVER_URL_PARAM } from './voxel-light-handover';
-export { VOXEL_LIGHT_STORE_DEFAULT, VOXEL_LIGHT_STORES, VOXEL_LIGHT_URL_PARAM, VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM, VOXEL_SUN_URL_PARAM, setHybridTexelsForBench, voxelLightStoreFromUrl, type VoxelLightStore } from './voxel-surface-path';
+export { VOXEL_LIGHT_STORE_DEFAULT, VOXEL_LIGHT_STORES, VOXEL_LIGHT_URL_PARAM, VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM, VOXEL_SUN_URL_PARAM, voxelLightStoreFromUrl, type VoxelLightStore } from './voxel-surface-path';
 export { FAR_FEEDBACK_URL_PARAM } from './voxel-far-feedback';
 export { FINE_BRICKS_URL_PARAM, FINE_BUILD_CELLS_PER_FRAME, FINE_BUILD_SLOTS, FineBrickBuilder, fineBricksFromUrl, type FineBrickCheck, type FineBrickResult } from './voxel-fine-bricks';
 export { VoxelWalkGpu, walkBenchRays, type WalkBenchKind, type WalkBenchSpec, type WalkGpuCheck, type WalkGpuHit, type WalkGpuRay } from './voxel-walk-gpu';

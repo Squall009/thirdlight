@@ -28,7 +28,7 @@ import { pageSearch } from './renderer-factory';
 import type { ProbeTileForGpu } from './probe-atlas';
 import { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 import type { ProbeLightingHost } from './probe-grids';
-import { PROBES_URL_PARAM, isProbeHeld, markProbeHeld, type ProbeLighting } from './probe-lighting';
+import { PROBES_URL_PARAM, type ProbeLighting } from './probe-lighting';
 import { emptyPackedProbeTile, writePackedProbe, type PackedProbeTile } from './probe-pack';
 import { PROBE_NEVER_LIT, PROBE_WEIGHT_FILLED } from './probe-weights';
 import { PROBE_FLOATS, liveProbeTileKey, type LiveProbes } from './surface-probes';
@@ -92,48 +92,11 @@ export class AdapterLiveProbes {
    */
   hold(live: boolean): void {
     live &&= this.enabled && this.host.probes.count > 0;
-    this.holdAmbient(live && this.host.voxels.lit);
     if (live === this.on) return;
     this.probes.setLive(live ? [] : null, new Set());
     this.on = live;
     this.layout = -1;
     this.tiles = [];
-  }
-
-  /** The scene's ambient and hemisphere lights this page marked as held by the probes (`holdAmbient`). */
-  private readonly heldHere = new Set<THREE.Light>();
-  private scannedChildren = -1;
-
-  /**
-   * On a page whose voxel worlds the cache lights, the live probes hold the
-   * scene's ambient and hemisphere lights whatever their mode: their sky
-   * holds the light those flat terms stand for (`SkyProbe`), so a room or a
-   * cave the probes see enclosed is darker than the street, as the sky term
-   * of a bake's probes would make it. Marked before the probe light joins
-   * (the programs built then take them as held), given back when it goes.
-   * A light the scene marks held already (a bake's mode) is left as it is.
-   */
-  private holdAmbient(on: boolean): void {
-    if (!on) {
-      for (const l of this.heldHere) markProbeHeld(l, false);
-      this.heldHere.clear();
-      this.scannedChildren = -1;
-      return;
-    }
-    // Looked at again when the scene's top level changed (lights are placed there).
-    if (this.scene.children.length === this.scannedChildren) return;
-    this.scannedChildren = this.scene.children.length;
-    for (const o of this.scene.children) {
-      const l = o as THREE.Light & { isAmbientLight?: boolean; isHemisphereLight?: boolean };
-      if ((l.isAmbientLight !== true && l.isHemisphereLight !== true) || this.heldHere.has(l) || isProbeHeld(l)) continue;
-      markProbeHeld(l, true);
-      this.heldHere.add(l);
-    }
-  }
-
-  /** Whether the probe lighting draws the live probes now. */
-  get drawing(): boolean {
-    return this.on;
   }
 
   /**
@@ -238,11 +201,6 @@ export class AdapterLiveProbes {
     t.dirty = true;
   }
 
-  /** GPU bytes of the probe lighting's resident tiles now (the live probes' tiles while live). */
-  get tileBytes(): number {
-    return this.probes.light()?.store.gpuBytes ?? 0;
-  }
-
   /** The probes' tiles as the probe lighting holds them (empty while not live): what a bake saves. */
   savedTiles(): SavedProbeTile[] {
     const v3 = (a: readonly number[]): [number, number, number] => [a[0]!, a[1]!, a[2]!];
@@ -280,7 +238,6 @@ export class AdapterLiveProbes {
   }
 
   dispose(): void {
-    this.holdAmbient(false);
     this.clearView();
     this.sky.dispose();
     if (this.on) this.probes.setLive(null, new Set());

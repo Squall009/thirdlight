@@ -625,11 +625,6 @@ export class LiveProbes implements ProbeLookup {
     return this.rooms.length;
   }
 
-  /** Probes waiting for an update (a count kept as they are marked and updated). */
-  get staleProbes(): number {
-    return this.staleCount;
-  }
-
   private markProbe(i: number): void {
     if (this.excluded[i] === 1) return;
     if (this.stale[i] === 0) {
@@ -928,11 +923,6 @@ export class LiveProbes implements ProbeLookup {
     for (let k = 0; k < map.entries.length; k += 1) u[entriesAt + k] = map.entries[k]! < 0 ? NO_BRICK_WORD : map.entries[k]!;
     this.words = { words: u, latticeAt, mapAt };
     return this.words;
-  }
-
-  /** Bytes the probes hold on the page (records, places, lattice, holders and the brick map); their records on the GPU are `state`'s size again. */
-  get bytes(): number {
-    return this.state.byteLength + this.positions.byteLength + this.reach.byteLength + this.rooms.byteLength + this.lattice.byteLength + this.holders.byteLength + this.holdersAt.byteLength + this.map.cells.byteLength + this.map.entries.byteLength + this.stale.byteLength * 2 + this.since.byteLength + this.marked.byteLength;
   }
 
   diagnostics(): LiveProbeDiagnostics {

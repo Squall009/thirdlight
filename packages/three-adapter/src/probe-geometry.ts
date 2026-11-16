@@ -11,13 +11,11 @@
  *
  * Pure (no three.js, no device).
  */
-import { VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SIDE, distanceOfSample, type BlockCell, type DistanceBrickSet, type TerrainField } from '@thirdlight/project-model';
 
 import { brickSide, latticeKey, runSteps, type ProbeMarks, type ProbeSolid, type Steps } from './probe-bricks';
 import { FACE_PLANE_AXES, type BlockChunkCharts, type SurfaceBlockGrid } from './surface-cache-blocks';
 import { terrainRingHalf } from './surface-cache-terrain';
-import { VOXEL_SAMPLE_FLOATS, voxelChartBox, voxelChartFrame, type VoxelChunkCharts } from './surface-cache-voxels';
 import type { TraceArchitecture, TraceBox } from './tracer-objects';
 import type { Affine } from './tracer-words';
 
@@ -60,35 +58,6 @@ export function blockTileMarks(tile: ProbeBlockTile, marks: ProbeMarks): void {
     min[pv] = origin[pv]! + made.frames[c * 4 + 3]! * cs[pv]!;
     max[pv] = min[pv]! + chart.h;
     marks.plane(min, max, axis, face & 1 ? -1 : 1, min[axis]!);
-  }
-}
-
-/**
- * The least mean normal y of a curved voxel chart marked at brick level 1 (ground that faces up: its light varies
- * slowly along it, as a terrain's does); one facing sideways or down (a cave's wall and roof, an overhang) wants
- * level 0, as surfaces that meet do.
- */
-const VOXEL_GROUND_UP = 0.5;
-
-/**
- * A level-0 voxel chunk's charts (`surface-cache-voxels.ts`): a flat construction chart is a plane (its level from
- * whether planes meet, as block faces), a curved one (ground, a dug wall) its box at level 1 when it faces up,
- * else 0.
- */
-export function voxelTileMarks(made: VoxelChunkCharts | null, marks: ProbeMarks): void {
-  if (made === null) return;
-  const s = made.samples;
-  for (let c = 0; c < made.charts.length; c += 1) {
-    const { face, wc, hc, first } = voxelChartFrame(made, c);
-    const box = voxelChartBox(made, c, 0, wc, 0, hc);
-    const axis = face >> 1;
-    if (box.plane !== null) {
-      marks.plane(box.min, box.max, axis, face & 1 ? -1 : 1, box.min[axis]!);
-      continue;
-    }
-    let ny = 0;
-    for (let k = 0; k < wc * hc; k += 1) ny += s[(first + k) * VOXEL_SAMPLE_FLOATS + 2]!;
-    marks.mark(box.min, box.max, ny / (wc * hc) >= VOXEL_GROUND_UP ? 1 : 0);
   }
 }
 
@@ -181,8 +150,6 @@ export interface ProbeSolidInput {
   readonly terrains?: readonly Pick<TerrainField, 'heightAt'>[];
   readonly arch?: readonly TraceArchitecture[];
   readonly models?: readonly ProbeSolidModel[];
-  /** Whether a voxel world's level-0 cell (`VOXEL_SIZE_M`) is drawn as a body (null: not known: open). */
-  readonly voxels?: (x: number, y: number, z: number) => boolean | null;
 }
 
 /** Items by the cells (of `cell` metres) their boxes touch: a point tests only its cell's. */
@@ -236,7 +203,7 @@ export function insideDistanceBricks(set: DistanceBrickSet, local: V3): boolean 
 
 /**
  * Whether a point is inside the static geometry (an opaque block cell, under
- * a terrain, inside an architecture box or a model, a voxel cell drawn as a body), and the ground's height
+ * a terrain, inside an architecture box or a model), and the ground's height
  * over it when only a terrain's ground holds it.
  */
 export function probeSolid(input: ProbeSolidInput, hashCell: number): ProbeSolid {
@@ -261,7 +228,6 @@ export function probeSolid(input: ProbeSolidInput, hashCell: number): ProbeSolid
       if (o === undefined) memo.set(idx, (o = opaque(grid.valueOf(idx))));
       if (o) return true;
     }
-    if (input.voxels?.(Math.floor(p[0]! / VOXEL_SIZE_M), Math.floor(p[1]! / VOXEL_SIZE_M), Math.floor(p[2]! / VOXEL_SIZE_M)) === true) return true;
     for (const b of boxes.at(p)) if (insideBox(b, p)) return true;
     for (const m of models.at(p)) {
       if (p[0]! < m.min[0]! || p[1]! < m.min[1]! || p[2]! < m.min[2]! || p[0]! > m.max[0]! || p[1]! > m.max[1]! || p[2]! > m.max[2]!) continue;

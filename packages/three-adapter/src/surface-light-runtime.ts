@@ -43,8 +43,7 @@ import { GPU_BUFFER_USAGE as USAGE, GPU_TEXTURE_USAGE as TEXTURE, RAY_COST_WEIGH
 import { DEFAULT_STORAGE_BINDING_BYTES, TraceScenePacker } from './tracer-scene-packer';
 import { SurfaceProbePass } from './surface-probe-pass';
 import { SurfaceReflectionPass } from './surface-reflection-pass';
-import { VOXEL_R_WORDS, packResolveTableParts, voxelResolveFaces } from './surface-resolve';
-import { writeSlotRuns } from './surface-voxel-faces';
+import { packResolveTable } from './surface-resolve';
 import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, albedoWords } from './surface-cache-lookup';
 
 /**
@@ -131,22 +130,6 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   private viewOn = false;
   /** The resolve tables' trace and residency versions (-1: none yet). */
   private resolvedFor = -1;
-  /** The resolve table on the GPU now (the checks resolve the same hits on the CPU from it). */
-  resolveWords: Uint32Array | null = null;
-  /** The voxel faces the resolve reads, kept across packs (only the chunks that came, went or moved are written). */
-  private readonly resolveFaces = voxelResolveFaces();
-  /** Packs, whole uploads, faces changed and slots written, and bytes uploaded. */
-  readonly resolveStats = { packs: 0, whole: 0, faces: 0, touched: 0, uploadBytes: 0 };
-
-  /** Page bytes of the resolve's voxel faces' table (its slots, their owners, the chunks' entries). */
-  get resolveFacesBytes(): number {
-    return this.resolveFaces.bytes;
-  }
-
-  /** Bytes of the resolve table the probe and reflection rays read. */
-  get resolveBytes(): number {
-    return this.resolveWords?.byteLength ?? 0;
-  }
   private resolvedResidency = -1;
   /** The sky the probes see where nothing is hit (radiance SH: `SkyProbe`'s). */
   sky = new Float32Array(12);
@@ -155,8 +138,6 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   private readonly viewUnits = new Map<string, { points: Float32Array; light: Float32Array; texels: number; size: number }>();
   version = 0;
   viewReading = 0;
-  /** Texels lit and written into the textures so far (submitted to the GPU). */
-  texelsWritten = 0;
 
   /** Hears each timed run of the pass (GPU ms, texels, and its three passes' ms): the measurements read it. */
   onTimed: ((ms: number, texels: number, passes: readonly number[]) => void) | null = null;
@@ -334,43 +315,11 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     // The tables follow the packed scene (the same version), never a newer one the pack has not caught up with.
     const version = this.host.traceVersion;
     if (version === this.sceneVersion && (version !== this.resolvedFor || this.host.residencyVersion !== this.resolvedResidency)) {
-      this.packResolve();
+      this.probePass.resolve.setTable(packResolveTable(this.host.resolveScene().scene, this.host.cache).words);
       this.resolvedFor = version;
       this.resolvedResidency = this.host.residencyVersion;
     }
     return this.resolvedFor >= 0;
-  }
-
-  /**
-   * The resolve table packed again: its words before the voxel faces' slots
-   * are packed; when they are as uploaded last and the faces' table was not
-   * made again, only the voxel slots that changed are written (runs of them
-   * into the GPU table), else the whole table goes up.
-   */
-  private packResolve(): void {
-    const faces = this.resolveFaces;
-    const p = packResolveTableParts(this.host.resolveScene().scene, this.host.cache, faces, false);
-    const dirty = faces.takeDirty();
-    const was = this.resolveWords;
-    const s = this.resolveStats;
-    s.packs += 1;
-    s.faces += p.sync.faces;
-    s.touched += p.sync.touched;
-    const fits = was !== null && was.length === p.voxelsAt + faces.words.length;
-    if (fits && !dirty.whole && was.subarray(0, p.voxelsAt).every((w, i) => i === 14 || w === p.words[i]) && this.probePass.resolve.hasTable) {
-      s.uploadBytes += writeSlotRuns(dirty.slots, faces.words, VOXEL_R_WORDS, (from, to) => {
-        was.set(faces.words.subarray(from, to), p.voxelsAt + from);
-        this.probePass.resolve.writeWords(p.voxelsAt + from, faces.words.subarray(from, to));
-      });
-      return;
-    }
-    const words = new Uint32Array(p.voxelsAt + faces.words.length);
-    words.set(p.words);
-    words.set(faces.words, p.voxelsAt);
-    this.resolveWords = words;
-    this.probePass.resolve.setTable(words);
-    s.whole += 1;
-    s.uploadBytes += words.byteLength;
   }
 
   /**
@@ -458,7 +407,6 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
       p.end();
       if (read !== null) enc.copyBufferToBuffer(out, 0, read, part.first * 16, n * 16);
       d.queue.submit([enc.finish()]);
-      this.texelsWritten += n;
     }
     const lit = done < parts.length ? parts[done]!.first : texels;
     if (lit < texels) {

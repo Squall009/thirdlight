@@ -23,7 +23,6 @@ export { runTerrainPackWorker } from './terrain-pack-worker';
 export { runCoverWorker } from './cover-worker';
 export { runScatterWorker } from './scatter-worker';
 export { runArchitectureWorker } from './architecture-worker';
-export { runVoxelChartWorker } from './voxel-chart-worker';
 
 /** Page → worker. */
 export type MeshWorkerRequest =

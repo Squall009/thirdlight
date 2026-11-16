@@ -29,12 +29,6 @@
  *   surfels at the surfel of the pixel's cell (the set's grid at the level
  *   the cache holds it at) and facing, found in the set's hash.
  *
- * - Voxel worlds: the pixel's cell (its point a little behind the face its
- *   normal faces most, else the next axis's) and face, in one hash of every resident
- *   voxel chunk's keyed faces (`surface-cache-voxels.ts`), keyed by the cell
- *   (x, z | y, face), so a pixel's first read is its slot; the slot holds
- *   its chart's place and its column in the chart.
- *
  * The words are read four at a time (an RGBA32UI texture, `LOOKUP_WIDTH`
  * texels a row); addresses count texels. `lookupSurfaceCpu` walks the same
  * words the same way (the reference the shaders are held to).
@@ -43,8 +37,7 @@
  *
  * - header: texel 0 (layers, their records, terrains, their records),
  *   texel 1 (the architecture hash's slots, its first slot, model slots,
- *   their table), texel 2 (the voxel hash's slots, its first slot, its
- *   longest probe); the shaders take it as uniforms (`lookupHeader`), so no
+ *   their table); the shaders take it as uniforms (`lookupHeader`), so no
  *   pixel waits on reading it, and the first terrain's rings too;
  * - a layer (`LAYER_TEXELS`): origin (f32 ×3) and its hash's first texel;
  *   cell size (f32 ×3) and its lowest row (i32); the first chunk column
@@ -78,12 +71,7 @@
  *   surfels' rectangle, a row `w` long); the cells' origin (i32 ×3). A
  *   hash bucket is a texel of two slots: a cell key (`surfelKey`) and
  *   facing | surfel << 3 (`EMPTY` when free); a cell is in its home bucket
- *   or the next (`surfelBucket`), so a look-up reads two texels and no loop;
- * - a voxel slot: the cell's x | z << 16 (each + 32768), its y + 32768 |
- *   (face + 1) << 16 (0: free); page | interior corner x << 12 | y << 20 |
- *   the chart's level << 28 (its interior texels follow from its cells and
- *   level: `VOXEL_CELL_TEXELS`); the face's column in the chart u | v << 8
- *   and the chart's columns w << 16 | h << 24.
+ *   or the next (`surfelBucket`), so a look-up reads two texels and no loop.
  *
  * Pure (no three.js, no device).
  */
@@ -96,8 +84,6 @@ import { surfelLevelFor } from './surface-cache-atlas';
 import type { ArchTile, BlockTile, ModelTile, SurfaceScene } from './surface-cache-scene';
 import { TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { Words, invertAffine } from './tracer-words';
-import { VoxelFaceTable, voxelSlotHash, voxelSlotKeys, type VoxelFaceSync } from './surface-voxel-faces';
-import { VOXEL_SIZE_M } from '@thirdlight/voxel';
 
 /** Texels a row of the lookup texture. */
 export const LOOKUP_WIDTH = 2048;
@@ -159,9 +145,7 @@ export function albedoWords(pages: number, ringLayers: number): number {
 }
 
 /** The kinds of static surface a material reads the cache for (a drawn mesh's `SURFACE_READ_KEY`). */
-export const SURFACE_READ = { blocks: 1, terrain: 2, arch: 3, model: 4, voxels: 5 } as const;
-
-export { VOXEL_CELL_TEXELS, voxelSlotHash, voxelSlotKeys } from './surface-voxel-faces';
+export const SURFACE_READ = { blocks: 1, terrain: 2, arch: 3, model: 4 } as const;
 export type SurfaceReadKind = (typeof SURFACE_READ)[keyof typeof SURFACE_READ];
 
 /** A block face's home slot in its layer's hash of `cap` slots: its chunk column's index `j` and face key (the shaders hash alike, in u32). */
@@ -379,20 +363,6 @@ function surfelHashOf(tile: ModelTile, k: number): SurfelHash {
   }
 }
 
-/** The voxel faces' hash (`VOXEL_FACE_SLOT_WORDS` a slot) after the rest of the words, its slots, first slot and longest probe in header texel 2. */
-function putVoxels(t: Texels, table: VoxelFaceTable): void {
-  const slots = t.alloc(table.cap);
-  if (table.cap > 0) t.w.views(slots * 4, table.cap * 4).u.set(table.words);
-  t.setU(2, 0, table.cap);
-  t.setU(2, 1, slots);
-  t.setU(2, 2, table.probe);
-}
-
-/** A table of the resident voxel chunks' faces a pixel can lie on (not the cells behind their surfaces), as the lookup keeps one. */
-export function voxelLookupFaces(): VoxelFaceTable {
-  return new VoxelFaceTable(false, 0.5);
-}
-
 /** Static models' slots and records: per slot (one placed piece) its placement and surfels or UV1 chart. */
 function packModels(t: Texels, models: readonly ModelTile[], resident: ReadonlyMap<string, Resident>, slotOf: (key: string) => number | undefined): void {
   const bySlot = new Map<number, ModelTile>();
@@ -437,21 +407,14 @@ function packModels(t: Texels, models: readonly ModelTile[], resident: ReadonlyM
   }
 }
 
-/** The lookup's words packed: `voxelsAt` the voxel faces' first slot (texels), and what syncing the voxel faces' table did. */
-export interface PackedLookup {
-  readonly words: Uint32Array;
-  readonly voxelsAt: number;
-  readonly sync: VoxelFaceSync;
-}
-
 /**
- * `packSurfaceLookup`'s parts: with `withVoxels` the whole table (whole rows); without, the words before the voxel
- * faces' slots (header texel 2 naming where they start), so a caller whose other words did not change writes only the
- * voxel slots that did.
+ * The lookup's words for `scene` with what `cache` holds resident now
+ * (packed again when residency changes); `slotOf`: the slot a placed
+ * model piece's drawn copies carry, by its tile key (`ModelTile.key`; none: the piece is not read).
  */
-export function packSurfaceLookupParts(scene: SurfaceScene, cache: SurfaceCache, slotOf: (key: string) => number | undefined, voxels: VoxelFaceTable, withVoxels: boolean): PackedLookup {
+export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slotOf: (key: string) => number | undefined = () => undefined): Uint32Array {
   const t = new Texels();
-  t.alloc(3);
+  t.alloc(2);
   const view = scene.resolveView();
   const layers = scene.input.blocks ?? [];
   const residentOf = new Map<string, Resident>();
@@ -592,30 +555,11 @@ export function packSurfaceLookupParts(scene: SurfaceScene, cache: SurfaceCache,
     t.setU(slots + s, 3, la);
   }
   packModels(t, view.models, residentOf, slotOf);
-  const sync = voxels.sync(view.voxels, (key) => residentOf.get(key));
-  if (!withVoxels) {
-    // The voxel faces' slots start on the next texel; the caller writes them (and only those that changed).
-    t.setU(2, 0, voxels.cap);
-    t.setU(2, 1, t.w.length / 4);
-    t.setU(2, 2, voxels.probe);
-    return { words: t.w.done().slice(), voxelsAt: t.w.length / 4, sync };
-  }
-  putVoxels(t, voxels);
   // Whole rows of the texture.
   const texels = Math.max(LOOKUP_WIDTH, Math.ceil(t.w.length / 4 / LOOKUP_WIDTH) * LOOKUP_WIDTH);
   const out = new Uint32Array(texels * 4);
   out.set(t.w.done());
-  return { words: out, voxelsAt: out[9]!, sync };
-}
-
-/**
- * The lookup's words for `scene` with what `cache` holds resident now
- * (packed again when residency changes); `slotOf`: the slot a placed
- * model piece's drawn copies carry, by its tile key (`ModelTile.key`; none: the piece is not read);
- * `voxels`: the voxel faces' table, kept across packs (a new one: made from the resident chunks now).
- */
-export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slotOf: (key: string) => number | undefined = () => undefined, voxels: VoxelFaceTable = voxelLookupFaces()): Uint32Array {
-  return packSurfaceLookupParts(scene, cache, slotOf, voxels, true).words;
+  return out;
 }
 
 /** A looked-up place: an atlas page or a ring texture layer, and continuous texel coordinates (the texel is their floor). */
@@ -712,44 +656,8 @@ export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: r
     return null;
   }
   if (kind === SURFACE_READ.model) return at?.slot === undefined ? null : lookupModelCpu(u, f, p, n, at.slot, at.uv1);
-  if (kind === SURFACE_READ.voxels) return lookupVoxelCpu(u, p, n);
   const rect = archRectAt(u, f, at?.vertex ?? p, n);
   return rect === null ? null : archPlace(u, f, rect, p, n);
-}
-
-/** A voxel pixel's place: its cell (behind the face its normal `n` faces most, else the next axis's) and face in the voxel hash, its column's place on the chart's page. */
-function lookupVoxelCpu(u: Uint32Array, p: readonly number[], n: readonly number[]): LookedUp | null {
-  const cap = u[8]!;
-  if (cap === 0) return null;
-  const an = n.map(Math.abs);
-  const first = an[0]! >= an[1]! && an[0]! >= an[2]! ? 0 : an[1]! >= an[2]! ? 1 : 2;
-  const second = first === 0 ? (an[1]! >= an[2]! ? 1 : 2) : first === 1 ? (an[0]! >= an[2]! ? 0 : 2) : an[0]! >= an[1]! ? 0 : 1;
-  for (const axis of [first, second]) {
-    const face = axis * 2 + (n[axis]! < 0 ? 1 : 0);
-    const q = p.map((v) => v / VOXEL_SIZE_M);
-    q[axis]! -= (face & 1 ? -1 : 1) * BLOCK_INSET;
-    const cell = q.map(Math.floor);
-    const [k0, k1] = voxelSlotKeys(cell[0]!, cell[1]!, cell[2]!, face);
-    for (let s = voxelSlotHash(k0, k1, cap), tries = 0; tries <= u[10]!; s = (s + 1) & (cap - 1), tries += 1) {
-      const w = (u[9]! + s) * 4;
-      if (u[w + 1] === 0) break;
-      if (u[w] !== k0 || u[w + 1] !== k1) continue;
-      const a = u[w + 2]!;
-      const b = u[w + 3]!;
-      const level = a >>> 28;
-      const wc = (b >>> 16) & 255;
-      const hc = b >>> 24;
-      const iw = areaTexels(wc * VOXEL_SIZE_M, level);
-      const ih = areaTexels(hc * VOXEL_SIZE_M, level);
-      const [pu, pv] = FACE_PLANE_AXES[axis]!;
-      const fu = Math.min(1, Math.max(0, q[pu]! - cell[pu]!));
-      const fv = Math.min(1, Math.max(0, q[pv]! - cell[pv]!));
-      const x = ((a >>> 12) & 255) + Math.min(iw - 0.5, Math.max(0.5, (((b & 255) + fu) / wc) * iw));
-      const y = ((a >>> 20) & 255) + Math.min(ih - 0.5, Math.max(0.5, ((((b >>> 8) & 255) + fv) / hc) * ih));
-      return { texture: 'atlas', layer: a & 0xfff, x, y };
-    }
-  }
-  return null;
 }
 
 /** Where point `p` with normal `n` lies on the rectangle whose record is at texel `at` (metres along it from its corner; null: off its plane, turned from it or outside it). */

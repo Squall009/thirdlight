@@ -18,8 +18,6 @@ import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, surfelLevelFor,
 import { RESOLVE_PAGE, RESOLVE_RING } from './surface-resolve';
 import { FACE_PLANE_AXES } from './surface-cache-blocks';
 import type { ArchTile, BlockTile, ModelTile } from './surface-cache-scene';
-import { voxelChartBox, voxelChartPoint, type VoxelTile } from './surface-cache-voxels';
-import { VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { TERRAIN_RING_TEXELS, type RingPatch } from './surface-cache-terrain';
 import { invertAffine } from './tracer-words';
 
@@ -40,7 +38,7 @@ export interface ChartRect {
 
 /** A resident tile with its packing at its level and its atlas blocks; `rect`: only that part of one chart (a chart's unit), its texels row by row. */
 export interface TileTexels {
-  readonly tile: BlockTile | ArchTile | ModelTile | VoxelTile;
+  readonly tile: BlockTile | ArchTile | ModelTile;
   readonly level: number;
   readonly packing: TilePacking;
   readonly charts: readonly SurfaceChart[];
@@ -120,11 +118,6 @@ function blockPoint(t: BlockTile): ChartPoint {
   };
 }
 
-function voxelPoint(t: VoxelTile): ChartPoint {
-  const made = t.made!;
-  return (c, u, v, out, at) => voxelChartPoint(made, c, u, v, out, at);
-}
-
 function archPoint(t: ArchTile): ChartPoint {
   const comps = t.made.components;
   return (c, u, v, out, at) => {
@@ -196,7 +189,7 @@ function modelUv1Point(t: ModelTile, iw: number): ChartPoint {
 export function tileTexelPoints(src: TileTexels, from: number, to: number, out: Float32Array, at: number): void {
   const { tile, level, packing, charts } = src;
   const uv1 = tile.kind === 'model' && tile.chart?.kind === 'area' && tile.set.surfels?.uv1 != null ? modelUv1Point(tile, areaTexels(tile.chart.w, level)) : null;
-  const area = tile.kind === 'blocks' ? blockPoint(tile) : tile.kind === 'arch' ? archPoint(tile) : tile.kind === 'voxels' ? voxelPoint(tile) : uv1;
+  const area = tile.kind === 'blocks' ? blockPoint(tile) : tile.kind === 'arch' ? archPoint(tile) : uv1;
   const rect = src.rect;
   if (rect !== undefined) {
     const chart = charts[rect.chart]!;
@@ -247,12 +240,12 @@ export function tileTexelPoints(src: TileTexels, from: number, to: number, out: 
   }
 }
 
-/** A chart's unit: its part of the chart, its world box and its plane (normal and offset: n · p = d on it; absent: a curved chart's, a voxel slope's). */
+/** A chart's unit: its part of the chart, its world box and its plane (normal and offset: n · p = d on it). */
 export interface ChartUnitShape {
   readonly rect: ChartRect;
   readonly min: number[];
   readonly max: number[];
-  readonly plane?: [number, number, number, number];
+  readonly plane: [number, number, number, number];
 }
 
 /**
@@ -260,9 +253,8 @@ export interface ChartUnitShape {
  * `CHART_UNIT_TEXELS` a side (empty: a model's chart, whose surfels are lit
  * as one unit with their tile).
  */
-export function chartUnits(tile: BlockTile | ArchTile | ModelTile | VoxelTile, c: number, chart: SurfaceChart, place: { readonly w: number; readonly h: number }, level: number): ChartUnitShape[] {
+export function chartUnits(tile: BlockTile | ArchTile | ModelTile, c: number, chart: SurfaceChart, place: { readonly w: number; readonly h: number }, level: number): ChartUnitShape[] {
   if (chart.kind !== 'area' || tile.kind === 'model') return [];
-  if (tile.kind === 'voxels') return voxelChartUnits(tile, c, chart, place, level);
   const at = tile.kind === 'blocks' ? blockPoint(tile) : archPoint(tile);
   const p = new Float32Array(TEXEL_POINT_FLOATS);
   const iw = areaTexels(chart.w, level);
@@ -289,30 +281,6 @@ export function chartUnits(tile: BlockTile | ArchTile | ModelTile | VoxelTile, c
       }
       const n = [p[3]!, p[4]!, p[5]!];
       out.push({ rect: { chart: c, x, y, w, h }, min, max, plane: [n[0]!, n[1]!, n[2]!, n[0]! * p[0]! + n[1]! * p[1]! + n[2]! * p[2]!] });
-    }
-  }
-  return out;
-}
-
-/** A voxel chart's units: their boxes over the columns their texels cover (a slope's chart is not flat: a plane only where it is). */
-function voxelChartUnits(tile: VoxelTile, c: number, chart: { readonly w: number; readonly h: number }, place: { readonly w: number; readonly h: number }, level: number): ChartUnitShape[] {
-  const iw = areaTexels(chart.w, level);
-  const ih = areaTexels(chart.h, level);
-  const wc = Math.round(chart.w / VOXEL_SIZE_M);
-  const hc = Math.round(chart.h / VOXEL_SIZE_M);
-  const out: ChartUnitShape[] = [];
-  const S = CHART_UNIT_TEXELS;
-  for (let y = 0; y < place.h; y += S) {
-    for (let x = 0; x < place.w; x += S) {
-      const w = Math.min(S, place.w - x);
-      const h = Math.min(S, place.h - y);
-      // The columns its interior texels lie over (border texels sit on the edge).
-      const i0 = Math.min(wc - 1, Math.floor((Math.max(0, x - SURFACE_CHART_BORDER) / iw) * wc));
-      const i1 = Math.max(i0 + 1, Math.ceil((Math.min(iw, x + w - SURFACE_CHART_BORDER) / iw) * wc));
-      const j0 = Math.min(hc - 1, Math.floor((Math.max(0, y - SURFACE_CHART_BORDER) / ih) * hc));
-      const j1 = Math.max(j0 + 1, Math.ceil((Math.min(ih, y + h - SURFACE_CHART_BORDER) / ih) * hc));
-      const box = voxelChartBox(tile.made!, c, i0, Math.min(wc, i1), j0, Math.min(hc, j1));
-      out.push({ rect: { chart: c, x, y, w, h }, min: box.min, max: box.max, ...(box.plane !== null ? { plane: box.plane } : {}) });
     }
   }
   return out;

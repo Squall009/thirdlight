@@ -98,7 +98,7 @@ import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-
 import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
-import { voxelCacheLightChecks, voxelFarLightChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
+import { voxelFarLightChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -1022,7 +1022,7 @@ async function playProject(): Promise<[number, number, number]> {
     '    const wall = box(-3, 0, -2, -2.5, 4, 0.5);',
     `    for (const _ of ctx.debug.command('wall')) ctx.game.add(v.set(wall, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'wallBuilt' : 'wallRefused', 1);`,
     "    for (const _ of ctx.debug.command('unwall')) ctx.game.add(v.dig(wall).ok ? 'wallDug' : 'wallRefused', 1);",
-    // A pillar a cell square and 3 m tall between the wall and a lamp east of it: the surface cache's lamp shadow.
+    // A pillar a cell square and 3 m tall between the wall and a lamp east of it: it takes the lamp's bounce off the wall.
     '    const pillar = box(-2, 0, -1.75, -1.5, 3, -1.25);',
     `    for (const _ of ctx.debug.command('pillar')) ctx.game.add(v.set(pillar, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'pillarBuilt' : 'pillarRefused', 1);`,
     "    for (const _ of ctx.debug.command('unpillar')) ctx.game.add(v.dig(pillar).ok ? 'pillarDug' : 'pillarRefused', 1);",
@@ -1031,11 +1031,10 @@ async function playProject(): Promise<[number, number, number]> {
     `    for (const _ of ctx.debug.command('longwall')) ctx.game.add(v.set(longWall, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'longWallBuilt' : 'longWallRefused', 1);`,
     "    for (const _ of ctx.debug.command('unlongwall')) ctx.game.add(v.dig(longWall).ok ? 'longWallDug' : 'longWallRefused', 1);",
     // A hut on the pad ahead of the camera (walls and roof of plaster round a 4 × 2.5 × 7.5 m room, a floor slab): the
-    // live probes' sky occlusion and bounce. Its roof opened and shut again.
+    // light volume's sky occlusion and bounce. Its roof opened.
     "    const hutRoof = box(-1.5, 3, 4, 1.5, 3.5, 8);",
     `    for (const _ of ctx.debug.command('hut')) { const r = [v.set(box(-2.5, 0, 2, 2.5, 3.5, 10.5), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }), v.dig(box(-2, 0.5, 2.5, 2, 3, 10))]; ctx.game.add(r.every((e: any) => e.ok) ? 'hutBuilt' : 'hutRefused', 1); }`,
     "    for (const _ of ctx.debug.command('hutopen')) ctx.game.add(v.dig(hutRoof).ok ? 'hutOpened' : 'hutRefused', 1);",
-    `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(hutRoof, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
     "    for (const _ of ctx.debug.command('unhut')) ctx.game.add(v.dig(box(-2.5, 0, 2, 2.5, 3.5, 10.5)).ok ? 'hutDug' : 'hutRefused', 1);",
     // A stone stub in the hut (the test kit's material): kit pieces stand at its free ends' edges, indoors.
     "    const stub = box(-1.5, 0.5, 5, -0.5, 2.5, 5.5);",
@@ -1368,7 +1367,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
   // WebGPU only, the simulation in its worker (the product's way; sim-worker.e2e.ts runs a game with it in the page).
   const renderer = 'webgpu';
   test("Play: a world 8 km out streams with the simulation in its worker at a tier switched at run time, a script digs a pit, the pixels change and the character falls in; a voxel save in the game's slot brings the pit back after a restart, not the wetness", async ({ page }) => {
-    // The two lighting stores' checks (the cache, then the light volume) on one page take most of it.
+    // The shadow, sun-field and light volume checks on one page take most of it.
     test.setTimeout(240_000);
     await page.setViewportSize({ width: 1280, height: 720 });
     const at = await playProject();
@@ -1449,7 +1448,6 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     expect(wc.mismatches, JSON.stringify(wc.examples)).toBe(0);
     await voxelShadowChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
     await voxelFarLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
-    await voxelCacheLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
     await voxelVolumeLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MATERIAL_BITS, SHADER_CONSTRUCTION_BIT, shaderGridSide, WETNESS_MAX } from '@thirdlight/voxel';
 
-import { AXIS_PROJECTION_LEVEL, voxelDrawPath, voxelPathsFromUrl } from './voxel-surface-path';
+import { AXIS_PROJECTION_LEVEL, voxelDrawPath, voxelLightStoreFromUrl, voxelPathsFromUrl } from './voxel-surface-path';
 
 const side = shaderGridSide(32);
 const grid = (fill: (i: number) => number): Uint16Array => Uint16Array.from({ length: side ** 3 }, (_, i) => fill(i));
@@ -30,5 +30,11 @@ describe('a voxel draw\'s path', () => {
   it('is on unless the page asks for the full program', () => {
     expect(voxelPathsFromUrl('')).toBe(true);
     expect(voxelPathsFromUrl('?voxelPaths=full')).toBe(false);
+  });
+
+  it('lights voxel worlds by the volume only when the page asks for it; the removed stores and anything else are off', () => {
+    expect(voxelLightStoreFromUrl('')).toBe('off');
+    expect(voxelLightStoreFromUrl('?voxelLight=volume')).toBe('volume');
+    for (const v of ['off', 'cache', 'hybrid', 'Volume', '']) expect(voxelLightStoreFromUrl(`?voxelLight=${v}`)).toBe('off');
   });
 });

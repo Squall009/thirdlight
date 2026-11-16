@@ -85,7 +85,7 @@ interface UnitState {
   cursor: number;
 }
 
-export function boxDistance(min: readonly number[], max: readonly number[], p: readonly number[]): number {
+function boxDistance(min: readonly number[], max: readonly number[], p: readonly number[]): number {
   let s = 0;
   for (let a = 0; a < 3; a += 1) {
     const d = Math.max(min[a]! - p[a]!, 0, p[a]! - max[a]!);
@@ -95,12 +95,12 @@ export function boxDistance(min: readonly number[], max: readonly number[], p: r
 }
 
 /** Whether a flat unit's plane has the point behind it (a small margin keeps a light on the plane). */
-export function facesAway(u: RelightUnit, c: readonly number[]): boolean {
+function facesAway(u: RelightUnit, c: readonly number[]): boolean {
   const p = u.plane;
   return p !== undefined && p[0]! * c[0]! + p[1]! * c[1]! + p[2]! * c[2]! - p[3]! < -1e-3;
 }
 
-export function boxesTouch(aMin: readonly number[], aMax: readonly number[], bMin: readonly number[], bMax: readonly number[]): boolean {
+function boxesTouch(aMin: readonly number[], aMax: readonly number[], bMin: readonly number[], bMax: readonly number[]): boolean {
   for (let k = 0; k < 3; k += 1) if (aMin[k]! > bMax[k]! || aMax[k]! < bMin[k]!) return false;
   return true;
 }
@@ -207,36 +207,6 @@ export class SurfaceRelight {
     const max = c.map((v) => v + r);
     for (const l of this.listeners) l(min, max);
     return n;
-  }
-
-  /**
-   * Every unit `group` puts in a group (0, 1, …; −1: none) is stale;
-   * listeners hear of each group's box round its units (not of the region
-   * tested, and never one box round all of them: groups far apart would
-   * cover everything between). Returns the units marked.
-   */
-  markWhere(group: (unit: RelightUnit) => number): number {
-    this.marks += 1;
-    let n = 0;
-    const boxes: { min: number[]; max: number[] }[] = [];
-    for (const s of this.units.values()) {
-      const g = group(s.unit);
-      if (g < 0) continue;
-      this.stale(s);
-      n += 1;
-      const b = (boxes[g] ??= { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] });
-      for (let k = 0; k < 3; k += 1) {
-        b.min[k] = Math.min(b.min[k]!, s.unit.min[k]!);
-        b.max[k] = Math.max(b.max[k]!, s.unit.max[k]!);
-      }
-    }
-    for (const b of boxes) if (b !== undefined) for (const l of this.listeners) l(b.min, b.max);
-    return n;
-  }
-
-  /** Listeners hear of a box whose light may have changed though no unit there is marked (the probes round a changed surface). */
-  notify(min: readonly number[], max: readonly number[]): void {
-    for (const l of this.listeners) l(min, max);
   }
 
   /** Units a light at `c` reaching `r` lights (for the checks). */
@@ -379,11 +349,6 @@ export class SurfaceRelight {
 
   get isSettled(): boolean {
     return this.staleCount === 0;
-  }
-
-  /** Units waiting for light (cheap: a count kept as they are marked and lit). */
-  get staleUnits(): number {
-    return this.staleCount;
   }
 
   /** Units touching a box (for the checks and the probes). */

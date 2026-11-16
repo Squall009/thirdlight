@@ -32,17 +32,15 @@ import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
 import { LIT } from './custom-lit';
-import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
+import { SURFACE_CHART_METRES, SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
 import { buildReadsCopyColumns, instanceColumn } from './attribute-instancing';
-import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, BLOCK_LAYERS_HELD, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, RECT_TEXELS, SLOT_TEXELS, SURFACE_READ, SURFEL_KEY_BITS, TERRAIN_TEXELS, VOXEL_CELL_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
-import { VOXEL_SIZE_M } from '@thirdlight/voxel';
+import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, BLOCK_LAYERS_HELD, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, RECT_TEXELS, SLOT_TEXELS, SURFACE_READ, SURFEL_KEY_BITS, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
 import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { buildsHighlights, cacheVisibility } from './surface-highlights';
 import { UNCACHED_LIGHT_CONTEXT, type LightSums } from './cluster-lights';
 import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
 import { CHUNK_SIZE } from '@thirdlight/project-model';
 import { texelTexture } from './texel-texture-node';
-import { uploadTextureRegion, type RegionUploadRenderer } from './region-texture';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -149,8 +147,6 @@ export class SurfaceCacheTextures {
    */
   readonly head = uniform(new THREE.Vector4());
   readonly arch = uniform(new THREE.Vector4());
-  /** The voxel hash's slots, first slot and longest probe (header texel 2). */
-  readonly voxels = uniform(new THREE.Vector4());
   /** The first terrain's rings (centre x, z, half side, texel), how many and their first layer: read from uniforms, not the table (most scenes have one terrain). */
   readonly rings0 = uniformArray(Array.from({ length: TERRAIN_RINGS_MAX }, () => new THREE.Vector4()), 'vec4');
   readonly rings0Count = uniform(0, 'int');
@@ -212,7 +208,6 @@ export class SurfaceCacheTextures {
     data.set(words);
     (this.head.value as THREE.Vector4).set(words[0]!, words[1]!, words[2]!, words[3]!);
     (this.arch.value as THREE.Vector4).set(words[4]!, words[5]!, words[6]!, words[7]!);
-    (this.voxels.value as THREE.Vector4).set(words[8]!, words[9]!, words[10]!, words[11]!);
     const f = new Float32Array(words.buffer, words.byteOffset, words.length);
     const rings = (this.rings0 as unknown as { array: THREE.Vector4[] }).array;
     const at = words[3]! * 4;
@@ -233,40 +228,6 @@ export class SurfaceCacheTextures {
     }
     data.fill(0, words.length);
     this.table.needsUpdate = true;
-  }
-
-  /**
-   * The voxel faces' slots that changed written in place, the rest of the
-   * lookup's words as they are (`slotsAt`: the first slot's texel; `words`:
-   * the faces' table, four words a slot; `probe`: its longest probe), each
-   * run of rows they lie in uploaded alone. Returns the bytes uploaded, or
-   * null when the slots do not fit the texture (pack it whole).
-   */
-  writeVoxelSlots(renderer: RegionUploadRenderer, slotsAt: number, words: Uint32Array, slots: readonly number[], probe: number): number | null {
-    const data = (this.table.image as { data: Uint32Array }).data;
-    if ((slotsAt + words.length / 4) * 4 > data.length) return null;
-    let bytes = 0;
-    let first = -1;
-    let last = -1;
-    const flush = (): void => {
-      if (first < 0) return;
-      const rows = last - first + 1;
-      bytes += uploadTextureRegion(renderer, this.table, data.subarray(first * LOOKUP_WIDTH * 4, (last + 1) * LOOKUP_WIDTH * 4), { x: 0, y: first, z: 0, width: LOOKUP_WIDTH, height: rows, depth: 1 }, 16);
-    };
-    for (const s of slots) {
-      const at = (slotsAt + s) * 4;
-      data.set(words.subarray(s * 4, s * 4 + 4), at);
-      const row = Math.floor((slotsAt + s) / LOOKUP_WIDTH);
-      if (row === last || row === last + 1) last = row;
-      else {
-        flush();
-        first = last = row;
-      }
-    }
-    flush();
-    data[10] = probe;
-    (this.voxels.value as THREE.Vector4).setZ(probe);
-    return bytes;
   }
 
   /**
@@ -486,10 +447,6 @@ function lookupNodes(builder: N, tex: SurfaceCacheTextures, kind: SurfaceReadKin
     modelLookup(builder, tex, texel, layer, uv, found);
     return { layer, uv, found, rings: false };
   }
-  if (kind === SURFACE_READ.voxels) {
-    voxelLookup(tex, texel, layer, uv, found);
-    return { layer, uv, found, rings: false };
-  }
   archLookup(tex, texel, chartAt);
   return { layer, uv, found, rings: false };
 }
@@ -569,97 +526,6 @@ function archLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, chartAt: (c0:
       const hm = TSL.min(cm, f1.w.sub(float(j).mul(cm)));
       chartAt(texel(at.add(uint(RECT_TEXELS)).add(j.mul(nu)).add(i)), r.uu.sub(float(i).mul(cm)), r.vv.sub(float(j).mul(cm)), wm, hm);
     });
-  });
-}
-
-/**
- * A voxel pixel's place (`lookupVoxelCpu`'s twin): the face its surface
- * faces most (the geometry's normal's main axis), its cell a little behind
- * that face, its slot from the cell's home in the voxel hash, probing on at
- * most the hash's longest probe; the slot names the chart's place and the
- * pixel's column in it. A smooth normal leaning past 45° may face another
- * axis than its triangle's charts: not found there, the next axis is tried.
- * (A flat normal from the position's derivatives found the triangle's face
- * at once, but across a triangle's edge the derivatives mix two triangles,
- * so edge pixels changed face from frame to frame under the upscale's
- * jitter.)
- */
-function voxelLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, layer: N, uv: N, found: N): void {
-  const p = positionWorld;
-  const n = normalWorldGeometry.toVar('tlVoxelNormal');
-  const an = abs(n);
-  const comp = (v: N, a: N): N => select(a.equal(int(0)), v.x, select(a.equal(int(1)), v.y, v.z));
-  // The main axis, then the larger of the other two.
-  const first = int(0).toVar('tlVoxelAxis0');
-  first.assign(select(an.x.greaterThanEqual(an.y).and(an.x.greaterThanEqual(an.z)), int(0), select(an.y.greaterThanEqual(an.z), int(1), int(2))));
-  const second = int(0).toVar('tlVoxelAxis1');
-  second.assign(select(first.equal(int(0)), select(an.y.greaterThanEqual(an.z), int(1), int(2)), select(first.equal(int(1)), select(an.x.greaterThanEqual(an.z), int(0), int(2)), select(an.x.greaterThanEqual(an.y), int(0), int(1)))));
-  const cap = uint(tex.voxels.x);
-  const hit = bool(false).toVar('tlVoxelHit');
-  const got = TSL.uvec4(0).toVar('tlVoxelSlot');
-  const gq = vec3(0).toVar('tlVoxelQ');
-  const gcell = TSL.ivec3(0).toVar('tlVoxelCell');
-  const gaxis = int(0).toVar('tlVoxelAxis');
-  const tryAxis = (axis: N): void => {
-    const neg = comp(n, axis).lessThan(0);
-    const face = uint(axis.mul(2)).add(select(neg, uint(1), uint(0)));
-    const sgn = select(neg, float(-1), float(1));
-    const inset = vec3(select(axis.equal(int(0)), sgn, float(0)), select(axis.equal(int(1)), sgn, float(0)), select(axis.equal(int(2)), sgn, float(0)));
-    const q = p.div(VOXEL_SIZE_M).sub(inset.mul(BLOCK_INSET)).toVar();
-    const cell = TSL.ivec3(floor(q)).toVar();
-    const k0 = uint(cell.x.add(32768)).bitAnd(uint(0xffff)).bitOr(uint(cell.z.add(32768)).bitAnd(uint(0xffff)).shiftLeft(uint(16))).toVar();
-    const k1 = uint(cell.y.add(32768)).bitAnd(uint(0xffff)).bitOr(face.add(uint(1)).shiftLeft(uint(16))).toVar();
-    const h0 = k0.mul(uint(0x9e3779b1)).bitXor(k1.mul(uint(0x85ebca6b))).toVar();
-    h0.assign(h0.bitXor(h0.shiftRight(uint(16))).mul(uint(0x7feb352d)));
-    const s = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(cap.sub(uint(1))).toVar();
-    const done = bool(false).toVar();
-    const look = (): void => {
-      const slot = texel(uint(tex.voxels.y).add(s));
-      If(slot.y.equal(uint(0)), () => {
-        done.assign(true);
-      }).ElseIf(slot.x.equal(k0).and(slot.y.equal(k1)), () => {
-        done.assign(true);
-        hit.assign(true);
-        got.assign(slot);
-        gq.assign(q);
-        gcell.assign(cell);
-        gaxis.assign(axis);
-      });
-    };
-    look();
-    If(done.not().and(int(tex.voxels.z).greaterThan(int(0))), () => {
-      Loop(int(tex.voxels.z), () => {
-        s.assign(s.add(uint(1)).bitAnd(cap.sub(uint(1))));
-        look();
-        If(done, () => {
-          Break();
-        });
-      });
-    });
-  };
-  If(cap.notEqual(uint(0)), () => {
-    tryAxis(first);
-    If(hit.not(), () => {
-      tryAxis(second);
-    });
-  });
-  If(hit, () => {
-    const level = got.z.shiftRight(uint(28));
-    const wc = got.w.shiftRight(uint(16)).bitAnd(uint(255));
-    const hc = got.w.shiftRight(uint(24));
-    // `areaTexels` of the chart's sides at its level, in whole texels.
-    const span = (cells: N): N => float(TSL.min(uint(SURFACE_PAGE_TEXELS - 2 * SURFACE_CHART_BORDER), max(uint(1), cells.mul(uint(VOXEL_CELL_TEXELS)).add(uint(1).shiftLeft(level)).sub(uint(1)).shiftRight(level))));
-    const iw = span(wc);
-    const ih = span(hc);
-    const pu = select(gaxis.equal(int(0)), int(2), int(0));
-    const pv = select(gaxis.equal(int(1)), int(2), int(1));
-    const fu = clamp(comp(gq, pu).sub(float(comp(gcell, pu))), float(0), float(1));
-    const fv = clamp(comp(gq, pv).sub(float(comp(gcell, pv))), float(0), float(1));
-    const x = float(got.z.shiftRight(uint(12)).bitAnd(uint(255))).add(clamp(float(got.w.bitAnd(uint(255))).add(fu).div(float(wc)).mul(iw), float(0.5), iw.sub(0.5)));
-    const y = float(got.z.shiftRight(uint(20)).bitAnd(uint(255))).add(clamp(float(got.w.shiftRight(uint(8)).bitAnd(uint(255))).add(fv).div(float(hc)).mul(ih), float(0.5), ih.sub(0.5)));
-    layer.assign(got.z.bitAnd(uint(0xfff)));
-    uv.assign(vec2(x, y).div(SURFACE_PAGE_TEXELS));
-    found.assign(true);
   });
 }
 

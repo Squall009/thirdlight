@@ -20,8 +20,15 @@
 import { applyWalkWires, WALK_ENTRY_WORDS, WALK_PAGE_WORDS, WalkTable, walkVoxels, type WalkBatchRay, type WalkBlockWire } from '@thirdlight/voxel';
 
 import { gpuPassHides } from './gpu-pass-hides';
-import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer, type GpuEncoder, type VoxelWalkBuffers } from './tracer-gpu';
+import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer, type GpuEncoder } from './tracer-gpu';
 import { voxelWalkWgsl, WALK_GPU_MAX_STEPS } from './voxel-walk-wgsl';
+
+/** A world's occupancy walk as another pass binds it: its table and pages, and the coarsest level the table holds. */
+export interface VoxelWalkBuffers {
+  readonly table: GpuBuffer;
+  readonly pages: GpuBuffer;
+  readonly maxLevel: number;
+}
 
 /** The part of a `GPUDevice` the walk calls. */
 interface WalkDevice {
@@ -143,7 +150,7 @@ export class VoxelWalkGpu {
     this.unregister = gpuPassHides.register({ category: 'lighting', name: 'occupancy walk bench', present: () => this.bench !== null, hide: (h) => (this.benchHidden = h) });
   }
 
-  /** The table and pages as a pass binds them (null: nothing uploaded yet): another pass walks the same buffers (the surface cache's tracer). */
+  /** The table and pages as a pass binds them (null: nothing uploaded yet): another pass walks the same buffers (the light volume's update). */
   buffers(): VoxelWalkBuffers | null {
     if (this.tableBuf === null || this.pagesBuf === null) return null;
     return { table: this.tableBuf, pages: this.pagesBuf, maxLevel: this.table.maxLevel };

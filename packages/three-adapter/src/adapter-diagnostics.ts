@@ -66,11 +66,6 @@ export function adapterDiagnostics(p: AdapterParts, frame: AdapterFrame): SceneA
   if (!disposed) d.quality = { ...p.qualityControl.diagnostics(), ...(lit.shadowMapSize !== undefined ? { keyShadowMapSize: lit.shadowMapSize } : {}) };
   const probeState = disposed ? null : p.probes.observe();
   if (probeState !== null) d.probes = probeState;
-  else {
-    // Live probes with no probe set of a bake (a voxel page lit by the cache): their GPU bytes in the memory table's row.
-    const live = disposed ? null : (p.surfaceLight?.liveProbeBytes() ?? null);
-    if (live !== null) d.probes = { tiles: 0, loaded: 0, probes: live.probes, gpuBytes: live.gpuBytes, failed: 0, textureBytes: live.gpuBytes };
-  }
   // The surface cache once the loaded scene has a static surface for it.
   const cache = p.surfaceCache !== null && !disposed ? p.surfaceCache.diagnostics() : null;
   if (cache !== null && (cache.tiles.offered > 0 || cache.ringBytes > 0 || cache.preparing > 0 || cache.reading > 0)) d.surfaceCache = { ...cache, ...(p.surfaceLight !== null ? { light: p.surfaceLight.diagnostics() } : {}) };

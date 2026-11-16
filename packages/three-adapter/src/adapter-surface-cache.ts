@@ -15,7 +15,6 @@ import type { SceneAdapterModelAsset } from './models';
 import type { RenderGraph } from './render-graph';
 import type { CacheLight } from './surface-changes';
 import { SURFACE_CACHE_KEY, SurfaceCacheHost, type SurfaceHostModel } from './surface-cache-host';
-import { createBrowserMeshWorker } from './block-mesh-pool';
 import { SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_KEY, SURFACE_SLOT_KEY } from './surface-cache-read';
 import { GLOW_LIGHT_MARK } from './surface-highlights';
@@ -63,8 +62,6 @@ export function createAdapterSurfaceCache(d: { opts: SceneAdapterOptions; scene:
       rooms: () => level.archHost.rooms.lighting(),
       modelAlive: (id) => docs.has(id) && entities.staticScopes.has(id),
       building: () => level.blockView.meshing(),
-      // Voxel chunks' charts are made on a worker of the view's worker script (the page charts them without one).
-      ...(opts.meshWorkerUrl !== undefined ? { voxelChartWorker: () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-voxel-charts') } : {}),
     },
     DEFAULT_SURFACE_CACHE_MIB * MIB,
   );

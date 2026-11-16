@@ -244,16 +244,16 @@ export interface LightShotsOptions {
   readonly gpuRepeats: number;
   /** `--gpu-only LIST`: only these categories (default every one present). */
   readonly gpuOnly: readonly string[] | null;
-  /** `--gpu-stale`: a second GPU measurement at each camera while the surface cache has work (every texel and probe kept stale). */
+  /** `--gpu-stale`: a second GPU measurement at each camera while the light volume has work (every brick kept stale). */
   readonly gpuStale: boolean;
-  /** `--cache-edits`: the surface cache's edit → light times (a window dug at the room camera; a wall built and dug between a lamp and the fronts at night). */
+  /** `--cache-edits`: the lighting store's edit → light times (a window dug at the room camera; a wall built and dug between a lamp and the fronts at night). */
   readonly cacheEdits: boolean;
   /** `--arrival-shots`: pictures 2 s and 10 s after each camera's move, before anything settles (what a player sees meanwhile). */
   readonly arrivalShots: boolean;
   /** `--light-out`: the light volume's light taken out of the scene's lights before the GPU measurement (what its node costs the lit programs). */
   readonly lightOut: boolean;
-  /** The store set on the page after it loads, with the texture-unit guard's record kept in each shot (`hybrid-texels`: the hybrid with the cache's texel read forced on); null: none. */
-  readonly textureUnits: 'off' | 'cache' | 'volume' | 'hybrid' | 'hybrid-texels' | null;
+  /** The store set on the page after it loads, with the texture-unit guard's record kept in each shot; null: none. */
+  readonly textureUnits: 'off' | 'volume' | null;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -303,7 +303,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     lightOut: argv.includes('--light-out'),
     textureUnits: ((v) => {
       if (v === null) return null;
-      if (!['off', 'cache', 'volume', 'hybrid', 'hybrid-texels'].includes(v)) throw new Error(`--texture-units: off, cache, volume, hybrid or hybrid-texels, not ${v}`);
+      if (!['off', 'volume'].includes(v)) throw new Error(`--texture-units: off or volume, not ${v}`);
       return v as LightShotsOptions['textureUnits'];
     })(arg('texture-units')),
     viewport: { width: Number(m[1]), height: Number(m[2]) },
@@ -343,12 +343,12 @@ export function shotProblems(s: { settled: boolean; chunks: number; l0: number; 
   return out;
 }
 
-/** One animation frame of the cache's edit watch: its time (page ms), texels written so far, units stale, chunks waiting for charts, probes settled (1) and stale. */
+/** One animation frame of the store's edit watch (its `progress()`): its time (page ms), texels (the volume: cell faces) written so far, units (bricks) stale, blocks waiting, settled (1) and probes stale. */
 export type CacheWatchFrame = [number, number, number, number, number, number];
 
 /**
- * Edit → light in the surface cache, from the frames watched from the edit command (page time `t0`): when the
- * change reached the cache (its chunk waiting for charts, or units marked stale), the first frame after that whose
+ * Edit → light in the lighting store, from the frames watched from the edit command (page time `t0`): when the
+ * change reached the store (blocks waiting, or units marked stale), the first frame after that whose
  * texels were written (the changed light drawn), and when texels and then probes settled again (nothing stale or
  * waiting). Null where it did not happen in the watch.
  */

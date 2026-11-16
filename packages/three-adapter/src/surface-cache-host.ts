@@ -18,14 +18,6 @@
  *   a surface come or gone) marks what that geometry's light reaches
  *   (`surface-changes.ts`); the page hands in its lights every frame.
  *
- * - Voxel worlds offer their level-0 chunks' drawn surfaces once a page
- *   asks the cache to light them (`setVoxels`: the page's lighting store is
- *   the cache): each chunk a tile charted from its mesh
- *   (`surface-cache-voxels.ts`), its version its mesh's, so a chunk drawn
- *   again (an edit) is a changed tile; the traced rays walk the worlds'
- *   occupancy (`VoxelWalkBuffers`). Where the tier gives live light no GPU
- *   time (the low tier), the source's own time stands in while it is set.
- *
  * Measurements read it from `scene.userData[SURFACE_CACHE_KEY]`.
  */
 import { frameSliceMs } from '@thirdlight/shared';
@@ -49,12 +41,8 @@ import { SurfaceRooms, type LightingRooms } from './surface-rooms';
 import { LiveProbes, PROBE_BUDGET_SHARE, type LiveProbeDiagnostics } from './surface-probes';
 import { SurfaceSeeding } from './surface-seed';
 import { ProbeMarks, brickSide, type ProbeSolid, type Steps } from './probe-bricks';
-import { architectureMarks, blockTileMarks, probeSolid, terrainMarksSteps, voxelTileMarks, type ProbeSolidModel } from './probe-geometry';
+import { architectureMarks, blockTileMarks, probeSolid, terrainMarksSteps, type ProbeSolidModel } from './probe-geometry';
 import type { TraceArchitecture } from './tracer-objects';
-import type { VoxelTile } from './surface-cache-voxels';
-import { HostVoxels, type VoxelChartPort } from './surface-cache-host-voxels';
-
-export type { SurfaceVoxelChunk, SurfaceVoxelDiagnostics, SurfaceVoxelSource } from './surface-cache-host-voxels';
 
 /** `scene.userData[SURFACE_CACHE_KEY]`: the page's surface cache (a measurement reads its diagnostics). */
 export const SURFACE_CACHE_KEY = 'tlSurfaceCache';
@@ -104,8 +92,6 @@ export interface SurfaceCacheHostDeps {
   readonly modelAlive?: (id: string) => boolean;
   /** Whether surfaces are still being built (block chunks meshing; absent: never): what is listed meanwhile is not the whole scene. */
   readonly building?: () => boolean;
-  /** Starts the worker voxel chunks' charts are made on (absent, or null from it: the page charts them in steps). */
-  readonly voxelChartWorker?: () => VoxelChartPort | null;
 }
 
 /**
@@ -237,11 +223,7 @@ interface Pending {
   readonly make: () => SurfaceTile;
   /** Asked for after the scene came in: a change, whose made tile's bounds are marked too (`min`/`max` may only be a place, a building's origin). */
   readonly change: boolean;
-  /** A voxel chunk's (counted apart in the voxel diagnostics). */
-  readonly voxel?: boolean;
 }
-
-
 
 /** A number for a placement (its matrix to the millimetre): a moved static object is a new version of its tiles. */
 function placementHash(m: ArrayLike<number>, version: number): number {
@@ -279,8 +261,7 @@ export class SurfaceCacheHost {
   private readonly files = new Map<string, DistanceBricks | 'reading' | null>();
   private readonly componentVersions = { of: new WeakMap<object, number>(), last: 0 };
   private changed = true;
-  /** The last frame's time making charts, and the probe placement's longest share of a frame (ms). */
-  private readonly frameMs = { prepare: 0, place: 0 };
+  private prepareMs = 0;
   private offered: SurfaceTile[] = [];
   readonly relight: SurfaceRelight;
   readonly changes: SurfaceChanges;
@@ -340,8 +321,7 @@ export class SurfaceCacheHost {
   private probesWaiting: number | null = null;
   /** The placement being made, a share of each frame (the frame arbiter's `probePlace` slice: a large scene's takes tens of ms), and its key. */
   private probeJob: { key: string; steps: Steps<boolean> } | null = null;
-  /** The voxel worlds lit by the cache (`setVoxels` on it), their tiles' listing and what the cache holds of them. */
-  readonly voxels: HostVoxels;
+  private placeFrameMs = 0;
 
   /** `relightMs`: the GPU time a frame may spend lighting stale texels (0: none, the saved light is drawn). */
   constructor(private readonly deps: SurfaceCacheHostDeps, budgetBytes: number, private relightMs = 0) {
@@ -355,40 +335,25 @@ export class SurfaceCacheHost {
     // A surface's colour is written where it is made and the lookup holds it.
     this.colours = new SurfaceColourChanges(this.probes, () => this.listing !== 'none' && this.pending.size === 0);
     this.seeding = new SurfaceSeeding({ cache: this.cache, relight: this.relight, changes: this.changes, probes: this.probes, tile: (key) => this.ready.get(key), listed: () => this.preparedTiles(), unitsOf: (key) => this.tileUnits.get(key) ?? [key] });
-    this.voxels = new HostVoxels({
-      budget: () => this.relightBudgetMs,
-      applyBudget: (ms) => {
-        this.probes.setBudget(ms * PROBE_BUDGET_SHARE);
-        this.relight.setBudget(ms, this.live);
-      },
-      touch: () => this.touch(),
-      // Charted already: made at once, and asked for anew (the listing that saw it has passed).
-      want: (tile) => this.want(new Set(), tile.key, tile.version, tile.min, tile.max, () => tile, true),
-      versionOf: (key) => this.pending.get(key)?.version ?? this.ready.get(key)?.version,
-      ready: () => this.ready.values(),
-      pending: () => this.pending.values(),
-      cache: this.cache,
-      units: (key) => this.tileUnits.get(key) ?? [],
-      relight: this.relight,
-    }, deps.voxelChartWorker);
   }
 
-  /** The GPU time a frame may spend on live light (0: none, the saved light is drawn): the tier's, else the voxel worlds' while they are lit here. */
+  /** The GPU time a frame may spend on live light (0: none, the saved light is drawn). */
   get relightBudgetMs(): number {
-    return this.relightMs > 0 ? this.relightMs : this.voxels.relightMs;
+    return this.relightMs;
   }
 
   /** The quality level's GPU time a frame for live light (0: none). */
   setRelightBudget(ms: number): void {
     this.relightMs = ms;
-    this.voxels.applyBudget();
+    this.probes.setBudget(ms * PROBE_BUDGET_SHARE);
+    this.relight.setBudget(ms, this.live);
   }
 
   /** A pass runs the planned work (`slicesThisFrame`) and reports its GPU time (`relight.report`). */
   setLive(on: boolean): void {
     if (on && !this.live) this.seeding.wentLive();
     this.live = on;
-    this.relight.setBudget(this.relightBudgetMs, on);
+    this.relight.setBudget(this.relightMs, on);
   }
 
   /** The lights now (once a frame). */
@@ -418,7 +383,7 @@ export class SurfaceCacheHost {
     const chart = this.chartUnits.get(key);
     if (chart !== undefined) {
       const r = this.cache.residentOf(chart.tile);
-      const tile = this.ready.get(chart.tile) as BlockTile | ArchTile | VoxelTile | undefined;
+      const tile = this.ready.get(chart.tile) as BlockTile | ArchTile | undefined;
       return r === null || tile === undefined ? null : { tile, level: r.level, packing: r.packing, charts: r.charts, blocks: r.blocks, rect: chart.rect };
     }
     const r = this.cache.residentOf(key);
@@ -441,18 +406,12 @@ export class SurfaceCacheHost {
     return this.slices;
   }
 
-  /**
-   * Geometry in a box changed (after the first listing; the scene coming in is not a change); `terrain`: one of its
-   * tiles (its version moves: rings and probes follow); `voxel`: a voxel chunk came, went or was drawn again, which
-   * marks only what its casters can shadow (`SurfaceChanges.castersChanged`: chunks stream in all the time, and a
-   * light's whole reach relit for each would light what was lit again and again).
-   */
-  private geometry(min: readonly number[], max: readonly number[], terrain?: string, voxel = false): void {
+  /** Geometry in a box changed (after the first listing; the scene coming in is not a change); `terrain`: one of its tiles (its version moves: rings and probes follow). */
+  private geometry(min: readonly number[], max: readonly number[], terrain?: string): void {
     if (terrain !== undefined) this.terrainVersions.set(terrain, (this.terrainVersions.get(terrain) ?? 0) + 1);
     this.geometryVersion += 1;
     if (this.listing === 'none') return;
-    if (voxel) this.changes.castersChanged(min, max);
-    else this.changes.geometryChanged(min, max);
+    this.changes.geometryChanged(min, max);
     this.colours.changed(min, max);
   }
 
@@ -581,8 +540,7 @@ export class SurfaceCacheHost {
     const tiles = [...this.ready.values()];
     const architecture = tiles.filter((t): t is ArchTile => (t as { kind?: string }).kind === 'arch').map((t) => ({ key: t.key, origin: [0, 0, 0], version: t.version, pieces: t.pieces }));
     const modelTiles = tiles.filter((t): t is ModelTile => (t as { kind?: string }).kind === 'model');
-    const voxels = tiles.filter((t): t is VoxelTile => (t as { kind?: string }).kind === 'voxels');
-    this.resolved = { scene: new SurfaceScene({ blocks, terrain, architecture, modelTiles, voxels, made: this.ready }), version: traced.version };
+    this.resolved = { scene: new SurfaceScene({ blocks, terrain, architecture, modelTiles, made: this.ready }), version: traced.version };
     return this.resolved;
   }
 
@@ -622,16 +580,13 @@ export class SurfaceCacheHost {
 
   /** Once a frame, with the drawn eye (`now`: the frame's time, ms). */
   update(eye: ArrayLike<number>, now = performance.now()): void {
-    // The voxel worlds' budget follows their quality level.
-    this.voxels.applyBudget();
     if (now - this.listedAt >= LIST_MS) {
       this.listedAt = now;
-      this.list(now, eye);
+      this.list(now);
     }
     this.syncRooms(now);
     this.followRings(eye);
     this.prepare(eye, now);
-    this.voxels.step(eye, now);
     this.stepProbeJob(now);
     // A tile with nothing to light (a chunk of hidden faces only) is made once and never offered.
     if (this.changed) this.offered = [...this.ready.values()].filter((t) => t.charts().length > 0);
@@ -653,7 +608,7 @@ export class SurfaceCacheHost {
    */
   private addTileUnits(key: string): void {
     const r = this.cache.residentOf(key);
-    const tile = this.ready.get(key) as BlockTile | ArchTile | ModelTile | VoxelTile | undefined;
+    const tile = this.ready.get(key) as BlockTile | ArchTile | ModelTile | undefined;
     if (r === null || tile === undefined) return;
     const layers = this.layersOf.get(key);
     if (tile.kind === 'model') {
@@ -665,7 +620,7 @@ export class SurfaceCacheHost {
     r.charts.forEach((chart, c) => {
       for (const shape of chartUnits(tile, c, chart, r.packing.places[c]!, r.level)) {
         const { rect } = shape;
-        const u = { key: `${key}|${c}:${rect.x},${rect.y}`, tile: key, rect, texels: rect.w * rect.h, min: shape.min, max: shape.max, ...(shape.plane !== undefined ? { plane: shape.plane } : {}), ...(layers !== undefined ? { layers } : {}) };
+        const u = { key: `${key}|${c}:${rect.x},${rect.y}`, tile: key, rect, texels: rect.w * rect.h, min: shape.min, max: shape.max, plane: shape.plane, ...(layers !== undefined ? { layers } : {}) };
         keys.push(u.key);
         this.chartUnits.set(u.key, u);
         this.relight.add(u);
@@ -735,7 +690,7 @@ export class SurfaceCacheHost {
   }
 
   /** Whether `key` at `version` is made or waiting; else it waits (a changed one is let go first). */
-  private want(seen: Set<string>, key: string, version: number, min: readonly number[], max: readonly number[], make: () => SurfaceTile, voxel = false): void {
+  private want(seen: Set<string>, key: string, version: number, min: readonly number[], max: readonly number[], make: () => SurfaceTile): void {
     seen.add(key);
     const had = this.ready.get(key);
     if (had !== undefined && had.version === version) return;
@@ -743,18 +698,17 @@ export class SurfaceCacheHost {
       this.ready.delete(key);
       this.readyVersion += 1;
       this.changed = true;
-      // A voxel chunk drawn again is in the same box: marked once, below.
-      if (!voxel) this.geometry(had.min, had.max);
+      this.geometry(had.min, had.max);
     }
     const p = this.pending.get(key);
     if (p === undefined || p.version !== version) {
-      this.pending.set(key, { min, max, version, make, change: this.listing !== 'none', ...(voxel ? { voxel } : {}) });
-      this.geometry(min, max, undefined, voxel);
+      this.pending.set(key, { min, max, version, make, change: this.listing !== 'none' });
+      this.geometry(min, max);
     }
   }
 
   /** The loaded scene's surfaces: what is ready stays, what changed or is new waits to be made, what left goes. */
-  private list(now: number, eye: ArrayLike<number>): void {
+  private list(now: number): void {
     const seen = new Set<string>();
     const whole = this.deps.building?.() !== true;
     if (this.deps.modelAlive !== undefined) this.modelSlots.prune(this.deps.modelAlive);
@@ -794,7 +748,6 @@ export class SurfaceCacheHost {
       // The cache lets its rings go when it places again.
       this.changed = true;
     }
-    this.voxels.list(seen, eye);
     for (const a of this.deps.architecture()) {
       this.layersOf.set(a.id, a.layers);
       let version = this.componentVersions.of.get(a.component);
@@ -829,7 +782,7 @@ export class SurfaceCacheHost {
       this.ready.delete(key);
       this.readyVersion += 1;
       this.changed = true;
-      this.geometry(t.min, t.max, undefined, (t as { kind?: string }).kind === 'voxels');
+      this.geometry(t.min, t.max);
     }
     for (const key of [...this.pending.keys()]) if (!seen.has(key)) this.pending.delete(key);
     this.applyLayerMoves();
@@ -840,7 +793,7 @@ export class SurfaceCacheHost {
   /**
    * The probes: a grid per room, and bricks where the static scene's
    * surfaces are (`probe-geometry.ts`: block layers' faces, architecture,
-   * models, terrain near the eye, voxel chunks' charts and cells). Placed again when a surface came, went
+   * models, terrain near the eye). Placed again when a surface came, went
    * or changed, the terrain's window moved or the rooms changed, at most
    * every `PROBE_PLACE_MS` (a scene streaming in, a block dug live).
    */
@@ -873,7 +826,7 @@ export class SurfaceCacheHost {
     const making = this.pending.size > 0 && now - this.probesWaiting < PROBE_PLACE_MS;
     if (making || now - this.probesPlacedAt < PROBE_PLACE_MS) return;
     this.probeJob = { key, steps: this.probes.placeSteps(placement, this.roomsNow) };
-    this.frameMs.place = 0;
+    this.placeFrameMs = 0;
   }
 
   /** The placement being made, for this frame's share of main-thread time. */
@@ -884,7 +837,7 @@ export class SurfaceCacheHost {
     const slice = frameSliceMs('probePlace');
     for (;;) {
       const r = job.steps.next();
-      this.frameMs.place = Math.max(this.frameMs.place, performance.now() - t0);
+      this.placeFrameMs = Math.max(this.placeFrameMs, performance.now() - t0);
       if (r.done === true) {
         if (r.value) this.probesPlacedAt = now;
         this.probesPlacedKey = job.key;
@@ -917,12 +870,11 @@ export class SurfaceCacheHost {
         marks.mark(t.min, t.max, 0);
         const m = t as ModelTile;
         models.push({ worldToLocal: m.worldToLocal, set: m.set, min: m.min, max: m.max });
-      } else if (kind === 'voxels') voxelTileMarks((t as VoxelTile).made, marks);
+      }
     }
     for (const field of fields) yield* terrainMarksSteps(field, centre, snap, marks);
     yield;
-    const voxels = this.voxels.solidAt();
-    return { marks, solid: probeSolid({ layers, terrains: fields, arch, models, ...(voxels !== null ? { voxels } : {}) }, brickSide(DEFAULT_PROBE_SPACING, 0)) };
+    return { marks, solid: probeSolid({ layers, terrains: fields, arch, models }, brickSide(DEFAULT_PROBE_SPACING, 0)) };
   }
 
   /** A terrain's tiles whose data changed (an edit, live or scripted), came or went since the last listing, or the whole terrain once it came after the scene: their boxes changed. */
@@ -981,7 +933,7 @@ export class SurfaceCacheHost {
 
   /** Makes waiting tiles' charts, nearest first, within the frame's share. */
   private prepare(eye: ArrayLike<number>, t0: number): void {
-    this.frameMs.prepare = 0;
+    this.prepareMs = 0;
     if (this.pending.size === 0) return;
     const d = (p: Pending): number => Math.hypot(Math.max(p.min[0]! - eye[0]!, 0, eye[0]! - p.max[0]!), Math.max(p.min[2]! - eye[2]!, 0, eye[2]! - p.max[2]!));
     const order = [...this.pending].sort((a, b) => d(a[1]) - d(b[1]));
@@ -996,13 +948,13 @@ export class SurfaceCacheHost {
       // Only now are its bounds known (a building was asked for at its origin): a long new wall shadows its far end too.
       if (p.change && [0, 1, 2].some((k) => tile.min[k] !== p.min[k] || tile.max[k] !== p.max[k])) this.geometry(tile.min, tile.max);
     }
-    this.frameMs.prepare = performance.now() - t0;
+    this.prepareMs = performance.now() - t0;
   }
 
   diagnostics(): SurfaceCacheHostDiagnostics {
     let reading = 0;
     for (const f of this.files.values()) if (f === 'reading') reading += 1;
-    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.frameMs.prepare, relight: this.relight.diagnostics(), probes: { ...this.probes.diagnostics(), placeFrameMs: this.frameMs.place, settled: this.probesSettled }, seeded: { tiles: this.seeding.seededTiles, probes: this.seeding.seededProbes } };
+    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics(), probes: { ...this.probes.diagnostics(), placeFrameMs: this.placeFrameMs, settled: this.probesSettled }, seeded: { tiles: this.seeding.seededTiles, probes: this.seeding.seededProbes } };
   }
 
   /**

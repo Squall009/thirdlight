@@ -70,51 +70,18 @@ export function voxelSunFromUrl(search: string): boolean {
 }
 
 /**
- * Where a game page's voxel worlds keep their light (the lighting store; one switch for the stores being compared):
- * `off` draws them as before (sun, shadows and the clustered lights per pixel), `cache` lights their near surfaces in
- * the surface cache (surface-cache-voxels.ts), `volume` in a voxel light volume and `hybrid` both, the cache near and
- * the volume beyond. Set by the page's query, `?voxelLight=off|cache|volume|hybrid`.
+ * Where a game page's voxel worlds keep their light (the lighting store): `off` draws them as before (sun, shadows and
+ * the clustered lights per pixel), `volume` adds sky light and bounce from a voxel light volume. Set by the page's
+ * query, `?voxelLight=off|volume`; any other value is `off`.
  */
 export const VOXEL_LIGHT_URL_PARAM = 'voxelLight';
-export const VOXEL_LIGHT_STORES = ['off', 'cache', 'volume', 'hybrid'] as const;
+export const VOXEL_LIGHT_STORES = ['off', 'volume'] as const;
 export type VoxelLightStore = (typeof VOXEL_LIGHT_STORES)[number];
-/** The store a page without the flag uses: today's picture, until the stores are chosen between. */
+/** The store a page without the flag uses (the volume is switched on by the tier once it is tuned). */
 export const VOXEL_LIGHT_STORE_DEFAULT: VoxelLightStore = 'off';
 
 /** The lighting store a page's query names (absent or unknown: the default). */
 export function voxelLightStoreFromUrl(search: string): VoxelLightStore {
   const v = new URLSearchParams(search).get(VOXEL_LIGHT_URL_PARAM);
   return (VOXEL_LIGHT_STORES as readonly string[]).includes(v ?? '') ? (v as VoxelLightStore) : VOXEL_LIGHT_STORE_DEFAULT;
-}
-
-/** Whether a store keeps the near surfaces' light in the surface cache. */
-export function voxelStoreUsesCache(store: VoxelLightStore): boolean {
-  return store === 'cache' || store === 'hybrid';
-}
-
-/**
- * Whether the voxel surfaces read the surface cache's texels per pixel (its lamps' light with traced shadows): with
- * the cache alone. With both stores the cache's texels feed only its probes' bounce: a voxel surface's program
- * reading the texels and the volume samples more textures than the Iris Xe's fragment stage allows (16), and the
- * guard draws it with a plain fallback; so there the lamps' direct light stays per pixel, as with the volume.
- */
-export function voxelStoreReadsTexels(store: VoxelLightStore): boolean {
-  return store === 'cache' || (store === 'hybrid' && hybridTexels);
-}
-
-/** A bench forced the texel read on in the hybrid (`setHybridTexelsForBench`); never on by default. */
-let hybridTexels = false;
-
-/**
- * A bench's switch, never a default: the hybrid's voxel surfaces read the cache's texels as well, so what the
- * texture-unit guard does with both reads in one program can be seen. Takes effect when the store is linked next
- * (a page switches to another store and back).
- */
-export function setHybridTexelsForBench(on: boolean): void {
-  hybridTexels = on;
-}
-
-/** Whether a store keeps light in the voxel light volume. */
-export function voxelStoreUsesVolume(store: VoxelLightStore): boolean {
-  return store === 'volume' || store === 'hybrid';
 }

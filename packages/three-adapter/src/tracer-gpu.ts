@@ -12,14 +12,7 @@ import { EXACT_TRACE, type TraceOptions } from './tracer-cpu-math';
 import { grownCapacity } from '@thirdlight/shared';
 import { HIT_WORDS, RAY_FLOATS, TRACE_RESUMES, type PackedTraceScene } from './tracer-scene';
 import type { ScenePack } from './tracer-scene-packer';
-import { TRACE_FLAG_ANY_HIT, TRACE_FLAG_MASKED, TRACE_FLAG_VOXELS, TRACER_VOXELS_WGSL, TRACER_WGSL, TRACER_WORKGROUP } from './tracer-wgsl';
-
-/** A voxel world's occupancy walk as the tracer binds it (voxel-walk-gpu.ts): its table and pages, and the coarsest level the table holds. */
-export interface VoxelWalkBuffers {
-  readonly table: GpuBuffer;
-  readonly pages: GpuBuffer;
-  readonly maxLevel: number;
-}
+import { TRACER_WGSL, TRACER_WORKGROUP } from './tracer-wgsl';
 
 /**
  * WebGPU's GPUBufferUsage, GPUTextureUsage and GPUMapMode bits, written out
@@ -130,11 +123,10 @@ export function reorderRays(rays: Float32Array, order: Uint32Array): Float32Arra
   return out;
 }
 
-/** A dispatch's parameter block: ray count, first ray, the options' cone (f32) and flags (any hit, each ray's caster mask in the mask buffer, a voxel world walked and its coarsest level in bits 16–23; bits 8–15: the resumes). */
-function paramWords(count: number, opts: TraceOptions, masked: boolean, walk: VoxelWalkBuffers | null): Uint32Array {
+/** A dispatch's parameter block: ray count, first ray, the options' cone (f32) and flags (1: any hit, 2: each ray's caster mask in the mask buffer, bits 8–15: the resumes). */
+function paramWords(count: number, opts: TraceOptions, masked: boolean): Uint32Array {
   const resumes = Math.min(255, Math.max(0, opts.resumes ?? TRACE_RESUMES));
-  const voxels = walk === null ? 0 : TRACE_FLAG_VOXELS | (Math.min(255, walk.maxLevel) << 16);
-  const w = new Uint32Array([count, 0, 0, (opts.anyHit ? TRACE_FLAG_ANY_HIT : 0) | (masked ? TRACE_FLAG_MASKED : 0) | (resumes << 8) | voxels]);
+  const w = new Uint32Array([count, 0, 0, (opts.anyHit ? 1 : 0) | (masked ? 2 : 0) | (resumes << 8)]);
   new Float32Array(w.buffer)[2] = opts.cone;
   return w;
 }
@@ -156,9 +148,6 @@ export class GpuTracer {
   /** The bind group over rays another pass made (`encodeBuffer`), and those rays. */
   private outerBind: unknown = null;
   private outerRays: GpuBuffer | null = null;
-  /** The voxel world walked (null: none) and the program that walks it (made with the first). */
-  private walk: VoxelWalkBuffers | null = null;
-  private voxelPipeline: { getBindGroupLayout(i: number): unknown } | null = null;
 
   private constructor(private readonly device: TracerDevice, pipeline: { getBindGroupLayout(i: number): unknown }) {
     this.pipeline = pipeline;
@@ -174,39 +163,6 @@ export class GpuTracer {
     const errors = info?.messages.filter((m) => m.type === 'error') ?? [];
     if (errors.length > 0) throw new Error(`tracer WGSL: ${errors.map((m) => `${m.lineNum}: ${m.message}`).join('; ')}`);
     return new GpuTracer(device, device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label: 'tracer' }));
-  }
-
-  /**
-   * Walk a voxel world's occupancy too from now on (null: none): its
-   * program is made the first time; bind groups are made again when the
-   * buffers change (a table that grew).
-   */
-  setVoxelWalk(walk: VoxelWalkBuffers | null): void {
-    const w = this.walk;
-    if (walk === w || (walk !== null && w !== null && walk.table === w.table && walk.pages === w.pages && walk.maxLevel === w.maxLevel)) return;
-    if (walk !== null && this.voxelPipeline === null) {
-      const module = this.device.createShaderModule({ code: TRACER_VOXELS_WGSL, label: 'tracer with voxels' });
-      // A program that does not compile only fails its dispatches later: said at once.
-      void module.getCompilationInfo?.().then((info) => {
-        for (const m of info.messages) if (m.type === 'error') console.error(`tracer with voxels WGSL, line ${m.lineNum}: ${m.message}`);
-      });
-      this.voxelPipeline = this.device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label: 'tracer with voxels' });
-    }
-    this.walk = walk;
-    this.bind = null;
-    this.outerBind = null;
-  }
-
-  /** Whether a voxel world is walked. */
-  get walksVoxels(): boolean {
-    return this.walk !== null;
-  }
-
-  /** The program a dispatch runs, and its walk buffers' entries. */
-  private program(): { pipeline: { getBindGroupLayout(i: number): unknown }; extra: { binding: number; resource: unknown }[] } {
-    const w = this.walk;
-    if (w === null || this.voxelPipeline === null) return { pipeline: this.pipeline, extra: [] };
-    return { pipeline: this.voxelPipeline, extra: [{ binding: 7, resource: { buffer: w.table } }, { binding: 8, resource: { buffer: w.pages } }] };
   }
 
   /** Upload a packed scene (replacing the last). */
@@ -263,12 +219,10 @@ export class GpuTracer {
     const count = Math.floor(rays.length / RAY_FLOATS);
     this.ensure(Math.max(1, count));
     this.device.queue.writeBuffer(this.rays!, 0, rays);
-    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts, false, this.walk));
-    const prog = this.program();
+    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts, false));
     this.bind ??= this.device.createBindGroup({
-      layout: prog.pipeline.getBindGroupLayout(0),
+      layout: this.pipeline.getBindGroupLayout(0),
       entries: [
-        ...prog.extra,
         { binding: 0, resource: { buffer: this.params } },
         { binding: 1, resource: { buffer: this.scene } },
         { binding: 2, resource: { buffer: this.rays } },
@@ -279,7 +233,7 @@ export class GpuTracer {
       ],
     });
     const p = encoder.beginComputePass(pass);
-    p.setPipeline(prog.pipeline);
+    p.setPipeline(this.pipeline);
     p.setBindGroup(0, this.bind);
     p.dispatchWorkgroups(Math.ceil(count / TRACER_WORKGROUP));
     p.end();
@@ -297,15 +251,13 @@ export class GpuTracer {
       this.outerBind = null;
       this.bind = null;
     }
-    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts, masks !== null, this.walk));
-    const prog = this.program();
+    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts, masks !== null));
     if (this.outerBind === null || this.outerRays !== rays || this.outerMasks !== masks) {
       this.outerRays = rays;
       this.outerMasks = masks;
       this.outerBind = this.device.createBindGroup({
-        layout: prog.pipeline.getBindGroupLayout(0),
+        layout: this.pipeline.getBindGroupLayout(0),
         entries: [
-          ...prog.extra,
           { binding: 0, resource: { buffer: this.params } },
           { binding: 1, resource: { buffer: this.scene } },
           { binding: 2, resource: { buffer: rays } },
@@ -317,7 +269,7 @@ export class GpuTracer {
       });
     }
     const p = encoder.beginComputePass(pass);
-    p.setPipeline(prog.pipeline);
+    p.setPipeline(this.pipeline);
     p.setBindGroup(0, this.outerBind);
     p.dispatchWorkgroups(Math.ceil(count / TRACER_WORKGROUP));
     p.end();

@@ -36,7 +36,7 @@ import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSetting
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { fineBricksFromUrl, setHybridTexelsForBench, textureUnitGuardOf, VOXEL_LIGHT_STORES, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, walkBenchRays, type GlbLoaderPort, type WalkBenchKind, type WalkGpuRay, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLightStore, type VoxelLookRecord } from '@thirdlight/three-adapter';
+import { fineBricksFromUrl, textureUnitGuardOf, VOXEL_LIGHT_STORES, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, walkBenchRays, type GlbLoaderPort, type WalkBenchKind, type WalkGpuRay, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLightStore, type VoxelLookRecord } from '@thirdlight/three-adapter';
 import type { ShippedVoxelWorld } from './voxel-shipped';
 import { voxelMeter } from './voxel-meter';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
@@ -707,23 +707,10 @@ function staticShadowDraws(adapter: SceneAdapter | null): number | null {
   return d?.ok === true ? (d.diagnostics.shadowMaps?.staticTotal ?? null) : null;
 }
 
-/**
- * How far the store's light has caught up: the cache's or the volume's reading, or with both on their sum (texels
- * and cell faces written, units and bricks stale, chunks and blocks waiting), settled when both are.
- */
-function lightProgress(draws: VoxelWorldDraws) {
-  const c = draws.lightFeed()?.progress() ?? null;
-  const v = draws.lightVolume()?.progress() ?? null;
-  if (c === null || v === null) return c ?? v;
-  return { texelsWritten: c.texelsWritten + v.texelsWritten, staleUnits: c.staleUnits + v.staleUnits, waiting: c.waiting + v.waiting, probesSettled: c.probesSettled && v.settled, probesStale: c.probesStale, settled: c.probesSettled && c.staleUnits === 0 && c.waiting === 0 && v.settled, cache: c, volume: v };
-}
-
-/** The lighting store's hooks: which store, what the surface cache holds of the worlds, and the GPU tracer's voxel hits against the CPU walk's. */
+/** The lighting store's hooks: which store, the light volume's state and cells, and the texture-unit guard's record. */
 function voxelLightHooks(draws: VoxelWorldDraws, adapter: () => SceneAdapter | null) {
   return {
     store: () => draws.lightStore,
-    /** A bench's switch: the hybrid's voxel surfaces read the cache's texels too, from the next time the store is set to it. */
-    setHybridTexels: (on: boolean) => setHybridTexelsForBench(on),
     /**
      * The texture-unit guard's record from now on: the device's limit, the programs refused, and each program seen
      * (material, its sampled fragment textures by name, admitted or not). Null: no guard on this renderer.
@@ -735,30 +722,18 @@ function voxelLightHooks(draws: VoxelWorldDraws, adapter: () => SceneAdapter | n
       g.recording = true;
       return { limit: g.limit(), over: g.over, programs: [...g.programs.values()] };
     },
-    /** Another store from now on (`off`, `cache`, …): the drawn worlds' surfaces join the cache or leave it. */
+    /** Another store from now on (`off` or `volume`; anything else is `off`). */
     setStore: (store: string) => draws.setLightStore((VOXEL_LIGHT_STORES as readonly string[]).includes(store) ? (store as VoxelLightStore) : 'off'),
-    cache: () => draws.lightFeed()?.diagnostics() ?? null,
-    /** How far the store's light has caught up (texels or cell faces written, units stale, chunks or blocks waiting, probes settled): cheap, read every frame by a bench. */
-    progress: () => lightProgress(draws),
-    /** Where the page hands over from the cache to the volume (null: one store), and the distance set in place of the tier's (null: the tier's). */
-    handover: () => draws.handover(),
-    setHandover: (m: number | null) => draws.setHandover(m),
-    /** These stores' GPU passes held (not dispatched, absent from the GPU measurement) until called again: `['volume']` reads the cache's `lighting` alone. */
-    holdPass: (stores: string[]) => draws.holdStorePasses(stores),
-    /** Every texel and probe of the cache, or every brick of the volume, stale at once (a bench keeps it relighting while it measures the GPU). */
-    relightAll: () => {
-      draws.lightFeed()?.relightAll();
-      draws.lightVolume()?.relightAll();
-    },
+    /** How far the volume's light has caught up (cell faces written, bricks stale, blocks waiting; null: the store is not the volume): cheap, read every frame by a bench. */
+    progress: () => draws.lightVolume()?.progress() ?? null,
+    /** Every brick of the volume stale at once (a bench keeps it relighting while it measures the GPU). */
+    relightAll: () => draws.lightVolume()?.relightAll(),
     /** The light volume's light in the scene's lights (true, as made) or out of them (a measurement of what its node costs the lit programs). */
     volumeLightShown: (on: boolean) => draws.lightVolume()?.setLightShown(on) ?? null,
     /** What the light volume holds (null: the store is not the volume). */
     volume: () => draws.lightVolume()?.diagnostics() ?? null,
     /** Cells of the light volume read back from the GPU at world points (metres; or a level's cells, `{ points, level }`), the CPU's rule beside each. */
     volumeCells: (at: number[][] | { points: number[][]; level: number }) => (Array.isArray(at) ? draws.lightVolume()?.cells(at) : draws.lightVolume()?.cells(at.points, at.level)) ?? Promise.resolve(null),
-    check: (at: number[], n: number) => draws.lightFeed()?.check(at, n) ?? Promise.resolve(null),
-    /** The resolve pass's voxel texels for traced rays against its CPU twin's (the probes' bounce reads them). */
-    resolveCheck: (at: number[], n = 1200) => draws.lightFeed()?.resolveCheck(at, n) ?? Promise.resolve(null),
   };
 }
 

@@ -159,19 +159,13 @@ export interface LightingTierSettings {
    * not a march of their own: far mountains and houses shading valleys and streets; WebGPU), 0: off.
    */
   readonly voxelSunSteps: number;
-  /**
-   * Where a page lighting voxel worlds by both stores (`?voxelLight=hybrid`, a comparison) hands over from the surface
-   * cache near the eye to the voxel light volume beyond (metres across from the eye; the fade runs over the last
-   * quarter before it).
-   */
-  readonly voxelLightHandoverM: number;
 }
 
 /** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */
 export const LIGHTING_TIER_SETTINGS: Readonly<Record<LightingTier, Readonly<LightingTierSettings>>> = Object.freeze({
-  low: Object.freeze({ surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 2048, voxelSunSteps: 12, voxelLightHandoverM: 12 }),
-  medium: Object.freeze({ surfaceCacheMiB: 64, surfaceLightMs: 1.5, contactShadows: true, reflections: 'medium' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 4096, voxelSunSteps: 16, voxelLightHandoverM: 24 }),
-  high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2, shadowAtlas: 8192, voxelSunSteps: 24, voxelLightHandoverM: 24 }),
+  low: Object.freeze({ surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 2048, voxelSunSteps: 12 }),
+  medium: Object.freeze({ surfaceCacheMiB: 64, surfaceLightMs: 1.5, contactShadows: true, reflections: 'medium' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 4096, voxelSunSteps: 16 }),
+  high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2, shadowAtlas: 8192, voxelSunSteps: 24 }),
 });
 
 /** The tier of a level that names none. */
@@ -207,7 +201,6 @@ export function levelLighting(level: Pick<QualityLevelConfig, 'lighting' | 'surf
     surfaceReach: t.surfaceReach,
     shadowAtlas: level.shadowAtlas ?? t.shadowAtlas,
     voxelSunSteps: t.voxelSunSteps,
-    voxelLightHandoverM: t.voxelLightHandoverM,
   };
 }
 

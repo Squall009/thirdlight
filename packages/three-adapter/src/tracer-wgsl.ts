@@ -7,29 +7,10 @@
  * Bindings: 0 the dispatch's parameters (ray count, first ray, `TraceOptions`), 1 the scene
  * words, 2 the rays (two vec4 each), 3 the hits (two vec4u each), 4 and 5
  * the brick atlas (models' distance samples, `tracer-objects.ts`) and its
- * linear sampler, 6 the rays' caster masks.
- *
- * A second program (`TRACER_VOXELS_WGSL`) also walks a voxel world's
- * occupancy (the one walk, `voxel-walk-wgsl.ts`, bound at 7 and 8: its
- * table and pages; six storage buffers in all, within the default eight a
- * stage): a scene with voxel worlds lit by the cache traces with it, every
- * other with the first, so their programs stay as they were. A light ray
- * starts on its texel's surface, which on a voxel slope lies inside a
- * partly filled cell the walk counts as a body: a walk that starts inside a
- * body goes on from where the ray leaves that cell (twice at most).
+ * linear sampler.
  */
-import { VOXEL_SIZE_M } from '@thirdlight/voxel';
-
 import { TRACER_OBJECTS_WGSL } from './tracer-wgsl-objects';
-import { CHUNK_BLOCK_WORDS, CHUNK_WORDS, HEADER, LAYER_WORDS, TERRAIN_WORDS, TRACE_BLOCKS, TRACE_CHUNK, TRACE_STEPS, TRACE_SUB, TRACE_TERRAIN, TRACE_UNFINISHED, TRACE_VOXELS } from './tracer-scene';
-import { voxelWalkWgsl } from './voxel-walk-wgsl';
-
-/** The tracer's flag bits (`Params.flags`): any hit, per-ray caster masks, a voxel world walked (its coarsest level in bits 16–23); bits 8–15 hold the resumes. */
-export const TRACE_FLAG_ANY_HIT = 1;
-export const TRACE_FLAG_MASKED = 2;
-export const TRACE_FLAG_VOXELS = 4;
-/** Times a voxel walk that starts inside a body goes on past its cell. */
-export const VOXEL_TRACE_SKIPS = 2;
+import { CHUNK_BLOCK_WORDS, CHUNK_WORDS, HEADER, LAYER_WORDS, TERRAIN_WORDS, TRACE_BLOCKS, TRACE_CHUNK, TRACE_STEPS, TRACE_SUB, TRACE_TERRAIN, TRACE_UNFINISHED } from './tracer-scene';
 
 /** Threads per workgroup (the spike's measured size on the Iris Xe). */
 export const TRACER_WORKGROUP = 64;
@@ -296,57 +277,7 @@ fn traceTerrain(index: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<fun
 }
 `;
 
-const VOXELS = /* wgsl */ `
-${voxelWalkWgsl({ group: 0, table: 7, pages: 8 })}
-fn traceVoxels(ro: vec3f, rd: vec3f, tmin: f32, h: ptr<function, Hit>, unf: ptr<function, f32>) {
-  if ((P.flags & ${TRACE_FLAG_VOXELS}u) == 0u) { return; }
-  let maxLevel = (P.flags >> 16u) & 0xffu;
-  let lim = min((*h).t, *unf);
-  var t0 = tmin;
-  let d = safeDir(rd);
-  for (var k = 0u; k <= ${VOXEL_TRACE_SKIPS}u; k++) {
-    if (!(t0 < lim)) { return; }
-    let o = ro + rd * t0;
-    var cell: vec3<i32>;
-    var frac: vec3<f32>;
-    var inv: vec3<f32>;
-    voxel_walk_ray(o, rd, &cell, &frac, &inv);
-    let w = voxel_walk(cell, frac, inv, lim - t0, 1u, maxLevel);
-    if (w.end == 3u) { *unf = min(*unf, t0 + w.t); return; }
-    if (w.end != 1u) { return; }
-    if (w.axis < 0) {
-      // Inside a body where it starts (its own surface's cell): on from where it leaves that cell.
-      let up = select(vec3f(0.0), vec3f(1.0), d > vec3f(0.0));
-      let te = ((vec3f(cell) + up) * ${VOXEL_SIZE_M} - o) / d;
-      t0 = t0 + max(min(te.x, min(te.y, te.z)), 0.0) + 1e-4;
-      continue;
-    }
-    let t = t0 + w.t;
-    if (t >= lim) { return; }
-    let a = u32(w.axis);
-    var n = vec3f(0.0);
-    n[a] = select(1.0, -1.0, inv[a] > 0.0);
-    let p = (o + rd * w.t) / ${VOXEL_SIZE_M} - vec3f(w.cell);
-    var uv = vec2f(p.z, p.y);
-    if (a == 1u) { uv = vec2f(p.x, p.z); }
-    if (a == 2u) { uv = vec2f(p.x, p.y); }
-    let q = vec2u(round(clamp(uv, vec2f(0.0), vec2f(1.0)) * 255.0));
-    (*h).t = t;
-    (*h).n = n;
-    (*h).kind = ${TRACE_VOXELS}u;
-    (*h).face = a * 2u + select(0u, 1u, inv[a] > 0.0);
-    (*h).obj = 0u;
-    (*h).a0 = (u32(w.cell.x + 32768) & 0xffffu) | ((u32(w.cell.z + 32768) & 0xffffu) << 16u);
-    (*h).a1 = (u32(w.cell.y + 32768) & 0xffffu) | (q.x << 16u) | (q.y << 24u);
-    return;
-  }
-}
-`;
-
-const VOXEL_CALL = `
-    if (!(anyHit && h.kind != 0u)) { traceVoxels(o, d, tmin, &h, &unf); }`;
-
-const main = (voxels: boolean): string => /* wgsl */ `
+const MAIN = /* wgsl */ `
 @compute @workgroup_size(${TRACER_WORKGROUP})
 fn main(@builtin(global_invocation_id) g: vec3u) {
   if (g.x >= P.count) { return; }
@@ -357,8 +288,8 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   let d = r1.xyz;
   var tmin = r0.w;
   var h = Hit(r1.w, vec3f(0.0), 0u, 0u, 0u, 0u, 0u);
-  RM = select(0xffffffffu, M[i], (P.flags & ${TRACE_FLAG_MASKED}u) != 0u);
-  let anyHit = (P.flags & ${TRACE_FLAG_ANY_HIT}u) != 0u;
+  RM = select(0xffffffffu, M[i], (P.flags & 2u) != 0u);
+  let anyHit = (P.flags & 1u) != 0u;
   let resumes = (P.flags >> 8u) & 0xffu;
   // A ray out of steps is traced on from where it stopped, keeping the hit found beyond that point as its bound.
   for (var resumed = 0u; ; resumed++) {
@@ -368,7 +299,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
     if (!(anyHit && h.kind != 0u)) { traceArch(o, d, tmin, &h, &unf); }
     let nt = S[${HEADER.terrain}u];
     for (var k = 0u; k < nt && !(anyHit && h.kind != 0u); k++) { traceTerrain(k, S[${HEADER.terrain + 1}u] + k * ${TERRAIN_WORDS}u, o, d, tmin, &h, &unf); }
-    if (!(anyHit && h.kind != 0u)) { traceBricks(o, d, tmin, &h, &unf); }${voxels ? VOXEL_CALL : ''}
+    if (!(anyHit && h.kind != 0u)) { traceBricks(o, d, tmin, &h, &unf); }
     // With any hit, a hit anywhere on the ray settles it, whatever ran out before it.
     if ((anyHit && h.kind != 0u) || !(unf < h.t)) { break; }
     if (resumed >= resumes) { h = Hit(unf, vec3f(0.0), ${TRACE_UNFINISHED}u, 0u, 0u, 0u, 0u); break; }
@@ -380,6 +311,4 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 `;
 
 /** The whole program. */
-export const TRACER_WGSL = COMMON + BLOCKS + TERRAIN + TRACER_OBJECTS_WGSL + main(false);
-/** The program that also walks a voxel world's occupancy. */
-export const TRACER_VOXELS_WGSL = COMMON + BLOCKS + TERRAIN + TRACER_OBJECTS_WGSL + VOXELS + main(true);
+export const TRACER_WGSL = COMMON + BLOCKS + TERRAIN + TRACER_OBJECTS_WGSL + MAIN;

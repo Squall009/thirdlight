@@ -19,14 +19,13 @@
  * first lookup is up.
  */
 import * as THREE from 'three';
-import { threadProfiler } from '@thirdlight/shared';
 
 import { pageSearch, type AnyRenderer } from './renderer-factory';
 import type { EntityDoc } from './adapter-entities';
 import { SurfaceLights } from './adapter-surface-cache';
 import type { SceneLights } from './lights-shadows';
 import type { RenderGraph } from './render-graph';
-import type { SurfaceCacheHost, SurfaceVoxelDiagnostics } from './surface-cache-host';
+import type { SurfaceCacheHost } from './surface-cache-host';
 import { SurfaceLightRuntime, type SurfaceTextureSource } from './surface-light-runtime';
 import { TEXEL_POINT_FLOATS } from './surface-texels';
 import { cacheSuns } from './surface-light-frame';
@@ -34,13 +33,10 @@ import { AdapterLiveProbes } from './adapter-live-probes';
 import type { ProbeLightingHost } from './probe-grids';
 import { PROBE_HIT_LIFT, probesIrradianceAt } from './surface-probes';
 import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
-import { RAY_FLOATS } from './tracer-scene';
-import { RESOLVE_PAGE, resolveHitCpu } from './surface-resolve';
 import { SURFACE_PAGE_BYTES } from './surface-cache-atlas';
 import { TERRAIN_RING_SHARE } from './surface-cache';
 import { TERRAIN_RINGS_MAX, TERRAIN_RING_BYTES } from './surface-cache-terrain';
-import { LOOKUP_WIDTH, packSurfaceLookupParts, SURFACE_READ, voxelLookupFaces } from './surface-cache-lookup';
-import type { RegionUploadRenderer } from './region-texture';
+import { packSurfaceLookup, SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_ALL, SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
 import { savedLights, type CacheLight, type ColourChanges } from './surface-changes';
 import { runSurfaceBake, type BakePart, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
@@ -48,13 +44,6 @@ import { AdapterSavedLight, LOOKUP_MS, type SavedLightDiagnostics, type SurfaceB
 import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
 import { AdapterLightingViews, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 import { gpuPassHides } from './gpu-pass-hides';
-import type { SurfaceCacheVoxelLink, VoxelResolveRays } from './voxel-world-light';
-
-/** The surface cache's live light passes in the page's GPU measurement (a measurement may hold them by name). */
-export const SURFACE_LIGHT_PASS = 'surface light, probes and reflection tracer';
-
-/** The live light's parts on the page, each its own span (under the frame's 'surface light'). */
-const SPANS = { residency: threadProfiler.span('surface cache residency', 'lighting'), light: threadProfiler.span('surface light pass', 'lighting'), lookup: threadProfiler.span('surface lookup packed', 'lighting') };
 
 /** How often (ms) the debug look is drawn again while texels change. */
 const VIEW_MS = 200;
@@ -83,38 +72,6 @@ const ALBEDO_READ_MS = 2000;
 function deviceOf(renderer: AnyRenderer): TracerDevice | null {
   const b = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean; device?: TracerDevice | null } }).backend;
   return b?.isWebGPUBackend === true && b.device != null ? b.device : null;
-}
-
-/** The live probes on a voxel page lit by the cache (`voxelLink`'s diagnostics). */
-export interface VoxelProbeDiagnostics {
-  readonly probes: number;
-  readonly lit: number;
-  readonly stale: number;
-  /** None stale and no placement waiting (`SurfaceCacheHost.probesSettled`). */
-  readonly settled: boolean;
-  /** Whether the probe lighting draws the live probes, and holds light not drawn yet. */
-  readonly drawn: boolean;
-  readonly behind: boolean;
-  readonly bricks: readonly number[];
-  readonly updates: number;
-  readonly placeMs: number;
-  readonly lastSettleMs: number | null;
-  /** Bytes on the page (records, places, lattice, brick map), on the GPU (the pass's records and the probe lighting's tiles) and of the resolve table the probe rays read. */
-  readonly pageBytes: number;
-  readonly gpuBytes: number;
-  readonly resolveBytes: number;
-  /** Cells of the surfaces' colours the materials drew, as last read back (null: not yet), and the frames that wrote them. */
-  readonly albedoDrawn: number | null;
-  readonly captures: number;
-}
-
-/** The voxel faces' hashes (`surface-voxel-faces.ts`) as a voxel page reports them. */
-export interface VoxelFacesDiagnostics {
-  readonly lookupBytes: number;
-  readonly lookupSlots: number;
-  readonly lookup: { readonly packs: number; readonly whole: number; readonly faces: number; readonly touched: number; readonly uploadBytes: number };
-  readonly resolveBytes: number;
-  readonly resolve: { readonly packs: number; readonly whole: number; readonly faces: number; readonly touched: number; readonly uploadBytes: number };
 }
 
 /** The live light on the page: whether it runs, why not, and the debug look's squares. */
@@ -161,12 +118,6 @@ export class AdapterSurfaceLight {
   /** The kinds of surface that read (a bit per `SURFACE_READ` kind). */
   private readonly readKinds: number;
   private lookupAt = -Infinity;
-  /** The voxel faces the lookup reads, kept across packs (only the chunks that came, went or moved are written). */
-  private readonly lookupFaces = voxelLookupFaces();
-  /** The lookup's words before the voxel slots as last uploaded whole (null: none yet). */
-  private lookupRest: Uint32Array | null = null;
-  /** Packs, whole uploads, faces changed and slots written, and bytes uploaded since the page started. */
-  readonly lookupStats = { packs: 0, whole: 0, faces: 0, touched: 0, uploadBytes: 0 };
   /** The budget the textures were made for (another quality level's makes them again). */
   private budgetFor = -1;
   private albedoDrawn: number | null = null;
@@ -212,7 +163,7 @@ export class AdapterSurfaceLight {
     const read = q.get(SURFACE_READ_URL_PARAM);
     this.readOn = read !== '0';
     this.readKinds = surfaceReadKinds(read);
-    this.unregister = gpuPassHides.register({ category: 'lighting', name: SURFACE_LIGHT_PASS, present: () => this.runtime !== null, hide: (h) => void (this.gpuHidden = h) });
+    this.unregister = gpuPassHides.register({ category: 'lighting', name: 'surface light, probes and reflection tracer', present: () => this.runtime !== null, hide: (h) => void (this.gpuHidden = h) });
   }
 
   /** Before the frame's programs are built (ahead of the probes' frame): whether the light is live with probes, so the probe light joins before the programs are built. */
@@ -237,21 +188,13 @@ export class AdapterSurfaceLight {
     this.allLights = all;
     const lights = this.part === null ? all : savedLights(all, this.part);
     this.host.setLights(lights);
-    threadProfiler.begin(SPANS.residency);
     this.host.update(eye);
-    threadProfiler.end(SPANS.residency);
     const gpu = deviceOf(renderer);
     const device = this.failed || this.host.relightBudgetMs <= 0 ? null : gpu;
     if (device !== this.device || (device !== null && this.host.cache.budgetBytes !== this.budgetFor)) this.drop(device, renderer);
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
-    if (this.runtime !== null) {
-      this.runtime.drawnSuns = this.lights.drawnSuns;
-      // The voxel worlds lit here: their occupancy is traced with the rest.
-      this.runtime.pass.tracer.setVoxelWalk(this.host.voxels.walk());
-    }
-    threadProfiler.begin(SPANS.light);
+    if (this.runtime !== null) this.runtime.drawnSuns = this.lights.drawnSuns;
     if (!this.gpuHidden) this.runtime?.frame(lights);
-    threadProfiler.end(SPANS.light);
     this.syncRead(lights, renderer);
     // Until the light is live (WebGL 2, a level without a live budget, a live light still starting) the saved light is drawn.
     if (this.runtime === null && this.readOn) this.saved.frame();
@@ -302,9 +245,7 @@ export class AdapterSurfaceLight {
     const key = `${this.host.traceVersion}/${this.host.residencyVersion}/${this.host.modelSlots.version}`;
     const now = performance.now();
     if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
-      threadProfiler.begin(SPANS.lookup);
-      this.packLookup(tex, renderer);
-      threadProfiler.end(SPANS.lookup);
+      tex.setTable(packSurfaceLookup(this.host.resolveScene().scene, this.host.cache, (tileKey) => this.host.modelSlots.peek(tileKey)));
       this.lookupFor = key;
       this.lookupAt = now;
     }
@@ -330,37 +271,6 @@ export class AdapterSurfaceLight {
       this.albedoAt = now;
       this.readAlbedo(renderer);
     }
-  }
-
-  /**
-   * The lookup packed again: its words before the voxel faces' slots are
-   * packed (cheap on a voxel page: nothing else is read there); when they are
-   * as uploaded last and the faces' table was not made again, only the voxel
-   * slots that changed are written, else the whole table goes up.
-   */
-  private packLookup(tex: SurfaceCacheTextures, renderer: AnyRenderer): void {
-    const faces = this.lookupFaces;
-    const p = packSurfaceLookupParts(this.host.resolveScene().scene, this.host.cache, (tileKey) => this.host.modelSlots.peek(tileKey), faces, false);
-    const dirty = faces.takeDirty();
-    const was = this.lookupRest;
-    const same = was !== null && !dirty.whole && was.length === p.words.length && was.every((w, i) => (i >= 8 && i < 12) || w === p.words[i]);
-    const s = this.lookupStats;
-    s.packs += 1;
-    s.faces += p.sync.faces;
-    s.touched += p.sync.touched;
-    const bytes = same ? tex.writeVoxelSlots(renderer as unknown as RegionUploadRenderer, p.voxelsAt, faces.words, dirty.slots, faces.probe) : null;
-    if (bytes !== null) {
-      s.uploadBytes += bytes;
-      return;
-    }
-    const rows = Math.max(1, Math.ceil((p.voxelsAt + faces.cap) / LOOKUP_WIDTH));
-    const words = new Uint32Array(rows * LOOKUP_WIDTH * 4);
-    words.set(p.words);
-    words.set(faces.words, p.voxelsAt * 4);
-    tex.setTable(words);
-    this.lookupRest = p.words;
-    s.whole += 1;
-    s.uploadBytes += words.byteLength;
   }
 
   /** Counts the surfaces' colours the materials drew (a diagnostics read: asked by `diagnostics`, done a frame or two later). */
@@ -395,7 +305,6 @@ export class AdapterSurfaceLight {
     delete this.scene.userData[SURFACE_READ_LIVE_KEY];
     delete this.scene.userData[REFLECTION_TRACER_KEY];
     this.lookupFor = '';
-    this.lookupRest = null;
     this.textures?.dispose();
     this.textures = null;
     this.device = device;
@@ -445,82 +354,6 @@ export class AdapterSurfaceLight {
         this.failed = true;
       },
     );
-  }
-
-  /** The scene link's part for voxel worlds lit by the cache (voxel-world-light.ts's `SurfaceCacheVoxelLink`). */
-  voxelLink(): Required<SurfaceCacheVoxelLink> & { voxelDiagnostics(): SurfaceVoxelDiagnostics & { readonly texelsWritten: number; readonly live: boolean; readonly read: boolean; readonly probes: VoxelProbeDiagnostics; readonly faces: VoxelFacesDiagnostics } } {
-    const host = this.host;
-    return {
-      voxels: (src) => host.voxels.set(src),
-      voxelDiagnostics: () => ({ ...host.voxels.diagnostics(), texelsWritten: this.runtime?.texelsWritten ?? 0, live: this.runtime !== null, read: this.scene.userData[SURFACE_READ_LIVE_KEY] !== undefined, probes: this.voxelProbes(), faces: this.voxelFaces() }),
-      voxelRelightAll: () => host.relight.markAll(),
-      voxelProgress: () => ({ texelsWritten: this.runtime?.texelsWritten ?? 0, staleUnits: host.relight.staleUnits, waiting: host.voxels.waiting, probesSettled: host.probesSettled, probesStale: host.probes.staleProbes }),
-      traceRays: async (rays) => {
-        const rt = this.runtime;
-        if (rt === null || !rt.pass.tracer.ready) return null;
-        rt.pass.tracer.setVoxelWalk(host.voxels.walk());
-        return rt.pass.tracer.trace(rays);
-      },
-      resolveHit: (hit) => host.resolveScene().scene.resolve(host.cache, hit),
-      resolveRays: (rays) => this.resolveRays(rays),
-    };
-  }
-
-  /**
-   * The probe rays' resolve, on the GPU and by its CPU twin over the same
-   * table: `rays` traced by the cache's tracer, their hits' texels from the
-   * resolve pass and from `resolveHitCpu`, and per hit whether its texel
-   * lies in a resident tile whose light is lit (no unit of it stale). Null:
-   * no live light, or no table yet.
-   */
-  private async resolveRays(rays: Float32Array): Promise<VoxelResolveRays | null> {
-    const rt = this.runtime;
-    if (rt === null || !rt.pass.tracer.ready || !rt.syncProbeInputs() || rt.resolveWords === null) return null;
-    rt.pass.tracer.setVoxelWalk(this.host.voxels.walk());
-    const table = rt.resolveWords;
-    const n = rays.length / RAY_FLOATS;
-    const hits = await rt.pass.tracer.trace(rays);
-    const gpu = await rt.probePass.resolve.resolve(rt.pass.tracer.hitsBuffer!, n);
-    const cpu = new Uint32Array(n * 2);
-    for (let i = 0; i < n; i += 1) cpu.set(resolveHitCpu(table, hits, i), i * 2);
-    // Each resident tile's blocks on its page, and whether its light is lit.
-    const blocks: { page: number; x: number; y: number; side: number; lit: boolean }[] = [];
-    this.host.cache.forEachResident((key, _level, bs) => {
-      const lit = this.host.voxels.tileLit(key);
-      for (const b of bs) blocks.push({ ...b, lit });
-    });
-    const lit = new Uint8Array(n);
-    for (let i = 0; i < n; i += 1) {
-      const a = gpu[i * 2]!;
-      if (a >>> 30 !== RESOLVE_PAGE) continue;
-      const page = a & 0x3fffffff;
-      const x = gpu[i * 2 + 1]! & 0xffff;
-      const y = gpu[i * 2 + 1]! >>> 16;
-      lit[i] = blocks.some((b) => b.lit && b.page === page && x >= b.x && x < b.x + b.side && y >= b.y && y < b.y + b.side) ? 1 : 0;
-    }
-    return { hits, gpu, cpu, lit };
-  }
-
-  /** The voxel faces' hashes of the lookup and the resolve table: page bytes, and their packs, whole uploads, faces changed, slots written and bytes uploaded so far. */
-  private voxelFaces(): VoxelFacesDiagnostics {
-    const resolve = this.runtime?.resolveStats ?? { packs: 0, whole: 0, faces: 0, touched: 0, uploadBytes: 0 };
-    return { lookupBytes: this.lookupFaces.bytes, lookupSlots: this.lookupFaces.cap, lookup: { ...this.lookupStats }, resolveBytes: this.runtime?.resolveFacesBytes ?? 0, resolve: { ...resolve } };
-  }
-
-  /** The live probes' bytes on the GPU (the pass's records and the probe lighting's tiles; null: none placed): the memory table's probes row on a page whose probes are live. */
-  liveProbeBytes(): { probes: number; gpuBytes: number } | null {
-    const p = this.host.probes;
-    if (this.runtime === null || p.count === 0) return null;
-    return { probes: p.count, gpuBytes: p.state.byteLength + (this.liveProbes?.tileBytes ?? 0) };
-  }
-
-  /** The live probes as a voxel page's lighting store reports them: how many, lit, stale, settled and drawn, and their bytes. */
-  private voxelProbes(): VoxelProbeDiagnostics {
-    const p = this.host.probes;
-    const d = p.diagnostics();
-    // The colours the probes bounce: read back now and then (`albedoDrawn`).
-    this.albedoAsked = true;
-    return { albedoDrawn: this.albedoDrawn, captures: this.captures, probes: d.probes, lit: d.lit, stale: d.stale, settled: this.host.probesSettled, drawn: this.liveProbes?.drawing ?? false, behind: this.liveProbes?.behind ?? false, bricks: d.bricks, updates: d.updates, placeMs: d.placeMs, lastSettleMs: d.lastSettleMs, pageBytes: p.bytes, gpuBytes: p.state.byteLength + (this.liveProbes?.tileBytes ?? 0), resolveBytes: this.runtime?.resolveBytes ?? 0 };
   }
 
   /** "Bake lighting": this page's live light run to settled and read back (`adapter-surface-bake.ts`). */
