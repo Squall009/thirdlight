@@ -270,7 +270,30 @@ async function main(): Promise<void> {
       }
     };
     // The frames the page presents (a capped page skips animation frames).
-    const frames = async (seconds: number): Promise<FrameWindow> => frameWindow(await canvas.evaluate((_c, s) => (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay.meter.record(s), seconds), CAP);
+    // What the page did over each window, kept with it (a round that stops low stops on one window's misses): the
+    // profiler's spikes taken in during it (longest first, each thread's top spans) and the sun field's work left.
+    let spikeCursor: unknown = null;
+    const pageState = async (): Promise<Record<string, unknown>> => {
+      const r = await canvas.evaluate((_c, after) => {
+        const p = (window as unknown as { __tlProfiler?: { read(after?: unknown): { seq: unknown; spikes: Array<{ reason: string; ms: number; threads: Record<string, Array<{ spans: Array<{ name: string; selfMs: number }> }>> }> } } }).__tlProfiler;
+        const sun = (window as unknown as { __tlVoxelPlay?: { sun?(): { waiting: number[]; marching: number; farHeld?: number } | null } }).__tlVoxelPlay?.sun?.() ?? null;
+        if (p === undefined) return { seq: null, spikes: [], sun };
+        const got = after === null ? p.read() : p.read(after);
+        const top = (frames: Array<{ spans: Array<{ name: string; selfMs: number }> }>) => {
+          const by = new Map<string, number>();
+          for (const f of frames) for (const x of f.spans) by.set(x.name, (by.get(x.name) ?? 0) + x.selfMs);
+          return [...by].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => [k, Math.round(v * 10) / 10]);
+        };
+        return { seq: got.seq, spikes: got.spikes.map((x) => ({ reason: x.reason, ms: Math.round(x.ms * 10) / 10, page: top(x.threads['page'] ?? []), sim: top(x.threads['sim'] ?? []) })).sort((a, b) => b.ms - a.ms).slice(0, 4), sun };
+      }, spikeCursor);
+      spikeCursor = r.seq;
+      return { spikes: r.spikes, sun: r.sun };
+    };
+    await pageState();
+    const frames = async (seconds: number): Promise<FrameWindow> => {
+      const w = frameWindow(await canvas.evaluate((_c, s) => (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay.meter.record(s), seconds), CAP);
+      return { ...w, page: await pageState() } as FrameWindow;
+    };
     const probe = async (s: MeterSettings): Promise<FrameWindow> => {
       await set(s);
       return frames(WINDOW_S);
