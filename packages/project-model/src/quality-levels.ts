@@ -154,8 +154,9 @@ export interface LightingTierSettings {
   /** The shadow atlas's side (texels, one of `SHADOW_ATLAS_SIZES`): 16-bit depth and the R8 colour three's render target needs, so 12, 48 and 192 MiB. */
   readonly shadowAtlas: number;
   /**
-   * Samples each lit pixel's march toward the sun takes over a voxel world's sun heights past the sun's shadow map
-   * (far mountains and houses shading valleys and streets; WebGPU), 0: off.
+   * Samples each column's march toward the sun takes over a voxel world's sun heights (run in compute a tile row a
+   * frame, written as each column's shade line; lit pixels past the sun's shadow map read the line of their column,
+   * not a march of their own: far mountains and houses shading valleys and streets; WebGPU), 0: off.
    */
   readonly voxelSunSteps: number;
   /**

@@ -1242,8 +1242,10 @@ async function gpuMeasurePanel(page: Page, canvas: Locator): Promise<void> {
   console.log(`[voxel-play] GPU lighting with a known pass of 40 copies ${JSON.stringify(lighting(shown))} (${shown.seconds} s, resolution ${shown.resolutionMs}, a copy ${String(unitMs)} ms); with 0 ${JSON.stringify(lighting(off))} (resolution ${off.resolutionMs})`);
   expect(lighting(shown).ms, 'the known pass reads above resolution').not.toBeNull();
   expect(lighting(shown).ms!).toBeGreaterThan(0);
-  if (unitMs !== null) expect(lighting(shown).ms! / (40 * unitMs), 'the known pass reads near its 40 copies at the ballast\'s ms').toBeGreaterThan(0.6);
-  if (unitMs !== null) expect(lighting(shown).ms! / (40 * unitMs)).toBeLessThan(1.6);
+  // The ballast's line reads a copy's ms on this scene in every run so far: a run without it proves no ratio, so it fails.
+  expect(unitMs, 'the ballast reads a copy\'s ms').not.toBeNull();
+  expect(lighting(shown).ms! / (40 * unitMs!), 'the known pass reads near its 40 copies at the ballast\'s ms').toBeGreaterThan(0.6);
+  expect(lighting(shown).ms! / (40 * unitMs!)).toBeLessThan(1.6);
   expect(lighting(shown).medianMs - lighting(off).medianMs, 'with the pass reads more than without, past both spreads').toBeGreaterThan(Math.max(lighting(shown).spreadMs, lighting(off).spreadMs));
   // The panel shows the last run: its lighting row and the GPU budget's lighting row.
   const table = panel.getByTestId('profiler-gpu-table');

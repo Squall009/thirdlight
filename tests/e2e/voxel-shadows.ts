@@ -685,7 +685,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   expect(tint.green.n, 'the walls are in view').toBeGreaterThan(5000);
   expect(tint.green.ratio, "the walls take the green floor's bounce").toBeGreaterThan(VOLUME_TINT_FACTOR * tint.plain.ratio);
   expect(lit.n, 'cells up the wall hold light').toBeGreaterThan(10);
-  expect(lit.red, "the lamp's bounce reaches the wall's face").toBeGreaterThan(0);
+  expect(lit.red, "the lamp's bounce reaches the wall's face").toBeGreaterThan(VOLUME_LAMP_BOUNCE_MIN);
   expect(shaded.red, "the pillar built between them takes the lamp's bounce off").toBeLessThan(VOLUME_EDIT_SHADED_SHARE * lit.red);
   expect(relit.red, 'dug again, the bounce comes back').toBeGreaterThan(VOLUME_EDIT_BACK_SHARE * lit.red);
   expect(same, 'switched off, the picture is the store-off one').toBeLessThan(CACHE_SAME_MAX_PX);
@@ -912,3 +912,8 @@ const VOLUME_TINT_FACTOR = 1.02;
 const VOLUME_OPEN_SHARE = 0.7;
 const VOLUME_EDIT_SHADED_SHARE = 0.7;
 const VOLUME_EDIT_BACK_SHARE = 0.8;
+/**
+ * The lamp's red bounce summed over the wall face's cells (`bounce()`): 1,461–1,921 in every gate that logged it;
+ * a third of the least, so a bounce that barely reaches the wall fails where "above 0" would pass.
+ */
+const VOLUME_LAMP_BOUNCE_MIN = 480;
