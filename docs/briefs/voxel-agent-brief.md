@@ -338,7 +338,8 @@ LESSONS OF 46e-a (mandatory):
 - Prove a switch is off before you use it as a comparison: show a reading only the off state can give (D698).
 - Keep the evidence (pictures, logs) of any finding that changes a design in your work folder, named in the plan (D699).
 - A worker, buffer or texture that lives with the scene adapter needs a release with it; when you add one, name
-  tests/e2e/memory.e2e.ts in your fast gate (the leak test otherwise runs only in the phase gate).
+  the leak test with `tools/gate.sh start area play` (tests/e2e/memory.e2e.ts needs the area or phase mode; naming it
+  in a fast gate skips it).
 - When a spec or register line changes, grep the constant: code must match the approved entry.
 - The Play test of tests/e2e/voxel-world.e2e.ts must stay under its 240 s timeout; record its time before and after.
   Anything that grows it is split or moved to vitest; the timeout is never raised.

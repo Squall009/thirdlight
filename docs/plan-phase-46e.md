@@ -242,7 +242,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `docs/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
 | 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
 | 46e.10 | not started |
-| 46e.11 | not started |
+| 46e.11 | Proposed 2026-11-16 (24296e84), published as acc46e-11: `docs/briefs/proposal-46e.11-emissive.md` — no new stored field (the voxel path reads the record's `params.emissive` × `params.emissiveIntensity`; the volume keeps one more word a cell, 28 → 32 B); three questions with defaults. **Waiting for the owner's note; nothing built.** |
 | 46e.12 | not started |
 | 46e.13 | not started |
 | 46e.14 | not started |
@@ -2127,6 +2127,19 @@ own). D702 lost its `CHART_JOBS_IN_FLIGHT` clause. D696 stays open.
   for a game with voxel worlds only (it was added for the chart worker alone); D699 and D700 stay open, narrowed to
   what survives the removal, rather than closed with the rest (the sticky fallback and the missing volume row are
   the volume's and the guard's, not the hybrid's).
+
+- 2026-11-16 (lead, 46e.11, proposed for the owner's note): the emissive entry adds no stored field. A material
+  record already carries a glow colour and strength (`params.emissive`, `params.emissiveIntensity`, 0–16) that
+  meshes draw and voxel surfaces ignore; the step proposed is that the voxel surface draws them and the volume keeps
+  the mean glow of the faces a cell borders (one more word a cell) and adds it to what a ray sees at a hit. Defaults
+  proposed with it: reuse the two fields (not a separate `voxel.glow`), no glow mask texture, no glow in the brick
+  far field. The page: `docs/briefs/proposal-46e.11-emissive.md` (acc46e-11). The spec text goes into
+  `voxel-render-spec.md` §1 with the owner's note, not before.
+- 2026-11-16 (lead): 46e.9 verified: phase 42's files compared with 2ff4af22 by the lead (18 identical; the three
+  that differ keep 46e.1's measurement hide and the volume's place in the light order), gate
+  `gate-rerun-20261116-193012` green, the leak test in `gate-area-20261116-193623`, the room picture with the volume
+  looked at (`46e.9/shots-volume/room-window.png`: 46e-a's look, blotches and all). The leak test runs only with the
+  `area` or `phase` modes: an item that adds an adapter-lifetime resource runs `gate.sh start area play`.
 
 ## 10. Open questions for the owner (asked with the plan)
 
