@@ -69,7 +69,7 @@ import { along, coveragePath, entersAtFace, entersEyeNode, entersWithin, leavesS
 import { benchApi, farGround, fineGround, flightSource, PROBE_COUNTERS, publishCameraBehaviour, type BenchApi } from './flight-camera';
 import { FarSettle, frameCap } from './headroom';
 import { addProbeBody, bodySamples, exportDebug, installRecorder, openPlay, readProfileSpikes, rayAndBody, removeProbeBody, stopWall, takeRecorded, type ObsSample, type Recorded, type SpikeReading } from './travel-page';
-import { bottomDarkShare, dropOutcomes, firstAfter, flightFrames, judgeFall, longGaps, settleAfter, spikeCauses, type CountSample } from './travel';
+import { bottomDarkShare, dropOutcomes, firstAfter, flightFrames, judgeFall, longGaps, settleAfter, spanMeans, spikeCauses, type CountSample, type SpanFrame } from './travel';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -244,6 +244,8 @@ interface FlightRecord {
   recorded: Recorded | null;
   /** The frame profile's spikes over the flight and the hold, read once a second (it keeps only its newest few). */
   profileSpikes: SpikeReading[];
+  /** Every profiler frame of each thread read over the flight and the hold (start, own ms, spans). */
+  profileFrames: Record<'page' | 'sim' | 'jobs', SpanFrame[]>;
   strip: Array<{ at: string; file: string }>;
   shots: Array<{ s: number; file: string; stats: unknown }>;
 }
@@ -259,7 +261,7 @@ function cameraAt(path: CoveragePath, m: number): { x: number; y: number; z: num
 
 async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: number): Promise<FlightRecord> {
   const flightS = stopAt / SPEED;
-  const rec: FlightRecord = { flyAt: Number.POSITIVE_INFINITY, flightS, intervals: [], checks: [], polls: [], obs: [], sims: [], recorded: null, profileSpikes: [], strip: [], shots: [] };
+  const rec: FlightRecord = { flyAt: Number.POSITIVE_INFINITY, flightS, intervals: [], checks: [], polls: [], obs: [], sims: [], recorded: null, profileSpikes: [], profileFrames: { page: [], sim: [], jobs: [] }, strip: [], shots: [] };
   const strip = new Map(STRIP.map((s) => [s, s.startsWith('a') ? flightS + Number(s.slice(1)) : Number(s)] as const));
   const castName = (at: string) => join(SHOT_DIR, `${WHERE}-${QUALITY}-${SPEED}-${ALTITUDE}-${TAG}-strip-${at.startsWith('a') ? `after${at.slice(1)}` : `t${at}`}.png`);
   cdp.on('Page.screencastFrame', (f: { data: string; sessionId: number; metadata: { timestamp?: number } }) => {
@@ -335,6 +337,7 @@ async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: numb
       const r: ReturnType<typeof readProfileSpikes> = await game.frame.evaluate(readProfileSpikes, cursor).catch(() => null);
       if (r !== null) {
         cursor = (r.seq as object | undefined) ?? null;
+        for (const th of ['page', 'sim', 'jobs'] as const) rec.profileFrames[th].push(...(r.frames?.[th] ?? []));
         for (const s of r.spikes) if (!seen.has(`${s.at}|${s.from}`)) {
           seen.add(`${s.at}|${s.from}`);
           rec.profileSpikes.push(s);
@@ -436,6 +439,30 @@ function spikes(rec: FlightRecord): Record<string, unknown> {
     // The frame profile's own spikes (a page interval over 1.5 frames, or a thread's frame over one) and what each
     // thread ran over them: the long frames under 100 ms, which the gaps above do not keep.
     profile: profileSpikes(rec),
+  };
+}
+
+/** Seconds after the stop the after-stop span means cover (the settle's span). */
+const AFTER_SPANS_S = 12;
+
+/**
+ * Each thread's spans' own ms a frame in flight and in the first {@link AFTER_SPANS_S} s after the stop, and second by
+ * second after it (what the settle waits on): from every profiler frame read, not only the spikes.
+ */
+function spanTotals(rec: FlightRecord): Record<string, unknown> {
+  const end = rec.flyAt + rec.flightS * 1000;
+  const stop = stopWall(rec.obs) ?? end;
+  const pick = (from: number, to: number) => Object.fromEntries((['page', 'sim', 'jobs'] as const).map((th) => [th, spanMeans(rec.profileFrames[th].filter((f) => f[0] >= from && f[0] < to))]));
+  return {
+    flight: pick(rec.flyAt, end),
+    after: pick(stop, stop + AFTER_SPANS_S * 1000),
+    afterBySecond: Array.from({ length: AFTER_SPANS_S }, (_, k) => {
+      const at = (th: 'page' | 'sim' | 'jobs') => {
+        const m = spanMeans(rec.profileFrames[th].filter((f) => f[0] >= stop + k * 1000 && f[0] < stop + (k + 1) * 1000), 5);
+        return { frames: m.frames, ms: Math.round(m.msPerFrame * m.frames * 100) / 100, top: m.spans.map(([n, mean]) => [n, Math.round(mean * m.frames * 100) / 100]) };
+      };
+      return { s: k, page: at('page'), sim: at('sim'), jobs: at('jobs') };
+    }),
   };
 }
 
@@ -654,6 +681,7 @@ async function run(path: CoveragePath, stopAt: number): Promise<Record<string, u
     }
     out['travel'] = travelMeasures(rec);
     out['spikes'] = spikes(rec);
+    out['spanTotals'] = spanTotals(rec);
     Object.assign(out, pictureChecks(rec, path, stopAt));
     out['sim'] = simSummary(rec);
     out['strip'] = rec.strip;

@@ -45,6 +45,14 @@ import { withEmptyInstanceDraws } from './attribute-instancing';
 import { STATIC_SHADOW_CAMERA_KEY } from './view-cull';
 import { shadowSeesCutaways } from './block-cutaway-view';
 import { perfMark } from './perf-marks';
+import { threadProfiler } from '@thirdlight/shared';
+
+/**
+ * Each map's draw as a span of the page's thread (inside the frame's draw submit, so in its category): three's walk
+ * of the scene for the map's camera, the filter, and the casters' submission.
+ */
+const STATIC_MAP_SPAN = threadProfiler.span('key light static shadow map', 'render');
+const DYNAMIC_MAP_SPAN = threadProfiler.span('key light dynamic shadow map', 'render');
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -179,8 +187,14 @@ class PassShadowNode extends ShadowNodeBase {
     this.drawn = 0;
     this.underlaid = false;
     this.drawnWith.clear();
-    if (this.staticPass) withEmptyInstanceDraws(() => this.updateShadow(frame));
-    else this.updateShadow(frame);
+    const span = this.staticPass ? STATIC_MAP_SPAN : DYNAMIC_MAP_SPAN;
+    threadProfiler.begin(span);
+    try {
+      if (this.staticPass) withEmptyInstanceDraws(() => this.updateShadow(frame));
+      else this.updateShadow(frame);
+    } finally {
+      threadProfiler.end(span);
+    }
   }
 
 

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { frameCap } from './headroom';
-import { bottomDarkShare, dropOutcomes, FALL_THROUGH_M, firstAfter, flightFrames, judgeFall, longGaps, settleAfter, spikeCause, spikeCauses, type BodySample, type CountSample, type LongFrame } from './travel';
+import { bottomDarkShare, dropOutcomes, FALL_THROUGH_M, firstAfter, flightFrames, judgeFall, longGaps, settleAfter, spanMeans, spikeCause, spikeCauses, type BodySample, type CountSample, type LongFrame } from './travel';
 
 /** Samples every 0.1 s from `from` to `to` seconds with the counts `v(t)`. */
 const series = (from: number, to: number, v: (t: number) => number[]): CountSample[] => Array.from({ length: Math.round((to - from) * 10) + 1 }, (_, i) => ({ t: from + i / 10, v: v(from + i / 10) }));
@@ -159,5 +159,20 @@ describe('the bottom rows\' dark share', () => {
     expect(bottomDarkShare(10, 10, px, 2)).toBeCloseTo(0.5, 9);
     expect(bottomDarkShare(10, 10, px, 3)).toBeCloseTo(20 / 30, 9);
     expect(bottomDarkShare(10, 10, () => [200, 200, 200], 2)).toBe(0);
+  });
+});
+
+describe('span means over profiler frames', () => {
+  it('averages each span over every frame (frames without it count as 0) and keeps its largest, a span twice in a frame summed', () => {
+    const m = spanMeans([
+      [0, 4, [['lighting / sun', 1], ['render / draw', 2]]],
+      [33, 6, [['lighting / sun', 0.5], ['lighting / sun', 0.5], ['render / draw', 4]]],
+      [66, 2, [['render / draw', 2]]],
+      [99, 0, []],
+    ]);
+    expect(m.frames).toBe(4);
+    expect(m.msPerFrame).toBe(3);
+    expect(m.spans).toEqual([['render / draw', 2, 4], ['lighting / sun', 0.5, 1]]);
+    expect(spanMeans([]).spans).toEqual([]);
   });
 });

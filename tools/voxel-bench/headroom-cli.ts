@@ -68,6 +68,7 @@ import { launchGpuBrowser, parseViewport } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import type { GpuMeasurement } from '@thirdlight/game-host';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
+import { spanMeans, type SpanFrame } from './travel';
 import { FarSettle, frameCap, frameWindow, misses, searchLimit, spread, type FrameWindow, type LimitResult } from './headroom';
 
 function arg(name: string, fallback: string): string {
@@ -283,7 +284,13 @@ async function main(): Promise<void> {
       r['noLoad'] = await probe({});
       // The frame profile over the window just recorded (the last frames each thread keeps): each thread's CPU a frame.
       const profile = await canvas.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null);
-      if (profile !== null) r['profile'] = profileSummary(profile as ProfileReport);
+      if (profile !== null) {
+        r['profile'] = profileSummary(profile as ProfileReport);
+        // Each span's own ms a frame over the same window (what a category's ms is made of).
+        const th = (profile as ProfileReport).threads;
+        const compact = (fs: ProfileReport['threads']['page']): SpanFrame[] => fs.map((f) => [f.start, f.ms, f.spans.map((x) => [`${x.category} / ${x.name}`, x.selfMs] as const)] as const);
+        r['spans'] = { page: spanMeans(compact(th.page), 30), sim: spanMeans(compact(th.sim), 15) };
+      }
       // The edge: the ballast the frame holds at the cap.
       const edge: LimitResult = await searchLimit((n) => probe({ ballast: n }), { max: BALLAST_LIMIT, start: 4, precision: 0.1, cap: CAP });
       r['edge'] = edge;

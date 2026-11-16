@@ -48,7 +48,7 @@ import * as THREE from 'three/webgpu';
 import { StorageTexture } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { composeSkyTile, FarSunTops, STREAM_DETAIL_SPEED, STREAM_STOPPED_MS, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_WINDOW_TEXELS, SunHeightWindow, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarBricks, type FarTopsPlace, type SkyColumns, type SunColumn } from '@thirdlight/voxel';
-import { CPU_SCALAR_OPS } from '@thirdlight/shared';
+import { CPU_SCALAR_OPS, threadProfiler } from '@thirdlight/shared';
 
 import type { N } from './effects-tsl';
 import { TSL_SCALAR_OPS } from './field-ops';
@@ -56,6 +56,14 @@ import { untransformedTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
 const { Fn, If, Loop, abs, exp2, float, floatBitsToUint, instanceIndex, int, ivec2, log2, max, min, mix, sqrt, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, step, storage, textureStore, uint, uniform, uvec2, varying, vec2, vec3, vec4 } = TSL;
+
+/**
+ * The frame's pieces as spans of the page's thread, nested in the voxel draws' `voxel sun heights`: the march's
+ * dispatch (with the uploads of the tops it carries), the copy of its row, the tiles composed.
+ */
+const MARCH_SPAN = threadProfiler.span('voxel sun march', 'lighting');
+const COPY_SPAN = threadProfiler.span('voxel sun copy', 'lighting');
+const TILES_SPAN = threadProfiler.span('voxel sun tiles', 'lighting');
 
 /** A material's own world normal for the march (`material.userData[SUN_FIELD_NORMAL_KEY]`; absent: the geometry's, three's `normalWorldGeometry`). */
 export const SUN_FIELD_NORMAL_KEY = 'tlSunFieldNormal';
@@ -263,6 +271,7 @@ export class SunField {
     const force = !did;
     let composed = 0;
     const go = (): boolean => (force && composed === 0) || more();
+    threadProfiler.begin(TILES_SPAN);
     if (!this.nearHeld) {
       for (let t = go() ? this.near.next() : null; t !== null; t = go() ? this.near.next() : null) {
         composeSkyTile(this.near, t[0], t[1], this.skies(), this.voxelM);
@@ -274,6 +283,7 @@ export class SunField {
       this.stats.farTiles++;
       composed++;
     }
+    threadProfiler.end(TILES_SPAN);
     this.starved = composed === 0 && (this.far.window.waiting > 0 || (!this.nearHeld && this.near.waiting > 0));
     const T2 = SUN_WINDOW_TEXELS * SUN_WINDOW_TEXELS;
     let runs = 0;
@@ -299,10 +309,14 @@ export class SunField {
   private march(renderer: SunFieldRenderer): void {
     const tile = this.near.tile;
     this.row.value = this.rowNow;
+    threadProfiler.begin(MARCH_SPAN);
     void renderer.compute((this.pass ??= this.marchPass()));
+    threadProfiler.end(MARCH_SPAN);
     // The row's texels into the texture lit programs read (its slot row in both windows).
     const box = scratchBox.set(scratchFrom.set(0, this.rowNow * tile, 0), scratchTo.set(2 * SUN_WINDOW_TEXELS, (this.rowNow + 1) * tile, 1));
+    threadProfiler.begin(COPY_SPAN);
     renderer.copyTextureToTexture(this.shadeWrite, this.shadeRead, box, scratchAt.set(0, this.rowNow * tile, 0));
+    threadProfiler.end(COPY_SPAN);
     this.rowNow = (this.rowNow + 1) % (SUN_WINDOW_TEXELS / tile);
     this.rowsLeft--;
     this.stats.rows++;

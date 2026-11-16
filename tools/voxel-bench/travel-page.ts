@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Frame, Page } from '@playwright/test';
-import type { BodySample, FrameSample, LongFrame } from './travel';
+import type { BodySample, FrameSample, LongFrame, SpanFrame } from './travel';
 import { PROBE_BODY, PROBE_COUNTERS, type BenchApi } from './flight-camera';
 
 /** What the recorder kept (wall-clock ms, `Date.now()`, so the bench's own polls line up with it). */
@@ -103,10 +103,10 @@ export interface SpikeReading {
  * rather than once at its end; a reader keeps each once by its `at` and `from` (a page built before the
  * profile's global passed the cursor on answers every kept spike each time). Null without a profiler.
  */
-export function readProfileSpikes(after: unknown): { seq: unknown; spikes: SpikeReading[] } | null {
-  type Frame = { ms: number; spans: Array<{ name: string; category: string; selfMs: number }> };
+export function readProfileSpikes(after: unknown): { seq: unknown; frames: Record<'page' | 'sim' | 'jobs', SpanFrame[]>; spikes: SpikeReading[] } | null {
+  type Frame = { start: number; ms: number; spans: Array<{ name: string; category: string; selfMs: number }> };
   type Spike = { at: number; reason: string; ms: number; thresholdMs: number; from: number; to: number; threads: Record<'page' | 'sim' | 'jobs', Frame[]> };
-  const p = (globalThis as unknown as { __tlProfiler?: { read(after?: unknown): { seq: unknown; spikes: Spike[] } } }).__tlProfiler;
+  const p = (globalThis as unknown as { __tlProfiler?: { read(after?: unknown): { seq: unknown; spikes: Spike[]; threads: Record<'page' | 'sim' | 'jobs', Frame[]> } } }).__tlProfiler;
   if (p === undefined) return null;
   const r = after === null ? p.read() : p.read(after);
   const top = (frames: Frame[]) => {
@@ -114,7 +114,9 @@ export function readProfileSpikes(after: unknown): { seq: unknown; spikes: Spike
     for (const f of frames) for (const s of f.spans) by.set(`${s.category} / ${s.name}`, (by.get(`${s.category} / ${s.name}`) ?? 0) + s.selfMs);
     return { frames: frames.length, ms: Math.round(frames.reduce((n, f) => n + f.ms, 0) * 100) / 100, spans: [...by].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => [k, Math.round(v * 100) / 100] as [string, number]) };
   };
-  return { seq: r.seq, spikes: r.spikes.map((s) => ({ at: s.at, reason: s.reason, ms: Math.round(s.ms * 100) / 100, thresholdMs: Math.round(s.thresholdMs * 100) / 100, from: s.from, to: s.to, threads: { page: top(s.threads.page), sim: top(s.threads.sim), jobs: top(s.threads.jobs) } })) };
+  // Every frame read since the cursor, compact (start, own ms, spans' own ms), for the spans' means over a flight.
+  const compact = (frames: Frame[]): SpanFrame[] => frames.map((f) => [f.start, Math.round(f.ms * 1000) / 1000, f.spans.map((s) => [`${s.category} / ${s.name}`, Math.round(s.selfMs * 1000) / 1000] as const)] as const);
+  return { seq: r.seq, frames: { page: compact(r.threads.page), sim: compact(r.threads.sim), jobs: compact(r.threads.jobs) }, spikes: r.spikes.map((s) => ({ at: s.at, reason: s.reason, ms: Math.round(s.ms * 100) / 100, thresholdMs: Math.round(s.thresholdMs * 100) / 100, from: s.from, to: s.to, threads: { page: top(s.threads.page), sim: top(s.threads.sim), jobs: top(s.threads.jobs) } })) };
 }
 
 /** The probe character's object id in the project (null: none). */

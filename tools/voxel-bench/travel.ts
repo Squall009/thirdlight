@@ -336,3 +336,35 @@ export function spikeCauses(gaps: readonly LongGap[]): Array<{ cause: string; ga
 function round2(x: number): number {
   return Math.round(x * 100) / 100;
 }
+
+/** A profiler frame as the benches carry it: its start (wall-clock ms), own ms, and its spans' own ms by `category / name`. */
+export type SpanFrame = readonly [start: number, ms: number, spans: ReadonlyArray<readonly [string, number]>];
+
+/** Each span's own ms a frame over `frames` (mean over every frame, and its largest in one), the largest first. */
+export interface SpanMeans {
+  readonly frames: number;
+  readonly msPerFrame: number;
+  readonly spans: ReadonlyArray<readonly [name: string, meanMs: number, maxMs: number]>;
+}
+
+export function spanMeans(frames: readonly SpanFrame[], top = 20): SpanMeans {
+  const sum = new Map<string, number>();
+  const max = new Map<string, number>();
+  let ms = 0;
+  for (const [, m, spans] of frames) {
+    ms += m;
+    const own = new Map<string, number>();
+    for (const [k, v] of spans) own.set(k, (own.get(k) ?? 0) + v);
+    for (const [k, v] of own) {
+      sum.set(k, (sum.get(k) ?? 0) + v);
+      max.set(k, Math.max(max.get(k) ?? 0, v));
+    }
+  }
+  const n = Math.max(1, frames.length);
+  const r3 = (x: number): number => Math.round(x * 1000) / 1000;
+  return {
+    frames: frames.length,
+    msPerFrame: r3(ms / n),
+    spans: [...sum].sort((a, b) => b[1] - a[1]).slice(0, top).map(([k, v]) => [k, r3(v / n), r3(max.get(k)!)] as const),
+  };
+}
