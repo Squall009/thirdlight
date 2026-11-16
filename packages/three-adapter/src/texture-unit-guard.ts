@@ -79,6 +79,33 @@ export function fragmentTexturesOf(ro: Pick<RenderObjectLike, 'getBindings' | 'g
   return ro.getNodeBuilderState().fragmentShader?.match(GLSL_SAMPLER)?.length ?? 0;
 }
 
+/**
+ * A program's sampled fragment textures by name (a diagnostic): each binding's name with its texture's name where
+ * it has one; GLSL's builder marks no stages, so there the samplers its fragment shader declares.
+ */
+export function fragmentTextureNamesOf(ro: Pick<RenderObjectLike, 'getBindings' | 'getNodeBuilderState'>): string[] {
+  const names: string[] = [];
+  let staged = false;
+  for (const g of ro.getBindings()) {
+    for (const b of g.bindings as readonly { readonly isSampledTexture?: boolean; readonly visibility: number; readonly name?: string; readonly texture?: { readonly name?: string } | null }[]) {
+      if (b.visibility !== 0) staged = true;
+      if (b.isSampledTexture === true && (b.visibility & FRAGMENT_STAGE) !== 0) names.push(b.texture?.name ? `${b.name ?? '?'} (${b.texture.name})` : (b.name ?? '?'));
+    }
+  }
+  if (staged) return names;
+  return [...(ro.getNodeBuilderState().fragmentShader?.match(GLSL_SAMPLER) ?? [])].map((m) => m.split(/\s+/).pop() ?? m);
+}
+
+/** A program the guard saw while recording: its material, the textures it samples and whether it was admitted. */
+export interface GuardedProgram {
+  readonly material: string;
+  readonly used: number;
+  readonly names: readonly string[];
+  readonly admitted: boolean;
+  /** Render objects seen with this material and these textures. */
+  objects: number;
+}
+
 /** One renderer's guard: the limit, the fallbacks made, who hears a problem. */
 export class TextureUnitGuard {
   /** A test or a diagnostic run may lower the device's limit (null: the device's). */
@@ -90,6 +117,10 @@ export class TextureUnitGuard {
   private deviceLimit: number | null = null;
   /** Programs found past the limit (a diagnostic). */
   over = 0;
+  /** A diagnostic asked for each program's textures from now on (off: nothing is kept). */
+  recording = false;
+  /** The programs seen while recording, by material and texture list. */
+  readonly programs = new Map<string, GuardedProgram>();
 
   constructor(private readonly renderer: GuardedRenderer) {}
 
@@ -114,6 +145,7 @@ export class TextureUnitGuard {
   admit(ro: RenderObjectLike, given: THREE.Material, scene: THREE.Scene): boolean {
     const used = fragmentTexturesOf(ro);
     const limit = this.limit();
+    if (this.recording) this.record(ro, given, used, used <= limit);
     if (used <= limit) return true;
     this.over += 1;
     this.fallBack(ro.object, given);
@@ -125,6 +157,14 @@ export class TextureUnitGuard {
       else console.warn(message);
     }
     return false;
+  }
+
+  private record(ro: RenderObjectLike, given: THREE.Material, used: number, admitted: boolean): void {
+    const names = fragmentTextureNamesOf(ro);
+    const key = `${given.name}|${names.join(',')}`;
+    const seen = this.programs.get(key);
+    if (seen !== undefined) seen.objects += 1;
+    else this.programs.set(key, { material: given.name, used, names, admitted, objects: 1 });
   }
 
   /** `object` draws `given`'s fallback from now on. */

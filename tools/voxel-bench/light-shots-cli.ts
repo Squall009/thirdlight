@@ -36,6 +36,10 @@
  *                 reaching the cache, its first texels written, texels settled, probes settled; a picture after each)
  *   --arrival-shots  pictures 2 s and 10 s after each camera's move (`<name>-arrive-2s.png`, `-10s`), before it settles
  *   --light-out   the light volume's light taken out of the scene's lights before each GPU measurement (and left out)
+ *   --texture-units STORE  the texture-unit guard's record on (the device's limit, each program's sampled fragment
+ *                 textures by name, admitted or refused), then the store set on the page (run with
+ *                 `--query &voxelLight=off`); `hybrid-texels` is the hybrid with the cache's texel read forced on (a
+ *                 bench switch); each shot keeps the record (`textureUnits`)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
  *
  * How to (staging running, nothing else on the GPU):
@@ -327,6 +331,15 @@ async function main(): Promise<void> {
     // The meter exists once the page draws its voxel world.
     for (let i = 0; i < 240 && (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: unknown }).__tlVoxelPlay !== undefined)) === false; i++) await page.waitForTimeout(250);
     await meterSet(game, {});
+    if (O.textureUnits !== null) {
+      // The record first (programs are counted as they are made), then the store linked under it.
+      await game.frame.evaluate((store) => {
+        const l = (window as unknown as { __tlVoxelPlay: { light: { textureUnits(): unknown; setHybridTexels(on: boolean): void; setStore(s: string): void } } }).__tlVoxelPlay.light;
+        l.textureUnits();
+        l.setHybridTexels(store === 'hybrid-texels');
+        l.setStore(store === 'hybrid-texels' ? 'hybrid' : store);
+      }, O.textureUnits);
+    }
     // While the town streams in (the first camera's view, before anything settles): the regions' spans a frame.
     await game.debug(LIGHTING_CAMERAS[0]!.command);
     await page.waitForTimeout(4000);
@@ -470,6 +483,7 @@ async function main(): Promise<void> {
         sincePlayS,
         tracerCheck: check,
         volumeCells,
+        ...(O.textureUnits !== null ? { textureUnits: await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay: { light: { textureUnits(): unknown } } }).__tlVoxelPlay.light.textureUnits()) } : {}),
         ...(O.arrivalShots ? { arrival, arrivedToLitS: lit.litS === null ? null : Number(((Date.now() - arrived) / 1000).toFixed(1)) } : {}),
         ...(O.gpuStale ? { gpuStale } : {}),
         ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),

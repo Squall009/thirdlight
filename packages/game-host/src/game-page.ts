@@ -36,7 +36,7 @@ import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSetting
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { fineBricksFromUrl, VOXEL_LIGHT_STORES, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, walkBenchRays, type GlbLoaderPort, type WalkBenchKind, type WalkGpuRay, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLightStore, type VoxelLookRecord } from '@thirdlight/three-adapter';
+import { fineBricksFromUrl, setHybridTexelsForBench, textureUnitGuardOf, VOXEL_LIGHT_STORES, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, walkBenchRays, type GlbLoaderPort, type WalkBenchKind, type WalkGpuRay, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLightStore, type VoxelLookRecord } from '@thirdlight/three-adapter';
 import type { ShippedVoxelWorld } from './voxel-shipped';
 import { voxelMeter } from './voxel-meter';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
@@ -719,9 +719,22 @@ function lightProgress(draws: VoxelWorldDraws) {
 }
 
 /** The lighting store's hooks: which store, what the surface cache holds of the worlds, and the GPU tracer's voxel hits against the CPU walk's. */
-function voxelLightHooks(draws: VoxelWorldDraws) {
+function voxelLightHooks(draws: VoxelWorldDraws, adapter: () => SceneAdapter | null) {
   return {
     store: () => draws.lightStore,
+    /** A bench's switch: the hybrid's voxel surfaces read the cache's texels too, from the next time the store is set to it. */
+    setHybridTexels: (on: boolean) => setHybridTexelsForBench(on),
+    /**
+     * The texture-unit guard's record from now on: the device's limit, the programs refused, and each program seen
+     * (material, its sampled fragment textures by name, admitted or not). Null: no guard on this renderer.
+     */
+    textureUnits: () => {
+      const r = adapter()?.currentRenderer?.() ?? null;
+      const g = r === null ? null : textureUnitGuardOf(r as object);
+      if (g === null) return null;
+      g.recording = true;
+      return { limit: g.limit(), over: g.over, programs: [...g.programs.values()] };
+    },
     /** Another store from now on (`off`, `cache`, …): the drawn worlds' surfaces join the cache or leave it. */
     setStore: (store: string) => draws.setLightStore((VOXEL_LIGHT_STORES as readonly string[]).includes(store) ? (store as VoxelLightStore) : 'off'),
     cache: () => draws.lightFeed()?.diagnostics() ?? null,
@@ -825,7 +838,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     meter: () => true,
   });
-  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws), skyHeight: (world: string, x: number, z: number) => draws.sky(world)?.heightAt(x, z) ?? null, skyColumns: (world: string) => draws.sky(world)?.count ?? 0, shadowDraws: () => staticShadowDraws(adapter()), sun: () => draws.sunStats(), setSunOff: (off: boolean) => draws.setSunOff(off), sunProbe: (p: number[]) => draws.sunProbe(p), light: voxelLightHooks(draws) };
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws), skyHeight: (world: string, x: number, z: number) => draws.sky(world)?.heightAt(x, z) ?? null, skyColumns: (world: string) => draws.sky(world)?.count ?? 0, shadowDraws: () => staticShadowDraws(adapter()), sun: () => draws.sunStats(), setSunOff: (off: boolean) => draws.setSunOff(off), sunProbe: (p: number[]) => draws.sunProbe(p), light: voxelLightHooks(draws, adapter) };
   return {
     draws,
     kitMeshes,

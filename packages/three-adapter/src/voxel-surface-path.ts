@@ -99,7 +99,19 @@ export function voxelStoreUsesCache(store: VoxelLightStore): boolean {
  * guard draws it with a plain fallback; so there the lamps' direct light stays per pixel, as with the volume.
  */
 export function voxelStoreReadsTexels(store: VoxelLightStore): boolean {
-  return store === 'cache';
+  return store === 'cache' || (store === 'hybrid' && hybridTexels);
+}
+
+/** A bench forced the texel read on in the hybrid (`setHybridTexelsForBench`); never on by default. */
+let hybridTexels = false;
+
+/**
+ * A bench's switch, never a default: the hybrid's voxel surfaces read the cache's texels as well, so what the
+ * texture-unit guard does with both reads in one program can be seen. Takes effect when the store is linked next
+ * (a page switches to another store and back).
+ */
+export function setHybridTexelsForBench(on: boolean): void {
+  hybridTexels = on;
 }
 
 /** Whether a store keeps light in the voxel light volume. */

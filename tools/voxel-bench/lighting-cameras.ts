@@ -252,6 +252,8 @@ export interface LightShotsOptions {
   readonly arrivalShots: boolean;
   /** `--light-out`: the light volume's light taken out of the scene's lights before the GPU measurement (what its node costs the lit programs). */
   readonly lightOut: boolean;
+  /** The store set on the page after it loads, with the texture-unit guard's record kept in each shot (`hybrid-texels`: the hybrid with the cache's texel read forced on); null: none. */
+  readonly textureUnits: 'off' | 'cache' | 'volume' | 'hybrid' | 'hybrid-texels' | null;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -299,6 +301,11 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     cacheEdits: argv.includes('--cache-edits'),
     arrivalShots: argv.includes('--arrival-shots'),
     lightOut: argv.includes('--light-out'),
+    textureUnits: ((v) => {
+      if (v === null) return null;
+      if (!['off', 'cache', 'volume', 'hybrid', 'hybrid-texels'].includes(v)) throw new Error(`--texture-units: off, cache, volume, hybrid or hybrid-texels, not ${v}`);
+      return v as LightShotsOptions['textureUnits'];
+    })(arg('texture-units')),
     viewport: { width: Number(m[1]), height: Number(m[2]) },
   };
 }
