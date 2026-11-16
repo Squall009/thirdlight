@@ -19,6 +19,13 @@
  *   region), and the new nodes' walks absorb the regions they now touch. A
  *   region keeps its id while its nodes stay; of a region that split, the
  *   largest part keeps the id, the others take new ones.
+ * - **In slices.** Stitching chunks, refreshing columns' sky heights and the
+ *   searches all count against the caller's slice, a unit of work at a time
+ *   (a chunk, a column, a few nodes of a search), and what is left carries
+ *   over to the next call: a ring that narrows at a flight's start drops
+ *   thousands of chunks at once, and their searches would otherwise run in
+ *   one tick. While a region's search is not done, the region answers as not
+ *   complete (so never enclosed), under the id it had.
  * - **Sky** (R98, stitched upward): a column's sky height is the highest
  *   solid cell + 1 over the pieces known in its chunk column; a cell at or
  *   above it is under open sky. Space no piece knows counts as open (the
@@ -54,7 +61,7 @@ export interface OpenRegionInfo {
   readonly cells: number;
   /** Some cell of it is under open sky. */
   readonly sky: boolean;
-  /** It reaches no chunk face whose neighbour is not known yet. */
+  /** It reaches no chunk face whose neighbour is not known yet, and no search of it after a loss is under way. */
   readonly complete: boolean;
   /** Complete, no cell under open sky, not reaching the world's edge (a portal: never). */
   readonly enclosed: boolean;
@@ -81,6 +88,11 @@ export interface OpenRegionStats {
   /** Pieces made, and nodes reached by the regions' searches or moved between regions, since the stitching began. */
   readonly built: number;
   readonly walked: number;
+  /** Nodes taken off the searches' queues (searches started again after a loss inside them included), columns refreshed. */
+  readonly searched: number;
+  readonly columns: number;
+  /** Regions whose search after a loss is still under way. */
+  readonly searching: number;
 }
 
 interface Group {
@@ -135,6 +147,42 @@ interface Column {
   sent: boolean;
 }
 
+/**
+ * A region's parts searched again after it lost nodes ({@link OpenRegionStitch.searchStep}), kept across calls: the
+ * seeds (live nodes that touched a lost one) and, once started, the searches' state.
+ */
+interface Search {
+  readonly seeds: Node[];
+  state: SearchState | null;
+}
+
+interface SearchState {
+  /** Node → the search that reached it. */
+  readonly owner: Map<Node, number>;
+  readonly queues: Node[][];
+  readonly heads: number[];
+  /** Searches that met, joined (union-find over search indices). */
+  readonly parent: number[];
+  /** The search a round has come to (0: a round starts). */
+  at: number;
+  /** The joined searches still growing, read at a round's start. */
+  readonly growing: Set<number>;
+}
+
+/**
+ * Nodes a search takes off its queues between two readings of the clock: one unit of work in a slice. A node costs
+ * well under a microsecond, so a reading per node would cost more than the node.
+ */
+const SEARCH_NODES = 16;
+
+/** The stages of an update, taken in turn from a stage that moves round, so each has the first unit of some call. */
+const STAGES = 3;
+
+function findSearch(parent: number[], i: number): number {
+  while (parent[i] !== i) i = parent[i] = parent[parent[i]!]!;
+  return i;
+}
+
 /** Faces as (dx, dy, dz) and their opposite's bit. */
 const FACES: ReadonlyArray<readonly [number, number, number, number, number]> = [
   [-1, 0, 0, REGION_FACE.nx, REGION_FACE.px],
@@ -160,10 +208,10 @@ export class OpenRegionStitch {
   private readonly groups = new Map<number, Group>();
   private readonly dirty = new Map<number, readonly [number, number, number]>();
   /**
-   * Regions that lost a node, each with the live nodes that touched a lost one (where its parts are searched from).
-   * A summary is read again after any update.
+   * Regions that lost a node, each with the live nodes that touched a lost one (where its parts are searched from)
+   * and its search so far. A summary is read again after any update.
    */
-  private readonly broken = new Map<Group, Node[]>();
+  private readonly broken = new Map<Group, Search>();
   private readonly fresh = new Set<Node>();
   private readonly dirtyColumns = new Set<number>();
   /** Chunk columns whose sky heights changed or went since taken ({@link takeSky}), and who wants to know. */
@@ -172,6 +220,10 @@ export class OpenRegionStitch {
   private nextId = 1;
   private built = 0;
   private walked = 0;
+  private searched = 0;
+  private columnsDone = 0;
+  /** The stage the next update starts with. */
+  private turn = 0;
   private nodeCount = 0;
   private contacts = 0;
   private arrayBytes = 0;
@@ -195,37 +247,59 @@ export class OpenRegionStitch {
     this.dirty.set(chunkKey(this.view.grid, cx, cy, cz), [cx, cy, cz]);
   }
 
-  /** Whether chunks, or chunk columns' sky heights, wait to be stitched. */
+  /** Whether chunks, chunk columns' sky heights, or searches of regions that lost nodes wait. */
   get pending(): boolean {
-    return this.dirty.size > 0 || this.dirtyColumns.size > 0;
+    return this.dirty.size > 0 || this.dirtyColumns.size > 0 || this.broken.size > 0;
   }
 
   /**
-   * Stitches the chunks touched since the last call and refreshes the sky
-   * heights of the chunk columns they changed, within `ms` (at least one
-   * chunk and one column a call, so both catch up behind a stream of
-   * arrivals; what is left waits for the next call), then searches again
-   * the regions they changed. Returns the chunks stitched.
+   * Stitches the chunks touched since the last call, refreshes the sky
+   * heights of the chunk columns they changed and searches again the
+   * regions that lost nodes, all within `ms`: the clock is read before each
+   * unit of work after a call's first (a chunk, a column, or
+   * {@link SEARCH_NODES} nodes of a search), so a call passes the slice by
+   * at most one unit, and what is left waits for the next call. The first
+   * unit goes to each stage in turn, so all three catch up behind a stream
+   * of arrivals. Returns the chunks stitched.
    */
   update(ms = Infinity): number {
     if (!this.pending) return 0;
     const t0 = performance.now();
+    let units = 0;
+    const go = (): boolean => units === 0 || performance.now() - t0 < ms;
     let n = 0;
-    for (const [key, [cx, cy, cz]] of this.dirty) {
-      if (n > 0 && performance.now() - t0 >= ms) break;
-      this.dirty.delete(key);
-      this.restitch(key, cx, cy, cz);
-      n++;
+    const start = this.turn;
+    this.turn = (this.turn + 1) % STAGES;
+    // Round the stages again while time is left: a stage's work makes another's (drops leave searches, chunks columns).
+    for (let k = 0; this.pending && (k < STAGES || go()); k++) {
+      const stage = (start + k) % STAGES;
+      if (stage === 0) {
+        for (const [key, [cx, cy, cz]] of this.dirty) {
+          if (!go()) break;
+          this.dirty.delete(key);
+          this.restitch(key, cx, cy, cz);
+          n++;
+          units++;
+        }
+        // New nodes join what they touch at once (a few set reads each): a chunk is not stitched until it has.
+        this.placeFresh();
+      } else if (stage === 1) {
+        // A column's refresh reads every piece of it, so it runs once for all the chunks of it stitched so far.
+        for (const col of this.dirtyColumns) {
+          if (!go()) break;
+          this.dirtyColumns.delete(col);
+          this.refreshColumn(col);
+          this.columnsDone++;
+          units++;
+        }
+      } else {
+        while (this.broken.size > 0 && go()) {
+          const [g, search] = this.broken.entries().next().value!;
+          this.searchStep(g, search);
+          units++;
+        }
+      }
     }
-    // A column's refresh reads every piece of it, so it runs once for all the chunks of it stitched, in the same slice.
-    let c = 0;
-    for (const col of this.dirtyColumns) {
-      if (c > 0 && performance.now() - t0 >= ms) break;
-      this.dirtyColumns.delete(col);
-      this.refreshColumn(col);
-      c++;
-    }
-    this.relabel();
     this.version++;
     if (this.skyChanged.size > 0) for (const f of this.skyListeners) f();
     return n;
@@ -261,12 +335,14 @@ export class OpenRegionStitch {
     for (const node of p.nodes) {
       node.dead = true;
       const g = node.group;
-      let seeds = g === null ? undefined : this.broken.get(g);
-      if (g !== null && seeds === undefined) this.broken.set(g, (seeds = []));
+      let search = g === null ? undefined : this.broken.get(g);
+      if (g !== null && search === undefined) this.broken.set(g, (search = { seeds: [], state: null }));
+      // A node a search had reached may have held its part together: that search starts again from all the seeds.
+      if (search?.state?.owner.has(node) === true) this.restartSearch(search);
       for (const o of node.adj) {
         o.adj.delete(node);
         // Every part the region may fall into holds a node that touched a lost one: its search starts there.
-        if (seeds !== undefined && !o.dead && o.group === g) seeds.push(o);
+        if (search !== undefined && !o.dead && o.group === g) this.addSeed(g!, search, o);
       }
       for (const o of node.links) o.links.delete(node);
       this.contacts -= node.adj.size + node.links.size;
@@ -533,16 +609,16 @@ export class OpenRegionStitch {
   }
 
   /**
-   * Regions again after nodes came and went. A region that lost nodes is
-   * searched again ({@link rewalk}): the largest part keeps its id, the
-   * others take new ones. Then each new node joins the regions it touches:
-   * the largest of them takes in the others (their nodes move to it, it
-   * keeps its id), or the node starts a region of its own. So a region
-   * growing as chunks arrive (the street) is never walked whole.
+   * New nodes placed: each joins the regions it touches, the largest of
+   * them taking in the others (their nodes move to it, it keeps its id), or
+   * starts a region of its own. So a region growing as chunks arrive (the
+   * street) is never walked whole. A region whose search after a loss is
+   * under way takes the node into the part it touches ({@link attach}); a
+   * region taken in with a search of its own hands its seeds over, and the
+   * search starts again on the merged region (each part of it still holds a
+   * seed: the region it joined was whole, and touches a part of the other).
    */
-  private relabel(): void {
-    for (const [g, seeds] of this.broken) this.rewalk(g, seeds);
-    this.broken.clear();
+  private placeFresh(): void {
     for (const n of this.fresh) {
       if (n.dead || n.group !== null) continue;
       let into: Group | null = null;
@@ -559,6 +635,7 @@ export class OpenRegionStitch {
       }
       into.nodes.push(n);
       n.group = into;
+      let search = this.broken.get(into);
       for (const og of others) {
         if (og === into) continue;
         this.walked += og.nodes.length;
@@ -568,9 +645,52 @@ export class OpenRegionStitch {
           into.nodes.push(m);
         }
         if (this.groups.get(og.id) === og) this.groups.delete(og.id);
+        const theirs = this.broken.get(og);
+        if (theirs !== undefined) {
+          this.broken.delete(og);
+          if (theirs.state !== null) this.restartSearch(theirs);
+          if (search === undefined) this.broken.set(into, (search = { seeds: [], state: null }));
+          else this.restartSearch(search);
+          search.seeds.push(...theirs.seeds);
+        }
       }
+      if (search?.state != null) this.attach(search.state, n);
     }
     this.fresh.clear();
+  }
+
+  /**
+   * A new node of a region whose search is under way, taken by a search that reached a node it touches (it is in
+   * that part, and its own neighbours join through it). Touching only nodes not reached yet it waits: the search
+   * that reaches them reaches it, or it is in the part still growing. Not a seed: a seed far from the losses (a
+   * ring's leading row) would search its way across the region to meet the others.
+   */
+  private attach(st: SearchState, n: Node): void {
+    for (const o of n.adj) {
+      const i = st.owner.get(o);
+      if (i === undefined) continue;
+      st.owner.set(n, i);
+      st.queues[i]!.push(n);
+      return;
+    }
+  }
+
+  /** A seed for a region's search: kept, and a search of its own at once if the search is under way. */
+  private addSeed(g: Group, search: Search, n: Node): void {
+    search.seeds.push(n);
+    const st = search.state;
+    if (st === null || n.dead || n.group !== g || st.owner.has(n)) return;
+    st.owner.set(n, st.queues.length);
+    st.parent.push(st.queues.length);
+    st.queues.push([n]);
+    st.heads.push(0);
+  }
+
+  /** A search under way dropped (its work counted as reached): it starts again from every seed still live. */
+  private restartSearch(search: Search): void {
+    if (search.state === null) return;
+    this.walked += search.state.owner.size;
+    search.state = null;
   }
 
   /**
@@ -585,45 +705,64 @@ export class OpenRegionStitch {
    * all. The largest part keeps the id (ties: the part whose first node
    * comes first in the region's list, as a walk of it in order would find
    * them), the others take new ones in that order.
+   *
+   * One step takes up to {@link SEARCH_NODES} nodes (a unit of the slice);
+   * the state carries over between calls. Returns whether the search ended.
    */
-  private rewalk(g: Group, seeds: readonly Node[]): void {
-    const owner = new Map<Node, number>();
-    const queues: Node[][] = [];
-    const heads: number[] = [];
-    const parent: number[] = [];
-    for (const s of seeds) {
-      if (s.dead || s.group !== g || owner.has(s)) continue;
-      owner.set(s, queues.length);
-      parent.push(queues.length);
-      queues.push([s]);
-      heads.push(0);
+  private searchStep(g: Group, search: Search): boolean {
+    let st = search.state;
+    if (st === null) {
+      st = search.state = { owner: new Map(), queues: [], heads: [], parent: [], at: 0, growing: new Set() };
+      const live: Node[] = [];
+      for (const s of search.seeds) {
+        if (s.dead || s.group !== g || st.owner.has(s)) continue;
+        live.push(s);
+        st.owner.set(s, st.queues.length);
+        st.parent.push(st.queues.length);
+        st.queues.push([s]);
+        st.heads.push(0);
+      }
+      // Seeds lost since are dropped, so a region losing nodes call after call keeps a short list.
+      search.seeds.length = 0;
+      search.seeds.push(...live);
     }
-    const find = (i: number): number => {
-      while (parent[i] !== i) i = parent[i] = parent[parent[i]!]!;
-      return i;
-    };
-    const growing = new Set<number>();
-    for (;;) {
-      growing.clear();
-      for (let i = 0; i < queues.length; i++) if (heads[i]! < queues[i]!.length) growing.add(find(i));
-      if (growing.size <= 1) break;
-      for (let i = 0; i < queues.length; i++) {
-        if (heads[i]! >= queues[i]!.length) continue;
-        const n = queues[i]![heads[i]!++]!;
-        for (const o of n.adj) {
-          if (o.dead || o.group !== g) continue;
-          const j = owner.get(o);
-          if (j === undefined) {
-            owner.set(o, i);
-            queues[i]!.push(o);
-            continue;
-          }
-          const a = find(i);
-          const b = find(j);
-          if (a !== b) parent[b] = a;
+    const { owner, queues, heads, parent, growing } = st;
+    for (let taken = 0; taken < SEARCH_NODES; ) {
+      if (st.at === 0) {
+        growing.clear();
+        for (let i = 0; i < queues.length; i++) if (heads[i]! < queues[i]!.length) growing.add(findSearch(parent, i));
+        if (growing.size <= 1) {
+          this.endSearch(g, st);
+          return true;
         }
       }
+      const i = st.at;
+      st.at = i + 1 >= queues.length ? 0 : i + 1;
+      if (heads[i]! >= queues[i]!.length) continue;
+      const n = queues[i]![heads[i]!++]!;
+      taken++;
+      this.searched++;
+      for (const o of n.adj) {
+        if (o.dead || o.group !== g) continue;
+        const j = owner.get(o);
+        if (j === undefined) {
+          owner.set(o, i);
+          queues[i]!.push(o);
+          continue;
+        }
+        const a = findSearch(parent, i);
+        const b = findSearch(parent, j);
+        if (a !== b) parent[b] = a;
+      }
     }
+    return false;
+  }
+
+  /** A search that ended: the region's parts placed (the comment above {@link searchStep}). */
+  private endSearch(g: Group, st: SearchState): void {
+    this.broken.delete(g);
+    const { owner, queues, parent, growing } = st;
+    const find = (i: number): number => findSearch(parent, i);
     this.walked += owner.size;
     // The part still growing (if any) holds every node not reached; the others are whole.
     const left = growing.size === 1 ? [...growing][0]! : -1;
@@ -669,12 +808,16 @@ export class OpenRegionStitch {
     let edge = false;
     const other = new Set<number>();
     for (const n of g.nodes) {
+      // A region under search still lists the nodes it lost until the search ends.
+      if (n.dead) continue;
       cells += n.cells;
       sky ||= n.sky;
       unknown ||= (n.faces & ~n.piece.known) !== 0;
       edge ||= (n.faces & n.piece.outside) !== 0;
       for (const o of n.links) if (o.group !== null) other.add(o.group.id);
     }
+    // A region whose search is under way may be in parts already: not known whole, so never complete or enclosed yet.
+    if (this.broken.has(g)) unknown = true;
     const info: OpenRegionInfo = Object.freeze({ id: g.id, portal: g.portal, cells, sky, complete: !unknown, enclosed: !g.portal && !unknown && !sky && !edge, portals: other.size });
     g.info = info;
     g.infoAt = this.version;
@@ -712,13 +855,14 @@ export class OpenRegionStitch {
     if (g === undefined) return [];
     const portals = new Set<Group>();
     if (g.portal) portals.add(g);
-    else for (const n of g.nodes) for (const o of n.links) if (o.group !== null) portals.add(o.group);
+    else for (const n of g.nodes) if (!n.dead) for (const o of n.links) if (o.group !== null) portals.add(o.group);
     return [...portals].map((p) => {
       const min: [number, number, number] = [Infinity, Infinity, Infinity];
       const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
       const regions = new Set<number>();
       let cells = 0;
       for (const n of p.nodes) {
+        if (n.dead) continue;
         cells += n.cells;
         for (let k = 0; k < 3; k++) {
           min[k] = Math.min(min[k]!, n.min[k]!);
@@ -825,7 +969,7 @@ export class OpenRegionStitch {
         if (r.enclosed) enclosed++;
       }
     }
-    return { pieces: this.pieces.size, nodes: this.nodeCount, regions, enclosed, portals, built: this.built, walked: this.walked };
+    return { pieces: this.pieces.size, nodes: this.nodeCount, regions, enclosed, portals, built: this.built, walked: this.walked, searched: this.searched, columns: this.columnsDone, searching: this.broken.size };
   }
 
   /** Bytes held (the pieces' maps and tops, the columns' sky heights, and an estimate per node and contact). */

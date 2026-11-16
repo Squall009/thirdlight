@@ -585,14 +585,128 @@ describe('open regions stitched as a ring moves', () => {
     expectSameChunkRegions(s, w);
   });
 
+  it('a ring narrowing at once is stitched and searched in slices, each call within a unit of its slice, to what one unbounded update gives', () => {
+    // Open air over rock, a tunnel under it along x (y −1, z 0) reaching the surface only by shafts at x = ±8, and a
+    // sealed cave (y −1, z −2, x −1 … 1). A ring 24 chunks across narrows to 6 (3,240 chunks unload at once, as at a
+    // flight's start): the tunnel's middle loses both shafts and splits off. Then, once the last chunk is dropped,
+    // a row arrives at x = 3 into the region under search: its tunnel chunk joins the part already split off (whose
+    // search had ended), the rest the outdoors (whose search goes on).
+    const air = (x: number, y: number, z: number): boolean => y >= 1 || (z === 0 && ((y === -1 && x >= -12 && x <= 11) || (y === 0 && (x === -8 || x === 8)))) || (y === -1 && z === -2 && x >= -1 && x <= 1);
+    const w = new UniformWorld(air);
+    const twinWorld = new UniformWorld(air);
+    const s = new OpenRegionStitch(w.view());
+    const twin = new OpenRegionStitch(twinWorld.view());
+    const both = (x: number, y: number, z: number, on: boolean): void => {
+      w.set(s, x, y, z, on);
+      twinWorld.set(twin, x, y, z, on);
+    };
+    const R = 12;
+    for (let x = -R; x < R; x++) for (let z = -R; z < R; z++) for (let y = -2; y <= 4; y++) both(x, y, z, true);
+    s.update();
+    twin.update();
+    expect(s.stats().regions).toBe(2);
+    const keep = (x: number, z: number, at: number): boolean => x >= -3 + at && x < 3 + at && z >= -3 && z < 3;
+    for (let x = -R; x < R; x++) for (let z = -R; z < R; z++) if (!keep(x, z, 0)) for (let y = -2; y <= 4; y++) both(x, y, z, false);
+    twin.update();
+    const MS = 4;
+    let clock = 0;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => ++clock);
+    try {
+      let calls = 0;
+      let moved = false;
+      let searchingCalls = 0;
+      let worstChunks = 0;
+      let worstSearched = 0;
+      let wrongComplete = 0;
+      while (s.pending && calls < 5000) {
+        const before = s.stats();
+        const got = s.update(MS);
+        const after = s.stats();
+        calls++;
+        // A unit: a chunk or a column (one reading each), or SEARCH_NODES (16) nodes of a search: at most MS + 1 a call.
+        worstChunks = Math.max(worstChunks, got + after.columns - before.columns);
+        worstSearched = Math.max(worstSearched, after.searched - before.searched);
+        if (after.searching > 0) searchingCalls++;
+        // Meanwhile a region that answers complete is whole: its cells are its flood fill's.
+        if (calls % 25 === 0) {
+          const comps = w.components();
+          const size = new Map<number, number>();
+          for (const c of comps.values()) size.set(c, (size.get(c) ?? 0) + 1);
+          for (const [k, c] of comps) {
+            const [x, y, z] = k.split(',').map(Number) as [number, number, number];
+            const r = s.regionAt(x * 32 + 16, y * 32 + 16, z * 32 + 16);
+            if (r !== null && r.complete && r.cells !== size.get(c)! * 32 ** 3) wrongComplete++;
+          }
+        }
+        if (!moved && after.searching > 0 && after.pieces === 6 * 6 * 7) {
+          moved = true;
+          for (let z = -3; z < 3; z++) for (let y = -2; y <= 4; y++) both(3, y, z, true);
+          twin.update();
+        }
+      }
+      expect(s.pending).toBe(false);
+      expect(moved).toBe(true);
+      expect(searchingCalls).toBeGreaterThan(1);
+      expect(worstChunks).toBeLessThanOrEqual(MS + 1);
+      expect(worstSearched).toBeGreaterThan(0);
+      expect(worstSearched).toBeLessThanOrEqual((MS + 1) * 16);
+      expect(wrongComplete).toBe(0);
+    } finally {
+      now.mockRestore();
+    }
+    const summary = (t: OpenRegionStitch): string[] => [...t.all()].map((r) => `${r.portal}:${r.cells}:${r.enclosed}:${r.sky}:${r.complete}:${r.portals}`).sort();
+    expect(summary(s)).toEqual(summary(twin));
+    // The outdoors, the tunnel's middle split off, the sealed cave.
+    expect(s.stats().regions).toBe(3);
+    expect(s.regionAt(32 + 16, -32 + 16, -2 * 32 + 16)!.enclosed).toBe(true);
+    expectSameChunkRegions(s, w);
+    expectSameChunkRegions(twin, twinWorld);
+  });
+
+  it('a chunk arriving against a part whose search has ended, while the others still search, joins that part', () => {
+    // Three corridors of air through rock meet at a junction chunk (0, 0, 0): 100 chunks along +x, 100 along −x and 3
+    // along +z. The junction goes: three parts. The short one's search ends after a few rounds while the long two
+    // still grow; then a chunk arrives at the short one's end (0, 0, 4).
+    const air = (x: number, y: number, z: number): boolean => y === 0 && ((z === 0 && x >= -100 && x <= 100) || (x === 0 && z >= 1 && z <= 4));
+    const w = new UniformWorld(air);
+    const s = new OpenRegionStitch(w.view());
+    for (let x = -101; x <= 101; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 5; z++) if (!(x === 0 && y === 0 && z === 4)) w.set(s, x, y, z, true);
+    s.update();
+    expect(s.stats().regions).toBe(1);
+    w.set(s, 0, 0, 0, false);
+    let clock = 0;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => ++clock);
+    try {
+      let arrived = false;
+      for (let calls = 0; s.pending && calls < 1000; calls++) {
+        s.update(2);
+        const st = s.stats();
+        // After the first rounds (the stub's 3 nodes, three queues a round), before the long parts' 100.
+        if (!arrived && st.searching > 0 && st.searched >= 3 * 6) {
+          arrived = true;
+          w.set(s, 0, 0, 4, true);
+        }
+      }
+      expect(arrived).toBe(true);
+      expect(s.pending).toBe(false);
+    } finally {
+      now.mockRestore();
+    }
+    expect(s.stats().regions).toBe(3);
+    expect(s.regionIdAt(16, 16, 4 * 32 + 16)).toBe(s.regionIdAt(16, 16, 32 + 16));
+    expect(s.regionAt(16, 16, 32 + 16)!.cells).toBe(4 * 32 ** 3);
+    expectSameChunkRegions(s, w);
+  });
+
   it('sky heights are refreshed within the slice behind the chunks, and settle to what one unbounded update gives', () => {
     const w = new TestWorld();
     w.fill([0, 0, 0, 95, 3, 95], ROCK);
     w.room([20, 4, 20, 40, 12, 34]);
     w.fill([60, 4, 60, 70, 40, 70], WALL);
     const ref = loadBox(w, [0, 0, 0], [2, 1, 2]);
-    // The same chunks stitched in slices of 4 ms on a clock that steps 1 ms a reading: a call stitches 4 chunks, then
-    // has no time left for more than the one column it always refreshes, so the columns fall behind and catch up.
+    // The same chunks stitched in slices of 4 ms on a clock that steps 1 ms a reading: a call does 4 units (its first
+    // free, then one a reading), chunks or columns, the first unit going to each stage in turn, so the columns fall
+    // behind the chunks and catch up.
     let clock = 0;
     const now = vi.spyOn(performance, 'now').mockImplementation(() => ++clock);
     try {
@@ -601,17 +715,22 @@ describe('open regions stitched as a ring moves', () => {
       let calls = 0;
       let columnsOnly = 0;
       let staleSeen = false;
+      const perCall: number[] = [];
       while (s.pending && calls < 100) {
-        if (s.update(4) === 0) columnsOnly++;
+        const c0 = s.stats().columns;
+        const got = s.update(4);
+        if (got === 0) columnsOnly++;
+        perCall.push(got + s.stats().columns - c0);
         calls++;
         // A column whose chunks are stitched but whose heights wait: not known yet (null), never another's.
         if (s.pending && s.skyHeight(65, 65) !== ref.skyHeight(65, 65)) staleSeen = true;
       }
-      // 18 chunks in 9 columns: 5 calls stitch them (4, 4, 4, 4, 2) and refresh 1, 1, 1, 1 and 2 columns; the sixth
-      // has only columns left and refreshes the last 3.
+      // 18 chunks in 9 columns, 4 units a call: chunks 4, 2, 4, 4, 0, 4, 0 and columns 0, 2, 0, 0, 4, 0, 3 (the second
+      // call starts with the columns, the fifth and seventh have only columns); never more than the slice's 4.
       expect(s.pending).toBe(false);
-      expect(calls).toBe(6);
-      expect(columnsOnly).toBe(1);
+      expect(perCall).toEqual([4, 4, 4, 4, 4, 4, 3]);
+      expect(calls).toBe(7);
+      expect(columnsOnly).toBe(2);
       expect(staleSeen).toBe(true);
       for (let x = 0; x < 96; x++) for (let z = 0; z < 96; z++) if (s.skyHeight(x, z) !== ref.skyHeight(x, z)) expect([x, z, s.skyHeight(x, z)]).toEqual([x, z, ref.skyHeight(x, z)]);
       expect(s.skyHeight(65, 65)).toBe(41);
