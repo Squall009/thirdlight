@@ -134,6 +134,45 @@ describe('the far window', () => {
     expect(bad).toBe(0);
   });
 
+  it('held, composes tiles that enter but not those whose nodes changed; let go, composes those to what a field never held holds', () => {
+    // 1 m columns in 32 m tiles over a 1,024 m window; nodes of 32 m (level 1) over a strip of the window, composed.
+    const f = new FarSunTops(32, 0.5, 1);
+    f.window.follow(0, 0);
+    const node = (k: number) => ({ level: 1, nx: k, ny: 0, nz: 0 });
+    for (let k = 0; k < 8; k++) f.add(`n${k}`, node(k), flatNode(10 + k));
+    while (f.composeNext());
+    // At speed: the far field's nodes over composed tiles come and go (finer ones replacing them, then going), and the
+    // window moves a tile east (32 tiles enter, one of them under a node drawn meanwhile).
+    f.hold(true);
+    for (let k = 0; k < 8; k++) f.remove(`n${k}`);
+    for (let k = 0; k < 8; k++) f.add(`m${k}`, node(k), flatNode(30 - k));
+    f.add('far', { level: 1, nx: 16, ny: 0, nz: 0 }, flatNode(7));
+    expect(f.window.waiting).toBe(0);
+    expect(f.held).toBe(8);
+    f.window.follow(32, 0);
+    expect(f.window.waiting).toBe(32);
+    let composed = 0;
+    while (f.composeNext()) composed++;
+    expect(composed).toBe(32);
+    // Still the old tops where the nodes changed (the 8 tiles wait), the new node's tile that entered composed.
+    expect(f.window.topAt(16.5, 16.5)).toBeCloseTo(10, 1);
+    expect(f.window.topAt(16 * 32 + 16.5, 16.5)).toBeCloseTo(7, 1);
+    f.hold(false);
+    expect(f.held).toBe(0);
+    expect(f.window.waiting).toBe(8);
+    while (f.composeNext());
+    // The same tops as a field that was never held, given the same nodes and window.
+    const g = new FarSunTops(32, 0.5, 1);
+    g.window.follow(32, 0);
+    for (let k = 0; k < 8; k++) g.add(`m${k}`, node(k), flatNode(30 - k));
+    g.add('far', { level: 1, nx: 16, ny: 0, nz: 0 }, flatNode(7));
+    while (g.composeNext());
+    let differ = 0;
+    for (let i = 0; i < f.window.data.length; i++) if (f.window.data[i] !== g.window.data[i]) differ++;
+    expect(differ).toBe(0);
+    expect(f.window.topAt(16.5, 16.5)).toBeCloseTo(30, 1);
+  });
+
   it('clears the tiles that enter on a move and keeps the rest', () => {
     const w = new SunHeightWindow(1, 64, 16);
     w.follow(0, 0);

@@ -5,13 +5,14 @@
  * - with the slice spent before anything is done, a frame still does one piece of work, the march's row or (when the
  *   last frame composed none) a tile in its place, never two;
  * - past the streamer's level-0 speed the near window stays where it was (a frame repeating the last pose does not let
- *   it go), composes nothing and reads as no window (the march skips it); once the camera has stopped for the
+ *   it go), composes nothing and reads as no window (the march skips it), and a far node drawn over far tiles already
+ *   composed leaves them waiting; once the camera has stopped for the
  *   streamer's stop time it comes to the camera, composes what entered within the slice, its lines
  *   are marched again, and it holds the same tops as a field that never travelled.
  */
 import * as THREE from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
-import { SkyColumns, STREAM_DETAIL_SPEED, STREAM_STOPPED_MS } from '@thirdlight/voxel';
+import { DISTANCE_BRICK_INSIDE, SkyColumns, STREAM_DETAIL_SPEED, STREAM_STOPPED_MS, type FarBricks } from '@thirdlight/voxel';
 
 import { SunField, type SunFieldRenderer } from './voxel-sun-field';
 
@@ -33,6 +34,9 @@ function skies(): SkyColumns {
   s.apply(wires);
   return s;
 }
+
+/** A far node solid through (its tops at its top), no samples needed. */
+const SOLID_NODE = { side: 4, bricks: new Int32Array(64).fill(DISTANCE_BRICK_INSIDE), samples: new Uint8Array(0), looks: new Uint16Array(0), blocks: new Uint8Array(0) } as unknown as FarBricks;
 
 function counting(): SunFieldRenderer & { computes: number; copies: number } {
   const r = {
@@ -95,6 +99,8 @@ describe('the sun field a frame', () => {
       if (i % 5 !== 4) x += 5;
       else x += 0;
       f.follow(x, 0, DIR, 100, t);
+      // A far node drawn over far tiles composed before: they wait for the let-go.
+      if (i === 10) f.farAdded('node', { level: 3, nx: 0, ny: 0, nz: 0 }, SOLID_NODE);
       f.frame(() => true, r);
       expect(f.held).toBe(true);
       // Held, the near window reads as none (the march skips its columns; lit points read the far window).
@@ -102,6 +108,7 @@ describe('the sun field a frame', () => {
     }
     expect(f.near.tileX).toBe(tileX);
     expect(f.stats.nearTiles).toBe(near);
+    expect(f.far.held).toBe(1);
     expect(f.stats.heldFrames).toBe(60);
     // The far window kept following (its 128 m tiles: two columns of them entered).
     expect(f.far.window.tileX).toBe(Math.floor(x / 128) - 16);
@@ -112,6 +119,7 @@ describe('the sun field a frame', () => {
       f.follow(x, 0, DIR, 100, t);
     }
     expect(f.held).toBe(false);
+    expect(f.far.held).toBe(0);
     expect(f.near.tileX).toBe(Math.floor(x / 16) - 16);
     expect((f.nearRect.value as THREE.Vector4).w).toBe(1);
     expect(f.marching).toBe(32);

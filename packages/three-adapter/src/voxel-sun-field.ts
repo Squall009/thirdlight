@@ -37,7 +37,10 @@
  *   second. While held it reads as no window (its tops are kept for later):
  *   the march skips its columns and lit points read the far window's lines
  *   (4 m columns); once the camera slows, the window comes to it, composes
- *   nearest first and its lines are marched again.
+ *   nearest first and its lines are marched again. The far window keeps
+ *   following, but a far node drawn or taken away over a tile already
+ *   composed waits for the same let-go (the far field's nodes change many
+ *   times over a tile at speed; tiles entering are composed at once).
  * - **Quality.** The march's sample count is the tier's (`voxelSunSteps`; 0
  *   off); the GPU measurement's hide skips the march and the reads.
  *
@@ -198,6 +201,8 @@ export class SunField {
       l.t = now;
       if (this.nearHeld) this.stats.heldFrames++;
     }
+    // Held, the far field's nodes changing over tiles already composed wait too (sun-heights.ts `FarSunTops.hold`).
+    this.far.hold(this.nearHeld);
     const nearMoved = !this.nearHeld && this.near.follow(x, z);
     // Held or let go, the near window's lines are marched again: unknown while held, its columns once let go.
     if (this.far.window.follow(x, z) || nearMoved || held !== this.nearHeld) this.dirty();

@@ -271,6 +271,11 @@ export class SunHeightWindow {
     return this.dirty.size;
   }
 
+  /** Whether a world tile waits to be composed. */
+  isWaiting(tx: number, tz: number): boolean {
+    return this.dirty.has(tileKey(tx, tz));
+  }
+
   /** The next tile waiting (nearest the window's centre first), taken off the list; null: none. */
   next(): readonly [number, number] | null {
     if (this.dirty.size === 0) return null;
@@ -355,6 +360,9 @@ export class FarSunTops {
   private readonly levels = new Map<number, number>();
   /** Bytes the nodes' tops hold. */
   bytes = 0;
+  /** While held: tiles already composed whose nodes changed since, composed again once let go ({@link hold}). */
+  private readonly later = new Map<number, readonly [number, number]>();
+  private holding = false;
 
   constructor(
     /** Cells a node spans an axis (the world's chunk edge). */
@@ -418,7 +426,32 @@ export class FarSunTops {
     const t0z = Math.floor(node.z0 / w.tileM);
     const t1x = Math.floor((node.x0 + span - 1e-6) / w.tileM);
     const t1z = Math.floor((node.z0 + span - 1e-6) / w.tileM);
-    for (let tz = t0z; tz <= t1z; tz++) for (let tx = t0x; tx <= t1x; tx++) w.mark(tx, tz);
+    for (let tz = t0z; tz <= t1z; tz++) {
+      for (let tx = t0x; tx <= t1x; tx++) {
+        if (this.holding && w.holds(tx, tz) && !w.isWaiting(tx, tz)) this.later.set(tileKey(tx, tz), [tx, tz]);
+        else w.mark(tx, tz);
+      }
+    }
+  }
+
+  /**
+   * Held (the camera faster than the streamer's level-0 speed): a node drawn or taken away over a tile already
+   * composed does not compose it again, it waits; tiles that enter the window, or wait already, are composed as
+   * ever. At speed the far field's nodes come and go many times over each tile (a flight at 150 m/s composed each
+   * tile about six times for every time one entered), and a 4 m column's line a second late is not seen. Let go,
+   * the tiles that waited are marked to compose (nearest first, in the slice).
+   */
+  hold(on: boolean): void {
+    if (on === this.holding) return;
+    this.holding = on;
+    if (on) return;
+    for (const [tx, tz] of this.later.values()) this.window.mark(tx, tz);
+    this.later.clear();
+  }
+
+  /** Tiles waiting for the hold to end. */
+  get held(): number {
+    return this.later.size;
   }
 
   /** Composes the next waiting tile (true: one was composed; false: none waits). */

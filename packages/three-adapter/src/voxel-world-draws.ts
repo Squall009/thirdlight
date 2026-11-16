@@ -584,9 +584,9 @@ export class VoxelWorldDraws {
   }
 
   /** The sun field as drawn (null: none on this page). */
-  sunStats(): { readonly steps: number; readonly waiting: readonly number[]; readonly marching: number; readonly farNodes: number; readonly nearOrigin: readonly number[]; readonly farOrigin: readonly number[]; readonly bytes: number; readonly topMax: number; readonly stats: Record<string, number> } | null {
+  sunStats(): { readonly steps: number; readonly waiting: readonly number[]; readonly farHeld: number; readonly marching: number; readonly farNodes: number; readonly nearOrigin: readonly number[]; readonly farOrigin: readonly number[]; readonly bytes: number; readonly topMax: number; readonly stats: Record<string, number> } | null {
     const s = this.sun;
-    return s === null ? null : { steps: s.steps, waiting: [...s.field.waiting], marching: s.field.marching, farNodes: s.field.far.count, nearOrigin: s.field.near.origin, farOrigin: s.field.far.window.origin, bytes: s.field.bytes, topMax: Math.max(s.field.near.topMax, s.field.far.window.topMax), stats: { ...s.field.stats } };
+    return s === null ? null : { steps: s.steps, waiting: [...s.field.waiting], farHeld: s.field.far.held, marching: s.field.marching, farNodes: s.field.far.count, nearOrigin: s.field.near.origin, farOrigin: s.field.far.window.origin, bytes: s.field.bytes, topMax: Math.max(s.field.near.topMax, s.field.far.window.topMax), stats: { ...s.field.stats } };
   }
 
   private world(name: string, edge: number, scene: THREE.Scene, renderer: VoxelGridRenderer): WorldDraw {
