@@ -8,8 +8,10 @@
  * simulation's job queue and far work at zero). Throughout: a body dropped onto the ground never falls through it.
  *
  * Where it runs: Play in the editor on a running backend (default), or the exported game served statically with
- * the backend stopped (two steps, as `run.mjs export-memory`): `--export` (backend running) prepares the project
- * and exports it, printing the folder; `--dir DIR` (backend stopped) runs the flight in it. Staging's 8 km world
+ * the backend stopped: `--export` (staging running) prepares the project, exports it, puts the project back, stops
+ * staging (`tools/staging.sh stop`), runs the flight in the export and removes the export when the run ends, also
+ * on failure (an 8 km world's export is ~1.1 GB); `--export --keep-export` only exports and prints the folder
+ * (nothing removed), and `--dir DIR` (backend stopped) runs the flight in a folder it never removes. Staging's 8 km world
  * (`run.mjs far-world`, project voxel-slice), WebGPU, 1280 × 720, the quality level's own cap (low: 30 Hz).
  *
  * The camera (the project's "Perf far camera", given the shared flight behaviour, flight-camera.ts) flies a
@@ -30,7 +32,8 @@
  *
  *   --origin URL  --token-file FILE  --data-root DIR (default ~/thirdlight-staging-p45)  --project ID (voxel-slice)
  *   --quality LEVEL (default low)   --speed M/S (default 150)   --altitude high|hug (default high)
- *   --export   prepare and export (backend running): prints the export folder; `--dir DIR` runs in it
+ *   --export   prepare, export, stop staging, fly in the export, remove it   --keep-export  export only, kept, folder printed
+ *   --dir DIR  fly in an export made earlier (never removed)
  *   --hold S   seconds recorded after the stop (default 30): settle times longer than it read as not settled
  *   --strip LIST  seconds into the flight to keep a screencast frame at (640 × 360, no extra capture); `aN`: N s after the stop
  *   --shots LIST  seconds into the flight to save full-size frames (a screenshot: it costs a frame)   --shot-dir DIR
@@ -44,11 +47,13 @@
  *
  *   sudo -n systemd-run --scope --quiet -p MemoryMax=10G -p MemorySwapMax=0 -- sudo -n -u $USER -- \
  *     env HOME=$HOME PATH=$PATH TMPDIR=$HOME/.cache/tmp/coverage node tools/voxel-bench/run.mjs coverage --speed 150
- *   (an export: staging running, `<capped> … coverage --export --quality low`; staging stopped, `<capped> … coverage --dir <folder> --quality low --speed 150`)
+ *   (an export: staging running, `<capped> … coverage --export --quality low --speed 150`; or kept for several
+ *   flights: `… --export --keep-export`, then staging stopped, `<capped> … coverage --dir <folder> --quality low --speed 150`)
  *
  * Read `travel` (flight frames, stop settle times, falls), `spikes`, `holes`, `bottomDark`, `viewInStandIn`,
  * `memory*`, `far`. Not part of `npm test`.
  */
+import { execFileSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir, loadavg, uptime } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -58,6 +63,7 @@ import { FAR_INSIDE_LOOK_M } from '@thirdlight/voxel';
 import { decodePng } from '../../tests/e2e/png';
 import { launchGpuBrowser, serveStatic } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
+import { exportsRoot, MadeExport } from './export-cleanup';
 import { processMemory } from './browser-memory';
 import { along, coveragePath, entersAtFace, entersEyeNode, entersWithin, leavesSolid, groundAlong, groundMask, isKey, viewRayPoints, VIEW_RAYS, type CoveragePath, type FarSample } from './coverage';
 import { benchApi, farGround, fineGround, flightSource, PROBE_COUNTERS, publishCameraBehaviour, type BenchApi } from './flight-camera';
@@ -79,8 +85,11 @@ const PROJECT_DIR = join(DATA_ROOT, 'projects', PROJECT);
 const QUALITY = arg('quality', 'low');
 const SPEED = Number(arg('speed', '150'));
 const ALTITUDE = arg('altitude', 'high') as 'high' | 'hug';
-const EXPORT_DIR = arg('dir', '');
-const WHERE = EXPORT_DIR !== '' ? 'export' : 'play';
+const MAKE_EXPORT = process.argv.includes('--export');
+const KEEP_EXPORT = process.argv.includes('--keep-export');
+/** The export the flight runs in: `--dir`, or the one `--export` made. */
+let exportDir = arg('dir', '');
+const WHERE = exportDir !== '' || MAKE_EXPORT ? 'export' : 'play';
 /** Metres along the line the flight stops at (default its end). */
 const PARK = Number(arg('park', 'Infinity'));
 const HOLD_S = Number(arg('hold', '30'));
@@ -549,8 +558,8 @@ async function prepare(b: BenchApi, path: CoveragePath, stopAt: number): Promise
   };
 }
 
-/** `--export`: the project prepared and exported (debug console on), then put back. Prints the export's folder. */
-async function exportProject(path: CoveragePath, stopAt: number): Promise<void> {
+/** `--export`: the project prepared and exported (debug console on), then put back. Returns the export's folder. */
+async function exportProject(path: CoveragePath, stopAt: number, made: MadeExport): Promise<string> {
   const b = bench();
   const settings = (JSON.parse(readFileSync(join(PROJECT_DIR, 'content.json'), 'utf8')) as { content: { settings?: Record<string, unknown> } }).content.settings ?? {};
   const restore = await prepare(b, path, stopAt);
@@ -559,7 +568,7 @@ async function exportProject(path: CoveragePath, stopAt: number): Promise<void> 
     const exported = await b.api(`admin/projects/${PROJECT}/export`);
     if (exported.status !== 200) throw new Error(`export ${exported.status}: ${JSON.stringify(exported.json).slice(0, 400)}`);
     console.log(`coverage: exported, ${ALTITUDE}, line ${(path.total / 1000).toFixed(2)} km, stop at ${stopAt} m; flights ${Object.keys(FLIGHTS).join(', ')}`);
-    console.log(`coverage: ${join(DATA_ROOT, 'exports', String(exported.json['outputDir']))}`);
+    return made.claim(String(exported.json['outputDir']));
   } finally {
     await b.command('setSettings', { settings: { debug_console: settings['debug_console'] ?? 0 } }).catch((e: unknown) => console.error(`console setting not put back: ${String(e)}`));
     await restore();
@@ -572,8 +581,8 @@ async function run(path: CoveragePath, stopAt: number): Promise<Record<string, u
   console.log(`coverage: ${WHERE}, ${QUALITY}, ${SPEED} m/s, ${ALTITUDE}: ${(stopAt / 1000).toFixed(2)} km in ${(stopAt / SPEED).toFixed(1)} s; ground ${Math.min(...path.ground)}–${Math.max(...path.ground)} m`);
   const b = WHERE === 'play' ? bench() : null;
   const restore = b === null ? null : await prepare(b, path, stopAt);
-  if (WHERE === 'export' && !existsSync(join(EXPORT_DIR, 'manifest.json'))) throw new Error(`no export at "${EXPORT_DIR}" (--dir: the folder --export printed)`);
-  const site = WHERE === 'export' ? await serveStatic(EXPORT_DIR) : null;
+  if (WHERE === 'export' && !existsSync(join(exportDir, 'manifest.json'))) throw new Error(`no export at "${exportDir}" (--dir: the folder --export --keep-export printed)`);
+  const site = WHERE === 'export' ? await serveStatic(exportDir) : null;
   let browser: Browser | null = null;
   try {
     browser = await launchGpuBrowser({ vsync: true });
@@ -667,11 +676,32 @@ async function run(path: CoveragePath, stopAt: number): Promise<Record<string, u
 async function main(): Promise<void> {
   const path = coveragePath(WAYPOINTS, farGround(PROJECT_DIR, WORLD));
   const stopAt = Math.min(path.total, PARK);
-  if (process.argv.includes('--export')) {
-    await exportProject(path, stopAt);
-    return;
+  let out: Record<string, unknown>;
+  if (MAKE_EXPORT) {
+    const made = new MadeExport(exportsRoot(DATA_ROOT));
+    const removeMade = () => {
+      made.claimNew(`${PROJECT}@`);
+      const gone = made.remove();
+      if (gone !== null) console.log(`coverage: removed the export this run made, ${gone}`);
+    };
+    // A run stopped from outside removes its export too (the scope's stop sends SIGTERM).
+    const onSignal = (sig: NodeJS.Signals) => { if (!KEEP_EXPORT) removeMade(); process.exit(sig === 'SIGINT' ? 130 : 143); };
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
+    try {
+      exportDir = await exportProject(path, stopAt, made);
+      console.log(`coverage: ${exportDir}`);
+      if (KEEP_EXPORT) return;
+      // The flight runs in the export served statically with the backend stopped, as a player would have it.
+      execFileSync(join(process.env['TL_VOXEL_BENCH_REPO'] ?? process.cwd(), 'tools', 'staging.sh'), ['stop'], { stdio: 'inherit' });
+      out = await run(path, stopAt);
+      out['export'] = { dir: exportDir, removed: true };
+    } finally {
+      if (!KEEP_EXPORT) removeMade();
+    }
+  } else {
+    out = await run(path, stopAt);
   }
-  const out = await run(path, stopAt);
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, `${JSON.stringify(out, null, 1)}\n`);
   const t = out['travel'] as { flight?: unknown; afterStop?: unknown; falls?: { drops: number; fellThrough: number; end?: unknown } } | undefined;
