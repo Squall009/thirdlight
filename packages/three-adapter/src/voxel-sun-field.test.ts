@@ -1,0 +1,126 @@
+/**
+ * The sun field's frame against its slice and the camera's speed, counted (no GPU: the march's dispatch and copy go
+ * to a renderer that counts them; times are given, never read from the clock):
+ *
+ * - with the slice spent before anything is done, a frame still does one piece of work, the march's row or (when the
+ *   last frame composed none) a tile, never a tile of each window besides;
+ * - past the streamer's level-0 speed the near window stays where it was and composes nothing; once the camera stops
+ *   it comes to the camera, composes what entered within the slice, and holds the same tops as a field that never
+ *   travelled.
+ */
+import * as THREE from 'three/webgpu';
+import { describe, expect, it } from 'vitest';
+import { SkyColumns, STREAM_DETAIL_SPEED } from '@thirdlight/voxel';
+
+import { SunField, type SunFieldRenderer } from './voxel-sun-field';
+
+const EDGE = 32;
+const VOXEL_M = 0.5;
+const DIR = new THREE.Vector3(0.3, -1, 0.2).normalize();
+
+/** Sky heights over chunk columns −40 … 40 (a ground that steps from column to column). */
+function skies(): SkyColumns {
+  const s = new SkyColumns(EDGE);
+  const wires = [];
+  for (let cx = -40; cx <= 40; cx++) {
+    for (let cz = -40; cz <= 40; cz++) {
+      const h = new Int16Array(EDGE * EDGE);
+      for (let i = 0; i < h.length; i++) h[i] = 40 + (((cx * 7 + cz * 3 + (i >> 5)) & 31) as number);
+      wires.push({ cx, cz, heights: h });
+    }
+  }
+  s.apply(wires);
+  return s;
+}
+
+function counting(): SunFieldRenderer & { computes: number; copies: number } {
+  const r = {
+    computes: 0,
+    copies: 0,
+    compute: () => {
+      r.computes++;
+    },
+    copyTextureToTexture: () => {
+      r.copies++;
+    },
+  };
+  return r;
+}
+
+/** Frames, each with a slice of `tiles` readings of `more()`, until no tile waits in either window (capped). */
+function settle(f: SunField, r: SunFieldRenderer, tiles: number): number {
+  let frames = 0;
+  while ((f.near.waiting > 0 || f.far.window.waiting > 0) && frames < 10_000) {
+    let left = tiles;
+    f.frame(() => left-- > 0, r);
+    frames++;
+  }
+  return frames;
+}
+
+describe('the sun field a frame', () => {
+  const sky = skies();
+
+  it('with the slice spent, does one piece of work a frame: the row, or a tile when the last frame composed none', () => {
+    const f = new SunField(EDGE, VOXEL_M, () => [sky]);
+    f.setSteps(12);
+    const r = counting();
+    f.follow(0, 0, DIR, 100, 0);
+    const waiting = f.near.waiting + f.far.window.waiting;
+    expect(waiting).toBe(2 * 32 * 32);
+    for (let i = 0; i < 21; i++) f.frame(() => false, r);
+    // Frame 1 has nothing to march yet and composes one tile; then a row every frame and a tile every other.
+    expect(r.computes).toBe(20);
+    expect(r.copies).toBe(20);
+    expect(f.stats.nearTiles + f.stats.farTiles).toBe(11);
+    expect(f.near.waiting + f.far.window.waiting).toBe(waiting - 11);
+  });
+
+  it('past the level-0 speed the near window stays; after the stop it comes, composes in slices and holds what a field that never moved holds', () => {
+    const f = new SunField(EDGE, VOXEL_M, () => [sky]);
+    f.setSteps(12);
+    const r = counting();
+    let t = 0;
+    let x = 0;
+    f.follow(x, 0, DIR, 100, t);
+    settle(f, r, 4096);
+    const tileX = f.near.tileX;
+    const near = f.stats.nearTiles;
+    // 150 m/s at 30 frames a second, 2 s: 300 m, 18 of the near window's 16 m tiles.
+    expect(150).toBeGreaterThan(STREAM_DETAIL_SPEED * VOXEL_M);
+    for (let i = 0; i < 60; i++) {
+      t += 1000 / 30;
+      x += 5;
+      f.follow(x, 0, DIR, 100, t);
+      f.frame(() => true, r);
+      expect(f.held).toBe(true);
+    }
+    expect(f.near.tileX).toBe(tileX);
+    expect(f.stats.nearTiles).toBe(near);
+    expect(f.stats.heldFrames).toBe(60);
+    // The far window kept following (its 128 m tiles: two columns of them entered).
+    expect(f.far.window.tileX).toBe(Math.floor(x / 128) - 16);
+    // Stopped: the next follow brings the near window to the camera.
+    t += 1000 / 30;
+    f.follow(x, 0, DIR, 100, t);
+    expect(f.held).toBe(false);
+    expect(f.near.tileX).toBe(Math.floor(x / 16) - 16);
+    const entered = f.near.waiting;
+    expect(entered).toBe(18 * 32);
+    // 64 tiles a frame (the slice), nearest first: done within the frames that takes.
+    const frames = settle(f, r, 64);
+    expect(frames).toBeLessThanOrEqual(Math.ceil(entered / 64) + 1);
+    expect(f.stats.nearTiles - near).toBe(entered);
+    // The same tops as a field that went straight there.
+    const g = new SunField(EDGE, VOXEL_M, () => [sky]);
+    g.setSteps(12);
+    g.follow(x, 0, DIR, 100, 0);
+    settle(g, counting(), 4096);
+    expect(g.near.tileX).toBe(f.near.tileX);
+    let differ = 0;
+    for (let i = 0; i < f.near.data.length; i++) if (f.near.data[i] !== g.near.data[i]) differ++;
+    expect(differ).toBe(0);
+    expect(f.probe([x + 3, 30, 7]).near).toBe(g.probe([x + 3, 30, 7]).near);
+    expect(f.near.topAt(x + 3, 7)).toBeGreaterThan(19);
+  });
+});

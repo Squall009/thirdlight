@@ -22,10 +22,20 @@
  *   what enters), made a light of the scene ({@link SunFieldLight}) so lit
  *   programs are built again with it once and find it among their lights. A
  *   world's sky heights arrive with the draw batches; the far field's nodes
- *   give their tops as they are drawn and taken away; tiles are composed
- *   within the lighting preparation slice. The lines are marched a tile row
- *   of each window a frame, while anything changed (tops, the windows' place,
- *   the sun) in the last full pass: a change shows within that many frames.
+ *   give their tops as they are drawn and taken away. The lines are marched
+ *   a tile row of each window a frame, while anything changed (tops, the
+ *   windows' place, the sun) in the last full pass: a change shows within
+ *   that many frames. The frame's work (the march's row with the uploads it
+ *   carries, then tiles composed) runs within the lighting preparation
+ *   slice; a frame that has spent it before doing anything still does one
+ *   piece (the row, or a tile when the last frame composed none), so both
+ *   move on.
+ * - **At speed** (the camera faster than the streamer's level-0 speed,
+ *   `STREAM_DETAIL_SPEED`) the near window stays where it was: no level 0
+ *   is built there, so the sky heights it would read ahead are unknown, and
+ *   moving it would only clear and compose tiles the camera leaves within a
+ *   second. Points outside it read the far window's lines (4 m columns);
+ *   once the camera slows, the window comes to it and composes nearest first.
  * - **Quality.** The march's sample count is the tier's (`voxelSunSteps`; 0
  *   off); the GPU measurement's hide skips the march and the reads.
  *
@@ -35,7 +45,7 @@
 import * as THREE from 'three/webgpu';
 import { StorageTexture } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { composeSkyTile, FarSunTops, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_WINDOW_TEXELS, SunHeightWindow, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarBricks, type FarTopsPlace, type SkyColumns, type SunColumn } from '@thirdlight/voxel';
+import { composeSkyTile, FarSunTops, STREAM_DETAIL_SPEED, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_WINDOW_TEXELS, SunHeightWindow, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarBricks, type FarTopsPlace, type SkyColumns, type SunColumn } from '@thirdlight/voxel';
 import { CPU_SCALAR_OPS } from '@thirdlight/shared';
 
 import type { N } from './effects-tsl';
@@ -87,8 +97,13 @@ export class SunField {
   private stepsWanted = 0;
   private hidden = false;
   private made = false;
+  /** The camera's ground point and time at the last follow (the speed the near window is held at). */
+  private readonly last = { x: NaN, z: NaN, t: NaN };
+  private nearHeld = false;
+  /** The last frame composed no tile while tiles waited (the next one composes one, whatever the slice says). */
+  private starved = false;
   /** Tiles composed and uploaded, and the far nodes' tops made, since made; the ms the last frame's work took. */
-  readonly stats = { nearTiles: 0, farTiles: 0, uploads: 0, farNodes: 0, rows: 0, frameMs: 0, farTopsMs: 0 };
+  readonly stats = { nearTiles: 0, farTiles: 0, uploads: 0, farNodes: 0, rows: 0, frameMs: 0, farTopsMs: 0, heldFrames: 0 };
 
   constructor(
     edge: number,
@@ -143,10 +158,21 @@ export class SunField {
 
   /**
    * Both windows centred on the camera's ground point (x, z), the sun along `dir` (the way the key light shines,
-   * unit), the far line's casters from `farFrom` metres across.
+   * unit), the far line's casters from `farFrom` metres across; `now` (ms) times the camera's speed: past the
+   * streamer's level-0 speed the near window stays where it is (the module comment).
    */
-  follow(x: number, z: number, dir: THREE.Vector3, farFrom: number): void {
-    const nearMoved = this.near.follow(x, z);
+  follow(x: number, z: number, dir: THREE.Vector3, farFrom: number, now = performance.now()): void {
+    const l = this.last;
+    const dt = (now - l.t) / 1000;
+    // A second follow in the same instant (another pass of the frame) keeps what the first one found.
+    if (dt > 0) this.nearHeld = Math.hypot(x - l.x, z - l.z) / dt > STREAM_DETAIL_SPEED * this.voxelM && !Number.isNaN(this.near.tileX);
+    if (dt > 0 || Number.isNaN(l.t)) {
+      l.x = x;
+      l.z = z;
+      l.t = now;
+      if (this.nearHeld) this.stats.heldFrames++;
+    }
+    const nearMoved = !this.nearHeld && this.near.follow(x, z);
     if (this.far.window.follow(x, z) || nearMoved) this.dirty();
     const sun = this.sun.value as THREE.Vector3;
     sun.copy(dir).negate();
@@ -162,6 +188,11 @@ export class SunField {
   /** The lines are marched again, every row (a change to tops, the windows' place or the sun). */
   private dirty(): void {
     this.rowsLeft = SUN_WINDOW_TEXELS / this.near.tile;
+  }
+
+  /** Whether the near window stays where it is for the camera's speed. */
+  get held(): boolean {
+    return this.nearHeld;
   }
 
   /** Rows of the lines still to march. */
@@ -193,27 +224,37 @@ export class SunField {
   }
 
   /**
-   * The frame's share while the march is on: tiles composed while `more()` says so, what changed uploaded, and a
-   * row of the lines marched while anything changed.
+   * The frame's share while the march is on, within `more()` (the slice): a row of the lines marched while anything
+   * changed (its dispatch uploads the tops changed since), then tiles composed (near ones first, none while the near
+   * window is held), what they changed set to go up with the next row. When the slice is spent before anything was
+   * done the row still goes, or one tile when the last frame composed none while tiles waited: both move on.
    */
   frame(more: () => boolean, renderer: SunFieldRenderer | null): void {
     if (Number.isNaN(this.near.tileX)) return;
     const t0 = performance.now();
     // Nothing is composed while the march is off (the tiles wait, marked, for it to come on).
     if ((this.steps.value as number) === 0) return;
-    // Near tiles first (a chunk column's copy each), then far ones, while the slice lasts (one of each at least): a
-    // tile not composed yet reads as unknown, never as another place's.
-    let first = true;
-    for (let t = this.near.next(); t !== null; t = first || more() ? this.near.next() : null) {
-      composeSkyTile(this.near, t[0], t[1], this.skies(), this.voxelM);
-      this.stats.nearTiles++;
-      first = false;
+    let did = false;
+    if (renderer !== null && this.rowsLeft > 0 && this.made) {
+      this.march(renderer);
+      did = true;
     }
-    first = true;
-    while ((first || more()) && this.far.composeNext()) {
+    // A tile not composed yet reads as unknown, never as another place's.
+    const force = !did || this.starved;
+    let composed = 0;
+    const go = (): boolean => (force && composed === 0) || more();
+    if (!this.nearHeld) {
+      for (let t = go() ? this.near.next() : null; t !== null; t = go() ? this.near.next() : null) {
+        composeSkyTile(this.near, t[0], t[1], this.skies(), this.voxelM);
+        this.stats.nearTiles++;
+        composed++;
+      }
+    }
+    while (go() && this.far.composeNext()) {
       this.stats.farTiles++;
-      first = false;
+      composed++;
     }
+    this.starved = composed === 0 && (this.far.window.waiting > 0 || (!this.nearHeld && this.near.waiting > 0));
     const T2 = SUN_WINDOW_TEXELS * SUN_WINDOW_TEXELS;
     let runs = 0;
     for (const [w, base] of [[this.near, 0], [this.far.window, T2]] as const) {
@@ -231,19 +272,20 @@ export class SunField {
     }
     this.made = true;
     this.rects();
-    if (renderer !== null && this.rowsLeft > 0 && (this.steps.value as number) > 0) {
-      // One tile row of each window a frame, round and round while anything changed.
-      const tile = this.near.tile;
-      this.row.value = this.rowNow;
-      void renderer.compute((this.pass ??= this.marchPass()));
-      // The row's texels into the texture lit programs read (its slot row in both windows).
-      const box = scratchBox.set(scratchFrom.set(0, this.rowNow * tile, 0), scratchTo.set(2 * SUN_WINDOW_TEXELS, (this.rowNow + 1) * tile, 1));
-      renderer.copyTextureToTexture(this.shadeWrite, this.shadeRead, box, scratchAt.set(0, this.rowNow * tile, 0));
-      this.rowNow = (this.rowNow + 1) % (SUN_WINDOW_TEXELS / tile);
-      this.rowsLeft--;
-      this.stats.rows++;
-    }
     this.stats.frameMs = performance.now() - t0;
+  }
+
+  /** One tile row of each window marched (round and round while anything changed), into the texture lit programs read. */
+  private march(renderer: SunFieldRenderer): void {
+    const tile = this.near.tile;
+    this.row.value = this.rowNow;
+    void renderer.compute((this.pass ??= this.marchPass()));
+    // The row's texels into the texture lit programs read (its slot row in both windows).
+    const box = scratchBox.set(scratchFrom.set(0, this.rowNow * tile, 0), scratchTo.set(2 * SUN_WINDOW_TEXELS, (this.rowNow + 1) * tile, 1));
+    renderer.copyTextureToTexture(this.shadeWrite, this.shadeRead, box, scratchAt.set(0, this.rowNow * tile, 0));
+    this.rowNow = (this.rowNow + 1) % (SUN_WINDOW_TEXELS / tile);
+    this.rowsLeft--;
+    this.stats.rows++;
   }
 
   private rects(): void {
