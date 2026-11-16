@@ -246,6 +246,8 @@ interface FlightRecord {
   profileSpikes: SpikeReading[];
   /** Every profiler frame of each thread read over the flight and the hold (start, own ms, spans). */
   profileFrames: Record<'page' | 'sim' | 'jobs', SpanFrame[]>;
+  /** The page's sun field readings (`__tlVoxelPlay.sun()`) at the flight's start, its end and the hold's end. */
+  sun: unknown[];
   strip: Array<{ at: string; file: string }>;
   shots: Array<{ s: number; file: string; stats: unknown }>;
 }
@@ -261,7 +263,7 @@ function cameraAt(path: CoveragePath, m: number): { x: number; y: number; z: num
 
 async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: number): Promise<FlightRecord> {
   const flightS = stopAt / SPEED;
-  const rec: FlightRecord = { flyAt: Number.POSITIVE_INFINITY, flightS, intervals: [], checks: [], polls: [], obs: [], sims: [], recorded: null, profileSpikes: [], profileFrames: { page: [], sim: [], jobs: [] }, strip: [], shots: [] };
+  const rec: FlightRecord = { flyAt: Number.POSITIVE_INFINITY, flightS, intervals: [], checks: [], polls: [], obs: [], sims: [], recorded: null, profileSpikes: [], profileFrames: { page: [], sim: [], jobs: [] }, sun: [], strip: [], shots: [] };
   const strip = new Map(STRIP.map((s) => [s, s.startsWith('a') ? flightS + Number(s.slice(1)) : Number(s)] as const));
   const castName = (at: string) => join(SHOT_DIR, `${WHERE}-${QUALITY}-${SPEED}-${ALTITUDE}-${TAG}-strip-${at.startsWith('a') ? `after${at.slice(1)}` : `t${at}`}.png`);
   cdp.on('Page.screencastFrame', (f: { data: string; sessionId: number; metadata: { timestamp?: number } }) => {
@@ -350,6 +352,9 @@ async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: numb
   await game.frame.evaluate(installRecorder, { world: WORLD, observe: WHERE === 'export', keepMs: 50 });
   await game.page.waitForTimeout(500);
   const recording = game.frame.evaluate((s) => (window as unknown as { __tlVoxelPlay: Hook }).__tlVoxelPlay.meter.record(s), flightS);
+  // The sun field's counters (tiles composed, rows marched, uploads) at the flight's start, its end and the hold's end.
+  const sunNow = (): Promise<unknown> => game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: { sun?(): unknown } }).__tlVoxelPlay?.sun?.() ?? null).catch(() => null);
+  rec.sun.push(await sunNow());
   rec.flyAt = Date.now();
   await game.debug(`fly${SPEED}`);
   for (const s of SHOTS) {
@@ -361,6 +366,7 @@ async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: numb
     rec.shots.push({ s, file, stats: null });
   }
   rec.intervals = await recording;
+  rec.sun.push(await sunNow());
   for (const s of AFTER) {
     const wait = rec.flyAt + (flightS + s) * 1000 - Date.now();
     if (wait > 0) await game.page.waitForTimeout(wait);
@@ -371,6 +377,7 @@ async function fly(game: Game, cdp: CDPSession, path: CoveragePath, stopAt: numb
   }
   const rest = rec.flyAt + (flightS + HOLD_S) * 1000 - Date.now();
   if (rest > 0) await game.page.waitForTimeout(rest);
+  rec.sun.push(await sunNow());
   await cdp.send('Page.stopScreencast');
   polling = false;
   await Promise.all([poll, simPoll, profilePoll]);
@@ -453,7 +460,11 @@ function spanTotals(rec: FlightRecord): Record<string, unknown> {
   const end = rec.flyAt + rec.flightS * 1000;
   const stop = stopWall(rec.obs) ?? end;
   const pick = (from: number, to: number) => Object.fromEntries((['page', 'sim', 'jobs'] as const).map((th) => [th, spanMeans(rec.profileFrames[th].filter((f) => f[0] >= from && f[0] < to))]));
+  // The longest simulation frames in flight with their spans as recorded, one entry a call (a tick runs several
+  // fixed steps, and a step's slices are its own: what a long tick's stitch time is made of).
+  const longSim = rec.profileFrames.sim.filter((f) => f[0] >= rec.flyAt && f[0] < end).sort((a, b) => b[1] - a[1]).slice(0, 8);
   return {
+    longSim: longSim.map(([start, ms, spans]) => ({ t: Number(((start - rec.flyAt) / 1000).toFixed(2)), ms, spans: spans.filter(([, v]) => v >= 0.05) })),
     flight: pick(rec.flyAt, end),
     after: pick(stop, stop + AFTER_SPANS_S * 1000),
     afterBySecond: Array.from({ length: AFTER_SPANS_S }, (_, k) => {
@@ -682,6 +693,7 @@ async function run(path: CoveragePath, stopAt: number): Promise<Record<string, u
     out['travel'] = travelMeasures(rec);
     out['spikes'] = spikes(rec);
     out['spanTotals'] = spanTotals(rec);
+    out['sunField'] = rec.sun;
     Object.assign(out, pictureChecks(rec, path, stopAt));
     out['sim'] = simSummary(rec);
     out['strip'] = rec.strip;

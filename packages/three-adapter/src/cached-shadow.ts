@@ -53,6 +53,8 @@ import { threadProfiler } from '@thirdlight/shared';
  */
 const STATIC_MAP_SPAN = threadProfiler.span('key light static shadow map', 'render');
 const DYNAMIC_MAP_SPAN = threadProfiler.span('key light dynamic shadow map', 'render');
+/** The frame's look over the static map's casters for one that changed since it was drawn. */
+const STATIC_CHECK_SPAN = threadProfiler.span('key light static map check', 'render');
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -453,7 +455,9 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
     this.staticLight.shadow.intensity = intensity;
     this.dynamicLight.shadow.intensity = intensity;
     // A static caster the map misses is drawn by the dynamic pass meanwhile; while changes are held it waits for their one redraw.
+    threadProfiler.begin(STATIC_CHECK_SPAN);
     if (renderer !== this.drawnBy || this.revision.value !== this.drawnRevision || (d.missed && !this.revision.holding) || s.drawnWith.changed()) this.staticDirty = true;
+    threadProfiler.end(STATIC_CHECK_SPAN);
     d.missed = false;
     if (this.staticDirty) {
       // The static map drawn again (measurements line it up with the frames: a large map is a GPU frame's worth).
