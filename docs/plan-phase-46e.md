@@ -197,6 +197,8 @@ below, near and far absent; 131 s.
 
 ### 46e-b (owner 2026-11-16: the volume; the order below is the owner's)
 
+**The item list and its order were approved by the owner on 2026-11-16** ("The suggested order and phase layout is approved"). The lead's handoff for a fresh session: `docs/briefs/handoff-46e-b.md`.
+
 The store is the voxel light volume. Nothing is tuned until every light type is in it and its observed defects are
 fixed, so the tuning is done once, on the whole thing. The low tier's target is 720p at the 30 Hz cap. The item
 numbers 46e.9–46e.13 of the plan's first outline are replaced by these.
@@ -2042,6 +2044,13 @@ differ by 0.7–3.9 % (D660, as before).
   taken on a settled base; the emissive proposal (46e.11) is written before 46e.12 starts so the approval does not
   hold the other light types; props through the coverage channel and particles (46e.15) come after the tuning;
   rooms, culling and the walk graph keep their place after the lighting work.
+
+- 2026-11-16 (OWNER): 46e-b's item list and order (§6) approved as shown, the lead's placements included (the
+  default-path work as 46e.10, the emissive proposal before 46e.12, props and particles after the tuning). 46e-b
+  starts in a fresh session from `docs/briefs/handoff-46e-b.md`. Added there by the lead (default chosen, owner to
+  confirm): a moving-sun measurement in 46e.14, the many-lamps scene at about 32, 128 and 512 lights, an interim
+  look page after 46e.14 without stopping, and no tuning without emissive (46e.15–46e.18 run first if the owner's
+  note on 46e.11 is late).
 
 ## 10. Open questions for the owner (asked with the plan)
 
