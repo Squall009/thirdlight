@@ -346,10 +346,7 @@ export class RuntimeInstance implements Runtime {
       },
       pausedBoundary: () => this.scenes.applyOps(false),
       timeScale: () => (this.modes.active ? this.modes.timeScale() : null),
-      frameDone: () => {
-        this.entities.voxels.frameDone();
-        this.onFrame?.();
-      },
+      frameDone: () => this.onFrame?.(),
     }, args.isM2, args.timing.settleSteps);
     this.snapshotId = args.snapshotId;
     this.revision = args.revision;

@@ -77,7 +77,7 @@ import {
   type WorkerPool,
   type PieceTable,
 } from '@thirdlight/voxel';
-import { FrameSliceShare, residentBytes, threadProfiler } from '@thirdlight/shared';
+import { frameSliceMs, residentBytes, threadProfiler } from '@thirdlight/shared';
 
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
 import { floorColumns, VoxelFloors } from './voxel-floor';
@@ -290,8 +290,6 @@ export class VoxelWorldHost {
   private unresidentWalk: (() => void) | null = null;
   /** The world's open regions, stitched as chunks' results arrive (null: no world open). */
   private regions: OpenRegionStitch | null = null;
-  /** The stitching's derive slice, once a simulation frame however many steps it runs ({@link frameDone}). */
-  private readonly stitchShare = new FrameSliceShare('voxelDerive');
   private unresidentRegions: (() => void) | null = null;
   /** The props stamped into the world, by object: kept while the world opens, placed into the channel when it is. */
   private readonly props = new Map<string, PropShape>();
@@ -537,11 +535,6 @@ export class VoxelWorldHost {
     return Object.freeze({ min: Object.freeze([cx * m, cy * m, cz * m] as const), max: Object.freeze([(cx + 1) * m, (cy + 1) * m, (cz + 1) * m] as const) });
   }
 
-  /** A simulation frame's steps are done: the next frame's stitching has its whole slice. */
-  frameDone(): void {
-    this.stitchShare.frameDone();
-  }
-
   /** The step's start: the foci move, streaming plans, bodies enter and leave the ring, waits whose cells arrived resolve. */
   step(foci: VoxelFoci): void {
     const s = this.streamer;
@@ -561,13 +554,11 @@ export class VoxelWorldHost {
     const collide = [...(s.detail.fast ? [] : [f]), ...bodies, ...ahead];
     s.collision?.setFoci(collide);
     s.update();
-    const regions = this.regions;
-    if (regions?.pending === true && this.stitchShare.left() > 0) {
-      // The derive slice: stitching follows the chunks the derives let through, a share of the same streaming work,
-      // taken once a simulation frame (a frame after a long one runs several catch-up steps: a flight's first, four).
+    if (this.regions?.pending === true) {
+      // The derive slice: stitching follows the chunks the derives let through, a share of the same streaming work.
       threadProfiler.begin(REGIONS_SPAN);
       try {
-        this.stitchShare.run((ms) => regions.update(ms));
+        this.regions.update(frameSliceMs('voxelDerive'));
       } finally {
         threadProfiler.end(REGIONS_SPAN);
       }

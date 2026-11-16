@@ -111,36 +111,3 @@ export const frameArbiter = new FrameArbiter();
 export function frameSliceMs(id: FrameSliceId, intervalMs?: number): number {
   return frameArbiter.sliceMs(id, intervalMs);
 }
-
-/**
- * A slice taken once a frame by work that runs in each of the frame's fixed steps. A simulation frame runs as many
- * steps as its time owes (several after a long frame), so a slice taken per step would hand a catch-up frame that
- * many: the steps share the one slice, and {@link frameDone} starts the next frame's.
- */
-export class FrameSliceShare {
-  private spent = 0;
-
-  constructor(private readonly id: FrameSliceId) {}
-
-  /** Milliseconds left of this frame's slice (0 or less: none). */
-  left(): number {
-    return frameSliceMs(this.id) - this.spent;
-  }
-
-  /** Runs `work` with what is left (nothing when none is), counting the time it took against the frame. */
-  run(work: (ms: number) => void): void {
-    const ms = this.left();
-    if (ms <= 0) return;
-    const t0 = performance.now();
-    try {
-      work(ms);
-    } finally {
-      this.spent += performance.now() - t0;
-    }
-  }
-
-  /** The frame's steps are done: the next frame has the whole slice. */
-  frameDone(): void {
-    this.spent = 0;
-  }
-}
