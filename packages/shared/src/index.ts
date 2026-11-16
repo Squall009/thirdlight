@@ -34,7 +34,7 @@ export { escapePointer, hasUtf8Bom, parseStrictJsonText, type StrictJsonFailure,
 export { pageFlagOn } from './page-flags';
 export { wallClock } from './clock';
 export { PROFILE_FRAMES, PROFILE_SPANS_PER_FRAME, PROFILER_THREADS, SPAN_CATEGORIES, SpanRecorder, threadProfiler, type PackedProfile, type ProfileFrame, type ProfileSpan, type ProfilerThread, type SpanCategory, type SpanId } from './profiler';
-export { FRAME_SLICE_DEFAULTS, FRAME_SLICE_IDS, FrameArbiter, frameArbiter, frameSliceMs, type FrameSlice, type FrameSliceId, type FrameSliceReading } from './frame-arbiter';
+export { FRAME_SLICE_DEFAULTS, FRAME_SLICE_IDS, FrameArbiter, frameArbiter, frameSliceMs, FrameSliceShare, type FrameSlice, type FrameSliceId, type FrameSliceReading } from './frame-arbiter';
 export { CPU_SCALAR_OPS, F32_SCALAR_OPS, type ScalarOps, wgslFloat, wgslScalarWriter, type WgslScalarWriter } from './scalar-ops';
 export { lodLevelOf, lodLevelStep, lodSwitchMargin, type LodLevelAcc } from './lod-level';
 export { grownArray, grownCapacity, type GrowableArray } from './grow';

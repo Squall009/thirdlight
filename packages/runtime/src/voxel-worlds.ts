@@ -283,6 +283,11 @@ export class RuntimeVoxels {
   }
 
   /** A new run: every world's changes are dropped. */
+  /** A simulation frame's steps are done (the worlds' once-a-frame slices start again). */
+  frameDone(): void {
+    for (const held of this.worlds.values()) held.host.frameDone();
+  }
+
   reset(): void {
     for (const held of this.worlds.values()) held.host.reset();
     this.pending = [];
