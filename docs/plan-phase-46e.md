@@ -1497,6 +1497,22 @@ options the brief named (the cache's probes near with its texels; the volume for
 cache's texels near), the second puts both reads in every near program too, so it is ruled out on the same count; the
 first without the texel read is the cheaper sound one: it is the only one that fits.
 
+**D699 counted** (the independent review, 46e.8; `d699/` in its work folder): the texture-unit guard's own record of
+each program (`light-shots --texture-units <store>`, the street camera; `hybrid-texels` forces the cache's texel read on
+in the hybrid, a bench switch). The Iris Xe's adapter and a default device both allow 16 sampled textures a fragment
+stage. The lit voxel surface program samples: **off 11** (the shader grids, a 3D texture; the material table; three
+compressed texture arrays of the materials; the crack maps; DFG_LUT; the sun's shadow map; the clustered lights' lists;
+the shadow atlas; PMREM), **cache 15** (+ the cache's lookup and its atlas, + the probes' table and their 3D texture),
+**volume 13** (+ the volume's index and its pool), **hybrid as built 15** (+ probes 2, volume 2), **hybrid with the texel
+read 17**: refused, 51–58 objects drawn by the guard's plain fallback (`d699/shots-hybrid-texels/street-noon.png`: the
+voxel ground and walls white, the kit pieces textured; beside it `d699/shots-hybrid/street-noon.png`). So the white was
+the count, nothing else. **The smallest way to fit both** (not built; for the owner, 46e-b): one unit fewer gives 16,
+exactly the limit. The volume's index and its pool are both one-channel 32-bit integer textures, so the index can sit
+in spare rows of the pool texture (one binding; the read offsets its rows; its row uploads go to the pool): some 50–100
+lines in `voxel-light-volume.ts` and its read, a vitest. At 16 no headroom is left (a decal layer or a second shadow
+read on a surface would go over again); a second unit, the cache's integer lookup read from a storage buffer instead of
+a texture (storage buffers have their own limit), would leave one spare, about as much again.
+
 **The hand-over distance: 12 m carried, 24 m a side row** (default chosen, owner to confirm). On the moving orbit
 (3 rounds each, interleaved) neither has room at the cap; GPU `lighting` 13.3 [13.2–13.4] (two rounds resolved) against
 12.1 [11.5–13.0] ms: not resolved; page `lighting` 3.8 [2.9–4.0] against 4.3 [4.1–5.2] ms (apart), cache tiles 8–25
@@ -1588,8 +1604,20 @@ smaller than the range between rounds is "not resolved". Cameras in order street
 | **4. Edit → light** (first changed light / settled, ms; r1, r2) | edit → shadow map redrawn 59–95 (street digs) | window 341, 294 / 2,485, 2,477; lamp wall 355, 121 / 3,034, 2,702; dug 354, 121 / 2,707, 2,338 | window 130, 118 / 1,756, 1,689; wall 78, 93 / 505, 520; dug 75, 71 / 562, 560 | window 109, 108 / **4,747, 4,681**; wall 96, 99 / 1,054, 1,057; dug 87, 81 / 1,243, 1,232 |
 | **5. Play start → settled** (street first; room first), s | 18.3, 18.6; 18.5, 18.6 (the scene) | 19.1, 19.5; 19.2, 18.9 | 19.2, 19.3; 19.1, 19.0 | **26.8, 26.9; 29.9, 29.5** |
 | 2 s / 10 s after arriving at the room | flat term / — | 14 k units stale, the room dark (probes not yet: flat term gone) / texels settled, 1.5–2.6 k probes stale | 6.8–7.0 k bricks stale, the room already dark / settled | 9.6–10 k units + 42–49 k blocks waiting, the room mid-grey / settled at 11.4–11.9 s |
-| **6. Travel 150 m/s** (export; r1, r2) | longest 49.5, 57.1 ms; 0 > 100; missed 8.2, 11.0 a min; detail 7.3, 6.2 s; pending 10.6, 10.1 s; falls 0, 0 of 34 | 63.6, 75.9; 0; 13.7, 13.7; 5.9, 5.7; 10.6, 10.6; 0, 0 | **212.7, 223.5**; 1, 1; 5.5, 10.1; 7.4, 7.2; 12.4, 12.3; 0, 2 | **235.9, 213.5**; 2, 1; 11.0, 11.9; 6.0, 5.1; 12.1, 11.4; 0, 1 |
+| **6. Travel 150 m/s** (export of 4923a802, after D694's fix; r1, r2; measured again in the review, below the table) | longest 49.3, 52.5 ms; 0, 0 > 100; missed 6.4, 2.7 a min; detail 6.0, 5.1 s; pending 11.3, 9.9 s; falls 0, 0 of 34 | 77.1, 95.9; 0, 0; 11.0, 11.0; 5.3, 5.8; 11.2, 10.6; 0, 1 | 56.0, 46.9; 0, 0; 6.4, 2.7; 8.6, 7.5; 11.2, 11.0; 0, 0 | 46.4, **145.8**; 0, 1; 5.5, 7.3; 8.3, 8.0; 11.3, 11.3; 0, 0 |
+| 6, before the D694 fix, 46e.7 (b99489b2) | longest 49.5, 57.1 ms; 0 > 100; missed 8.2, 11.0 a min; detail 7.3, 6.2 s; pending 10.6, 10.1 s; falls 0, 0 of 34 | 63.6, 75.9; 0; 13.7, 13.7; 5.9, 5.7; 10.6, 10.6; 0, 0 | **212.7, 223.5**; 1, 1; 5.5, 10.1; 7.4, 7.2; 12.4, 12.3; 0, 2 | **235.9, 213.5**; 2, 1; 11.0, 11.9; 6.0, 5.1; 12.1, 11.4; 0, 1 |
 | **8. Medium / high** (one run each, **unverified on target hardware**) | medium: missed 0/179, `near` 2.4, far 4.5, shadows 0.5; high: missed 33/159, near 6.5, far 7.6 | medium: missed 15/160, lighting 6.1 ± 1.2, near below; high: missed 30/68, lighting 12.1 ± 8.1 (below) | medium: 3/179, near 5.2, lighting 2.8; high: 45/107, near 14.7, lighting 3.0 | medium: 16/164, lighting 8.6 ± 5.9 (below); high: 42/89, near 17.0, lighting 13.7 |
+
+**Row 6, measured again** (the independent review, 46e.8): 2026-11-16 10:11–10:26 UTC, one export of 4923a802 (the travel
+fixes and the review's code fixes, built) from staging's world, low, the 30 Hz cap, `run.mjs coverage --dir <export> --speed
+150 --query &voxelLight=<store>`, off / cache / volume / hybrid interleaved, two rounds, each run alone (`thirdlight-gate`
+inactive), the brief's 10G scope; uptime 23.7 d, load (1 min) 3.1–5.4. Raw: `~/.cache/thirdlight-phase46e/work/46e.8-review/`
+(`cov-150-*.json` / `.log` / `.uptime`, `measure.sh`, `summ.py`). The volume's flight-start frame is gone (D694 fixed): the
+volume and the hybrid miss as many frames as off (2.7–7.3 a minute), the cache 11.0 (its light pass and lookup packs:
+the worst kept frame 75 ms with `surface light pass` 40.6 and `surface lookup packed` 19.0). The hybrid's 145.8 ms (one
+round of two) is an interval frame: 133 ms between page frames whose own spans total 14 ms (`voxel draws made` 8.3, draw
+submit 3.1, the volume 2.0): not page work, not traced. Both arrangements with the volume settle later after the stop: full
+detail 7.5–8.6 s against 5.1–6.0 (off) and 5.3–5.8 (cache) (D701's settle, more with the volume; not traced).
 
 **The 24 m hybrid (side row, cameras one round; orbit three rounds above):** settled `near` 6.57 / 6.32 / 6.26 / 7.91 / 5.81
 ms (12 m: 5.75–7.36); computing `lighting` 18.1 / 13.3 / below / 7.8 / 15.6 (cache 14.9 / 8.9 / below / 4.1 / 12.1, volume
@@ -1600,7 +1628,7 @@ first 132 / settled 4,013 ms, wall 80 / 3,120, dug 74 / 2,877; Play → settled 
 **D694 repeats** (volume, both rounds; and the hybrid): one page frame of 182–217 ms at the flight's first 0.5 s whose
 spans are `voxel draws made` 199–213 ms (the spike capture, `cov-150-volume-r*.json` / `-hyb12-*` `spikes.profile.worst`);
 the cache alone and off have none (the cache's worst 51–57 ms: `surface light pass` 17–35 ms and `surface lookup packed`
-17 ms). Not traced further (D694 stays open).
+17 ms). Not traced further then; D694 was traced and fixed in 46e.8 (ec61172d): row 6 above is measured again after it.
 
 **Not resolved / not read:** the frame line (D693 above); on the orbit the cache's and the hybrid's `near`, `far` and
 `shadows` (resolution 2.5–9 ms: the stores' relight swings the windows), the cache's `lighting` in two of three rounds;
@@ -1636,17 +1664,18 @@ differ by 0.7–3.9 % (D660, as before).
 - **Cache:** lamps' light per texel with soft traced shadows, but kit pieces and moving objects cast nothing into its
   rays (D679); its light ends with the level-0 ring (~45 m at low; past it the flat term); a moving eye relevels and
   relights tiles all the time, so on the orbit it never settles and takes its whole GPU row and 2.4–3.2 ms of page a
-  frame (D685); 25–68 MB of faces' hashes on the page; slits and blotches at concave steps (D683).
+  frame (D685); at 150 m/s it misses 11 frames a minute (off 2.7–6.4; longest 77–96 ms: its light pass and lookup packs); 25–68 MB of faces' hashes on the page; slits and blotches at concave steps (D683).
 - **Volume:** sky and bounce only (lamps and sun per pixel); its read costs +3–5 ms of `near` per pixel at every
   camera (the largest single cost measured here, D693); soft blotches at 32 rays a face (D692), gable patches from 40 m
-  up (D695); a fixed 29.8 MB pool; its update holds ~6 ms of GPU on a moving eye; a 180–220 ms frame when it joins a
-  flight's first draws (D694); reach 96 × 48 × 96 m at 0.5 m, coarse levels to ±96 m, the flat term past them.
+  up (D695); a fixed 29.8 MB pool; its update holds ~6 ms of GPU on a moving eye; at 150 m/s no frame over 100 ms since
+  D694's fix (46.9–56.0 ms longest, missed as off), but full detail about 2.5 s later than off after the stop; reach 96 × 48 × 96 m at 0.5 m, coarse levels to ±96 m, the flat term past them.
 - **Hybrid:** both stores' work on a moving eye (orbit `lighting` 13 ms, no room, page `lighting` 2.9–4.0 ms), `near`
   +5.5–7.2 ms over off, 1.6–1.8 ms more than the volume alone at every camera though the probes' read measured
   +0.1–0.25: unexplained (D706), the volume's update at half the row
   (a window dug settles in 4.7 s against 1.7–2.5 alone; Play → settled 27–30 s), the 29.8 MB pool beside the cache's
   smaller set; no per-pixel cache texel read (16 textures, D699), so the cache's soft lamp shadows are not seen;
-  the cache's lookup hash made but unused; the volume's D694 frame.
+  the cache's lookup hash made but unused; at 150 m/s missed as off, one 146 ms interval frame in two rounds (not page
+  work, not traced), full detail about 2.5 s later than off.
 
 ### Overstatements, in plain words (the independent review, 46e.8)
 
