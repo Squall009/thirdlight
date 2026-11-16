@@ -167,6 +167,8 @@ async function playPart(): Promise<unknown> {
     const page = await (await browser.newContext({ viewport, deviceScaleFactor: 1 })).newPage();
     const game = await openPlay(b, page, { viewport, query: '', quality, world });
     for (let i = 0; i < 240 && (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: unknown }).__tlVoxelPlay !== undefined)) === false; i++) await page.waitForTimeout(250);
+    // The batches carry walk blocks only while something on the page reads the GPU walk: this bench does.
+    await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay: { walk: { read(on: boolean): void } } }).__tlVoxelPlay.walk.read(true));
     // Streaming settles first (the near and far counts and the walk's blocks still for a few seconds).
     let last = '';
     for (let i = 0, still = 0; i < 240 && still < 12; i++) {

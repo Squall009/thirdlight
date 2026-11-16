@@ -7,9 +7,10 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { OCCUPANCY } from './derived-data';
+import { OCCUPANCY, type DerivedData } from './derived-data';
 import { walkVoxels, type WalkBlockView, type WalkSource } from './occupancy-walk';
 import { packWalkBlock, WalkTable } from './walk-pages';
+import { derivedWalkView } from './walk-sources';
 import { walkRay, type WalkRay } from './walk-steps';
 
 /** A source over a cell predicate at level 0 (`known` limits where level 0 knows), blocks of 2^shift cells, and an optional level 1. */
@@ -192,6 +193,37 @@ describe('occupancy walk', () => {
     expect(hit?.cell[0]).toBe(80);
     const none = predicateSource(() => false, { known: (bx) => bx < 0 });
     expect(walkVoxels(none, walkRay([-5, 3, 3], [1, 0, 0])!, 100)).toMatchObject({ hit: null, end: 'distance' });
+  });
+
+  it("reads a derived result's columns as words exactly as its cells, for both stops: masks, partial cover, uniform cover", () => {
+    const r = rng(21);
+    let mixedLight = 0;
+    for (const edge of [16, 32]) for (let k = 0; k < 24; k++) {
+      const cells = edge ** 3;
+      const words = cells / 32;
+      const mask = (p: number): Uint32Array => Uint32Array.from({ length: words }, () => { let w = 0; for (let b = 0; b < 32; b++) if (r() < p) w |= 1 << b; return w >>> 0; });
+      const occFlag = k % 6 === 0 ? OCCUPANCY.solid : OCCUPANCY.mixed;
+      const partial = [...new Set(Array.from({ length: 300 }, () => Math.floor(r() * cells)))].sort((a, b) => a - b);
+      // Uniform cover above and below the stop, else full cells and partly covering ones on both sides of it.
+      const uniform = k % 4 === 1 ? 200 : k % 4 === 2 ? 60 : -1;
+      const d = {
+        edge,
+        occupancy: { flag: occFlag, bricks: new Uint8Array((edge / 4) ** 3 / 4).fill(0xaa), mask: occFlag === OCCUPANCY.mixed ? mask(0.6) : null },
+        light: { uniform, full: uniform >= 0 ? null : k % 3 === 0 ? null : mask(0.5), partialCells: Uint16Array.from(uniform >= 0 ? [] : partial), partialCover: Uint8Array.from(uniform >= 0 ? [] : partial.map(() => Math.floor(r() * 256))) },
+      } as unknown as DerivedData;
+      for (const stop of ['solid', 'light'] as const) {
+        const v = derivedWalkView(d, stop);
+        if (v.flag !== OCCUPANCY.mixed) continue;
+        if (stop === 'light') mixedLight++;
+        expect(v.column, `${edge} ${k} ${stop}`).toBeDefined();
+        for (let c = 0; c < edge * edge; c++) {
+          let want = 0;
+          for (let y = 0; y < edge; y++) if (v.cell(c * edge + y)) want |= 1 << y;
+          if ((v.column!(c) >>> 0) !== (want >>> 0)) throw new Error(`edge ${edge} case ${k} ${stop}: column ${c} ${v.column!(c) >>> 0} against ${want >>> 0}`);
+        }
+      }
+    }
+    expect(mixedLight).toBeGreaterThan(10);
   });
 
   it('walks the packed table (the GPU blocks) exactly as the views it was packed from', () => {

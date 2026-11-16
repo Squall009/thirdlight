@@ -63,6 +63,11 @@ export interface WalkBlockView {
   brick(i: number): number;
   /** Whether a cell (index `(x · E + z) · E + y`) stops the ray; right for every cell, whatever the flags say. */
   cell(i: number): boolean;
+  /**
+   * A column's E cells at once (column `x · E + z`, E ≤ 32): bit y set where {@link cell} of `(x · E + z) · E + y`
+   * is true. Absent: read cell by cell. A view over bit masks has it, so packing a block for the page reads words.
+   */
+  column?(c: number): number;
 }
 
 /** A far node a walk marches where no level knows the place: its level, coordinates and bricks (node cells). */

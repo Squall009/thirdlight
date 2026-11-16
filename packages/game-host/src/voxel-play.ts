@@ -11,7 +11,10 @@
  * simulation hands it straight to the page's draws. The page answers with
  * the drawn chunks' GPU bytes (`drawn`), counted in the world's budget,
  * and with what its far draws were seen at (`farSeen`), for the far field's
- * selection.
+ * selection. The batches carry the occupancy walk's blocks only while the
+ * page has a reader of its GPU walk (`setWalkFeed`): packing them is the
+ * simulation thread's work, and with nothing reading them it goes to the
+ * derive jobs instead.
  *
  * Every world derives its detail pieces from the build's voxel kits (a
  * material no kit binds draws plain voxel faces): one piece table
@@ -21,7 +24,7 @@
  * go with them too (`ctx.voxels.materialOf`).
  */
 import type { QualityLevelConfig, VoxelMaterialSources, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
-import { ChunkDrawBatcher, setFineBricks, streamerWalkSource, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
+import { ChunkDrawBatcher, setFineBricks, streamerWalkBlocks, streamerWalkSource, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
 
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
@@ -35,16 +38,23 @@ export interface VoxelPresentation {
    * (WebGL 2), so the near field draws its levels 1–2 again instead of nothing past the detail ring.
    */
   setFine(on: boolean): void;
+  /**
+   * The page's walk feed for every world, open and to come (0: no reader of the page's GPU walk, no walk blocks; another
+   * number: the page's feed of that number, which gets every block known, then the changes; ChunkDrawBatcher.setWalkFeed).
+   */
+  setWalkFeed(feed: number): void;
 }
 
 /**
  * Wraps a play's world ports so each opened world sends its chunk draws through `send` and derives its pieces from
  * `kits` with the project's piece `seed`; `qualityLevels` the project's (absent: the engine's), `materials` the build's
  * voxel materials (absent: the ports'); `fineBricks` fine far bricks past the detail ring built in every world (the page's
- * bench switch; false: each world's own `fineBuild`, until {@link VoxelPresentation.setFine} says otherwise).
+ * bench switch; false: each world's own `fineBuild`, until {@link VoxelPresentation.setFine} says otherwise); `walkFeed`
+ * the page's walk feed to start with ({@link VoxelPresentation.setWalkFeed}; 0: off).
  */
-export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false): VoxelPresentation {
+export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false, walkFeed = 0): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
+  let walk = walkFeed;
   const streams = new Map<string, VoxelStreamer>();
   // The page's word over each world's own setting (undefined: the world's).
   let fine: boolean | undefined = fineBricks ? true : undefined;
@@ -73,9 +83,9 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           pieces: (table ??= worldPieceTable(kits, seed)),
           present: (stream, sectionEdge, regions) => {
             conn.present?.(stream, sectionEdge, regions);
-            // The batches carry the walk's blocks for the page's GPU walk (levels 0 and up; the far field stays the CPU's)
-            // and the sky heights the open regions found, for lighting on the page.
-            mine = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: streamerWalkSource(stream), ...(regions !== undefined ? { sky: regions } : {}) });
+            // The batches carry the walk's blocks for the page's GPU walk while it has a reader (levels 0 and up; the far
+            // field stays the CPU's) and the sky heights the open regions found, for lighting on the page.
+            mine = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: { source: streamerWalkSource(stream), blocks: () => streamerWalkBlocks(stream) }, walkFeed: walk, ...(regions !== undefined ? { sky: regions } : {}) });
             batchers.set(world, mine);
             streams.set(world, stream);
           },
@@ -97,6 +107,10 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
       if (on === fine) return;
       fine = on;
       for (const s of streams.values()) setFineBricks(s, on);
+    },
+    setWalkFeed: (feed) => {
+      walk = feed;
+      for (const b of batchers.values()) b.setWalkFeed(feed);
     },
   };
 }

@@ -8,7 +8,7 @@
  * of where level 0 would have stopped them.
  */
 import { describe, expect, it } from 'vitest';
-import { lightStops, packWalkBlock, walkRay, walkVoxels, WalkTable, type WalkRay, type WalkStop } from '@thirdlight/voxel';
+import { lightStops, packWalkBlock, walkRay, walkVoxels, WalkTable, type WalkRay, type WalkSource, type WalkStop } from '@thirdlight/voxel';
 
 import { walkWorld, type WalkWorld } from './walk-world';
 import { cavesWorld, cliffWorld, townWorld } from './worlds';
@@ -145,6 +145,37 @@ describe('the occupancy walk on derived worlds', () => {
       }
     }
     expect(hits).toBeGreaterThan(200);
+  });
+
+  it('packs each block from the derive sections\' bit words as it does cell by cell, byte for byte, in a fraction of the time', () => {
+    const src = town.source();
+    // The same views without their column words: the packing reads them cell by cell.
+    const cells: WalkSource = { maxLevel: 0, blockShift: (l) => src.blockShift(l), block: (l, x, y, z, stop) => {
+      const v = src.block(l, x, y, z, stop);
+      return v === null ? null : { flag: v.flag, brick: (i) => v.brick(i), cell: (i) => v.cell(i) };
+    } };
+    const keys: Array<[number, number, number]> = [];
+    for (let bx = town.min[0]; bx <= town.max[0]; bx++) for (let by = town.min[1]; by <= town.max[1]; by++) for (let bz = town.min[2]; bz <= town.max[2]; bz++) keys.push([bx, by, bz]);
+    let pages = 0;
+    for (const [bx, by, bz] of keys) {
+      const a = packWalkBlock(cells, 0, bx, by, bz)!;
+      const b = packWalkBlock(src, 0, bx, by, bz)!;
+      expect([b.solid, b.light]).toEqual([a.solid, a.light]);
+      expect(b.page === null).toBe(a.page === null);
+      if (a.page === null) continue;
+      pages++;
+      expect(Buffer.compare(Buffer.from(b.page!.buffer), Buffer.from(a.page.buffer)), `${bx},${by},${bz}`).toBe(0);
+    }
+    expect(pages).toBeGreaterThan(30);
+    const time = (s: WalkSource): number => {
+      const t0 = performance.now();
+      for (let r = 0; r < 3; r++) for (const [bx, by, bz] of keys) packWalkBlock(s, 0, bx, by, bz);
+      return (performance.now() - t0) / (3 * keys.length);
+    };
+    time(src);
+    const [slow, fast] = [time(cells), time(src)];
+    console.log(`[walk pack] town, ${keys.length} blocks (${pages} with a page): cell by cell ${slow.toFixed(3)} ms a block, by words ${fast.toFixed(3)}`);
+    expect(fast).toBeLessThan(slow / 2);
   });
 
   it('continues into far nodes past level 0 and hits the ground within 1.5 m of where level 0 stops the ray', () => {

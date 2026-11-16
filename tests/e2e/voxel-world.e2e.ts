@@ -1438,9 +1438,18 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     // nothing, steps diagonally or reads the bits wrong differs here.
     type WalkCheck = { rays: number; hits: number; misses: number; mismatches: number; examples: unknown[]; blocks: number; pages: number };
     const walkCheck = (): Promise<WalkCheck | null> => canvas.evaluate((_, eye) => (window as unknown as { __tlVoxelPlay: { walk: { check(w: string, k: string[], n: number, e: number[]): Promise<WalkCheck | null> } } }).__tlVoxelPlay.walk.check('far', ['short', 'medium', 'long'], 400, eye), [at[0], at[1] + 1.7, at[2]]);
+    // The batches carry walk blocks only while something on the page reads the GPU walk: none with the store off,
+    // every block known once the check reads it, released when it stops (the light volume reads it the same way below).
+    type WalkHook = { __tlVoxelPlay: { walk: { read(on: boolean): void; stats(w: string): { gpuBytes: number } | null } } };
+    const walkUnread = await canvas.evaluate(() => (window as unknown as WalkHook).__tlVoxelPlay.walk.stats('far'));
+    await canvas.evaluate(() => (window as unknown as WalkHook).__tlVoxelPlay.walk.read(true));
     let checked: WalkCheck | null = null;
-    await expect.poll(async () => { checked = await walkCheck(); return (checked?.pages ?? 0) > 0; }, { timeout: 20_000, message: 'the page holds walk blocks' }).toBe(true);
+    // The blocks known come a slice a task: the check is taken once the page's count holds still between two polls.
+    let blocksBefore = -1;
+    await expect.poll(async () => { const was = blocksBefore; checked = await walkCheck(); blocksBefore = checked?.blocks ?? -1; return (checked?.pages ?? 0) > 0 && checked!.blocks === was; }, { timeout: 20_000, message: 'the page holds walk blocks' }).toBe(true);
     const wc = checked!;
+    await canvas.evaluate(() => (window as unknown as WalkHook).__tlVoxelPlay.walk.read(false));
+    expect([walkUnread, await canvas.evaluate(() => (window as unknown as WalkHook).__tlVoxelPlay.walk.stats('far'))], 'no walk on the page unread, released after').toEqual([null, null]);
     console.log(`[voxel-play] ${renderer} GPU walk = CPU walk: ${JSON.stringify({ ...wc, examples: wc.examples.slice(0, 2) })}`);
     expect(wc.rays).toBe(1200);
     expect(wc.hits).toBeGreaterThan(100);

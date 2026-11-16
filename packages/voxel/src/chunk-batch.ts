@@ -27,7 +27,7 @@
  * and the seams rebuilt from it come in one task too, and the nodes an edit
  * changes on screen come in its swap's task, with its chunks.
  */
-import { crc32, threadProfiler, wallClock } from '@thirdlight/shared';
+import { crc32, frameSliceMs, threadProfiler, wallClock } from '@thirdlight/shared';
 import { chunkKey, chunkOfKey, type ChunkGrid } from './coords';
 import type { FarEvent, FarNodeDraw } from './far-field';
 import type { FarSeenWire } from './far-seen';
@@ -165,6 +165,8 @@ export interface ChunkDrawBatch {
   readonly far?: FarDrawWire;
   /** The occupancy walk's blocks packed or gone (walk-pages.ts), for the page's GPU walk. */
   readonly walk?: readonly WalkBlockWire[];
+  /** The page's feed the walk blocks were packed for ({@link ChunkDrawBatcher.setWalkFeed}): the page drops those of another. */
+  readonly walkFeed?: number;
   /** Chunk columns' sky heights changed or gone (sky-columns.ts), for lighting on the page. */
   readonly sky?: readonly SkyColumnWire[];
   /** Where the near field draws changed (with a far field only). */
@@ -217,10 +219,13 @@ export interface ChunkDrawBatcherOptions {
    */
   readonly inPlace?: boolean;
   /**
-   * The world as the occupancy walk reads it where it runs (walk-sources.ts): with it every batch carries the walk
-   * blocks its changes touched, packed (walk-pages.ts), for the page's GPU walk.
+   * The world as the occupancy walk reads it where it runs (walk-sources.ts) and the blocks it knows now (a chunk at
+   * level 0, a node at its level): with it, while the page's walk feed is on ({@link ChunkDrawBatcher.setWalkFeed}),
+   * the batches carry the walk blocks the changes touched, packed (walk-pages.ts), for the page's GPU walk.
    */
-  readonly walk?: WalkSource;
+  readonly walk?: { readonly source: WalkSource; blocks(): Iterable<readonly [number, number, number, number]> };
+  /** The page's walk feed to start with (0, the default: off; see {@link ChunkDrawBatcher.setWalkFeed}). */
+  readonly walkFeed?: number;
   /** The world's open regions where it runs (open-region-stitch.ts): with them the batches carry the sky heights that changed. */
   readonly sky?: Pick<OpenRegionStitch, 'onSky' | 'takeSky'>;
 }
@@ -307,6 +312,8 @@ export class ChunkDrawBatcher {
   batches = 0;
   /** The walk blocks touched since the last batch (null: the batches carry none). */
   private readonly walkFeed: WalkBlockFeed | null;
+  /** The page's walk feed (0: off, nothing is packed). */
+  private walkOn = 0;
 
   constructor(
     private readonly world: string,
@@ -318,10 +325,11 @@ export class ChunkDrawBatcher {
     this.opts = typeof opts === 'function' ? { schedule: opts } : opts;
     this.grid = feed.grid;
     this.copy = sectionEdge === feed.grid.edge && this.opts.inPlace !== true;
-    this.walkFeed = this.opts.walk !== undefined ? new WalkBlockFeed(this.opts.walk, feed.grid.edge) : null;
+    this.walkFeed = this.opts.walk !== undefined ? new WalkBlockFeed(this.opts.walk.source, feed.grid.edge) : null;
     const side = shaderGridSide(feed.grid.edge);
     this.scratch = new Uint16Array(side * side * side);
     feed.on((e) => this.onStream(e));
+    this.setWalkFeed(this.opts.walkFeed ?? 0);
     this.opts.sky?.onSky(() => {
       if (!this.closed) this.queue();
     });
@@ -337,7 +345,7 @@ export class ChunkDrawBatcher {
 
   private onStream(e: StreamEvent): void {
     if (this.closed) return;
-    const walk = this.walkFeed;
+    const walk = this.walkOn > 0 ? this.walkFeed : null;
     if (walk !== null) {
       // What the walk knows changes with each chunk's derived occupancy and light (not its shader data or relief) and each node's.
       if ((e.type === 'chunk' && !e.shaderOnly && !e.reliefOnly) || e.type === 'unloaded') walk.touch(0, e.cx, e.cy, e.cz);
@@ -489,20 +497,53 @@ export class ChunkDrawBatcher {
     else queueMicrotask(flush);
   }
 
+  /** A batch in a later task (a microtask would run in this one): what a slice left waits for the thread's other work. */
+  private queueLater(): void {
+    if (this.queued) return;
+    this.queued = true;
+    const flush = (): void => this.flush();
+    if (this.opts.schedule !== undefined) this.opts.schedule(flush);
+    else setTimeout(flush, 0);
+  }
+
+  /**
+   * The page's walk feed from now on: 0, nothing of the walk is packed or sent (no reader of the page's GPU walk);
+   * any other number, the page's feed of that number, which first gets every block known now (packed a slice a task),
+   * then the blocks the changes touch. A new number starts again: the page let the blocks of the last one go.
+   */
+  setWalkFeed(feed: number): void {
+    const w = this.walkFeed;
+    if (w === null || feed === this.walkOn || this.closed) return;
+    this.walkOn = feed;
+    w.reset();
+    if (feed === 0) return;
+    for (const [level, x, y, z] of this.opts.walk!.blocks()) w.touch(level, x, y, z);
+    if (w.pending) this.queue();
+  }
+
+  /** Walk blocks packed (or found gone) for the page so far, and sent and not removed since. */
+  get walkCounts(): { readonly packed: number; readonly held: number } {
+    return { packed: this.walkFeed?.packed ?? 0, held: this.walkFeed?.held ?? 0 };
+  }
+
   private flush(): void {
     this.queued = false;
     const cover = this.coverDirty ? this.nearCover() : null;
     this.coverDirty = false;
     const far = this.farAdded.length > 0 || this.farRemoved.length > 0 ? { added: this.farAdded, removed: this.farRemoved, seq: this.farSeq, ...(this.farFade !== null ? { fineFade: this.farFade } : {}) } : null;
     let walk: WalkBlockWire[] = [];
-    if (this.walkFeed?.pending === true && !this.closed) {
+    if (this.walkOn > 0 && this.walkFeed?.pending === true && !this.closed) {
+      // In the derive's slice, as streaming work of the same kind: what is left goes in a later task.
       threadProfiler.begin(WALK_PACK_SPAN);
-      walk = this.walkFeed.take();
+      const t0 = performance.now();
+      const ms = frameSliceMs('voxelDerive');
+      walk = this.walkFeed.take(() => performance.now() - t0 < ms);
       threadProfiler.end(WALK_PACK_SPAN);
+      if (this.walkFeed.pending) this.queueLater();
     }
     const sky = this.closed ? [] : (this.opts.sky?.takeSky() ?? []);
     if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null && walk.length === 0 && sky.length === 0)) return;
-    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk } : {}), ...(sky.length > 0 ? { sky } : {}), sentAt: wallClock(), joinMs: this.joinMs };
+    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk, walkFeed: this.walkOn } : {}), ...(sky.length > 0 ? { sky } : {}), sentAt: wallClock(), joinMs: this.joinMs };
     this.farAdded = [];
     this.farRemoved = [];
     this.relief = null;

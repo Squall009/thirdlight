@@ -676,7 +676,16 @@ function relayedInput(relay: RelayActionSource, browserInput: BrowserInput, r: {
  * (null kind: stop).
  */
 function walkHooks(draws: VoxelWorldDraws) {
+  let reading: (() => void) | null = null;
   return {
+    /** A bench's or a check's read of the GPU walk on or off (the batches carry walk blocks only while something reads them). */
+    read: (on: boolean) => {
+      if (on) reading ??= draws.readWalk();
+      else {
+        reading?.();
+        reading = null;
+      }
+    },
     stats: (world: string) => {
       const g = draws.walk(world);
       return g === null ? null : { blocks: g.table.size, pages: g.table.pagesUsed, maxLevel: g.table.maxLevel, bytes: g.table.bytes, gpuBytes: g.gpuBytes, ...g.counters };
@@ -767,6 +776,8 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
   // Fine far bricks asked for on a page that cannot build them (WebGL 2): the simulation turns them off once.
   let fineOff: () => void = () => undefined;
   let fineOffSent = false;
+  // The page's walk feed goes to where the worlds run (the worker's start message carries the one it has then).
+  let walkFeed: (feed: number) => void = () => undefined;
   const kitMeshes = new VoxelKitMeshes();
   if (voxelKitMeshRefs(kits.records).length + voxelKitImageRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader(), undefined, (assetId) => kits.texture(assetId));
   const draws = new VoxelWorldDraws({
@@ -794,6 +805,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       fineOffSent = true;
       fineOff();
     },
+    walkFeed: (feed) => walkFeed(feed),
   });
   // The profile's voxel counters (what is drawn and waiting) and its GPU room: this page has the headroom meter.
   pageProfile.attach({
@@ -823,6 +835,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       report = (world, bytes, coarse, kitBytes) => h.post({ t: 'voxels.drawn', world, bytes, coarse, kits: kitBytes });
       farSeen = (world, seen) => h.post({ t: 'voxels.farSeen', world, seen });
       fineOff = () => h.post({ t: 'voxels.fine', on: false });
+      walkFeed = (feed) => h.post({ t: 'voxels.walk', feed });
       return {
         ...h,
         listen: (onMessage) => h.listen((m) => (typeof m === 'object' && m !== null && (m as { t?: unknown }).t === 'voxels' ? draws.receive((m as { batch: Parameters<VoxelWorldDraws['receive']>[0] }).batch) : onMessage(m))),
@@ -830,10 +843,11 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     /** The page's own simulation opens its worlds through these ports. */
     single(): VoxelWorldPorts {
-      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels, materials, fineBricksFromUrl(pageSearch()));
+      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels, materials, fineBricksFromUrl(pageSearch()), draws.walkFeed);
       report = (world, bytes, coarse, kitBytes) => p.drawn(world, bytes, coarse, kitBytes);
       farSeen = (world, seen) => p.farSeen(world, seen);
       fineOff = () => p.setFine(false);
+      walkFeed = (feed) => p.setWalkFeed(feed);
       return p.ports;
     },
   };
@@ -961,7 +975,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             ...(o.start?.options?.mode !== undefined && modeRows !== undefined ? { startMode: o.start.options.mode } : {}),
             // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, o.saveNamespace) } : {}),
-            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), pieceSeed: voxelPieceSeedOf(manifest.settings), qualityLevels, materials: voxelMaterialsOf(manifest), ...(fineBricksFromUrl(pageSearch()) ? { fineBricks: true } : {}) } } : {}),
+            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), pieceSeed: voxelPieceSeedOf(manifest.settings), qualityLevels, materials: voxelMaterialsOf(manifest), ...(fineBricksFromUrl(pageSearch()) ? { fineBricks: true } : {}), ...(voxels !== null && voxels.draws.walkFeed > 0 ? { walkFeed: voxels.draws.walkFeed } : {}) } } : {}),
           },
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),

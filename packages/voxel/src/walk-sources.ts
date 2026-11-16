@@ -43,18 +43,45 @@ export function lightStops(occ: OccupancyOut, light: LightOut, i: number): boole
   return cellBit(light.full, i) || lightCoverageAt(light, i, 0) >= LIGHT_STOP_COVERAGE;
 }
 
+/** `e` bits of a cell mask from cell `i0` on (`e` ≤ 32 and dividing 32, `i0` a multiple of `e`; a null mask: none). */
+function maskBits(m: Uint32Array | null, i0: number, e: number): number {
+  if (m === null) return 0;
+  const w = m[i0 >>> 5]!;
+  return e === 32 ? w : (w >>> (i0 & 31)) & ((1 << e) - 1);
+}
+
+/** The cells of a derived result's grid that stop light by their partial coverage alone, one bit each (null: none). */
+function partialStopMask(light: LightOut, cells: number): Uint32Array | null {
+  let m: Uint32Array | null = null;
+  for (let k = 0; k < light.partialCells.length; k++) {
+    if (light.partialCover[k]! < LIGHT_STOP_COVERAGE) continue;
+    const i = light.partialCells[k]!;
+    (m ??= new Uint32Array(Math.ceil(cells / 32)))[i >>> 5]! |= 1 << (i & 31);
+  }
+  return m;
+}
+
 /** A derived result (a section's or a node's assembly) as one stop reads it. */
 export function derivedWalkView(d: DerivedData, stop: WalkStop): WalkBlockView {
   const occ = d.occupancy;
   if (occ.flag === OCCUPANCY.empty) return WALK_EMPTY_VIEW;
+  const e = d.edge;
+  const all = e === 32 ? 0xffffffff : (1 << e) - 1;
+  const solidColumn = (c: number): number => (occ.flag === OCCUPANCY.solid ? all : maskBits(occ.mask, c * e, e));
   if (stop === 'solid') {
     if (occ.flag === OCCUPANCY.solid) return WALK_SOLID_VIEW;
-    return { flag: OCCUPANCY.mixed, brick: (i) => brickFlag(occ, i), cell: (i) => cellBit(occ.mask, i) };
+    return { flag: OCCUPANCY.mixed, brick: (i) => brickFlag(occ, i), cell: (i) => cellBit(occ.mask, i), column: solidColumn };
   }
   const light = d.light;
-  if (light.uniform >= 0) return light.uniform >= LIGHT_STOP_COVERAGE && occ.flag === OCCUPANCY.solid ? WALK_SOLID_VIEW : light.uniform >= LIGHT_STOP_COVERAGE ? { flag: OCCUPANCY.mixed, brick: () => OCCUPANCY.mixed, cell: (i) => solidCell(occ, i) } : WALK_EMPTY_VIEW;
+  if (light.uniform >= 0) return light.uniform >= LIGHT_STOP_COVERAGE && occ.flag === OCCUPANCY.solid ? WALK_SOLID_VIEW : light.uniform >= LIGHT_STOP_COVERAGE ? { flag: OCCUPANCY.mixed, brick: () => OCCUPANCY.mixed, cell: (i) => solidCell(occ, i), column: solidColumn } : WALK_EMPTY_VIEW;
+  // A cell stops light when it is a body and covers fully or, partly, by half or more (lightStops, a word at a time).
+  let partial: Uint32Array | null | undefined;
+  const column = (c: number): number => {
+    partial ??= partialStopMask(light, e * e * e);
+    return (solidColumn(c) & (maskBits(light.full, c * e, e) | maskBits(partial, c * e, e))) >>> 0;
+  };
   // A brick with no body holds nothing that stops light; one with bodies is read cell by cell (a damaged one may not).
-  return { flag: OCCUPANCY.mixed, brick: (i) => (occ.flag === OCCUPANCY.solid || brickFlag(occ, i) !== OCCUPANCY.empty ? OCCUPANCY.mixed : OCCUPANCY.empty), cell: (i) => lightStops(occ, light, i) };
+  return { flag: OCCUPANCY.mixed, brick: (i) => (occ.flag === OCCUPANCY.solid || brickFlag(occ, i) !== OCCUPANCY.empty ? OCCUPANCY.mixed : OCCUPANCY.empty), cell: (i) => lightStops(occ, light, i), column };
 }
 
 /** What a walk source reads of a streamer. */
@@ -94,6 +121,24 @@ export function streamerWalkSource(s: WalkStreamerView, far?: FarWalkNodes | nul
     },
     ...(far != null ? { farAt: (x: number, y: number, z: number) => far.farAt(x, y, z), farEdge: s.grid.edge } : {}),
   };
+}
+
+/** What {@link streamerWalkBlocks} reads of a streamer. */
+export interface WalkBlocksView {
+  readonly sections: { readonly shift: number };
+  readonly grid: { readonly shift: number };
+  derivedChunks(): Iterable<{ readonly cx: number; readonly cy: number; readonly cz: number }>;
+  readonly mips: { derived(): Iterable<{ readonly level: number; readonly nx: number; readonly ny: number; readonly nz: number; readonly result: DerivedData | null }> } | null;
+}
+
+/**
+ * The walk blocks a streamer knows now, as `[level, x, y, z]`: at level 0 the chunk of every derive section with a
+ * result (a chunk once a section), at the mip levels every node with something drawn.
+ */
+export function* streamerWalkBlocks(s: WalkBlocksView): IterableIterator<readonly [number, number, number, number]> {
+  const per = s.grid.shift - s.sections.shift;
+  for (const d of s.derivedChunks()) yield [0, d.cx >> per, d.cy >> per, d.cz >> per];
+  for (const n of s.mips?.derived() ?? []) if (n.result !== null) yield [n.level, n.nx, n.ny, n.nz];
 }
 
 /** Bytes a far node's kept bricks take. */

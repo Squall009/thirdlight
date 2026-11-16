@@ -102,6 +102,7 @@ export function packWalkBlock(src: WalkSource, level: number, bx: number, by: nu
   const light = flagOf(1);
   if (solid !== OCCUPANCY.mixed && light !== OCCUPANCY.mixed) return { solid, light, page: null };
   const page = new Uint32Array(WALK_PAGE_WORDS);
+  const full = pe === 32 ? 0xffffffff : (1 << pe) - 1;
   (['solid', 'light'] as const).forEach((stop, k) => {
     const off = walkPageOffsets(stop);
     for (const v of views) {
@@ -110,16 +111,16 @@ export function packWalkBlock(src: WalkSource, level: number, bx: number, by: nu
       for (let x = 0; x < pe; x++) for (let z = 0; z < pe; z++) {
         const gx = v[2] + x;
         const gz = v[4] + z;
-        let word = 0;
-        for (let y = 0; y < pe; y++) {
-          const stops = view.flag === OCCUPANCY.solid || view.cell((x * pe + z) * pe + y);
-          if (stops) word |= 1 << (v[3] + y);
-        }
-        if (word === 0) continue;
-        page[off.cells + gx * E + gz]! |= word;
-        for (let y = 0; y < pe; y++) {
-          if (((word >>> (v[3] + y)) & 1) === 0) continue;
-          const bi = (((gx >> 2) * BRICKS + (gz >> 2)) * BRICKS) + ((v[3] + y) >> 2);
+        // The column's cells as a word: whole for a solid view, read as a word where the view has one, else cell by cell.
+        let bits = view.flag === OCCUPANCY.solid ? full : view.column !== undefined ? view.column(x * pe + z) : 0;
+        if (view.flag !== OCCUPANCY.solid && view.column === undefined) for (let y = 0; y < pe; y++) if (view.cell((x * pe + z) * pe + y)) bits |= 1 << y;
+        if (bits === 0) continue;
+        page[off.cells + gx * E + gz]! |= bits << v[3];
+        // A brick bit for each four cells of the column holding one.
+        const row = ((gx >> 2) * BRICKS + (gz >> 2)) * BRICKS;
+        for (let y = 0; y < pe; y += 4) {
+          if (((bits >>> y) & 15) === 0) continue;
+          const bi = row + ((v[3] + y) >> 2);
           page[off.bricks + (bi >>> 5)]! |= 1 << (bi & 31);
         }
       }
@@ -387,11 +388,18 @@ export class WalkBlockFeed {
     return this.dirty.size > 0;
   }
 
-  /** The touched blocks packed (or removed), each once. */
-  take(): WalkBlockWire[] {
+  /**
+   * The touched blocks packed (or removed), each once, in the order touched, while `more()` says so (at least one);
+   * the rest wait for the next call.
+   */
+  take(more: () => boolean = () => true): WalkBlockWire[] {
     const out: WalkBlockWire[] = [];
+    let n = 0;
     for (const [key, [level, bx, by, bz]] of this.dirty) {
+      if (n++ > 0 && !more()) break;
+      this.dirty.delete(key);
       const packed = packWalkBlock(this.src, level, bx, by, bz);
+      this.packed++;
       if (packed === null) {
         if (this.sent.delete(key)) out.push({ level, bx, by, bz });
         continue;
@@ -399,14 +407,22 @@ export class WalkBlockFeed {
       this.sent.add(key);
       out.push({ level, bx, by, bz, packed });
     }
-    this.dirty.clear();
     return out;
+  }
+
+  /** Nothing waits and nothing counts as sent (the page let its blocks go: the next ones it gets are all it holds). */
+  reset(): void {
+    this.dirty.clear();
+    this.sent.clear();
   }
 
   /** Blocks sent and not removed since. */
   get held(): number {
     return this.sent.size;
   }
+
+  /** Blocks packed (or found gone) so far. */
+  packed = 0;
 }
 
 /** Applies a feed's wires to a table. */

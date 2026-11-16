@@ -127,6 +127,11 @@ export interface VoxelWorldDrawsOptions {
   farSeen?(world: string, seen: FarSeenWire): void;
   /** A world's fine far nodes cannot be built on this page (WebGL 2): where it runs, fine bricks go off. */
   fineUnavailable?(world: string): void;
+  /**
+   * The page's walk feed changed ({@link VoxelWorldDraws.walkFeed}): where the worlds run, their batches carry walk
+   * blocks for this feed (every block known first), or none (0: nothing on the page reads the GPU walk).
+   */
+  walkFeed?(feed: number): void;
   /** A batch was applied (a view drawing on demand draws a frame). */
   applied?(): void;
   /** The kit pieces every world draws (absent: none until {@link VoxelWorldDraws.setKits}). */
@@ -309,9 +314,15 @@ export class VoxelWorldDraws {
   /** The voxel light volume when it is the store (made with the first world walked on WebGPU), and that world. */
   private volume: VoxelLightVolume | null = null;
   private volumeWorld: string | null = null;
+  /** Readers of the GPU walk ({@link readWalk}), the feed they get (0: none), the store's own read (the volume). */
+  private walkReaders = 0;
+  private walkFeedNow = 0;
+  private walkFeeds = 0;
+  private storeRead: (() => void) | null = null;
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
     this.lightStore = opts.lighting === true ? voxelLightStoreFromUrl(pageSearch()) : 'off';
+    if (this.lightStore === 'volume') this.storeRead = this.readWalk();
     this.unregister.push(
       gpuPassHides.register({ category: 'near', name: 'voxel near surfaces and kit pieces', present: () => [...this.worlds.values()].some((w) => w.view.count > 0), hide: (h) => this.showNear(!h) }),
       gpuPassHides.register({ category: 'far', name: 'voxel far field', present: () => [...this.worlds.values()].some((w) => w.view.far.nodes > 0), hide: (h) => this.showFar(!h) }),
@@ -661,7 +672,39 @@ export class VoxelWorldDraws {
   setLightStore(store: VoxelLightStore): void {
     if (this.opts.lighting !== true || store === this.lightStore) return;
     this.lightStore = store;
-    if (store !== 'volume') this.dropVolume();
+    if (store === 'volume') this.storeRead ??= this.readWalk();
+    else {
+      this.dropVolume();
+      this.storeRead?.();
+      this.storeRead = null;
+    }
+  }
+
+  /**
+   * A reader of the worlds' GPU walks from now on (the light volume, a bench's check), until the call it returns: while
+   * there is one, the batches carry walk blocks; the first reader gets every block known, sent again; when the last
+   * goes, every world's walk is released and the batches carry none.
+   */
+  readWalk(): () => void {
+    if (this.walkReaders++ === 0) {
+      this.walkFeedNow = ++this.walkFeeds;
+      this.opts.walkFeed?.(this.walkFeedNow);
+    }
+    let done = false;
+    return () => {
+      if (done || this.disposed) return;
+      done = true;
+      if (--this.walkReaders > 0) return;
+      this.walkFeedNow = 0;
+      for (const g of this.walks.values()) g.dispose();
+      this.walks.clear();
+      this.opts.walkFeed?.(0);
+    };
+  }
+
+  /** The walk feed the batches are asked for now (0: no reader, none). */
+  get walkFeed(): number {
+    return this.walkFeedNow;
   }
 
   private dropVolume(): void {
@@ -675,9 +718,9 @@ export class VoxelWorldDraws {
     return this.walks.get(world) ?? null;
   }
 
-  /** A batch's walk blocks into its world's GPU walk (WebGL 2: none, the blocks are dropped). */
-  private applyWalk(world: string, wires: ChunkDrawBatch['walk']): void {
-    if (wires === undefined || wires.length === 0) return;
+  /** A batch's walk blocks into its world's GPU walk (WebGL 2: none, the blocks are dropped; another feed's: dropped). */
+  private applyWalk(world: string, wires: ChunkDrawBatch['walk'], feed: number | undefined): void {
+    if (wires === undefined || wires.length === 0 || feed !== this.walkFeedNow || feed === 0) return;
     let g = this.walks.get(world);
     if (g === undefined) {
       const r = this.opts.renderer();
@@ -732,7 +775,7 @@ export class VoxelWorldDraws {
     const w = this.worlds.get(b.world)!;
     if (b.relief !== undefined) this.giveRelief(w, b.relief);
     if (b.world === this.volumeWorld && this.volume !== null) for (const c of b.chunks) if ((c.level ?? 0) === 0) this.volume.chunkGrid(c.cx, c.cy, c.cz, c.kind === 'remove' ? null : (c.cells ?? null), c.kind === 'remove' ? -1 : (c.solid ?? (c.cells !== undefined ? -1 : 0)));
-    this.applyWalk(b.world, b.walk);
+    this.applyWalk(b.world, b.walk, b.walkFeed);
     if (b.sky !== undefined) {
       let k = this.skies.get(b.world);
       if (k === undefined) this.skies.set(b.world, (k = new SkyColumns(b.edge)));

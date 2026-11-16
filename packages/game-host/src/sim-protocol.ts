@@ -92,8 +92,10 @@ export interface SimInitMessage {
    * ports open them there) and, in an export, the worlds its build ships;
    * `kits`, the build's voxel kits their derives choose pieces from (the
    * page draws them from the same kits); absent: they stream nothing.
+   * `walkFeed`: the page's walk feed when it starts (a reader of its GPU
+   * walk from the start: the light volume in the page's query).
    */
-  readonly voxels?: { readonly root: string; readonly worlds?: readonly import('@thirdlight/voxel').ShippedVoxelWorld[]; readonly kits?: readonly import('@thirdlight/voxel').PieceKitSource[]; readonly pieceSeed?: number; readonly qualityLevels?: readonly import('@thirdlight/runtime').QualityLevelConfig[]; readonly materials?: import('@thirdlight/runtime').VoxelMaterialSources; readonly fineBricks?: boolean };
+  readonly voxels?: { readonly root: string; readonly worlds?: readonly import('@thirdlight/voxel').ShippedVoxelWorld[]; readonly kits?: readonly import('@thirdlight/voxel').PieceKitSource[]; readonly pieceSeed?: number; readonly qualityLevels?: readonly import('@thirdlight/runtime').QualityLevelConfig[]; readonly materials?: import('@thirdlight/runtime').VoxelMaterialSources; readonly fineBricks?: boolean; readonly walkFeed?: number };
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */
@@ -166,6 +168,8 @@ export type MainToWorker =
   | { readonly t: 'voxels.farSeen'; readonly world: string; readonly seen: FarSeenWire }
   /** Fine far bricks on or off for every voxel world (off: the page cannot build them, WebGL 2). */
   | { readonly t: 'voxels.fine'; readonly on: boolean }
+  /** The page's walk feed for every voxel world (0: nothing reads the page's GPU walk; VoxelPresentation.setWalkFeed). */
+  | { readonly t: 'voxels.walk'; readonly feed: number }
   | { readonly t: 'dispose' };
 
 /** The loaded scenes as the page mirrors them (entities only for a batch the page does not have yet). */
