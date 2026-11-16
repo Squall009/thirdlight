@@ -325,12 +325,13 @@ export class VoxelLightVolume {
       }
       const lo = [Infinity, Infinity, Infinity];
       const hi = [-Infinity, -Infinity, -Infinity];
+      const base = [bx * VOLUME_BLOCK_BRICKS, by * VOLUME_BLOCK_BRICKS, bz * VOLUME_BLOCK_BRICKS];
       for (const bi of changed) {
         const l = volumeBlockBrick(bi);
-        const g = [bx * VOLUME_BLOCK_BRICKS + l[0], by * VOLUME_BLOCK_BRICKS + l[1], bz * VOLUME_BLOCK_BRICKS + l[2]];
         for (let a = 0; a < 3; a++) {
-          lo[a] = Math.min(lo[a]!, g[a]!);
-          hi[a] = Math.max(hi[a]!, g[a]!);
+          const v = base[a]! + l[a]!;
+          if (v < lo[a]!) lo[a] = v;
+          if (v > hi[a]!) hi[a] = v;
         }
       }
       boxes.push([lo, hi]);

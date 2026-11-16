@@ -378,7 +378,11 @@ export function volumeLevelBrickKept(blocks: VolumeBlockLookup, level: number, b
   return some(bx, by, bz) || some(bx + 1, by, bz) || some(bx - 1, by, bz) || some(bx, by + 1, bz) || some(bx, by - 1, bz) || some(bx, by, bz + 1) || some(bx, by, bz - 1);
 }
 
-/** The bricks of a block whose light-stopping cells differ between two pages' views (an edit's or an arrival's bricks). */
+/**
+ * The bricks of a block whose light-stopping cells differ between two pages' views (an edit's or an arrival's bricks).
+ * A page marks a brick only when a cell of it stops light (walk-pages.ts packs the brick bits from the cells), so a
+ * marked brick against nothing (a block not held, an empty one, an unmarked brick) differs without reading its cells.
+ */
 export function volumeChangedBricks(before: WalkBlockView | null, after: WalkBlockView | null): number[] {
   const out: number[] = [];
   const stop = (v: WalkBlockView | null, i: number): boolean => v !== null && (v.flag === OCCUPANCY.solid || (v.flag === OCCUPANCY.mixed && v.cell(i)));
@@ -393,6 +397,10 @@ export function volumeChangedBricks(before: WalkBlockView | null, after: WalkBlo
     const qb = quick(after);
     if (qa === qb && qa !== OCCUPANCY.mixed) continue;
     if (qa <= OCCUPANCY.empty && qb <= OCCUPANCY.empty) continue;
+    if ((qa <= OCCUPANCY.empty && qb === OCCUPANCY.mixed) || (qb <= OCCUPANCY.empty && qa === OCCUPANCY.mixed)) {
+      out.push(bi);
+      continue;
+    }
     let differs = false;
     for (let x = 0; x < 4 && !differs; x++) for (let z = 0; z < 4 && !differs; z++) for (let y = 0; y < 4 && !differs; y++) {
       const i = ((bx * 4 + x) * BLOCK_CELLS + bz * 4 + z) * BLOCK_CELLS + by * 4 + y;
@@ -453,32 +461,58 @@ export interface VolumeMarkable {
  */
 export function volumeMarkBoxes<B extends VolumeMarkable>(bricks: Iterable<B>, list: ReadonlyArray<readonly [readonly number[], readonly number[]]>, reach: readonly number[], settle: number): B[] {
   const at = [0, 0, 0];
-  const levels = reach.map((r, l) => ({ reach: r, boxes: list.map(([lo, hi]) => [lo.map((v) => Math.floor(v / (1 << l))), hi.map((v) => Math.floor(v / (1 << l)))] as const) }));
+  // Each level's boxes in its own bricks, flat (lo x y z, hi x y z): a brick is held against every box.
+  const levels = reach.map((r, l) => {
+    const flat = new Int32Array(list.length * 6);
+    list.forEach(([lo, hi], i) => {
+      for (let a = 0; a < 3; a++) {
+        flat[i * 6 + a] = Math.floor(lo[a]! / (1 << l));
+        flat[i * 6 + 3 + a] = Math.floor(hi[a]! / (1 << l));
+      }
+    });
+    return { reach: r, near: l === 0 ? VOLUME_MARK_NEAR_BRICKS : 1, flat };
+  });
+  const lo = [0, 0, 0];
+  const hi = [0, 0, 0];
   const marked: Array<readonly [number, B]> = [];
   for (const b of bricks) {
-    at[0] = b.bx;
-    at[1] = b.by;
-    at[2] = b.bz;
-    const { boxes, reach: r } = levels[b.level]!;
+    const { flat, reach: r, near } = levels[b.level]!;
+    const x = b.bx;
+    const y = b.by;
+    const z = b.bz;
     let first = -1;
     let nearest = -1;
     let best = Infinity;
-    for (let i = 0; i < boxes.length; i++) {
-      const d = volumeBoxGap(at, boxes[i]![0], boxes[i]![1]);
-      if (d > r) continue;
-      if (first < 0) first = i;
+    for (let o = 0; o < flat.length; o += 6) {
+      const gx = x < flat[o]! ? flat[o]! - x : x > flat[o + 3]! ? x - flat[o + 3]! : 0;
+      if (gx > r) continue;
+      const gy = y < flat[o + 1]! ? flat[o + 1]! - y : y > flat[o + 4]! ? y - flat[o + 4]! : 0;
+      if (gy > r) continue;
+      const gz = z < flat[o + 2]! ? flat[o + 2]! - z : z > flat[o + 5]! ? z - flat[o + 5]! : 0;
+      if (gz > r) continue;
+      const d = Math.max(gx, gy, gz);
+      if (first < 0) first = o / 6;
       if (d < best) {
         best = d;
-        nearest = i;
+        nearest = o;
+        // Near: from nothing whatever comes after, and the first box is found.
+        if (d <= near) break;
       }
     }
     if (first < 0) continue;
-    const u = volumeMarkedUpdates(at, boxes[nearest]![0], boxes[nearest]![1], b.updates, r, settle, b.level === 0 ? undefined : 1);
+    at[0] = x;
+    at[1] = y;
+    at[2] = z;
+    for (let a = 0; a < 3; a++) {
+      lo[a] = flat[nearest + a]!;
+      hi[a] = flat[nearest + 3 + a]!;
+    }
+    const u = volumeMarkedUpdates(at, lo, hi, b.updates, r, settle, b.level === 0 ? undefined : 1);
     if (u === null) continue;
     b.updates = u;
     marked.push([first, b]);
   }
   // A stable sort: within a box's bricks, the order they were walked in.
-  marked.sort((x, y) => x[0] - y[0]);
+  marked.sort((p, q) => p[0] - q[0]);
   return marked.map((m) => m[1]);
 }
