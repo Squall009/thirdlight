@@ -1574,7 +1574,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 31 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 32 | refused | rebuilt, never upgraded |
 | Far cache ([render spec §4](voxel-render-spec.md#4-far-field-data)) | `far.json` `format` | 3 (reads 1, 2 and 3) | refused, built again | add-only steps: 2 adds the nodes' baked bricks (`bricks`, `B<level>/`; a format-1 cache reads as one without them, the backend builds it again); 3 adds the fine levels a world bakes (`fine`, `B0/`, `B1/`; a format-2 cache is current for a world baked to 2 m); rebuilt when its world's revision or its bricks' build differs |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 5 | refused | rebuilt from the kits, never stored |
 | Voxel kit record ([kit page](voxel-kit-format.md) §3.9, final) | `kitFormat` | 1 | any other refused whole | add-only fields (v1 has none to lift) |

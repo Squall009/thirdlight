@@ -231,8 +231,16 @@ const REGIONS_SPAN = threadProfiler.span('open regions', 'voxelMesh');
  * parent's cells in the body round them (voxel-mips.ts), so level 1 and up
  * draw a wall where a door or a window would leave a one-cell gap. Level-0
  * results are v30's byte for byte; the layout is v30's.
+ *
+ * v32: three outputs per level-0 unit, never stored: region labels (open
+ * cells labelled 6-connected into components, `opening` cells into portal
+ * components apart, with each region's cells, the unit faces it reaches
+ * and the region–portal contacts), face connectivity (the 15 face pairs
+ * joined through open cells) and sky columns (the highest solid cell + 1
+ * a column); radius 0 (open-regions.ts). The regions follow the shader
+ * data in the canonical bytes; every other output is v31's.
  */
-export const DERIVED_FORMAT_VERSION = 31;
+export const DERIVED_FORMAT_VERSION = 32;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
