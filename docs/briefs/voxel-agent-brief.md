@@ -9,9 +9,9 @@ branch code. Nothing is merged or deployed in phase 46 (the merge is 48c). tools
 folder with main, so one gate at a time still holds.
 Main at the freeze: d4053cab. Phase 46 base on the branch: aeb8114a (phase 45 done, format spec v1 APPROVED by the owner 2026-11-02).
 46a DONE at ac283f22 (2026-11-03); 46b DONE at 6ffc2031 (2026-11-04). Last D-row used: D499; NEW BLOCK D500–D599 (continue at D500).
-CURRENT PHASE: 46e-a, lighting, regions and the lighting storage A/B (see the "46e" section at the end: it takes
-precedence over older sections where they differ; the lead's prompt names your item). 46f is DONE (32faf2c0).
-NEVER start 46e-b (rooms, connectivity culling, the walk graph, building out a chosen storage).
+CURRENT PHASE: 46e-b, the voxel light volume built out, then rooms, culling and the walk graph (see the "46e-b"
+section at the end: it takes precedence over older sections where they differ; the lead's prompt names your item).
+46e-a is DONE (34253940). NEVER start 47a.
 Code agents run one at a time (they share the worktree's dist/); a docs-only agent may run beside you.
 
 Read AGENTS.md; then the current sub-phase plan (docs/plan-phase-46a.md, 46b, 46c) IN FULL; then from
@@ -295,4 +295,59 @@ HOST: as the 46f section. Gates: `TL_GATE_MEM=12G TL_VITEST_WORKERS=6 tools/gate
 DONE = works in a real browser on WebGPU, a test at the boundary it changes, the fast gate green, the plan's progress
 row and results written, pictures you looked at listed by path. You commit and push your own green slices; the lead
 reads the diff, the gate log and the pictures before the item counts.
+Commit trailer: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Scratch: ~/.cache/thirdlight-phase46e/work/<item>/.
+
+46e-b (owner 2026-11-16). CURRENT PHASE = 46e-b: docs/plan-phase-46e.md §6's 46e-b table (items 46e.9–46e.19: the
+contract; never write status into it, status goes in §7 and results in §8a/§8c). 46e-b start commit f048b411. D-rows
+continue at D711 (block D700–D799; grep both audit files for the next free number before you take one).
+READ, in this order, instead of the older lists above: AGENTS.md; docs/architecture/voxel-engine.md;
+docs/decisions/owner-decisions.md; docs/plan-phase-46e.md §1–§5, §6, §8, §8b, in §8a only "46e.6a", "46e.6b",
+"46e.8 — travel fixes" and "46e.8 — the close", §9's entries of 2026-11-16; docs/plan-phase-45.md §5c; the volume's
+code (packages/three-adapter/src/voxel-light-volume.ts, -layout.ts, -wgsl.ts); the D-rows your brief names. The rest of
+plan-46e §8a and docs/plan-phase-46d.md only where your brief points.
+OWNER DECISIONS (do not re-litigate): the lighting store of voxel worlds is the voxel light volume. The surface cache's
+voxel port and the hybrid are removed (46e.9; the A/B's code is at the tag `ab-46e-a`). NO TUNING until every light
+type is in the volume and its observed defects are fixed on the update side: do not tune the per-pixel read, ray
+counts, reach or pacing shares before 46e.14, and fix the look where cells are written (accumulate while idle, filter
+as cells are written), never in the per-pixel read. Every light type: a per-brick lamp list in world space built in
+compute; spot lights bounce with their cone; area lights add bounce; emissive materials (the glow is a property of the
+voxel's material, never stored per voxel; NOTHING of it is built before the owner's note on the 46e.11 proposal).
+Shadows and the sun field stay on at every tier. The low tier's target is 720p at the 30 Hz cap.
+SCOPE FENCE (owner; do not cross):
+- Nothing inside block layers, heightfield terrain or generated architecture. Phase 42's stack (surface cache, tracer,
+  probes, rooms on the old scene kinds) is not retired or changed beyond removing the voxel port from it.
+- No structures on their own grids, no far-cache channels, no lit fog, no saved light or bake (stored data = owner
+  stop), no world edit mode, no relief, no detail-piece LODs, no compute build of the clustered light lists.
+- Approved formats and specs do not change. Anything that seems to need a spec change: STOP and report to the lead.
+- three.js stays at 0.187.0 (checked 2026-11-16). No new private three hook where a public API does the job.
+- WebGPU only for new work; WebGL 2 keeps what it draws and tests/e2e/webgl2-smoke.e2e.ts stays green. "WebGL 2 loses
+  X" is never a default you may log.
+- Reuse before building (plan §5; voxel-engine.md §6): name the module you extend and the foundation you sit on. Time
+  slices from `frameSliceMs`, budgets from FRAME_BUDGET_BY_TIER / MEMORY_BUDGET_BY_TIER; a tuned constant becomes a
+  tier setting or a table entry, never a new bare constant.
+MEASURING A LIGHTING ITEM: as the 46e-a section (low, WebGPU, 1280 × 720, the 30 Hz cap, each run ALONE, `uptime`
+recorded, from committed built code, the town inside staging's 8 km world; from 46e.14 on the many-lamps scene too),
+with: `measureGpu` readings only (`run.mjs headroom` on the moving orbit, `light-shots --gpu` at the five cameras;
+about 125 s a run, 0.1 ms within a run, 0.5 ms between runs); page `lighting` against 2.0 ms, the GPU lighting row
+6.67 ms (shadows use 0.6–0.7); memory against the budget table; edit → light; Play start → settled; the five pictures
+(`run.mjs light-shots`) looked at beside the previous item's. A difference is claimed only from same-hour interleaved
+runs (A B A B); smaller than the spread between rounds is "not resolved". `measureGpu` limits: it must run alone;
+`near` at close cameras is unreliable (D660: use the orbit); `post` cannot be read (D661); the whole-frame reading
+from the ballast line is not used.
+LESSONS OF 46e-a (mandatory):
+- Prove a switch is off before you use it as a comparison: show a reading only the off state can give (D698).
+- Keep the evidence (pictures, logs) of any finding that changes a design in your work folder, named in the plan (D699).
+- A worker, buffer or texture that lives with the scene adapter needs a release with it; when you add one, name
+  tests/e2e/memory.e2e.ts in your fast gate (the leak test otherwise runs only in the phase gate).
+- When a spec or register line changes, grep the constant: code must match the approved entry.
+- The Play test of tests/e2e/voxel-world.e2e.ts must stay under its 240 s timeout; record its time before and after.
+  Anything that grows it is split or moved to vitest; the timeout is never raised.
+- DISK: an export made by `run.mjs coverage --export` is 1.1 GB in ~/thirdlight-staging-p45/exports/: delete the
+  ones you made when your runs are done. Delete Playwright output folders and trace files from your work folder when
+  done; keep pictures, JSON and logs. Run `df -h ~` before a heavy run; under 10 GB free, clean first.
+- Any item that adds per-frame work on the default path runs one coverage round at 150 m/s against a same-hour base.
+- Finished agents leave nothing running: no waiter, no staging backend, no browser.
+DONE = works in a real browser on WebGPU, a test at the boundary it changes, the fast gate green, the plan's §7 row
+and results written (§6 untouched), pictures you looked at listed by path. You commit and push your own green slices;
+the lead reads the diff, the gate log and the pictures before the item counts.
 Commit trailer: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Scratch: ~/.cache/thirdlight-phase46e/work/<item>/.

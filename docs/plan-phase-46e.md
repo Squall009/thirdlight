@@ -63,6 +63,9 @@ ends at the lighting storage choice; **46e-b** builds the choice out.
 Done 2026-11-14 (46e.0): `npm view three version` (run by the lead) gave 0.187.0, equal to the pin; nothing to
 assess, no update. No update without the owner.
 
+Again 2026-11-16 at the start of 46e-b (the lead): `npm view three version` gave 0.187.0, equal to the pin; nothing
+to assess, no update.
+
 ## 4. Budgets and how each item is judged
 
 From `FRAME_BUDGET_BY_TIER` and `MEMORY_BUDGET_BY_TIER` (46f): at the low tier's 30 Hz frame the GPU's `lighting`
