@@ -4,9 +4,11 @@
  * labelling of a unit, its face connectivity and sky columns, and the
  * stitching across chunk faces (enclosed rooms, portals, caves, cavities,
  * a region over 2 × 2 × 2 chunks, edge contacts that do not join, arrival
- * order, unloading, and edits that merge and split regions).
+ * order, unloading, and edits that merge and split regions), and what the
+ * stitching costs as a ring moves: a region losing chunks searched only round
+ * the loss, sky heights refreshed a column at a time behind the chunks.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { buildApron } from './apron';
 import { createNeighbourhood, fillNeighbourhood, jobRadius } from './assembly';
@@ -14,7 +16,7 @@ import { chunkGrid, sectionGrid, type CellGrid } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { deriveSectionsWithApron, sectionLocalOrigin } from './derive-assembly';
 import { cellBit, deriveChunk, OCCUPANCY, type DerivedData } from './derived-data';
-import { facePairBit, openRegionsArrays, openRegionsOf, REGION_PORTAL, regionLabelAt } from './open-regions';
+import { facePairBit, openRegionsArrays, openRegionsOf, REGION_PORTAL, regionLabelAt, solidRegions } from './open-regions';
 import { OpenRegionStitch, type RegionStreamerView } from './open-region-stitch';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import { SHAPE_FULL, valueOf, VOXEL_ROLE, voxel } from './record';
@@ -446,5 +448,180 @@ describe('open regions stitched across chunks', () => {
     expect(split.portals).toBe(0);
     expect(s.regionAt(50, 6, 50)!.id).toBe(street.id);
     expectSamePartition(s, bruteRegions(w, [0, 0, 0], [2, 1, 2]));
+  });
+});
+
+/**
+ * Uniform chunks (what most of a ring is: rock below, open air above), as the derive gives them: a chunk is open air
+ * when `air` says so, else solid. Loaded chunks are what the stitch sees.
+ */
+class UniformWorld {
+  readonly loaded = new Set<string>();
+  private readonly solid = { assembly: { regions: solidRegions(16) } } as unknown as DeriveOutput;
+  private readonly open = { assembly: null } as unknown as DeriveOutput;
+
+  constructor(private readonly air: (cx: number, cy: number, cz: number) => boolean) {}
+
+  view(): RegionStreamerView {
+    return {
+      grid,
+      sections: SECTIONS,
+      derivedOf: (sx, sy, sz) => {
+        const [cx, cy, cz] = [sx >> 1, sy >> 1, sz >> 1];
+        if (!this.loaded.has(`${cx},${cy},${cz}`)) return null;
+        return this.air(cx, cy, cz) ? this.open : this.solid;
+      },
+    };
+  }
+
+  set(s: OpenRegionStitch, cx: number, cy: number, cz: number, on: boolean): void {
+    if (on) this.loaded.add(`${cx},${cy},${cz}`);
+    else this.loaded.delete(`${cx},${cy},${cz}`);
+    s.touch(cx, cy, cz);
+  }
+
+  /** The loaded air chunks' components by a flood fill over chunk faces: chunk key → component. */
+  components(): Map<string, number> {
+    const out = new Map<string, number>();
+    let next = 0;
+    for (const k of this.loaded) {
+      const [x, y, z] = k.split(',').map(Number) as [number, number, number];
+      if (out.has(k) || !this.air(x, y, z)) continue;
+      const label = ++next;
+      const stack: Array<[number, number, number]> = [[x, y, z]];
+      out.set(k, label);
+      while (stack.length > 0) {
+        const [a, b, c] = stack.pop()!;
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const) {
+          const q: [number, number, number] = [a + dx, b + dy, c + dz];
+          const qk = q.join(',');
+          if (out.has(qk) || !this.loaded.has(qk) || !this.air(...q)) continue;
+          out.set(qk, label);
+          stack.push(q);
+        }
+      }
+    }
+    return out;
+  }
+}
+
+/** The stitch's regions over uniform chunks match the flood fill's components (each chunk's centre cell read). */
+function expectSameChunkRegions(s: OpenRegionStitch, w: UniformWorld): void {
+  const toStitch = new Map<number, number>();
+  const toBrute = new Map<number, number>();
+  let bad = 0;
+  for (const [k, b] of w.components()) {
+    const [x, y, z] = k.split(',').map(Number) as [number, number, number];
+    const id = s.regionIdAt(x * 32 + 16, y * 32 + 16, z * 32 + 16);
+    if (id === 0 || (toStitch.get(b) ?? id) !== id || (toBrute.get(id) ?? b) !== b) bad++;
+    toStitch.set(b, id);
+    toBrute.set(id, b);
+  }
+  expect(bad).toBe(0);
+  expect(toStitch.size).toBeGreaterThan(0);
+}
+
+describe('open regions stitched as a ring moves', () => {
+  it('a row of chunks unloaded at the edge of the open air is searched round the loss, not walked whole', () => {
+    // A ring 24 chunks across: rock at y −1 … 0, open air at 1 … 4 (2,304 air chunks, one region); the focus moves
+    // along +x a chunk at a time (a row left behind unloads, a row ahead loads).
+    const w = new UniformWorld((_x, y) => y >= 1);
+    const s = new OpenRegionStitch(w.view());
+    const R = 12;
+    const row = (x: number, on: boolean): void => {
+      for (let z = -R; z < R; z++) for (let y = -1; y <= 4; y++) w.set(s, x, y, z, on);
+    };
+    for (let x = -R; x < R; x++) row(x, true);
+    s.update();
+    const id = s.regionIdAt(16, 48, 16);
+    expect(s.stats().nodes).toBe(2304);
+    for (let step = 0; step < 4; step++) {
+      row(-R + step, false);
+      row(R + step, true);
+      const walked = s.stats().walked;
+      s.update();
+      const reached = s.stats().walked - walked;
+      // The 96 air chunks lost touch 96 that stay: their searches meet at once (the whole region is 2,208 nodes).
+      expect(reached).toBeGreaterThan(0);
+      expect(reached).toBeLessThanOrEqual(2 * 96);
+      expect(s.regionIdAt(16 + step * 32, 48, 16)).toBe(id);
+      expect(s.stats().regions).toBe(1);
+    }
+    expect(s.region(id)!.cells).toBe(2304 * 32 ** 3);
+    expectSameChunkRegions(s, w);
+  });
+
+  it('a region cut in two by an unload splits as a whole walk does: the larger part keeps the id', () => {
+    // A tunnel of air chunks along x (0 … 9) through rock, with a side room off chunk 7 (two chunks up), loaded whole.
+    const air = (x: number, y: number, z: number): boolean => (y === 0 && z === 0 && x >= 0 && x <= 9) || (x === 7 && z === 0 && (y === 1 || y === 2));
+    const w = new UniformWorld(air);
+    const s = new OpenRegionStitch(w.view());
+    for (let x = -1; x <= 10; x++) for (let y = -1; y <= 3; y++) for (let z = -1; z <= 1; z++) w.set(s, x, y, z, true);
+    s.update();
+    const id = s.regionIdAt(16, 16, 16);
+    expect(s.stats().regions).toBe(1);
+    // Chunk 3 goes: 0 … 2 (3 chunks) and 4 … 9 with the room (8 chunks) fall apart; the larger keeps the id.
+    w.set(s, 3, 0, 0, false);
+    s.update();
+    expect(s.stats().regions).toBe(2);
+    expect(s.regionIdAt(4 * 32 + 16, 16, 16)).toBe(id);
+    expect(s.regionIdAt(7 * 32 + 16, 2 * 32 + 16, 16)).toBe(id);
+    expect(s.regionIdAt(16, 16, 16)).not.toBe(id);
+    expect(s.region(id)!.cells).toBe(8 * 32 ** 3);
+    expect(s.regionAt(16, 16, 16)!.cells).toBe(3 * 32 ** 3);
+    expectSameChunkRegions(s, w);
+    // The room's floor goes too (chunk 7, 1): the room's top chunk is a part of its own, the tunnel's 5 keep the id.
+    w.set(s, 7, 1, 0, false);
+    s.update();
+    expect(s.stats().regions).toBe(3);
+    expect(s.regionIdAt(9 * 32 + 16, 16, 16)).toBe(id);
+    expect(s.region(id)!.cells).toBe(6 * 32 ** 3);
+    expectSameChunkRegions(s, w);
+    // Back again: one region.
+    w.set(s, 3, 0, 0, true);
+    w.set(s, 7, 1, 0, true);
+    s.update();
+    expect(s.stats().regions).toBe(1);
+    expectSameChunkRegions(s, w);
+  });
+
+  it('sky heights are refreshed within the slice behind the chunks, and settle to what one unbounded update gives', () => {
+    const w = new TestWorld();
+    w.fill([0, 0, 0, 95, 3, 95], ROCK);
+    w.room([20, 4, 20, 40, 12, 34]);
+    w.fill([60, 4, 60, 70, 40, 70], WALL);
+    const ref = loadBox(w, [0, 0, 0], [2, 1, 2]);
+    // The same chunks stitched in slices of 4 ms on a clock that steps 1 ms a reading: a call stitches 4 chunks, then
+    // has no time left for more than the one column it always refreshes, so the columns fall behind and catch up.
+    let clock = 0;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => ++clock);
+    try {
+      const s = new OpenRegionStitch(w.view());
+      for (let cx = 0; cx <= 2; cx++) for (let cz = 0; cz <= 2; cz++) for (let cy = 0; cy <= 1; cy++) s.touch(cx, cy, cz);
+      let calls = 0;
+      let columnsOnly = 0;
+      let staleSeen = false;
+      while (s.pending && calls < 100) {
+        if (s.update(4) === 0) columnsOnly++;
+        calls++;
+        // A column whose chunks are stitched but whose heights wait: not known yet (null), never another's.
+        if (s.pending && s.skyHeight(65, 65) !== ref.skyHeight(65, 65)) staleSeen = true;
+      }
+      // 18 chunks in 9 columns: 5 calls stitch them (4, 4, 4, 4, 2) and refresh 1, 1, 1, 1 and 2 columns; the sixth
+      // has only columns left and refreshes the last 3.
+      expect(s.pending).toBe(false);
+      expect(calls).toBe(6);
+      expect(columnsOnly).toBe(1);
+      expect(staleSeen).toBe(true);
+      for (let x = 0; x < 96; x++) for (let z = 0; z < 96; z++) if (s.skyHeight(x, z) !== ref.skyHeight(x, z)) expect([x, z, s.skyHeight(x, z)]).toEqual([x, z, ref.skyHeight(x, z)]);
+      expect(s.skyHeight(65, 65)).toBe(41);
+      const summary = (t: OpenRegionStitch): string[] => [...t.all()].map((r) => `${r.portal}:${r.cells}:${r.enclosed}:${r.sky}:${r.portals}`).sort();
+      expect(summary(s)).toEqual(summary(ref));
+      expect(s.regionAt(25, 6, 25)!.enclosed).toBe(true);
+      expect(s.regionAt(50, 6, 50)!.sky).toBe(true);
+      expectSamePartition(s, bruteRegions(w, [0, 0, 0], [2, 1, 2]));
+    } finally {
+      now.mockRestore();
+    }
   });
 });

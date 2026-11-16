@@ -13,11 +13,12 @@
  *   link (the portal's side). A world region is a connected set of region
  *   nodes, a world portal a connected set of portal nodes.
  * - **Rebuilt where it changed.** A new or changed piece makes new nodes;
- *   the regions that lost a node are walked again from their remaining
- *   nodes, and the new nodes' walks absorb the regions they now touch. A
- *   region keeps its id while its nodes stay; a region walked again takes
- *   the id of the old region it holds the most nodes of (once), else a new
- *   one.
+ *   a region that lost a node is searched again from the nodes beside the
+ *   lost ones, only until those searches meet (so the outdoors losing a
+ *   chunk at the ring's edge costs the few nodes round it, not the whole
+ *   region), and the new nodes' walks absorb the regions they now touch. A
+ *   region keeps its id while its nodes stay; of a region that split, the
+ *   largest part keeps the id, the others take new ones.
  * - **Sky** (R98, stitched upward): a column's sky height is the highest
  *   solid cell + 1 over the pieces known in its chunk column; a cell at or
  *   above it is under open sky. Space no piece knows counts as open (the
@@ -77,7 +78,7 @@ export interface OpenRegionStats {
   readonly regions: number;
   readonly enclosed: number;
   readonly portals: number;
-  /** Pieces made, and walks (relabelled nodes), since the stitching began. */
+  /** Pieces made, and nodes reached by the regions' searches or moved between regions, since the stitching began. */
   readonly built: number;
   readonly walked: number;
 }
@@ -158,8 +159,11 @@ export class OpenRegionStitch {
   private readonly columns = new Map<number, Column>();
   private readonly groups = new Map<number, Group>();
   private readonly dirty = new Map<number, readonly [number, number, number]>();
-  /** Regions that lost a node: walked again from their remaining nodes. A summary is read again after any update. */
-  private readonly broken = new Set<Group>();
+  /**
+   * Regions that lost a node, each with the live nodes that touched a lost one (where its parts are searched from).
+   * A summary is read again after any update.
+   */
+  private readonly broken = new Map<Group, Node[]>();
   private readonly fresh = new Set<Node>();
   private readonly dirtyColumns = new Set<number>();
   /** Chunk columns whose sky heights changed or went since taken ({@link takeSky}), and who wants to know. */
@@ -191,18 +195,20 @@ export class OpenRegionStitch {
     this.dirty.set(chunkKey(this.view.grid, cx, cy, cz), [cx, cy, cz]);
   }
 
-  /** Whether chunks wait to be stitched. */
+  /** Whether chunks, or chunk columns' sky heights, wait to be stitched. */
   get pending(): boolean {
-    return this.dirty.size > 0;
+    return this.dirty.size > 0 || this.dirtyColumns.size > 0;
   }
 
   /**
-   * Stitches the chunks touched since the last call, within `ms` (at least
-   * one chunk), then walks again the regions they changed. Returns the
-   * chunks stitched.
+   * Stitches the chunks touched since the last call and refreshes the sky
+   * heights of the chunk columns they changed, within `ms` (at least one
+   * chunk and one column a call, so both catch up behind a stream of
+   * arrivals; what is left waits for the next call), then searches again
+   * the regions they changed. Returns the chunks stitched.
    */
   update(ms = Infinity): number {
-    if (this.dirty.size === 0) return 0;
+    if (!this.pending) return 0;
     const t0 = performance.now();
     let n = 0;
     for (const [key, [cx, cy, cz]] of this.dirty) {
@@ -211,8 +217,14 @@ export class OpenRegionStitch {
       this.restitch(key, cx, cy, cz);
       n++;
     }
-    for (const col of this.dirtyColumns) this.refreshColumn(col);
-    this.dirtyColumns.clear();
+    // A column's refresh reads every piece of it, so it runs once for all the chunks of it stitched, in the same slice.
+    let c = 0;
+    for (const col of this.dirtyColumns) {
+      if (c > 0 && performance.now() - t0 >= ms) break;
+      this.dirtyColumns.delete(col);
+      this.refreshColumn(col);
+      c++;
+    }
     this.relabel();
     this.version++;
     if (this.skyChanged.size > 0) for (const f of this.skyListeners) f();
@@ -248,10 +260,16 @@ export class OpenRegionStitch {
     this.pieces.delete(p.key);
     for (const node of p.nodes) {
       node.dead = true;
-      for (const o of node.adj) o.adj.delete(node);
+      const g = node.group;
+      let seeds = g === null ? undefined : this.broken.get(g);
+      if (g !== null && seeds === undefined) this.broken.set(g, (seeds = []));
+      for (const o of node.adj) {
+        o.adj.delete(node);
+        // Every part the region may fall into holds a node that touched a lost one: its search starts there.
+        if (seeds !== undefined && !o.dead && o.group === g) seeds.push(o);
+      }
       for (const o of node.links) o.links.delete(node);
       this.contacts -= node.adj.size + node.links.size;
-      if (node.group !== null) this.broken.add(node.group);
       this.fresh.delete(node);
     }
     this.nodeCount -= p.nodes.length;
@@ -515,36 +533,15 @@ export class OpenRegionStitch {
   }
 
   /**
-   * Regions again after nodes came and went. A region that lost a node is
-   * walked again from its remaining nodes (only its own: every contact of a
-   * node is with a node of its region, or with a new node): the largest part
-   * keeps its id, the others take new ones. Then each new node joins the
-   * regions it touches: the largest of them takes in the others (their nodes
-   * move to it, it keeps its id), or the node starts a region of its own. So
-   * a region growing as chunks arrive (the street) is never walked whole.
+   * Regions again after nodes came and went. A region that lost nodes is
+   * searched again ({@link rewalk}): the largest part keeps its id, the
+   * others take new ones. Then each new node joins the regions it touches:
+   * the largest of them takes in the others (their nodes move to it, it
+   * keeps its id), or the node starts a region of its own. So a region
+   * growing as chunks arrive (the street) is never walked whole.
    */
   private relabel(): void {
-    for (const g of this.broken) {
-      if (this.groups.get(g.id) === g) this.groups.delete(g.id);
-      const seen = new Set<Node>();
-      const parts: Node[][] = [];
-      for (const start of g.nodes) {
-        if (start.dead || seen.has(start)) continue;
-        const members: Node[] = [start];
-        seen.add(start);
-        for (let k = 0; k < members.length; k++) {
-          for (const o of members[k]!.adj) {
-            if (seen.has(o) || o.group !== g) continue;
-            seen.add(o);
-            members.push(o);
-          }
-        }
-        this.walked += members.length;
-        parts.push(members);
-      }
-      parts.sort((x, y) => y.length - x.length);
-      parts.forEach((members, i) => this.place({ id: i === 0 ? g.id : this.nextId++, portal: g.portal, nodes: members, info: null, infoAt: -1 }));
-    }
+    for (const [g, seeds] of this.broken) this.rewalk(g, seeds);
     this.broken.clear();
     for (const n of this.fresh) {
       if (n.dead || n.group !== null) continue;
@@ -574,6 +571,89 @@ export class OpenRegionStitch {
       }
     }
     this.fresh.clear();
+  }
+
+  /**
+   * A region that lost nodes, split into its parts again. Every part holds a
+   * node that touched a lost one (the region was connected before), so one
+   * search starts from each such node, and the searches take a node each in
+   * turn; two that reach each other's nodes join. A search with nothing left
+   * to reach holds a whole part. Once no more than one search can still
+   * grow, every node not yet reached is in its part (each part holds a
+   * seed): the searches stop there, so a region that did not split costs
+   * the nodes round its losses until their searches meet, not a walk of it
+   * all. The largest part keeps the id (ties: the part whose first node
+   * comes first in the region's list, as a walk of it in order would find
+   * them), the others take new ones in that order.
+   */
+  private rewalk(g: Group, seeds: readonly Node[]): void {
+    const owner = new Map<Node, number>();
+    const queues: Node[][] = [];
+    const heads: number[] = [];
+    const parent: number[] = [];
+    for (const s of seeds) {
+      if (s.dead || s.group !== g || owner.has(s)) continue;
+      owner.set(s, queues.length);
+      parent.push(queues.length);
+      queues.push([s]);
+      heads.push(0);
+    }
+    const find = (i: number): number => {
+      while (parent[i] !== i) i = parent[i] = parent[parent[i]!]!;
+      return i;
+    };
+    const growing = new Set<number>();
+    for (;;) {
+      growing.clear();
+      for (let i = 0; i < queues.length; i++) if (heads[i]! < queues[i]!.length) growing.add(find(i));
+      if (growing.size <= 1) break;
+      for (let i = 0; i < queues.length; i++) {
+        if (heads[i]! >= queues[i]!.length) continue;
+        const n = queues[i]![heads[i]!++]!;
+        for (const o of n.adj) {
+          if (o.dead || o.group !== g) continue;
+          const j = owner.get(o);
+          if (j === undefined) {
+            owner.set(o, i);
+            queues[i]!.push(o);
+            continue;
+          }
+          const a = find(i);
+          const b = find(j);
+          if (a !== b) parent[b] = a;
+        }
+      }
+    }
+    this.walked += owner.size;
+    // The part still growing (if any) holds every node not reached; the others are whole.
+    const left = growing.size === 1 ? [...growing][0]! : -1;
+    const whole = new Set<number>();
+    for (let i = 0; i < queues.length; i++) if (find(i) !== left) whole.add(find(i));
+    if (whole.size === 0) {
+      // Not split: the lost nodes go, the region keeps its id and its nodes.
+      let w = 0;
+      for (const n of g.nodes) if (!n.dead) g.nodes[w++] = n;
+      g.nodes.length = w;
+      g.info = null;
+      if (w === 0 && this.groups.get(g.id) === g) this.groups.delete(g.id);
+      return;
+    }
+    // Split: the parts in the order a walk of the region's list would find them, the largest first.
+    const parts = new Map<number, { nodes: Node[]; first: number }>();
+    let k = 0;
+    for (const n of g.nodes) {
+      if (n.dead) continue;
+      const o = owner.get(n);
+      const r = o === undefined ? left : find(o);
+      const key = whole.has(r) ? r : left;
+      let p = parts.get(key);
+      if (p === undefined) parts.set(key, (p = { nodes: [], first: k }));
+      p.nodes.push(n);
+      k++;
+    }
+    const order = [...parts.values()].sort((a, b) => b.nodes.length - a.nodes.length || a.first - b.first);
+    if (this.groups.get(g.id) === g) this.groups.delete(g.id);
+    order.forEach((p, i) => this.place({ id: i === 0 ? g.id : this.nextId++, portal: g.portal, nodes: p.nodes, info: null, infoAt: -1 }));
   }
 
   private place(g: Group): void {
