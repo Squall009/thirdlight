@@ -96,6 +96,9 @@ const SLOT_BYTES = (VOLUME_BRICK_TEXELS + VOLUME_BRICK_VOLUME) * 4;
 const MAX_TEXTURE_ROWS = 8192;
 
 const VOLUME_SPAN = threadProfiler.span('voxel light volume', 'lighting');
+/** What a batch's chunks and walk blocks ask of the volume as the batch is shown (inside the batch's own span). */
+const VOLUME_GRIDS_SPAN = threadProfiler.span('voxel light volume grids', 'lighting');
+const VOLUME_WALK_SPAN = threadProfiler.span('voxel light volume walk changes', 'lighting');
 
 /** The part of a `GPUDevice` the volume calls. */
 export interface VolumeDevice {
@@ -261,6 +264,15 @@ export class VoxelLightVolume {
 
   /** A level-0 chunk's shader grid arrived (its draw or its shader data; null and −1: it went). */
   chunkGrid(cx: number, cy: number, cz: number, cells: Uint16Array | null, solid: number): void {
+    threadProfiler.begin(VOLUME_GRIDS_SPAN);
+    try {
+      this.chunkGridNow(cx, cy, cz, cells, solid);
+    } finally {
+      threadProfiler.end(VOLUME_GRIDS_SPAN);
+    }
+  }
+
+  private chunkGridNow(cx: number, cy: number, cz: number, cells: Uint16Array | null, solid: number): void {
     const key = `${cx},${cy},${cz}`;
     const was = this.chunkCells.get(key);
     const next = cells !== null ? cells.slice() : solid;
@@ -278,13 +290,24 @@ export class VoxelLightVolume {
 
   /** Before a batch's walk blocks go into the table: the level-0 blocks' cells as they were, to find what changed. */
   beforeWalk(table: WalkTable, wires: readonly WalkBlockWire[]): Map<string, WalkBlockView | null> {
+    threadProfiler.begin(VOLUME_WALK_SPAN);
     const was = new Map<string, WalkBlockView | null>();
     for (const w of wires) if (w.level === 0) was.set(`${w.bx},${w.by},${w.bz}`, copyView(table.view(0, w.bx, w.by, w.bz, 'light')));
+    threadProfiler.end(VOLUME_WALK_SPAN);
     return was;
   }
 
   /** After them: each changed block's bricks are looked at again, and the bricks its changed bricks reach are marked. */
   afterWalk(table: WalkTable, was: Map<string, WalkBlockView | null>): void {
+    threadProfiler.begin(VOLUME_WALK_SPAN);
+    try {
+      this.afterWalkNow(table, was);
+    } finally {
+      threadProfiler.end(VOLUME_WALK_SPAN);
+    }
+  }
+
+  private afterWalkNow(table: WalkTable, was: Map<string, WalkBlockView | null>): void {
     for (const [key, before] of was) {
       const [bx, by, bz] = key.split(',').map(Number) as [number, number, number];
       const after = table.view(0, bx, by, bz, 'light');
