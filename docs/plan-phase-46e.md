@@ -216,7 +216,7 @@ below, near and far absent; 131 s.
 | 46e.4 | a done 2026-11-15 (cd2ce0ac): near-field voxel surfaces and kit pieces cast and receive via the cached sun map, the dynamic map and the atlas; edits redraw only what they reach; sun square on the voxel ground; low shadows 0.21–0.47 vs off below resolution; edit → shadow 63–87 ms; D670–D672. b next (far shade at the hit, far sun march) |
 | 46e.5 | Done 2026-11-15 (a, b; c: 52c88694…f6c8bcd0): charts on the view's worker, faces' hashes kept across changes, a chunk marks what it can shadow; street lit 18.9 s from Play (30), 1.5 M texels for 1.4 M; settled GPU lighting below res., page 0.25–0.44 ms; relighting 6.7–18.9 ms GPU; orbit no room at 30 Hz; edit → light 0.3 s, settled 2.4–2.9 s (§8a 46e.5c) |
 | 46e.6 | a done 2026-11-15 (b6ef5f9e…b7b90f44): light in open cells beside surfaces, 2 m bricks round the eye, six RGB9E5 faces, walk rays in compute (4 a face × 8 updates, sky, sun and lamp bounce), read per pixel by voxel surfaces; room 5.9 (cache 10.0, off 119.8); settled no pass, updating 10.9 ms (D690); 15–30 MB GPU of 160; settled ≤ 10 s after arriving; b next |
-| 46e.7 | not started |
+| 46e.7 | Done 2026-11-16 (225ec7b5, b99489b2): `?voxelLight=hybrid` (cache probes near, volume past `voxelLightHandoverM`, 12 m low); A/B in one session, §8b: orbit room off 136 / cache 1 / volume 76 / hybrid −1 copies; settled near over off +2.3 / +4.1 / +5.9 ms (room); edit → settled 2.5 / 1.7 / 4.7 s; D693 = the read (D698); D697–D700 |
 | 46e.8 | not started |
 
 ## 8. Format and spec steps (owner stops)
@@ -1341,6 +1341,182 @@ measurement hides both at once: register the hybrid's two passes apart or read t
 texture node swapped by value (D696) — do not grow either store's texture while lit draws bind it; `near` rises with any
 store on (D693), so compare hybrid against both alone, not against off.
 
+## 8b. The lighting storage A/B (46e.7)
+
+### What was built for it: the hybrid
+
+`?voxelLight=hybrid` runs both stores on one page (`voxel-light-handover.ts`, `-nodes.ts`; `VoxelWorldDraws`): **near the
+eye the surface cache's live probes give the sky and bounce light, beyond a hand-over distance d the light volume does,
+and across a fade of a quarter of d before it each pixel blends the two** (the volume's share smoothstep(0.75 d, d) of
+the pixel's distance to the eye across, x and z; the probes' the rest: the volume's read is built after the probes' and
+mixes over what they gave). Each store keeps only what its share needs: the cache lists the level-0 chunks whose box
+lies within 1.25 d across of the eye (its tiles, texels, faces' hashes and probes are all it holds; a chunk leaving is a
+tile gone), the volume keeps no brick (any level) wholly within 0.75 d − 2 m (one level-0 brick: the eye's step between
+re-looks) and looks again at the bricks round the old and new place when the eye has moved 2 m. d is a lighting tier
+setting, `voxelLightHandoverM` (low 12 m, medium and high 24 m), `?voxelLightHandover=<m>` for benches,
+`__tlVoxelPlay.light.setHandover` for checks. The tier's GPU `lighting` row is split between the two stores' updates
+(half each). Lamps' direct light is per pixel (shadow atlas) in both zones.
+
+**What the cache keeps near: its probes, not its per-pixel texel read** (default chosen, owner to confirm). With both
+reads a voxel surface's program samples more textures than the Iris Xe's fragment stage allows (16): the texture-unit
+guard then draws it with a plain fallback, white and untextured, and the fallback stayed on the objects after the store
+changed (D699; found by the first hybrid pictures: the street's shaded grass 164, 173, 184 against 42, 68, 39 with
+either store alone; with the cache's texel read off in the hybrid the colours are right). So the cache's texels are lit
+only for its probes' bounce (the resolve), the lookup hash is still made (unused: a cost by design here). Of the two
+options the brief named (the cache's probes near with its texels; the volume for all bounce and sky with only the
+cache's texels near), the second puts both reads in every near program too, so it is ruled out on the same count; the
+first without the texel read is the cheaper sound one: it is the only one that fits.
+
+**The hand-over distance: 12 m carried, 24 m a side row** (default chosen, owner to confirm). On the moving orbit
+(3 rounds each, interleaved) neither has room at the cap; GPU `lighting` 13.3 [13.2–13.4] (two rounds resolved) against
+12.1 [11.5–13.0] ms: not resolved; page `lighting` 3.8 [2.9–4.0] against 4.3 [4.1–5.2] ms (apart), cache tiles 8–25
+against more; so 12 m (the cache's finest level's reach, the low tier's setting).
+
+**Also fixed on the way (a few lines each, re-measured for every arrangement here):** the editor passed Play only its
+listed page flags and `surfaceRead` was not among them, so every "read off" comparison of 46e.5c and 46e.6b drew with
+the read on (D698; now passed, with `voxelLightHandover`). A hidden regression in the visual-script catalogue test
+(D697). The hybrid at first read `voxelLightHandoverM` while the page's adapter was not made yet (Play refused to
+start): read each frame instead.
+
+**Tests.** vitest `voxel-light-handover.test.ts`: the shares sum to 1 at every distance, the volume's rises
+monotonically from 0 before the fade to 1 after it; the keep rule against every brick of four sizes round an eye, from
+the eye and from an eye moved a step (no brick wholly inside kept, every brick a lit pixel lies in kept); the page flag;
+the cache's host lists only the chunks within its reach and follows the eye (3 of 8 chunks, then the next 3; all 8 with
+no reach). `gpu-pass-hides.test.ts`: a pass held by name stays hidden and absent whatever the categories. Playwright
+`voxel-world.e2e.ts` Play (`voxel-shadows.ts`, inside the volume checks, from the volume settled): hand-over 6 m in the
+shut hut, both settled 6.2–8.6 s after the switch; near (the floor before the eye) 6.6–7.0 against 131.2 by the flat
+term, far (the far wall, 7.5 m) 5.0–5.3 against 120.3 (bound share 0.5); the cache 8 tiles, its farthest 4.3 m from the
+eye within its 7.5 m reach, 343 chunks left out; the volume's nearest kept level-0 brick reaches 3.0 m from the eye, past
+its 2.5 m inner ring; back to the volume alone settled in 0.3 s; the store-off picture after equals the one before (0 px).
+**With the fade stubbed to "cache everywhere"** (the volume's share 0 in the hybrid, run once:
+`e2e-stub-cache-everywhere2.log`) the hybrid checks still pass (far 5.0): the hut's chunk is inside the cache's reach, so
+its probes darken the far wall too; the check proves the two residency rules and the darkness, not the fade. A first stub
+(share 0 everywhere, `e2e-stub-cache-everywhere.log`) failed at the volume's own check. The fade's shape is proved by the
+vitest; a brightness step across the hand-over is read on the pictures (below), not in the e2e: the shut hut is too dark
+to show one, and an outdoor hybrid view cost a cache settle more than the Play test's 240 s allows (it ran 3.5 min alone,
+3.3–3.4 before).
+
+### D693, the bounded trace
+
+Three experiments, all at the room camera (`d693-*`, `light-shots --only room-window --gpu --gpu-only near,lighting`,
+2 interleaved rounds) and on the orbit (`m-volnr-*`, `m-cachenr-*`, 2 rounds):
+
+1. The read off for real (D698 fixed): `near` with the volume lit but not read −1.97 / −2.02 ms, as off (−1.93 / −1.89);
+   read on +2.19 / +2.11. **The volume's per-pixel read costs +4.1 ms at the room camera** (2 rounds, spreads 0.02–0.32).
+   The cache: its texel read +1.9 / +2.0 ms (cache 0.21 / 0.20 against read off −1.68 / −1.77), its probes' read
+   +0.25 / +0.12 (read off against off).
+2. The volume's light taken out of the scene's lights (read off, `--light-out`): −1.96 / −1.92, as read off: a light
+   in the programs whose node adds nothing costs nothing measurable.
+3. The whole frame from the ballast line (not a hide): off 5.6 / 8.2, read off 11.2 / 13.1, read on 17.9 / 18.1, light out
+   −1.2 / 14.4, cache 7.8 / 10.8, cache read off −0.3 / 9.9 ms: negative values and 15 ms swings between rounds of one
+   arrangement (the copy's ms moved 0.116–0.175 between runs: the GPU's clock under the load). **Not usable**: the frame
+   line does not resolve a whole-frame difference at these cameras, so it is reported in no row of the table below.
+
+So the rise D693 named was the read itself (with the store's other work nothing at a settled camera); the earlier "the
+same with its read off" compared the read with itself. On the moving orbit the read's share is not resolved (`near` with
+the read off below resolution, spreads 0.7–3.3 ms; with it 4.1–4.4 against off 1.8–2.0). **Which rows are pass readings:**
+`near`, `shadows`, `lighting`, `far` are hide-a-pass readings (`near` is net of the far field drawing where near's depth
+stopped it, D660, the same in every arrangement, so differences between arrangements are the near draws' own); the
+orbit's room (ballast copies the frame holds at the cap with no load) is a whole-frame reading; the frame line is not
+used. Page ms are the profiler's.
+
+### Measured
+
+2026-11-15 22:58 – 2026-11-16 04:48 UTC at b99489b2 (built, the fast gate green: `gate-fast-20261115-221528` →
+`gate-rerun-20261115-222647` → `gate-rerun-20261115-225301`), Iris Xe, WebGPU, 1280 × 720, low, 30 Hz cap, each run
+alone (`thirdlight-gate` inactive, nothing else), the brief's 10G scope; uptime 23.3 d, load (1 min) 1.0–5.4 (70 runs, every one with the gate inactive and the code tree clean at b99489b2). Staging's
+8 km world, the town. Raw files, an `*.uptime` beside each, and the scripts: `~/.cache/thirdlight-phase46e/work/46e.7/`
+(`ab1.sh`: D693 and the orbit; `ab2.sh`: cameras, room first, tiers, travel; `summ.py`; `sheets.py`). Order interleaved:
+off, cache, volume, hybrid, then again (the orbit three rounds, also with the 24 m hybrid; the cameras two rounds, the
+24 m hybrid one). Values: the median of rounds with the range in brackets (two rounds: both values); a difference
+smaller than the range between rounds is "not resolved". Cameras in order street / room / cave / night / far.
+
+| Row | Off (shadows only) | Cache | Volume | Hybrid (12 m) |
+|---|---|---|---|---|
+| **1. GPU, the 8 km town orbit (moving eye), 3 rounds** | | | | |
+| room at the cap with no load (ballast copies; whole frame) | 136 [60–192]; missed 0–1 of 89 | 1 [−1–6]: **no room**; missed 4–6 | 76 [60–88]; missed 0 | −1 [−1–3]: **no room**; missed 0–1 |
+| `lighting` ms (of 6.67) | no pass | 10.3 (one round resolved; 6.9 ± 7.2, 8.5 ± 7.3 below) | 6.0 [5.8–6.3] | 13.3 [13.2–13.4] (one round below: 0.42 ± 0.25) |
+| of it, each store apart (the other held, one round) | — | — | — | volume 5.1 ± 0.9; cache **not read** (the measurement returned nothing); at 24 m: volume 5.5 ± 1.6, cache 8.3 ± 6.6 (below) |
+| `near` / `far` / `shadows` ms | 1.8 [1.8–2.0] / 3.6 [3.3–3.6] / 0.6 [0.5–0.7] | 3.1 / 6.1 (one round each resolved) / below: **not resolved** (resolution 2.5–9 ms) | 4.3 [4.1–4.4] / 4.0 [3.9–4.6] / below | below (resolution 3.6–6.8 ms): **not resolved** |
+| **1. GPU settled at the cameras** (street / room / cave / night / far), r1, r2 | | | | |
+| `near` ms (the read inside it; net of D660) | failed, −0.14 / −1.98, −1.95 / −0.93, −0.91 / 0.14, 0.09 / 1.79, 1.74 | 2.28, 2.38 / 0.28, 0.43 / 1.20, 1.17 / 3.48, 3.32 / 2.97, 2.96 | 4.19, 4.28 / 2.18, 2.14 / 3.55, 3.49 / 5.40, 5.40 / 4.95, 4.97 | 5.75, 5.95 / 3.83, 4.06 / 4.57, 4.60 / 7.19, 7.36 / 5.47, 5.52 |
+| `near` over off (median) | — | +2.5 / +2.3 / +2.1 / +3.3 / +1.2 | +4.4 / +4.1 / +4.4 / +5.3 / +3.2 | +6.0 / +5.9 / +5.5 / +7.2 / +3.7 |
+| `shadows` ms | failed, 0.59 / 0.48, 0.42 / 0.40, 0.40 / 1.06, 0.83 / 0.53, 0.59 | 1.44, 1.26 / 1.08, 1.20 / 1.01, 1.21 / 2.15, 1.82 / 0.77, 0.76 | 1.50, 1.65 / 1.34, 1.39 / 1.32, 1.20 / 2.03, 1.98 / 0.62, 0.53 | 0.68, 0.84 / 0.54, 0.61 / 0.26, below / 0.97, 1.09 / 0.39, 0.32 |
+| `lighting` ms | no pass | below everywhere (≤ 0.09) | below or 0.10–0.29 | below or 0.15–0.24 |
+| **1. GPU while computing** (every texel / brick stale every 0.5 s), `lighting` ms of 6.67 | — | 15.1, 15.1 / 12.7, 13.0 / 7.5, below (11.4) / 6.9, 6.7 / 19.7, 18.9 | 10.8, 9.9 / 12.4, 10.4 / failed, failed / 9.2, 9.3 / 10.5, 10.7 | 18.3, 17.8 / 14.7, 13.4 / 3.8, 16.3 / 7.2, 7.3 / 7.4, 7.6 |
+| of it, each store apart (the other held) | — | — | — | cache 14.4, 14.3 / 9.9, 9.9 / below, 13.9 ± 8.4 / 4.2, 4.1 / 3.5, 3.9; volume 5.4, 5.7 / failed, 5.5 / 5.6, 6.0 / 4.5, 5.6 / 3.7, failed |
+| **2. Page ms a frame** (profiler; `lighting` against 2.0) | | | | |
+| orbit: page, `lighting` mean (worst) | 6.7 [6.4–7.0]; 0.16 [0.15–0.18] (2.2–2.5) | 9.4 [9.3–9.7]; **2.7 [2.4–3.2] (27–35)** | 7.5 [7.3–7.8]; 1.1 [1.1–1.1] (3.8–4.8) | 10.1 [9.3–10.6]; **3.8 [2.9–4.0] (8–17)** |
+| settled cameras: page; `lighting` | 2.8–6.4; 0.12–0.28 | 3.0–7.2; 0.24–0.62 (worst 28 at the street) | 2.9–6.7; 0.18–0.38 | 3.0–6.6; 0.22–0.65 (worst 23–25 at the street) |
+| while computing: `lighting` | — | **4.9–11.7** | 0.36–0.87 | 0.56–4.6 |
+| simulation; job workers (orbit) | 3.6–4.1; 4.1–6.1 | 2.5–2.7; 0.07–0.08 | 2.6–3.2; 0.07–2.4 | 2.6–4.2; 0.05–8.9 | 
+| **3. Memory** (cameras: the stores' own readings; orbit: the process) | | | | |
+| store, GPU | — | texels 3.0–22.5 of 32 MiB; probes 5.8–12.7 of 128 MiB; lookup texture and resolve buffer 4–17 MB | 29.8 MB fixed (pool, colours, index) of 160 MiB | texels 0.3–11.2 MB, probes 0.1–1.8 MB, lookup + resolve 2–4 MB; + the volume's 29.8 MB (the table's rows show only the cache's: D700) |
+| store, page | — | faces' hashes 25–68 MB (lookup 8.4–31.2, resolve 16.6–36.3); probes 1.8–5.4 MB | 8–12 MB | hashes 4.3–8.4 MB; probes 0.07–0.9 MB; volume 8–12 MB |
+| tiles / probes / bricks | — | 78–218 tiles; 11.7–35 k probes | 3.5–9.8 k bricks | 8–25 tiles (reach 15 m; 70–197 chunks left out); 0.4–6.0 k probes; 3.5–9.8 k bricks (level 0 3.1–8.7 k, the nearest reaching 7.1–7.2 m) |
+| orbit page heap / GPU process MiB | 569–608 / 934–957 | 699–806 / 1,098–1,163 | 602–688 / 978–1,010 | 610–751 / 1,070–1,128 (low's 1,536 / 2,560: all under) |
+| **4. Edit → light** (first changed light / settled, ms; r1, r2) | edit → shadow map redrawn 59–95 (street digs) | window 341, 294 / 2,485, 2,477; lamp wall 355, 121 / 3,034, 2,702; dug 354, 121 / 2,707, 2,338 | window 130, 118 / 1,756, 1,689; wall 78, 93 / 505, 520; dug 75, 71 / 562, 560 | window 109, 108 / **4,747, 4,681**; wall 96, 99 / 1,054, 1,057; dug 87, 81 / 1,243, 1,232 |
+| **5. Play start → settled** (street first; room first), s | 18.3, 18.6; 18.5, 18.6 (the scene) | 19.1, 19.5; 19.2, 18.9 | 19.2, 19.3; 19.1, 19.0 | **26.8, 26.9; 29.9, 29.5** |
+| 2 s / 10 s after arriving at the room | flat term / — | 14 k units stale, the room dark (probes not yet: flat term gone) / texels settled, 1.5–2.6 k probes stale | 6.8–7.0 k bricks stale, the room already dark / settled | 9.6–10 k units + 42–49 k blocks waiting, the room mid-grey / settled at 11.4–11.9 s |
+| **6. Travel 150 m/s** (export; r1, r2) | longest 49.5, 57.1 ms; 0 > 100; missed 8.2, 11.0 a min; detail 7.3, 6.2 s; pending 10.6, 10.1 s; falls 0, 0 of 34 | 63.6, 75.9; 0; 13.7, 13.7; 5.9, 5.7; 10.6, 10.6; 0, 0 | **212.7, 223.5**; 1, 1; 5.5, 10.1; 7.4, 7.2; 12.4, 12.3; 0, 2 | **235.9, 213.5**; 2, 1; 11.0, 11.9; 6.0, 5.1; 12.1, 11.4; 0, 1 |
+| **8. Medium / high** (one run each, **unverified on target hardware**) | medium: missed 0/179, `near` 2.4, far 4.5, shadows 0.5; high: missed 33/159, near 6.5, far 7.6 | medium: missed 15/160, lighting 6.1 ± 1.2, near below; high: missed 30/68, lighting 12.1 ± 8.1 (below) | medium: 3/179, near 5.2, lighting 2.8; high: 45/107, near 14.7, lighting 3.0 | medium: 16/164, lighting 8.6 ± 5.9 (below); high: 42/89, near 17.0, lighting 13.7 |
+
+**The 24 m hybrid (side row, cameras one round; orbit three rounds above):** settled `near` 6.57 / 6.32 / 6.26 / 7.91 / 5.81
+ms (12 m: 5.75–7.36); computing `lighting` 18.1 / 13.3 / below / 7.8 / 15.6 (cache 14.9 / 8.9 / below / 4.1 / 12.1, volume
+4.7 / below / 4.4 / 5.0 / 3.8); 24–61 cache tiles (reach 30 m), 2.0–12.4 k probes, hashes 9.9–17 MB page; edits: window
+first 132 / settled 4,013 ms, wall 80 / 3,120, dug 74 / 2,877; Play → settled 26.4 s; orbit page `lighting` 4.3
+[4.1–5.2] ms.
+
+**D694 repeats** (volume, both rounds; and the hybrid): one page frame of 182–217 ms at the flight's first 0.5 s whose
+spans are `voxel draws made` 199–213 ms (the spike capture, `cov-150-volume-r*.json` / `-hyb12-*` `spikes.profile.worst`);
+the cache alone and off have none (the cache's worst 51–57 ms: `surface light pass` 17–35 ms and `surface lookup packed`
+17 ms). Not traced further (D694 stays open).
+
+**Not resolved / not read:** the frame line (D693 above); on the orbit the cache's and the hybrid's `near`, `far` and
+`shadows` (resolution 2.5–9 ms: the stores' relight swings the windows), the cache's `lighting` in two of three rounds;
+the hybrid's cache share on the orbit (the held measurement returned nothing); at the cave the volume's computing
+reading failed both rounds (the ballast line); the street's `off` GPU reading failed in round 1. `shadows` with a single
+store reads 0.4–1.0 ms over off at the close cameras, with both under off's: not explained (one more term in the shadow
+programs? not traced). The hybrid's step across the hand-over at the street (grass rows across 9–12 m; `steps.py`): the
+largest row-to-row change of the grass's brightness 13.1 against 10.6 (cache) and 10.3 (volume) (a fence edge in all
+three); its step beyond both alone at most 2.5 (rows 398–421) where the two stores' grass differs by 5–13: blended, not
+switched at a line (one picture; to the eye no seam at the street, room or night camera).
+
+### Pictures
+
+Sheets for the owner's page, labelled in the image, panels at half size (`sheets.py`, the first round's pictures; the
+second round's beside them in `shots-*-r2/`): `~/.cache/thirdlight-phase46e/work/46e.7/sheets/` — `street-noon.png`,
+`room-window.png`, `cave.png`, `night-lamps.png`, `far-view.png` (before 46e.0 | shadows only | cache | volume | hybrid 12 m);
+`edit-window-*.png`, `edit-lamp-wall-*.png`, `edit-lamp-unwall-*.png` per store (before | at the first changed light,
+taken 74–373 ms after the command | settled); `room-arrive-2s.png`, `-10s.png` (off | cache | volume | hybrid). Every
+camera picture looked at (the five × four arrangements of round 1, the sheets); the pictures after each GPU measurement
+differ by 0.7–3.9 % (D660, as before).
+
+| Camera | How the arrangements differ to the eye |
+|---|---|
+| street | Off: everything lit by the flat term, window and door interiors bright. Cache, volume and hybrid alike at a glance: dark interiors, soft shade under the eaves, the outdoors a little darker. Cache: a black sliver along the right brick house's edge (D683). Volume: the white gable mottled at a metre's scale (D692). Hybrid: the cache's look near, the volume's past 12 m; no seam seen on the grass or walls across 9–12 m. |
+| room | Off: as bright as the street. Cache: dim grey walls, the lit band at the west wall's foot, the stairs dark. Volume: darker still (walls near black), soft cell-to-metre blotches round the windows (D692), the window reveals bright. Hybrid: the cache's look (the room lies within 12 m), the left wall's foot a touch brighter. |
+| cave | Off: the tube as bright as outside. Cache: darker inward, softer step faces, two thin black slits on the right wall (D683). Volume: darker inward with hard-contrast step faces (dark risers, bright treads), no slits. Hybrid: the cache's softness on the walls near the eye, the volume's high-contrast risers toward the mouth, no slits. |
+| night | Lamp pools on grass, fences and fronts in all; off: the unlit fronts near black. Cache: softer pools, the eave pieces' stepped shadow on the brick gable missing (kit pieces cast nothing into the cache's rays, D679). Volume and hybrid alike: the pools per pixel with the atlas's shadows (the stepped shadow there), bounce on the gable and fronts. |
+| far view | Far field the same in all. Near houses (horizontally within ~20 m under the 40 m-high eye): cache — white gables, window openings black; volume — darker cloud-shaped patches on the gables (D695), the openings' reveals light; hybrid — the volume's patches on the gables past 12 m, the openings dark near. |
+
+### What each arrangement cannot do, or costs, by design
+
+- **Off:** no occlusion, sky or bounce from voxels; interiors and the cave as bright as the street. Costs nothing.
+- **Cache:** lamps' light per texel with soft traced shadows, but kit pieces and moving objects cast nothing into its
+  rays (D679); its light ends with the level-0 ring (~45 m at low; past it the flat term); a moving eye relevels and
+  relights tiles all the time, so on the orbit it never settles and takes its whole GPU row and 2.4–3.2 ms of page a
+  frame (D685); 25–68 MB of faces' hashes on the page; slits and blotches at concave steps (D683).
+- **Volume:** sky and bounce only (lamps and sun per pixel); its read costs +3–5 ms of `near` per pixel at every
+  camera (the largest single cost measured here, D693); soft blotches at 32 rays a face (D692), gable patches from 40 m
+  up (D695); a fixed 29.8 MB pool; its update holds ~6 ms of GPU on a moving eye; a 180–220 ms frame when it joins a
+  flight's first draws (D694); reach 96 × 48 × 96 m at 0.5 m, coarse levels to ±96 m, the flat term past them.
+- **Hybrid:** both stores' work on a moving eye (orbit `lighting` 13 ms, no room, page `lighting` 2.9–4.0 ms), both
+  reads in every near program (`near` +5.5–7.2 ms over off, more than either alone), the volume's update at half the row
+  (a window dug settles in 4.7 s against 1.7–2.5 alone; Play → settled 27–30 s), the 29.8 MB pool beside the cache's
+  smaller set; no per-pixel cache texel read (16 textures, D699), so the cache's soft lamp shadows are not seen;
+  the cache's lookup hash made but unused; the volume's D694 frame.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -1538,6 +1714,22 @@ store on (D693), so compare hybrid against both alone, not against off.
 - 2026-11-15 (46e.6b): a face's rays over its updates are consecutive points of its sequence (the brick's own count); the
   defaults stay 4 rays a face, 8 updates, 24 m (no tuning: D692 named). The Play e2e's hut steps: the plaster-floor
   picture is the open roof's (one edit and settle fewer); its timeout stays 240 s.
+
+- 2026-11-16 (46e.7, default chosen, owner to confirm): the hybrid keeps the cache's live probes near the eye (its
+  texels lit for their bounce only) and the volume past the hand-over; voxel surfaces do not read the cache's texels
+  there: with both reads a voxel surface's program samples more than the Iris Xe's 16 fragment textures and is drawn by
+  the guard's plain fallback (D699). Lamps stay per pixel in both zones.
+- 2026-11-16 (46e.7, default chosen, owner to confirm): the hand-over distance is a lighting tier field,
+  `voxelLightHandoverM` (low 12 m: the cache's finest level's reach, and cheaper than 24 m on the orbit's page
+  `lighting` and at every camera's `near`; medium and high 24 m, unmeasured on target hardware), the fade a quarter of
+  it, measured across (x, z) from the eye; the cache lists chunks within 1.25 d, the volume keeps no brick wholly within
+  0.75 d − 2 m. `?voxelLightHandover=<m>` for benches.
+- 2026-11-16 (46e.7, default chosen, owner to confirm): with both stores on, each store's update takes half the tier's
+  GPU `lighting` row (the row is the lighting budget, not one store's); no new constant: the share is one over the
+  stores on.
+- 2026-11-16 (46e.7): the GPU measurement can hold a pass by name (`gpuPassHides.hold`; `__tlVoxelPlay.light.holdPass`,
+  `headroom --hold`), so the hybrid's `lighting` is read a store at a time; the ballast line's whole-frame GPU ms is not
+  used in the A/B (it swung −1 … 18 ms at a still camera, §8b).
 
 ## 10. Open questions for the owner (asked with the plan)
 
