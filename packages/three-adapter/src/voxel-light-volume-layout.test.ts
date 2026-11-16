@@ -1,13 +1,14 @@
 /**
  * The light volume's layout: its words, the window's wrapped index, which cells hold light and which bricks are kept
- * against a cell-by-cell reference on generated chunks, the bricks an edit changes and marks, and the surfaces' read
+ * against a cell-by-cell reference on generated chunks, the bricks an edit changes and marks (and a batch's walk
+ * changes taken in one pass as block by block), and the surfaces' read
  * (the ambient cube, and that a reader beside a 0.5 m wall reads only the cells on its own side).
  */
 import { describe, expect, it } from 'vitest';
 import { CPU_SCALAR_OPS } from '@thirdlight/shared';
-import { OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView, type WalkSource } from '@thirdlight/voxel';
+import { applyWalkWires, OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView, type WalkSource } from '@thirdlight/voxel';
 
-import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkedUpdates, volumeReadAt, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
 
 /** A cached brick lookup over a walk source's level-0 blocks (as the volume keeps them). */
 function brickLookup(tsrc: WalkSource): (bx: number, by: number, bz: number) => VolumeBlockBricks | null {
@@ -193,6 +194,103 @@ describe('the light volume layout', () => {
     expect(marked).toBe((2 + 24) * (2 + 24) * (1 + 24));
     expect(fresh).toBe((2 + 4) * (2 + 4) * (1 + 4));
     expect(VOLUME_BLOCK_BRICKS).toBe(8);
+  });
+
+  it("a batch's walk changes in one pass: the blocks' copies, their changed bricks and the marks as block by block", () => {
+    const lo = [-2, -1, -2];
+    const hi = [2, 1, 2];
+    const t = tableOf(predicateSource(townCell, lo, hi), lo, hi);
+    const keys: Array<[number, number, number]> = [];
+    for (let bx = lo[0]!; bx < hi[0]!; bx++) for (let by = lo[1]!; by < hi[1]!; by++) for (let bz = lo[2]!; bz < hi[2]!; bz++) keys.push([bx, by, bz]);
+    const stops = (v: WalkBlockView | null, i: number): boolean => v !== null && (v.flag === OCCUPANCY.solid || (v.flag === OCCUPANCY.mixed && v.cell(i)));
+    // The copies, then the batch: half the blocks taken out (a flight's start), the rest dug through by a tunnel.
+    const before = keys.map(([bx, by, bz]) => t.viewCopy(0, bx, by, bz, 'light'));
+    const live = keys.map(([bx, by, bz]) => t.view(0, bx, by, bz, 'light'));
+    const dug = (x: number, y: number, z: number): boolean => townCell(x, y, z) && !(Math.abs(y - 2) < 3 && Math.abs(z + 5) < 3);
+    const after = predicateSource(dug, lo, hi);
+    const gone = (k: number): boolean => k % 2 === 0;
+    applyWalkWires(t, keys.map(([bx, by, bz], k) => (gone(k) ? { level: 0, bx, by, bz } : { level: 0, bx, by, bz, packed: packWalkBlock(after, 0, bx, by, bz)! })));
+    let mixed = 0;
+    let differ = 0;
+    let moved = 0;
+    keys.forEach(([bx, by, bz], k) => {
+      const src = predicateSource(townCell, lo, hi).block(0, bx, by, bz, 'light');
+      const b = before[k]!;
+      expect(b.flag).toBe(src!.flag);
+      if (b.flag === OCCUPANCY.mixed) mixed++;
+      // The copy is what the block was; the table's own view now reads what the batch wrote.
+      for (let i = 0; i < 32 ** 3; i++) if (stops(b, i) !== stops(src, i)) differ++;
+      const now = t.view(0, bx, by, bz, 'light');
+      if (gone(k)) expect(now).toBeNull();
+      else for (let i = 0; i < 32 ** 3; i++) if (stops(live[k]!, i) !== stops(src, i)) moved++;
+    });
+    expect(mixed).toBeGreaterThan(4);
+    expect(differ).toBe(0);
+    // A view taken before the batch without a copy reads the pages the batch wrote (why the copy is taken).
+    expect(moved).toBeGreaterThan(0);
+    // The changed bricks against a cell-by-cell reference, and the boxes they give.
+    const boxes: Array<readonly [number[], number[]]> = [];
+    let changedAll = 0;
+    keys.forEach(([bx, by, bz], k) => {
+      const a = t.view(0, bx, by, bz, 'light');
+      const want: number[] = [];
+      for (let bi = 0; bi < 512; bi++) {
+        const [x0, y0, z0] = volumeBlockBrick(bi);
+        let d = false;
+        for (let x = 0; x < 4 && !d; x++) for (let z = 0; z < 4 && !d; z++) for (let y = 0; y < 4 && !d; y++) {
+          const i = ((x0 * 4 + x) * 32 + z0 * 4 + z) * 32 + y0 * 4 + y;
+          d = stops(before[k]!, i) !== stops(a, i);
+        }
+        if (d) want.push(bi);
+      }
+      const got = volumeChangedBricks(before[k]!, a);
+      expect(got).toEqual(want);
+      changedAll += got.length;
+      if (got.length === 0) return;
+      const l = [Infinity, Infinity, Infinity];
+      const h = [-Infinity, -Infinity, -Infinity];
+      for (const bi of got) {
+        const g = volumeBlockBrick(bi).map((v, ax) => [bx, by, bz][ax]! * 8 + v);
+        for (let ax = 0; ax < 3; ax++) {
+          l[ax] = Math.min(l[ax]!, g[ax]!);
+          h[ax] = Math.max(h[ax]!, g[ax]!);
+        }
+      }
+      boxes.push([l, h]);
+    });
+    expect(changedAll).toBeGreaterThan(100);
+    expect(boxes.length).toBeGreaterThan(8);
+    // Kept bricks of every level round the blocks, some already part-way settled.
+    const reach = [12, 6, 3, 2];
+    const kept = (): Array<{ bx: number; by: number; bz: number; level: number; updates: number }> => {
+      const out = [];
+      for (let level = 0; level < 4; level++) {
+        const n = 48 >> level;
+        for (let x = -n; x < n; x += 1 + level) for (let y = -(n >> 2); y < n >> 2; y++) for (let z = -n; z < n; z += 2) out.push({ bx: x, by: y, bz: z, level, updates: (x * 7 + y * 3 + z) & 7 });
+      }
+      return out;
+    };
+    // Block by block, as each change was marked before: every box over every brick, the stale list in order.
+    const ref = kept();
+    const stale = new Set<(typeof ref)[number]>();
+    for (const [l, h] of boxes) {
+      for (const b of ref) {
+        const s = 1 << b.level;
+        const u = volumeMarkedUpdates([b.bx, b.by, b.bz], l.map((v) => Math.floor(v / s)), h.map((v) => Math.floor(v / s)), b.updates, reach[b.level]!, 8, b.level === 0 ? undefined : 1);
+        if (u === null) continue;
+        b.updates = u;
+        stale.add(b);
+      }
+    }
+    const one = kept();
+    const marked = volumeMarkBoxes(one, boxes, reach, 8);
+    expect(marked.length).toBe(stale.size);
+    expect(marked.length).toBeGreaterThan(1000);
+    expect(one.map((b) => b.updates)).toEqual(ref.map((b) => b.updates));
+    const index = new Map(one.map((b, i) => [b, i]));
+    const refIndex = new Map(ref.map((b, i) => [b, i]));
+    expect(marked.map((b) => index.get(b))).toEqual([...stale].map((b) => refIndex.get(b)));
+    expect(one.filter((b) => b.updates === 0).length).toBeGreaterThan(100);
   });
 
   it('the ambient cube: a face along each axis, squares of the normal between, against a reference', () => {

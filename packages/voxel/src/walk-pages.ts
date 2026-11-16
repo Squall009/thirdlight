@@ -213,12 +213,22 @@ export class WalkTable {
 
   /** A block's view for a stop (null: not held). */
   view(level: number, bx: number, by: number, bz: number, stop: WalkStop): WalkBlockView | null {
+    return this.viewOf(level, bx, by, bz, stop, false);
+  }
+
+  /** A block's view for a stop over a copy of its page (null: not held): what it is now, after the table changes. */
+  viewCopy(level: number, bx: number, by: number, bz: number, stop: WalkStop): WalkBlockView | null {
+    return this.viewOf(level, bx, by, bz, stop, true);
+  }
+
+  private viewOf(level: number, bx: number, by: number, bz: number, stop: WalkStop, copy: boolean): WalkBlockView | null {
     const v = this.value(level, bx, by, bz);
     if (v < 0) return null;
     const flag = stop === 'solid' ? v & 3 : (v >>> 2) & 3;
     if (flag === OCCUPANCY.empty) return EMPTY;
     if (flag === OCCUPANCY.solid) return SOLID;
-    return pageWalkView(this.pages, (v >>> 4) * WALK_PAGE_WORDS, flag, stop);
+    const base = (v >>> 4) * WALK_PAGE_WORDS;
+    return copy ? pageWalkView(this.pages.slice(base, base + WALK_PAGE_WORDS), 0, flag, stop) : pageWalkView(this.pages, base, flag, stop);
   }
 
   /** Puts a block in (replacing what it held). */

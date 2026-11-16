@@ -48,7 +48,7 @@ import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { frameSliceMs, residentBytes, threadProfiler } from '@thirdlight/shared';
 import { frameBudgetMs, levelFrameBudget, MEMORY_BUDGET_BY_TIER, type QualityLevelConfig } from '@thirdlight/project-model';
-import { MATERIAL_BITS, OCCUPANCY, pageWalkView, VOXEL_SIZE_M, WALK_BLOCK_SHIFT, type WalkBlockView, type WalkBlockWire, type WalkTable } from '@thirdlight/voxel';
+import { MATERIAL_BITS, VOXEL_SIZE_M, type WalkBlockView, type WalkBlockWire, type WalkTable } from '@thirdlight/voxel';
 
 import type { N } from './effects-tsl';
 import { TSL_SCALAR_OPS } from './field-ops';
@@ -64,7 +64,7 @@ import { texelTexture } from './texel-texture-node';
 import type { VoxelMaterialLook } from './voxel-surface';
 import type { VoxelWalkGpu } from './voxel-walk-gpu';
 import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, RAY_COST_WEIGHT, type GpuBuffer, type GpuEncoder, type GpuTexture } from './tracer-gpu';
-import { ambientCubeSteps, VOLUME_ALBEDO_WIDTH, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_BRICKS_PER_ROW, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_READ_OFFSET_CELLS, VOLUME_WINDOW_BRICKS, VOLUME_WORD, volumeBlockBrick, volumeBlockBricks, volumeBrickKey, volumeCellM, volumeChangedBricks, volumeDecode, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumePoolTexel, VOLUME_READ_KEY, volumeMarkedUpdates, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_ALBEDO_WIDTH, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_BRICKS_PER_ROW, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_READ_OFFSET_CELLS, VOLUME_WINDOW_BRICKS, VOLUME_WORD, volumeBlockBrick, volumeBlockBricks, volumeBrickKey, volumeCellM, volumeChangedBricks, volumeDecode, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumePoolTexel, VOLUME_READ_KEY, volumeMarkBoxes, type VolumeBlockBricks } from './voxel-light-volume-layout';
 import { VOLUME_LAMP_FLOATS, VOLUME_LIST_WORDS, VOLUME_PARAM_FLOATS, VOLUME_UPDATE_WGSL } from './voxel-light-volume-wgsl';
 
 const TSL: N = TSLTyped;
@@ -292,7 +292,7 @@ export class VoxelLightVolume {
   beforeWalk(table: WalkTable, wires: readonly WalkBlockWire[]): Map<string, WalkBlockView | null> {
     threadProfiler.begin(VOLUME_WALK_SPAN);
     const was = new Map<string, WalkBlockView | null>();
-    for (const w of wires) if (w.level === 0) was.set(`${w.bx},${w.by},${w.bz}`, copyView(table.view(0, w.bx, w.by, w.bz, 'light')));
+    for (const w of wires) if (w.level === 0) was.set(`${w.bx},${w.by},${w.bz}`, table.viewCopy(0, w.bx, w.by, w.bz, 'light'));
     threadProfiler.end(VOLUME_WALK_SPAN);
     return was;
   }
@@ -308,6 +308,7 @@ export class VoxelLightVolume {
   }
 
   private afterWalkNow(table: WalkTable, was: Map<string, WalkBlockView | null>): void {
+    const boxes: Array<readonly [readonly number[], readonly number[]]> = [];
     for (const [key, before] of was) {
       const [bx, by, bz] = key.split(',').map(Number) as [number, number, number];
       const after = table.view(0, bx, by, bz, 'light');
@@ -332,8 +333,9 @@ export class VoxelLightVolume {
           hi[a] = Math.max(hi[a]!, g[a]!);
         }
       }
-      this.markBox(lo, hi);
+      boxes.push([lo, hi]);
     }
+    this.markBoxes(boxes);
   }
 
   /**
@@ -341,19 +343,17 @@ export class VoxelLightVolume {
    * A coarse brick is measured in its own bricks (the box's bricks of that level; near: the next brick).
    */
   private markBox(lo: readonly number[], hi: readonly number[]): void {
-    this.stats.marks++;
-    const at = [0, 0, 0];
-    const boxes = VOLUME_LEVEL_WINDOWS.map((_, l) => [lo.map((v) => Math.floor(v / (1 << l))), hi.map((v) => Math.floor(v / (1 << l))), Math.ceil(VOLUME_RAY_REACH_M / brickM(l))] as const);
-    for (const b of this.bricks.values()) {
-      at[0] = b.bx;
-      at[1] = b.by;
-      at[2] = b.bz;
-      const [l0, h0, reach] = boxes[b.level]!;
-      const u = volumeMarkedUpdates(at, l0, h0, b.updates, reach, VOLUME_SETTLE_UPDATES, b.level === 0 ? undefined : 1);
-      if (u === null) continue;
-      b.updates = u;
-      this.stale.add(b);
-    }
+    this.markBoxes([[lo, hi]]);
+  }
+
+  /**
+   * {@link markBox} for several boxes in one pass over the kept bricks (a batch's walk changes: a flight's start takes
+   * out the blocks of the whole level-0 ring at once), the same as marking them one after another (`volumeMarkBoxes`).
+   */
+  private markBoxes(list: ReadonlyArray<readonly [readonly number[], readonly number[]]>): void {
+    if (list.length === 0) return;
+    this.stats.marks += list.length;
+    for (const b of volumeMarkBoxes(this.bricks.values(), list, MARK_REACH, VOLUME_SETTLE_UPDATES)) this.stale.add(b);
   }
 
   /** Every kept brick stale (`full`: from nothing; else keeping half its history: the sun or the sky changed). */
@@ -911,6 +911,9 @@ function brickM(level: number): number {
   return volumeCellM(level) * 4;
 }
 
+/** A ray's reach in each level's bricks: how far a change marks bricks stale. */
+const MARK_REACH: readonly number[] = VOLUME_LEVEL_WINDOWS.map((_, l) => Math.ceil(VOLUME_RAY_REACH_M / brickM(l)));
+
 function cellOf(c: readonly number[]): number {
   return (c[0]! & 3) + 4 * ((c[1]! & 3) + 4 * (c[2]! & 3));
 }
@@ -918,23 +921,6 @@ function cellOf(c: readonly number[]): number {
 function packRgba(r: number, g: number, b: number): number {
   const q = (v: number): number => Math.max(0, Math.min(255, Math.round(v * 255)));
   return (q(r) | (q(g) << 8) | (q(b) << 16) | (255 << 24)) >>> 0;
-}
-
-/** A block's light-stopping cells copied out of the table (its page may be written over by the batch). */
-function copyView(v: WalkBlockView | null): WalkBlockView | null {
-  if (v === null || v.flag !== OCCUPANCY.mixed) return v;
-  const cells = new Uint32Array(1 << (3 * WALK_BLOCK_SHIFT - 5));
-  for (let i = 0; i < cells.length; i++) {
-    let w = 0;
-    for (let k = 0; k < 32; k++) if (v.cell(i * 32 + k)) w |= 1 << k;
-    cells[i] = w >>> 0;
-  }
-  const bricks = new Uint32Array(16);
-  for (let i = 0; i < 512; i++) if (v.brick(i) !== OCCUPANCY.empty) bricks[i >>> 5]! |= 1 << (i & 31);
-  const page = new Uint32Array(2 * (16 + cells.length));
-  page.set(bricks, 16);
-  page.set(cells, 32 + cells.length);
-  return pageWalkView(page, 0, OCCUPANCY.mixed, 'light');
 }
 
 /**

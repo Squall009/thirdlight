@@ -387,10 +387,12 @@ export function volumeChangedBricks(before: WalkBlockView | null, after: WalkBlo
     const bz = Math.floor(bi / BLOCK_BRICKS) % BLOCK_BRICKS;
     const by = bi % BLOCK_BRICKS;
     const quick = (v: WalkBlockView | null): number => (v === null ? -1 : v.flag !== OCCUPANCY.mixed ? v.flag : v.brick(bi));
-    // Both empty there (or both solid through): nothing differs inside the brick.
+    // Both empty there (or both solid through), or nothing stops light on either side (a block not held, or an empty
+    // brick: a block taken out over open air): nothing differs inside the brick.
     const qa = quick(before);
     const qb = quick(after);
     if (qa === qb && qa !== OCCUPANCY.mixed) continue;
+    if (qa <= OCCUPANCY.empty && qb <= OCCUPANCY.empty) continue;
     let differs = false;
     for (let x = 0; x < 4 && !differs; x++) for (let z = 0; z < 4 && !differs; z++) for (let y = 0; y < 4 && !differs; y++) {
       const i = ((bx * 4 + x) * BLOCK_CELLS + bz * 4 + z) * BLOCK_CELLS + by * 4 + y;
@@ -412,14 +414,71 @@ export const VOLUME_BLOCK_BRICKS = BLOCK_BRICKS;
 /** Bricks round a changed brick whose light starts again from nothing (farther ones within the reach keep half). */
 export const VOLUME_MARK_NEAR_BRICKS = 2;
 
+/** Bricks from brick `b` to the box lo … hi (inclusive): the largest of the axes' gaps, 0 inside. */
+export function volumeBoxGap(b: readonly number[], lo: readonly number[], hi: readonly number[]): number {
+  let d = 0;
+  for (let a = 0; a < 3; a++) {
+    const g = b[a]! < lo[a]! ? lo[a]! - b[a]! : b[a]! > hi[a]! ? b[a]! - hi[a]! : 0;
+    if (g > d) d = g;
+  }
+  return d;
+}
+
 /**
  * A kept brick's updates after a change to the bricks lo … hi (inclusive, world bricks) that rays of `reachBricks`
  * can reach: from nothing within {@link VOLUME_MARK_NEAR_BRICKS} of them, at most half of `settle` within the reach,
  * null (untouched) past it. The distance is the largest of the axes' gaps (a ray's reach along any axis).
  */
 export function volumeMarkedUpdates(b: readonly number[], lo: readonly number[], hi: readonly number[], updates: number, reachBricks: number, settle: number, nearBricks = VOLUME_MARK_NEAR_BRICKS): number | null {
-  const gap = (a: number): number => (b[a]! < lo[a]! ? lo[a]! - b[a]! : b[a]! > hi[a]! ? b[a]! - hi[a]! : 0);
-  const d = Math.max(gap(0), gap(1), gap(2));
+  const d = volumeBoxGap(b, lo, hi);
   if (d > reachBricks) return null;
   return d <= nearBricks ? 0 : Math.min(updates, settle >> 1);
+}
+
+/** A kept brick as marking reads and writes it. */
+export interface VolumeMarkable {
+  readonly bx: number;
+  readonly by: number;
+  readonly bz: number;
+  readonly level: number;
+  updates: number;
+}
+
+/**
+ * The bricks a ray from which can reach any of the level-0 boxes lo … hi (inclusive, world bricks) marked stale:
+ * {@link volumeMarkedUpdates} for each box in turn, in one pass. A brick takes what its nearest box gives (from
+ * nothing beats half, half beats untouched: the order of the boxes changes nothing), and is listed where the first
+ * box that reaches it would have listed it. `reach`: each level's reach in its own bricks; a coarse brick is measured
+ * in its own bricks (the boxes scaled to its level; near: the next brick). Returns the bricks marked, in that order.
+ */
+export function volumeMarkBoxes<B extends VolumeMarkable>(bricks: Iterable<B>, list: ReadonlyArray<readonly [readonly number[], readonly number[]]>, reach: readonly number[], settle: number): B[] {
+  const at = [0, 0, 0];
+  const levels = reach.map((r, l) => ({ reach: r, boxes: list.map(([lo, hi]) => [lo.map((v) => Math.floor(v / (1 << l))), hi.map((v) => Math.floor(v / (1 << l)))] as const) }));
+  const marked: Array<readonly [number, B]> = [];
+  for (const b of bricks) {
+    at[0] = b.bx;
+    at[1] = b.by;
+    at[2] = b.bz;
+    const { boxes, reach: r } = levels[b.level]!;
+    let first = -1;
+    let nearest = -1;
+    let best = Infinity;
+    for (let i = 0; i < boxes.length; i++) {
+      const d = volumeBoxGap(at, boxes[i]![0], boxes[i]![1]);
+      if (d > r) continue;
+      if (first < 0) first = i;
+      if (d < best) {
+        best = d;
+        nearest = i;
+      }
+    }
+    if (first < 0) continue;
+    const u = volumeMarkedUpdates(at, boxes[nearest]![0], boxes[nearest]![1], b.updates, r, settle, b.level === 0 ? undefined : 1);
+    if (u === null) continue;
+    b.updates = u;
+    marked.push([first, b]);
+  }
+  // A stable sort: within a box's bricks, the order they were walked in.
+  marked.sort((x, y) => x[0] - y[0]);
+  return marked.map((m) => m[1]);
 }
