@@ -31,7 +31,8 @@
  *   piece (the row, or a tile when the last frame composed none), so both
  *   move on.
  * - **At speed** (the camera faster than the streamer's level-0 speed,
- *   `STREAM_DETAIL_SPEED`) the near window stays where it was: no level 0
+ *   `STREAM_DETAIL_SPEED`, until it stayed slower for the streamer's stop
+ *   time, `STREAM_STOPPED_MS`) the near window stays where it was: no level 0
  *   is built there, so the sky heights it would read ahead are unknown, and
  *   moving it would only clear and compose tiles the camera leaves within a
  *   second. While held it reads as no window (its tops are kept for later):
@@ -47,7 +48,7 @@
 import * as THREE from 'three/webgpu';
 import { StorageTexture } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { composeSkyTile, FarSunTops, STREAM_DETAIL_SPEED, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_WINDOW_TEXELS, SunHeightWindow, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarBricks, type FarTopsPlace, type SkyColumns, type SunColumn } from '@thirdlight/voxel';
+import { composeSkyTile, FarSunTops, STREAM_DETAIL_SPEED, STREAM_STOPPED_MS, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_WINDOW_TEXELS, SunHeightWindow, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarBricks, type FarTopsPlace, type SkyColumns, type SunColumn } from '@thirdlight/voxel';
 import { CPU_SCALAR_OPS } from '@thirdlight/shared';
 
 import type { N } from './effects-tsl';
@@ -102,6 +103,8 @@ export class SunField {
   /** The camera's ground point and time at the last follow (the speed the near window is held at). */
   private readonly last = { x: NaN, z: NaN, t: NaN };
   private nearHeld = false;
+  /** Since when the camera has been under the level-0 speed while the near window is held (NaN: it has not). */
+  private slowSince = NaN;
   /** The last frame composed no tile while tiles waited (the next one composes one, whatever the slice says). */
   private starved = false;
   /** Tiles composed and uploaded, and the far nodes' tops made, since made; the ms the last frame's work took. */
@@ -168,7 +171,20 @@ export class SunField {
     const dt = (now - l.t) / 1000;
     // A second follow in the same instant (another pass of the frame) keeps what the first one found.
     const held = this.nearHeld;
-    if (dt > 0) this.nearHeld = Math.hypot(x - l.x, z - l.z) / dt > STREAM_DETAIL_SPEED * this.voxelM && !Number.isNaN(this.near.tileX);
+    // Held at once past the speed; let go once the camera stayed under it for the streamer's stop time: a frame that
+    // shows the same pose as the last (the camera is posed by the simulation's steps) is not a stop.
+    if (dt > 0) {
+      if (Math.hypot(x - l.x, z - l.z) / dt > STREAM_DETAIL_SPEED * this.voxelM && !Number.isNaN(this.near.tileX)) {
+        this.nearHeld = true;
+        this.slowSince = NaN;
+      } else if (this.nearHeld) {
+        if (Number.isNaN(this.slowSince)) this.slowSince = now;
+        if (now - this.slowSince >= STREAM_STOPPED_MS) {
+          this.nearHeld = false;
+          this.slowSince = NaN;
+        }
+      }
+    }
     if (dt > 0 || Number.isNaN(l.t)) {
       l.x = x;
       l.z = z;

@@ -4,13 +4,14 @@
  *
  * - with the slice spent before anything is done, a frame still does one piece of work, the march's row or (when the
  *   last frame composed none) a tile, never a tile of each window besides;
- * - past the streamer's level-0 speed the near window stays where it was, composes nothing and reads as no window (the
- *   march skips it); once the camera stops it comes to the camera, composes what entered within the slice, its lines
+ * - past the streamer's level-0 speed the near window stays where it was (a frame repeating the last pose does not let
+ *   it go), composes nothing and reads as no window (the march skips it); once the camera has stopped for the
+ *   streamer's stop time it comes to the camera, composes what entered within the slice, its lines
  *   are marched again, and it holds the same tops as a field that never travelled.
  */
 import * as THREE from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
-import { SkyColumns, STREAM_DETAIL_SPEED } from '@thirdlight/voxel';
+import { SkyColumns, STREAM_DETAIL_SPEED, STREAM_STOPPED_MS } from '@thirdlight/voxel';
 
 import { SunField, type SunFieldRenderer } from './voxel-sun-field';
 
@@ -86,11 +87,13 @@ describe('the sun field a frame', () => {
     settle(f, r, 4096);
     const tileX = f.near.tileX;
     const near = f.stats.nearTiles;
-    // 150 m/s at 30 frames a second, 2 s: 300 m, 18 of the near window's 16 m tiles.
+    // 150 m/s at 30 frames a second, 2 s less the frames that repeat a pose: 240 m, 15 of the near window's 16 m tiles.
     expect(150).toBeGreaterThan(STREAM_DETAIL_SPEED * VOXEL_M);
     for (let i = 0; i < 60; i++) {
       t += 1000 / 30;
-      x += 5;
+      // Every fifth frame shows the last frame's pose again (the simulation's step had not come): not a stop.
+      if (i % 5 !== 4) x += 5;
+      else x += 0;
       f.follow(x, 0, DIR, 100, t);
       f.frame(() => true, r);
       expect(f.held).toBe(true);
@@ -102,15 +105,18 @@ describe('the sun field a frame', () => {
     expect(f.stats.heldFrames).toBe(60);
     // The far window kept following (its 128 m tiles: two columns of them entered).
     expect(f.far.window.tileX).toBe(Math.floor(x / 128) - 16);
-    // Stopped: the next follow brings the near window to the camera.
-    t += 1000 / 30;
-    f.follow(x, 0, DIR, 100, t);
+    // Stopped: held while the camera has been still for less than the streamer's stop time, then let go.
+    const stoppedAt = t;
+    for (t += 1000 / 30; t - stoppedAt < STREAM_STOPPED_MS + 1000 / 30; t += 1000 / 30) {
+      expect(f.held).toBe(true);
+      f.follow(x, 0, DIR, 100, t);
+    }
     expect(f.held).toBe(false);
     expect(f.near.tileX).toBe(Math.floor(x / 16) - 16);
     expect((f.nearRect.value as THREE.Vector4).w).toBe(1);
     expect(f.marching).toBe(32);
     const entered = f.near.waiting;
-    expect(entered).toBe(18 * 32);
+    expect(entered).toBe(15 * 32);
     // 64 tiles a frame (the slice), nearest first: done within the frames that takes.
     const frames = settle(f, r, 64);
     expect(frames).toBeLessThanOrEqual(Math.ceil(entered / 64) + 1);
