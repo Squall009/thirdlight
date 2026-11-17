@@ -2544,12 +2544,12 @@ night within run-to-run.
   12 %; 53–55 % before), the cells 8.9–10.1 % from before the lights came (bound 20 %); the pillar built takes the bounce
   off (311 of 1,891); the grids grown before the repaint (D696). The pillar's dig-again settle was cut to keep the
   test's time (dug again its cells came back to 1.2–1.8 % of what it moved them in three gate runs).
-  Play test 2.4–2.5 → 3.4 min with every check (`gate-rerun-20261117-185019`) → TIME_TBD with the cut.
+  Play test 2.4–2.5 → 3.4 min with every check (`gate-rerun-20261117-185019`) → 3.3 min with the cut (`gate-fast-20261117-195335`, under load; timeout 240 s not raised).
 
 **Gates.** `gate-fast-20261117-175914` (every area: project-model changed) RED 3 of 322: the spot's residue check
 (the first bound, from no reading), `sockets.e2e.ts:236` (D639's watch), `frame-rate-cap.e2e.ts:70` (D659's watch);
 `gate-rerun-20261117-183846` RED (the reach-only lamp marks: the spot 16 %; D639 again); `gate-rerun-20261117-184459`
-RED (the spot 7.8 % over the first bound 6 %); `gate-rerun-20261117-185019` GREEN (6280f957). GATE_TBD
+RED (the spot 7.8 % over the first bound 6 %); `gate-rerun-20261117-185019` GREEN (6280f957); `gate-fast-20261117-195335` GREEN (2d360dd0: the cut, docs). No watch row failed but D639 and D659.
 
 **For 46e.13 (b), the look.** D695 is gone with this slice (residue, not the read). The room's blotches moved with
 the rays' restart, its brightness the same (5.3–5.5): darkness and blotches are the look's, not stale state. A
