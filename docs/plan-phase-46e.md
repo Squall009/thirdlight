@@ -244,7 +244,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.10 | Done 2026-11-17 (cb7229fa…5503e495): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); 10b: walk blocks only while the page reads its GPU walk; 10c: sim frames build full diagnostics only when sent (11.8 ms a tick of voxel stats after a 150 m/s stop): store off nothing pending 7.0–7.3 s (base 7.4–7.5, before 10.5–11.4), D701 fixed; D672 narrowed; D711 |
 | 46e.11 | Proposed 2026-11-16 (24296e84), published as acc46e-11: `docs/briefs/proposal-46e.11-emissive.md` — no new stored field (the voxel path reads the record's `params.emissive` × `params.emissiveIntensity`; the volume keeps one more word a cell, 28 → 32 B); three questions with defaults. **Waiting for the owner's note; nothing built.** |
 | 46e.12 | (a) done 2026-11-17 (b73ee726…2b80a9c2): lamp list per kept brick built in compute, 128 extra lamps 4.1–6.1 → 0.21–0.24 ms a brick. (b), (c) done 2026-11-17 (3d198037…38220994): spots by cone, rect and line lights by the LTC form factor (one definition, = per-pixel to 1e-6), walk to a point per ray; one spot + one area 0.029 ms a brick (base 0.024–0.028). (d) waits for the owner |
-| 46e.13 | not started |
+| 46e.13 | (a) done 2026-11-17 (f2bc0110…6280f957): a change restarts what it reaches (a lamp out leaves 3–8 %, was 53 %; D715, D695 fixed), batch work in the slice (D708), D696 cannot happen (checked); pacing at the live share 6.0 ms but `lighting` stale 7.3–9.2 (base 8.4–11.1): the rest is other passes' (D690 open); edit settles 2× (b) the look next |
 | 46e.14 | not started |
 | 46e.15 | not started |
 | 46e.16 | not started |
@@ -2433,6 +2433,129 @@ volume's own light read back at the hits); D692's blotches show in the panel's b
 slow to light but dim (one bounce of a cone-lit patch); D690's `lighting` row 8.3–10.6 ms against 6.67 in every
 stale run here; D695 and D696 not touched.
 
+### 46e.13a — the update keeps its share and forgets what changed; batch work in its slice
+
+**What was built** (f2bc0110, 21df622b, 3fad4de6, 193b7868, 8a3717c0, 6280f957). Work folder
+`~/.cache/thirdlight-phase46e/work/46e.13a/` (`measure.sh`, `lib.sh`, `summ*.py`, `cmp.mjs`, raw runs with
+`*.uptime`, `stamp-period.*`, `exp*` the candidates' runs, broken-variant logs).
+
+- **The live light's share** (D690, part). The frame budget names each measured GPU pass's own share within its row
+  (`FrameBudget.gpuPasses`, `gpuPassBudgetMs`; project-model): shadow maps 2 % (0.67 ms at 30 Hz, the town's
+  0.6–0.7), the live light 18 % (6.0 ms). The update paces at it (`voxel-light-volume-pacing.ts`); its stall rule
+  leaves out a reading past 1.5× the least of the last 16 unless the one before was high too (a stall every other
+  reading no longer cuts it by a third; a real rise is taken at the second reading).
+- **A change restarts what it reaches** (D715). A light change (the sun, the sky, a lamp that came, went, moved or
+  changed: the lamps whose record changed, their reach and the rays' reach past it) or an edit or arrival restarts
+  the bricks a ray can reach it from: `updates` and the rays' sequence back to 0, so a settled brick holds what a
+  volume started with the light as it is holds. While changes continue (one within 30 frames, two looks at the lamps:
+  a blend of looks, a moving lamp, a stream of arrivals, a stroke) the farther bricks keep half their history (the
+  light follows smoothly) and, for light changes, restart once the changes stop; world changes are not restarted after
+  (every arrival would be lit twice). `VolumeHistory` in `voxel-light-volume-changes.ts`.
+- **Batch work in the slice** (D708). A batch keeps only what it changed from (a chunk's grid as the volume last
+  saw it, a walk block's cells before); the comparison, the marks and the colours run in the volume's
+  `surfacePrepare` slice of later frames (one at least a frame), and the volume is not settled while any wait
+  (`VolumePendingChanges`). A grid's bricks are found by their 512 keys, not by a pass over every kept brick.
+- **D696 checked, not changed.** three r187 binds a texture node of the object group per draw and checks it every draw
+  (`NodeSampledTexture.update` against the node's value: a new bind group for a changed texture), and the grids' and
+  far bricks' nodes are such nodes. `__tlVoxelPlay.growGrids()` replaces every world's near grid texture now; the Play
+  e2e calls it under the hut's drawn chunks just before the floor's repaint, which shows (2,930–2,968 green px, bound
+  500), and the old texture is disposed two frames on with no WebGPU error.
+- **Bench**: `light-shots --fresh-cells` (each camera's cells as arrived against every brick started again and
+  settled: what a change on the way left).
+- Nothing of rays, reach, blend, settle count, list size or the read changed.
+
+**D690, the pacing signal: not found at the cap** (narrowed). Candidates, each measured (room camera, low, the cap):
+
+| Candidate | Reading | Verdict |
+|---|---|---|
+| The update's own stamps (begin and end of its pass) | 6.0–6.6 ms a frame while `measureGpu` reads 7.3–11.1 | 1.2–1.6× short (the base's) |
+| Wide stamps: begin of the update to the end of a pass after it reading the pool (the barrier inside) | +0.003 ms over its own (`exp1*`) | the wait is not between the passes |
+| A unit error: stamps against wall time for 16–211 ms compute jobs on an idle GPU (`stamp-period.json`) | equal within 1–2 % (gen-12lp) | stamps are right |
+| Completion time from the update's submission (`onSubmittedWorkDone`, `exp3`) | 17–28 ms (queued work); at the cap with room the update runs while the page's CPU prepares the render | hidden at the cap |
+| Ballast unit while updating, against settled (`exp4`, `split-head`) | 0.1163 → 0.1197, 0.1267 → 0.1323 ms (+3–4 %) | the rest of the frame slower |
+| `near` while updating (`split-head`) | 1.74 → 3.05 ms | the read of a pool being written pays |
+
+So the cost outside the update's stamps is paid by other passes (the surfaces' read +1.3 ms, the rest of the frame
+~4 %) and shows only in a GPU-bound frame: no reading at the cap with room sees it, and a constant for it would be a
+tuned one. What the slice changed is the share (6.67 → 6.0) and the stall rule; the overrun stays (D690 open).
+
+**Measured** 2026-11-17 18:55–20:10 UTC, base 8f8a5f17 (worktree, built) against the head 6280f957 (built), A B A B,
+each run alone (`thirdlight-gate` inactive), the brief's 10G scope, Iris Xe, WebGPU, 1280 × 720, low, the 30 Hz cap,
+the town in staging's 8 km world, `?voxelLight=volume`; the bench from the head for both; load (1 min) 1.0–6.1
+(`*.uptime`).
+
+| `measureGpu` `lighting`, every brick stale (`stale-*`) | street | room | night |
+|---|---|---|---|
+| base r1, r2 (paced to 6.67 by its stamps) | 10.67, 9.66 | 8.44, 11.05 | 9.58, 9.55 |
+| head r1, r2 (paced to 6.0) | 9.22, — (ballast line failed) | 7.90, 8.40 | 8.09, 7.26 |
+| bricks a frame base / head; the stamps' ms base / head | 119–120 / 90–102; 6.6 / 6.1 | 112–118 / 99–100; 6.6 / 6.2–6.4 | 274–277 / 254–258; 6.5–6.6 / 6.0–6.2 |
+| page `voxel light volume` mean base / head (ms) | 0.44–0.49 / 0.32–0.64 | 0.39–0.47 / 0.38–0.52 | 0.44–0.52 / 0.43–0.59 |
+
+| Town orbit (`orbit-*`, 1 round each) | room at the cap | `lighting` | `near` | page `lighting` mean / worst | page ms |
+|---|---|---|---|---|---|
+| base r1, r2 | 136, 136 copies | 6.44, 6.27 | below, 5.23 | 1.00 / 3.5, 1.08 / 7.3 | 7.98, 8.00 |
+| head r1, r2 | 136, 136 | 6.39, 7.17 | 3.95, 3.96 | 0.90 / 3.4, 0.98 / 3.4 | 6.44, 7.09 |
+
+| Settle (`pic-*`) | base r1, r2 | head r1, r2 |
+|---|---|---|
+| Play start → the street settled | 14.6, 15.3 s | 15.1, 15.3 s |
+| room arrive → settled | 2.5, 2.8 s | 4.1, 3.6 s |
+| `--cache-edits`: window dug / wall built / dug (settled) | 1.71, 1.71 / 0.52, 0.50 / 0.57, 0.54 s | 3.56, 3.55 / 1.11, 1.19 / 1.09, 1.22 s |
+| cells as arrived against started again (`--fresh-cells`; street / room / cave / night) | 11 / 27 / 44–49 / 41–44 % | 10 / 10 / 24–25 / 10–17 % |
+
+Settles after an edit take 2× (eight updates from nothing over the rays' reach where half the bricks took four) and
+the update's share is 10 % smaller; the room 1.3–1.4× (its arrival marks). What a volume started again differs by at
+the street (10–11 % both) is the bounces' order (cells read their neighbours as they fill), so the head's 10–25 % is
+near that floor; the base's 27–49 % is the half history (the noon sky kept at night, night kept at noon).
+
+**Coverage 150 m/s** (export, `&voxelLight=volume`, one round each; `cov-{base,head}.json`): longest frame 61.3 / 55.5 ms,
+0 / 0 over 100 ms, missed 12.8 / 16.5 a min (one round: not resolved), detail 3.67 / 3.85 s, nothing pending 7.8 /
+8.26 s after the stop, falls 0 through, 0 holes. The flight's start (D708): the base's worst page frame held 9.7 ms of
+`voxel light volume` (its batch work in the batch's span), the head's 3.0 ms.
+
+**Pictures** (`pic-{base,head}-r{1,2}/`, pixels differing by more than 10 a channel, `cmp.mjs`):
+
+| | street | room | cave | night | far |
+|---|---|---|---|---|---|
+| base r1 / r2 | 0.180 % | 0.000 | 1.033 | 0.006 | 0.007 |
+| head r1 / r2 | 0.114 | 0.000 | 0.071 | 0.034 | 0.003 |
+| base against head (4 pairs) | 0.107–0.228 | 8.96 | 0.39–1.67 | 0.006–0.044 | 18.56–18.63 |
+| mean brightness base / head | 99.0, 98.8 / 98.7, 98.5 | 5.3 / 5.5 | 62.6, 63.0 / 64.2, 64.3 | 13.9 / 13.9 | 95.2 / 99.5 |
+
+Looked at: `pic-base-r1/far-view.png` beside `pic-head-r1/far-view.png`: **the gables' dark cloud-shaped patches
+(D695) are gone** — they were the night look kept at half history (the run goes night → far); `room-window.png`: the
+same dim room with its blotches in other places (each brick's rays now start their sequence again at a restart: the
+same estimate drawn with other rays, D692's noise moved, not the light); `edit-lamp-wall-after.png` base against head:
+the base's night street grey-lit by the room camera's noon sky (half of it kept), the head's dark. Street, cave and
+night within run-to-run.
+
+**Tests.**
+- vitest `voxel-light-volume-pacing.test.ts` (5): the share is 6.0 ms at low; bricks a frame settle so the modelled
+  cost sits within 5 % of it (0.021–0.24 ms a brick, 0.4 ms a dispatch more, ±15 % noise); every other reading
+  stalled by 6.5 ms moves it under 10 %; a 3× rise is followed within a second; a reading 1.5× short runs 1.4× over.
+  Broken (`broken-pacing-no-stall-guard-vitest.log`, every reading taken): the stall case 0.54 apart.
+- vitest `voxel-light-volume-changes.test.ts` (4): 240 blocks over ≥ 24 frames of a stepping clock (one at least a
+  frame, a change dearer than the slice one a frame), the order and the first state kept; the history rule over a CPU
+  model of the blend: a lamp out leaves < 1 % after the settle count; a light changing every frame for two seconds is
+  followed and nothing of the old is left once it stops. Broken (`broken-history-half-vitest.log`, half history kept):
+  both fail (0.50 and 0.052 left).
+- vitest `quality-levels.test.ts`: the passes' shares fit their rows; low's lighting pass = row − shadows.
+- Play e2e (`voxelVolumeLightChecks`): the panel and the spot taken out leave 2.9–3.0 % and 7.8 % of their bounce (bound
+  12 %; 53–55 % before), the cells 8.9–10.1 % from before the lights came (bound 20 %); the pillar built takes the bounce
+  off (311 of 1,891); the grids grown before the repaint (D696). The pillar's dig-again settle was cut to keep the
+  test's time (dug again its cells came back to 1.2–1.8 % of what it moved them in three gate runs).
+  Play test 2.4–2.5 → 3.4 min with every check (`gate-rerun-20261117-185019`) → TIME_TBD with the cut.
+
+**Gates.** `gate-fast-20261117-175914` (every area: project-model changed) RED 3 of 322: the spot's residue check
+(the first bound, from no reading), `sockets.e2e.ts:236` (D639's watch), `frame-rate-cap.e2e.ts:70` (D659's watch);
+`gate-rerun-20261117-183846` RED (the reach-only lamp marks: the spot 16 %; D639 again); `gate-rerun-20261117-184459`
+RED (the spot 7.8 % over the first bound 6 %); `gate-rerun-20261117-185019` GREEN (6280f957). GATE_TBD
+
+**For 46e.13 (b), the look.** D695 is gone with this slice (residue, not the read). The room's blotches moved with
+the rays' restart, its brightness the same (5.3–5.5): darkness and blotches are the look's, not stale state. A
+restart's first update reads its neighbours' old light (3–8 % of a removed light left): an accumulate-while-idle pass
+would also wash that out. The update still overruns its share by 1.2–1.4× through what other passes pay (D690).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -2784,6 +2907,14 @@ stale run here; D695 and D696 not touched.
 - 2026-11-17 (46e.12b, c, default chosen, owner to confirm): the update has two pipelines, without and with the area
   lights' code, chosen by whether the table holds one (as the clustered lights build their area kinds only while one
   is there), and one occupancy walk call in its lamp loop for every kind (a second call site cost 2–3× a brick).
+- 2026-11-17 (46e.13a, default chosen, owner to confirm): the frame budget gives each measured GPU pass a share
+  within its row (`FrameBudget.gpuPasses`): shadow maps 2 %, the live light 18 % of the frame; the light volume's update
+  paces at the latter.
+- 2026-11-17 (46e.13a, default chosen, owner to confirm): a light change or an edit restarts the bricks a ray can reach
+  it from (rays from the start of their sequence); a change within 30 frames of the last keeps half history in the
+  farther bricks, light changes restarting them once they stop, world changes (arrivals, strokes) not.
+- 2026-11-17 (46e.13a, default chosen, owner to confirm): the Play e2e's pillar dig-again settle is cut to keep the
+  test under 3.3 min (the light-removal check carries the same rule).
 
 ## 10. Open questions for the owner (asked with the plan)
 

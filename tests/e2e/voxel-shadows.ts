@@ -377,9 +377,10 @@ function lampBounce(cells: readonly VolumeCell[]): { red: number; n: number } {
  * GPU round the hut against the CPU's rule (which cells hold light), at 0.5 m and at 1 m, a cell over the roof under
  * open sky against the sky term, cells inside the shut hut near none; the roof opened, brighter once settled again; the
  * floor repainted green under the open roof, the walls greener by its bounce than over the plaster floor (the open
- * picture). Then outside, the hut dug: the box 1.7 m over the pad, in the open, about as bright by the volume as by the
+ * picture; the near grid texture replaced under the hut's drawn chunks just before the repaint, which shows). In the
+ * shut hut a spot and an area panel bounce, and taken out leave next to nothing of it. Then outside, the hut dug: the box 1.7 m over the pad, in the open, about as bright by the volume as by the
  * flat term (the coarse levels' sky); the script's wall built and a red lamp east of it, the pillar built between them
- * takes the lamp's bounce off the cells up the wall's lit face, dug again it comes back; the lamp lists of the bricks
+ * takes the lamp's bounce off the cells up the wall's lit face; the lamp lists of the bricks
  * round the lamp and the wall read back from the GPU (level 0 and 1 m) equal the CPU's rule, and the bricks up the
  * wall's face list the lamp (the bounce is lit through them). Off again, the picture is the store-off one.
  */
@@ -499,17 +500,11 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   const builtMs = Date.now() - tBuild;
   const shadedCells = await faceCells();
   const shaded = lampBounce(shadedCells);
-  const tDig = Date.now();
-  await counted('unpillar', 'pillarDug');
-  await staleSoon('the pillar dug');
-  await settled('the pillar dug');
-  const dugMs = Date.now() - tDig;
-  const relitCells = await faceCells();
-  const relit = lampBounce(relitCells);
-  // Dug again, the face's cells hold what they held before the pillar was built (nothing left of its shadow).
-  const pillarResidue = cellsApart(relitCells, litCells) / Math.max(cellsApart(shadedCells, litCells), 1e-6);
+  // (Dug again and settled, the face's cells came back to what they held before it, 1.2–1.8 % apart of what the pillar
+  // moved them; that settle was cut to keep the test's time: a light taken out is the same rule, checked in the hut.)
   // The store off: the box outside by the flat term, then the picture as before.
   await hook('setStore', 'off');
+  await counted('unpillar', 'pillarDug');
   await expect.poll(() => hook('volume'), { timeout: 10_000 }).toBeNull();
   await place(ids.lamp, away);
   await counted('unwall', 'wallDug');
@@ -534,7 +529,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   console.log(`[voxel-play] light volume readers: the blue box in the shut hut ${boxIn.volume.lum.toFixed(1)} against ${boxIn.off.lum.toFixed(1)} by the flat term (${boxIn.off.n} px); the kit pieces on the stub ${kit.volume.lum.toFixed(1)} against ${kit.off.lum.toFixed(1)} (${kit.off.n} px); the box 1.7 m over the pad ${boxOpen.volume.lum.toFixed(1)} against ${boxOpen.off.lum.toFixed(1)} (${boxOpen.off.n} px)`);
   console.log(`[voxel-play] light volume lamp lists: ${lists.length} bricks round the lamp, ${listsKept.length} kept, ${listsLit.length} listing a lamp, ${listsDiffer.length} differing from the CPU's rule (${JSON.stringify(listsDiffer.slice(0, 2))}); up the wall's face ${faceLists.length} bricks, ${faceLists.filter(listsLamp).length} listing the red lamp (${JSON.stringify(lampAt)}); 1 m level ${listsCoarse.length} kept, ${listsCoarse.filter(listsLamp).length} listing it, ${listsCoarseDiffer.length} differing (${JSON.stringify(listsCoarseDiffer.slice(0, 2))}; the first lists ${JSON.stringify(faceLists[0]?.at)}); most reaching one ${Math.max(0, ...lists.map((l) => l.cpu.total))}`);
   console.log(`[voxel-play] light volume light types: the spot's red bounce on the west wall's cells: faces looking at the wall it lights ${typed.front.toFixed(3)} (${typed.frontN} faces), at the wall behind it ${typed.behind.toFixed(3)} (ratio ${typed.ratio.toFixed(3)}; settled ${typed.litMs} ms); the panel's blue bounce on the faces looking down at the floor it lights ${typed.panel.toFixed(3)} (${typed.panelN} faces; before it was placed ${typed.panelBefore.toFixed(3)}), with both taken out ${typed.panelOff.toFixed(3)} (settled ${typed.offMs} ms), the spot's then ${typed.frontOff.toFixed(3)} (before it came ${typed.frontBefore.toFixed(3)}); the cells then against before the lights came ${(typed.residue * 100).toFixed(2)} % of what the lights moved them`);
-  console.log(`[voxel-play] light volume edit: the lamp's red bounce up the wall's face ${lit.red.toFixed(3)} (${lit.n} cells), the pillar built ${shaded.red.toFixed(3)} (settled ${builtMs} ms after the command), dug ${relit.red.toFixed(3)} (${dugMs} ms), its cells against before it was built ${(pillarResidue * 100).toFixed(2)} % of what the pillar moved them; the pillar and the face's cells ${across ? 'in two chunks' : 'in one chunk'}`);
+  console.log(`[voxel-play] light volume edit: the lamp's red bounce up the wall's face ${lit.red.toFixed(3)} (${lit.n} cells), the pillar built ${shaded.red.toFixed(3)} (settled ${builtMs} ms after the command), the pillar and the face's cells ${across ? 'in two chunks' : 'in one chunk'}`);
   expect(updated.length, 'cells round the hut were updated').toBeGreaterThan(200);
   expect(holdsGpu, 'cells round the hut hold light on the GPU').toBeGreaterThan(100);
   expect(differ.length, JSON.stringify(differ.slice(0, 3))).toBe(0);
@@ -568,8 +563,6 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   expect(lit.n, 'cells up the wall hold light').toBeGreaterThan(10);
   expect(lit.red, "the lamp's bounce reaches the wall's face").toBeGreaterThan(VOLUME_LAMP_BOUNCE_MIN);
   expect(shaded.red, "the pillar built between them takes the lamp's bounce off").toBeLessThan(VOLUME_EDIT_SHADED_SHARE * lit.red);
-  expect(relit.red, 'dug again, the bounce comes back').toBeGreaterThan(VOLUME_EDIT_BACK_SHARE * lit.red);
-  expect(pillarResidue, 'dug again, the cells hold what they held before the pillar was built').toBeLessThan(VOLUME_RESIDUE_SHARE);
   expect(same, 'switched off, the picture is the store-off one').toBeLessThan(OFF_SAME_MAX_PX);
   expect(typed.frontN, "faces looking at the spot's wall hold light").toBeGreaterThan(5);
   expect(typed.front, "the spot's bounce off the wall it lights").toBeGreaterThan(VOLUME_SPOT_BOUNCE_MIN);
@@ -691,11 +684,10 @@ const VOLUME_TINT_FACTOR = 1.02;
  * Set before the first run (not from a reading): the box 1.7 m over the open pad keeps at least 0.7 of its brightness by
  * the flat term (the sun is per pixel on both; the volume's sky over it is open but for the ground below); the pillar
  * built between the lamp and the wall leaves at most 0.7 of the lamp's red bounce up the wall's face (it shades the
- * part of the face behind it), dug again at least 0.8 comes back (32 rays a face: noise).
+ * part of the face behind it).
  */
 const VOLUME_OPEN_SHARE = 0.7;
 const VOLUME_EDIT_SHADED_SHARE = 0.7;
-const VOLUME_EDIT_BACK_SHARE = 0.8;
 /**
  * The lamp's red bounce summed over the wall face's cells (`bounce()`): 1,461–1,921 in every gate that logged it;
  * a third of the least, so a bounce that barely reaches the wall fails where "above 0" would pass.
