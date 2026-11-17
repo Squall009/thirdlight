@@ -293,6 +293,7 @@ export interface LightShotsOptions {
   readonly extraLamps: number;
   /** `--light-types`: the spot and the area light of {@link BENCH_LIGHT_TYPES} placed too. */
   readonly lightTypes: boolean;
+  readonly freshCells: boolean;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -347,6 +348,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     })(arg('texture-units')),
     extraLamps: num('extra-lamps', 0, 0, 4096),
     lightTypes: argv.includes('--light-types'),
+    freshCells: argv.includes('--fresh-cells'),
     viewport: { width: Number(m[1]), height: Number(m[2]) },
   };
 }

@@ -44,6 +44,10 @@
  *                 shadows): the light volume's cost with many lamps
  *   --light-types a spot aimed down at a house front and a rect area light on another front at the night camera
  *                 (bench data, taken out after; no shadow maps): the light volume's bounce of the other light types
+ *   --fresh-cells at each camera after its cells are read, every brick started again from nothing and settled, and the
+ *                 same cells read again: how far the light the camera arrived to lies from a volume made with the
+ *                 lights as they are (`freshApart`: summed face differences over the summed light; what a change of
+ *                 look, sun or lamps on the way left behind)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
  *
  * How to (staging running, nothing else on the GPU):
@@ -166,6 +170,17 @@ async function volumeCellsRound(eye: number[]): Promise<unknown> {
   }
   const mean = (v: number[]): number[] => v.map((x) => Number((x / Math.max(gpu, 1)).toFixed(4)));
   return { cells: cells.length, kept, holds, gpu, differ, up: mean(up), down: mean(down), examples, some: cells.filter((c) => c.faces.some((f) => f !== null)).slice(0, 3) };
+}
+
+/** In the page: the light volume's cells in {@link volumeCellsRound}'s box, every face's light flat (0 where none is held). */
+async function volumeCellsFlat(eye: number[]): Promise<number[] | null> {
+  type Cell = { faces: (number[] | null)[] };
+  const l = (window as unknown as { __tlVoxelPlay?: { light?: { volumeCells?(p: number[][]): Promise<Cell[] | null> } } }).__tlVoxelPlay?.light;
+  const pts: number[][] = [];
+  for (let dx = -4; dx <= 4; dx += 0.5) for (let dy = -2; dy <= 2; dy += 0.5) for (let dz = -4; dz <= 4; dz += 0.5) pts.push([eye[0]! + dx + 0.25, eye[1]! + dy + 0.25, eye[2]! + dz + 0.25]);
+  const cells = (await l?.volumeCells?.(pts)) ?? null;
+  if (cells === null) return null;
+  return cells.flatMap((c) => c.faces.flatMap((f) => f ?? [0, 0, 0]));
 }
 
 /** Waits for the page's lighting store to light what it holds (`off`: nothing to wait for). */
@@ -342,6 +357,19 @@ async function main(): Promise<void> {
       // The light volume's cells read back round the eye, against the CPU's rule (which cells hold light).
       const volumeCells = store === 'volume' ? await game.frame.evaluate(volumeCellsRound, [...cam.eye]).catch((e: unknown) => String(e)) : null;
       if (volumeCells !== null) console.log(`${cam.name}: volume cells ${JSON.stringify(volumeCells).slice(0, 600)}`);
+      let fresh: { apart: number; light: number; litS: number | null } | null = null;
+      if (O.freshCells && store === 'volume') {
+        const arrived = await game.frame.evaluate(volumeCellsFlat, [...cam.eye]);
+        await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.relightAll());
+        const relit = await storeLit(game, store);
+        const anew = await game.frame.evaluate(volumeCellsFlat, [...cam.eye]);
+        if (arrived !== null && anew !== null) {
+          const light = anew.reduce((n, v) => n + Math.abs(v), 0);
+          const apart = arrived.reduce((n, v, i) => n + Math.abs(v - (anew[i] ?? 0)), 0);
+          fresh = { apart: Number((apart / Math.max(light, 1e-9)).toFixed(5)), light: Number(light.toFixed(3)), litS: relit.litS };
+          console.log(`${cam.name}: cells as arrived against started again from nothing ${(fresh.apart * 100).toFixed(2)} % apart (light ${fresh.light}, settled again in ${relit.litS ?? 'never'} s)`);
+        }
+      }
       let gpu: unknown = null;
       let afterGpuShare: number | null = null;
       let afterGpuLaterShare: number | null = null;
@@ -426,6 +454,7 @@ async function main(): Promise<void> {
         storeLitS: lit.litS,
         sincePlayS,
         volumeCells,
+        ...(O.freshCells ? { freshCells: fresh } : {}),
         ...(O.textureUnits !== null ? { textureUnits: await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay: { light: { textureUnits(): unknown } } }).__tlVoxelPlay.light.textureUnits()) } : {}),
         ...(O.arrivalShots ? { arrival, arrivedToLitS: lit.litS === null ? null : Number(((Date.now() - arrived) / 1000).toFixed(1)) } : {}),
         ...(O.gpuStale ? { gpuStale } : {}),
