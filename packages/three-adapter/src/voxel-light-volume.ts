@@ -385,15 +385,16 @@ export class VoxelLightVolume {
    * the rest by the history rule), in one pass over the kept bricks (a batch's walk changes: a flight's start takes out
    * the blocks of the whole level-0 ring at once), the same as marking them one after another (`volumeMarkBoxes`). A
    * coarse brick is measured in its own bricks (the box's bricks of that level; near: the next brick).
+   * `later`: a light's change (bricks that kept history while it continued start from nothing once it stops).
    */
-  private markBoxes(list: ReadonlyArray<readonly [readonly number[], readonly number[]]>): void {
+  private markBoxes(list: ReadonlyArray<readonly [readonly number[], readonly number[]]>, later = false): void {
     if (list.length === 0) return;
     this.stats.marks += list.length;
     const continuing = this.history.change(this.frames);
     // Those beside an edit start from nothing whatever comes after (their cells may have turned solid or open).
     for (const b of volumeMarkBoxes(this.bricks.values(), list, MARK_REACH, VOLUME_SETTLE_UPDATES)) {
       if (b.updates === 0) this.history.restart(b);
-      else this.history.marked(b, continuing, false);
+      else this.history.marked(b, continuing, later);
     }
   }
 
@@ -705,24 +706,16 @@ export class VoxelLightVolume {
     if (this.frames % LAMP_LOOK_FRAMES !== 1) return;
     const next = volumeLampSet(this.deps.lamps?.() ?? null, this.windowBox());
     if (next.key === this.lamps.key) return;
-    // What the changed lamps reach is stale (a lamp's light lands within its reach, and the cells there bounce it; a
-    // cell farther out whose rays hit inside keeps some of it), and every brick's list is built again.
+    // What a ray can reach the changed lamps' light from is stale (their reach, and the rays' past it: a cell outside a
+    // lamp's reach bounces its light from a hit inside; with the reach alone the shut hut's spot left 16 % of its bounce
+    // on the far wall's cells), and every brick's list is built again.
     const was = new Map(this.lamps.spheres.map((sp, i) => [this.lamps.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join(), sp] as const));
     const now = new Set(next.spheres.map((_, i) => next.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join()));
     const changed = [...[...was].filter(([k]) => !now.has(k)).map(([, sp]) => sp), ...next.spheres.filter((_, i) => !was.has(next.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join()))];
     this.lamps = next;
     this.gpu.lamps.setLamps(next);
     this.lampsChanged = true;
-    if (changed.length === 0) return;
-    const continuing = this.history.change(this.frames);
-    for (const sp of changed) {
-      const box = VOLUME_LEVEL_WINDOWS.map((_, l) => [[0, 1, 2].map((a) => Math.floor((sp[a]! - sp[3]!) / brickM(l))), [0, 1, 2].map((a) => Math.floor((sp[a]! + sp[3]!) / brickM(l)))] as const);
-      for (const b of this.bricks.values()) {
-        const [lo, hi] = box[b.level]!;
-        if (b.bx < lo[0]! || b.bx > hi[0]! || b.by < lo[1]! || b.by > hi[1]! || b.bz < lo[2]! || b.bz > hi[2]!) continue;
-        this.history.marked(b, continuing);
-      }
-    }
+    this.markBoxes(changed.map((sp) => [[0, 1, 2].map((a) => Math.floor((sp[a]! - sp[3]!) / brickM(0))), [0, 1, 2].map((a) => Math.floor((sp[a]! + sp[3]!) / brickM(0)))] as const), true);
   }
 
   /** The kept bricks' colours made and uploaded (those that took a slot or whose grids changed). */
