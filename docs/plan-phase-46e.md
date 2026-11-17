@@ -2092,7 +2092,11 @@ released after; its later volume checks switch the store at run time as before. 
 both packing tests fail), a brick bit every eight cells (`brick-bits`) — each fails.
 
 **Gate.** `gate-fast-20261116-235634` (a0dd0127): RED at the build (the new test's types); `gate-rerun-20261116-235856`
-(8b7af45b, 18 min): GREEN, every e2e of voxel, rendering and play (62), the Play test 2.5 min (46e.10: 2.3–2.4).
+(8b7af45b, 18 min): GREEN, every e2e of voxel, rendering and play (62), the Play test 2.5 min (46e.10: 2.3–2.4);
+`gate-fast-20261117-010509` (219137d1, 10 min): GREEN, the Play test 2.3 min, voxel area 267 s;
+`gate-area-20261117-011536` (area play, the leak test on, 3 min): GREEN, `memory.e2e.ts:161` (document tabs) failed
+once in the run and passed alone (D472's watch); Play's start and stop and the play preview's GPU set back to their
+baselines.
 
 ## 9. Decision log
 
