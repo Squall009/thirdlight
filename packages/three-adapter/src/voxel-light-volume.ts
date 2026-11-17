@@ -73,7 +73,7 @@ import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, RAY_COST_WEIGHT, type G
 import type { ClusterLights } from './cluster-build';
 import { NO_VOLUME_LAMPS, VolumeLampLists, volumeLampSet, type VolumeLampListCounts, type VolumeLampListJob, type VolumeLampSet } from './voxel-light-volume-lamps';
 import { ambientCubeSteps, VOLUME_ALBEDO_WIDTH, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_BRICKS_PER_ROW, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_READ_OFFSET_CELLS, VOLUME_WINDOW_BRICKS, VOLUME_WORD, volumeBlockBrick, volumeBlockBricks, volumeBrickKey, volumeBrickLamps, volumeCellM, volumeChangedBricks, volumeDecode, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumePoolTexel, VOLUME_READ_KEY, volumeMarkBoxes, type VolumeBlockBricks } from './voxel-light-volume-layout';
-import { VOLUME_LIST_WORDS, VOLUME_PARAM_COARSE, VOLUME_PARAM_FLOATS, VOLUME_UPDATE_WGSL } from './voxel-light-volume-wgsl';
+import { VOLUME_LIST_WORDS, VOLUME_PARAM_COARSE, VOLUME_PARAM_FLOATS, volumeUpdateWgsl } from './voxel-light-volume-wgsl';
 
 const TSL: N = TSLTyped;
 const { If, float, int, ivec2, luminance, max, mix, normalWorld, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, uint, uniform, vec3 } = TSL;
@@ -1034,7 +1034,8 @@ class VolumeGpu {
   readonly lamps: VolumeLampLists;
   /** Each level's window corner brick (the update finds bricks' slots and lamp lists through them). */
   private readonly origins = VOLUME_LEVEL_WINDOWS.map(() => [0, 0, 0]);
-  private readonly pipeline: { getBindGroupLayout(i: number): unknown };
+  /** The update's pipelines, without and with the area lights' code (each made when first needed). */
+  private readonly pipelines: [{ getBindGroupLayout(i: number): unknown } | null, { getBindGroupLayout(i: number): unknown } | null] = [null, null];
   private readonly params: GpuBuffer;
   private list: GpuBuffer | null = null;
   private bind: { group: unknown; key: readonly unknown[] } | null = null;
@@ -1054,11 +1055,7 @@ class VolumeGpu {
     this.pool = uintTexture(VOLUME_POOL_WIDTH, Math.ceil(this.capacity / VOLUME_BRICKS_PER_ROW), 'voxel light volume');
     this.albedo = uintTexture(VOLUME_ALBEDO_WIDTH, Math.ceil(this.capacity / VOLUME_BRICKS_PER_ROW), 'voxel light volume colours');
     this.indexTex = uintTexture(VOLUME_INDEX_WIDTH, VOLUME_INDEX_ROWS, 'voxel light volume index');
-    const module = device.createShaderModule({ code: VOLUME_UPDATE_WGSL, label: 'voxel light volume' }) as { getCompilationInfo?(): Promise<{ messages: ReadonlyArray<{ type: string; lineNum: number; message: string }> }> };
-    void module.getCompilationInfo?.().then((info) => {
-      for (const m of info.messages) if (m.type === 'error') console.error(`voxel light volume WGSL, line ${m.lineNum}: ${m.message}`);
-    });
-    this.pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label: 'voxel light volume' });
+    this.pipelineFor(false);
     this.params = device.createBuffer({ size: VOLUME_PARAM_FLOATS * 4, usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST, label: 'voxel light volume params' });
     const timed = device.features?.has('timestamp-query') === true && device.createQuerySet !== undefined;
     this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: 2 }) : null;
@@ -1066,6 +1063,22 @@ class VolumeGpu {
     gpuTextureOf(renderer, this.pool);
     gpuTextureOf(renderer, this.albedo);
     gpuTextureOf(renderer, this.indexTex);
+  }
+
+  /** The update's pipeline with (`areas`) or without the area lights' code. */
+  private pipelineFor(areas: boolean): { getBindGroupLayout(i: number): unknown } {
+    const k = areas ? 1 : 0;
+    const had = this.pipelines[k];
+    if (had !== null) return had;
+    const label = areas ? 'voxel light volume (area lights)' : 'voxel light volume';
+    const device = this.device;
+    const module = device.createShaderModule({ code: volumeUpdateWgsl(areas), label }) as { getCompilationInfo?(): Promise<{ messages: ReadonlyArray<{ type: string; lineNum: number; message: string }> }> };
+    void module.getCompilationInfo?.().then((info) => {
+      for (const m of info.messages) if (m.type === 'error') console.error(`${label} WGSL, line ${m.lineNum}: ${m.message}`);
+    });
+    const made = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label });
+    this.pipelines[k] = made;
+    return made;
   }
 
   /** GPU bytes: the pool, the colours, the index, the pass's buffers and the lamps' (the lists counted in the slots). */
@@ -1117,12 +1130,13 @@ class VolumeGpu {
     const albedo = gpuTextureOf(this.renderer, this.albedo) as { createView(): unknown } | null;
     const index = gpuTextureOf(this.renderer, this.indexTex) as { createView(): unknown } | null;
     if (pool === null || albedo === null || index === null) return false;
-    const key = [wb.table, wb.pages, pool, albedo, index, this.list, lamps.lampBuffer];
+    const pipeline = this.pipelineFor(lamps.hasAreas);
+    const key = [wb.table, wb.pages, pool, albedo, index, this.list, lamps.lampBuffer, pipeline];
     if (this.bind === null || this.bind.key.some((k, i) => k !== key[i])) {
       this.bind = {
         key,
         group: d.createBindGroup({
-          layout: this.pipeline.getBindGroupLayout(0),
+          layout: pipeline.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: { buffer: this.params } },
             { binding: 1, resource: { buffer: this.list } },
@@ -1141,7 +1155,7 @@ class VolumeGpu {
     const enc = d.createCommandEncoder();
     const time = this.query !== null && this.stamps !== null && !this.timing;
     const pass = enc.beginComputePass(time ? { label: 'voxel light volume', timestampWrites: { querySet: this.query, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } } : { label: 'voxel light volume' });
-    pass.setPipeline(this.pipeline);
+    pass.setPipeline(pipeline);
     pass.setBindGroup(0, this.bind.group);
     (pass as unknown as { dispatchWorkgroups(x: number, y: number): void }).dispatchWorkgroups(count, VOLUME_FACES);
     pass.end();

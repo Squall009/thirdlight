@@ -39,7 +39,7 @@ import { WALK_GPU_MAX_STEPS, voxelWalkWgsl } from './voxel-walk-wgsl';
 import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
 import { SH_Y0, SH_Y1 } from './surface-probes';
 import { CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED } from './cluster-build';
-import { volumeLampTermsWgsl } from './voxel-light-volume-terms';
+import { volumeLampTermsWgsl, volumeSpotConeWgsl } from './voxel-light-volume-terms';
 
 /** Threads a workgroup: one a cell of a brick. */
 export const VOLUME_WORKGROUP = VOLUME_BRICK_VOLUME;
@@ -50,7 +50,29 @@ export const VOLUME_PARAM_FLOATS = 52;
 /** Where in them the coarse levels' window corners start (a vec4 of i32 each, levels 1 … 3). */
 export const VOLUME_PARAM_COARSE = 40;
 
-export const VOLUME_UPDATE_WGSL = /* wgsl */ `
+/** An area light at a hit in `direct_light`'s loop (its lamp's words a, b, c and field read). */
+const AREA_LIGHT_WGSL = /* wgsl */ `
+    if ((field & 3u) >= ${CLUSTER_RECT}u) {
+      // An area light: its diffuse light at the hit, then the walk toward one point of it.
+      let su = lamps[${VOLUME_LAMP_VEC4S}u * li + 3u].xyz;
+      let sv = lamps[${VOLUME_LAMP_VEC4S}u * li + 4u].xyz;
+      let f = volume_area_light(p, n, a.xyz, su, sv, select(0.0, 1.0, (field & ${CLUSTER_TWO_SIDED}u) != 0u), a.w);
+      if (f <= 0.0) { continue; }
+      let s = a.xyz + su * (2.0 * xi.x - 1.0) + sv * (2.0 * xi.y - 1.0) - q;
+      let ds = length(s);
+      if (ds > 1e-3 && !volume_clear(q, s / ds, max(ds - 0.3, 0.0))) { continue; }
+      e = e + b.xyz * (PI * f);
+      continue;
+    }
+`;
+
+/**
+ * The update's WGSL. `areas`: with the area lights' code (the form factor and its walk); without it a pass whose table
+ * holds none runs no bigger a loop than before (the code costs every invocation registers and size, as the clustered
+ * loop's area kinds do every lit pixel: built only while one is there).
+ */
+export function volumeUpdateWgsl(areas: boolean): string {
+  return /* wgsl */ `
 struct Params {
   origin: vec4<i32>,
   dims: vec4<i32>,
@@ -71,7 +93,7 @@ struct Params {
 @group(0) @binding(9) var<storage, read> lamp_slots: array<u32>;
 ${voxelWalkWgsl({ group: 0, table: 3, pages: 4 })}
 ${volumeWordsWgsl()}
-${volumeLampTermsWgsl()}
+${areas ? volumeLampTermsWgsl() : volumeSpotConeWgsl()}
 
 const PI: f32 = 3.14159265;
 const CELL_M: f32 = 0.5;
@@ -218,19 +240,7 @@ fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>, xi: vec2<f32>) -> ve
     let d = length(to);
     if (d >= a.w) { continue; }
     let field = u32(c.w);
-    if ((field & 3u) >= ${CLUSTER_RECT}u) {
-      // An area light: its diffuse light at the hit, then the walk toward one point of it.
-      let su = lamps[${VOLUME_LAMP_VEC4S}u * li + 3u].xyz;
-      let sv = lamps[${VOLUME_LAMP_VEC4S}u * li + 4u].xyz;
-      let f = volume_area_light(p, n, a.xyz, su, sv, select(0.0, 1.0, (field & ${CLUSTER_TWO_SIDED}u) != 0u), a.w);
-      if (f <= 0.0) { continue; }
-      let s = a.xyz + su * (2.0 * xi.x - 1.0) + sv * (2.0 * xi.y - 1.0) - q;
-      let ds = length(s);
-      if (ds > 1e-3 && !volume_clear(q, s / ds, max(ds - 0.3, 0.0))) { continue; }
-      e = e + b.xyz * (PI * f);
-      continue;
-    }
-    if (d < 1e-3) { continue; }
+${areas ? AREA_LIGHT_WGSL : ''}    if (d < 1e-3) { continue; }
     let l = to / d;
     let nl = dot(n, l);
     if (nl <= 0.0) { continue; }
@@ -322,6 +332,7 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
   textureStore(pool, at, vec4<u32>(volume_encode(v), 0u, 0u, 0u));
 }
 `;
+}
 
 /** Threads a workgroup of the lamp lists' build and count. */
 export const VOLUME_LAMP_LIST_WORKGROUP = 64;

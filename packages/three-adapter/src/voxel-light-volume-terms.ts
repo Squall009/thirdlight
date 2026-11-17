@@ -95,14 +95,19 @@ export function areaLightSteps<F, B>(o: ScalarOps<F, B>, p: V3<F>, n: V3<F>, c: 
 
 const xyz = (name: string): V3<string> => [`${name}x`, `${name}y`, `${name}z`];
 
+/** The spot's cone in WGSL: `volume_spot_cone(cos_to_axis, cos_outer, cos_inner) -> f32`. */
+export function volumeSpotConeWgsl(): string {
+  return wgslStepFn('volume_spot_cone', ['cos_to_axis', 'cos_outer', 'cos_inner'], 'f32', (w) => spotConeSteps(w.ops, 'cos_to_axis', 'cos_outer', 'cos_inner'));
+}
+
 /**
- * The terms in WGSL: `volume_spot_cone(cos_to_axis, cos_outer, cos_inner) -> f32` and
+ * The terms in WGSL: {@link volumeSpotConeWgsl}'s and
  * `volume_area_light(p, n, c, u, v: vec3<f32>, two_sided, reach: f32) -> f32`.
  */
 export function volumeLampTermsWgsl(): string {
   const areaArgs = ['p', 'n', 'c', 'u', 'v'].flatMap(xyz);
   return [
-    wgslStepFn('volume_spot_cone', ['cos_to_axis', 'cos_outer', 'cos_inner'], 'f32', (w) => spotConeSteps(w.ops, 'cos_to_axis', 'cos_outer', 'cos_inner')),
+    volumeSpotConeWgsl(),
     wgslStepFn('volume_area_steps', [...areaArgs, 'two_sided', 'reach'], 'f32', (w) => areaLightSteps(w.ops, xyz('p'), xyz('n'), xyz('c'), xyz('u'), xyz('v'), 'two_sided', 'reach')),
     `fn volume_area_light(p: vec3<f32>, n: vec3<f32>, c: vec3<f32>, u: vec3<f32>, v: vec3<f32>, two_sided: f32, reach: f32) -> f32 {\n  return volume_area_steps(${['p', 'n', 'c', 'u', 'v'].flatMap((a) => [`${a}.x`, `${a}.y`, `${a}.z`]).join(', ')}, two_sided, reach);\n}`,
   ].join('\n\n');

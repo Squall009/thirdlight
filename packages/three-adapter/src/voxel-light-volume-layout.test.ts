@@ -690,7 +690,7 @@ describe('the light volume lamp lists', () => {
     l.add({ ...base, kind: 'rect', position: [500, 2, 3], u: [1, 0, 0], v: [0, 0, 1] });
     const box: [number[], number[]] = [[-50, -20, -50], [50, 20, 50]];
     const set = volumeLampSet(l, box);
-    expect(set.count).toBe(5);
+    expect([set.count, set.areas]).toEqual([5, true]);
     expect(set.spheres).toEqual([[1, 2, 3, 8], [4, 2, 3, 8], [6, 3, 3, 8], [7, 3, 3, 8], [8, 3, 3, 8]]);
     const rec = (i: number): number[] => [...set.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS)].map((v) => Number(v.toFixed(4)) + 0);
     expect(rec(0).slice(0, 8)).toEqual([1, 2, 3, 8, 2, 1, 0.5, 2]);
@@ -718,6 +718,11 @@ describe('the light volume lamp lists', () => {
     expect(volumeLampSet(l, box).key).not.toBe(set.key);
     expect(volumeLampSet(null, box).count).toBe(0);
     expect(volumeLampSet(l, [[100, 0, 0], [200, 1, 1]]).count).toBe(0);
+    // Points and spots alone: the update runs without the area lights' code.
+    const plain = new ClusterLights();
+    plain.add({ ...base, kind: 'point' });
+    plain.add({ ...base, kind: 'spot', direction: [0, -1, 0], cosOuter: 0.8, cosInner: 0.9 });
+    expect([volumeLampSet(plain, box).count, volumeLampSet(plain, box).areas]).toEqual([2, false]);
   });
 
   it('an area light (rect, line, two-sided) is listed by every brick its reach meets and no other', () => {

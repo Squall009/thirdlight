@@ -11,6 +11,7 @@ import { CPU_SCALAR_OPS } from '@thirdlight/shared';
 
 import { ClusterLights } from './cluster-build';
 import { areaLightSteps, spotConeSteps, volumeLampTermsWgsl } from './voxel-light-volume-terms';
+import { volumeUpdateWgsl } from './voxel-light-volume-wgsl';
 
 type V = [number, number, number];
 const add = (a: V, b: V): V => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -211,5 +212,8 @@ describe('the light volume lamp terms against the per-pixel light', () => {
     expect(w).toContain('fn volume_spot_cone(cos_to_axis: f32, cos_outer: f32, cos_inner: f32) -> f32');
     expect(w).toContain('fn volume_area_light(p: vec3<f32>, n: vec3<f32>, c: vec3<f32>, u: vec3<f32>, v: vec3<f32>, two_sided: f32, reach: f32) -> f32');
     expect(w.match(/\blet /g)!.length).toBeGreaterThan(100);
+    // The update without area lights in its table runs without their code; with them, with it.
+    expect([volumeUpdateWgsl(false).includes('volume_area_light'), volumeUpdateWgsl(true).includes('volume_area_light(p, n, a.xyz')]).toEqual([false, true]);
+    expect(volumeUpdateWgsl(false)).toContain('volume_spot_cone(dot(l, -c.xyz)');
   });
 });

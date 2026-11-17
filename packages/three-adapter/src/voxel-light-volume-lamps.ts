@@ -48,9 +48,11 @@ export interface VolumeLampSet {
   readonly key: string;
   /** Each lamp's place and reach (x, y, z, r). */
   readonly spheres: readonly number[][];
+  /** Some lamp is an area light (the update runs with the area lights' code). */
+  readonly areas: boolean;
 }
 
-export const NO_VOLUME_LAMPS: VolumeLampSet = Object.freeze({ data: new Float32Array(VOLUME_LAMP_FLOATS), count: 0, key: '', spheres: [] });
+export const NO_VOLUME_LAMPS: VolumeLampSet = Object.freeze({ data: new Float32Array(VOLUME_LAMP_FLOATS), count: 0, key: '', spheres: [], areas: false });
 
 /**
  * The volume's lamp table from the clustered lights' record: the point and spot lights on, with a range, and the area
@@ -61,6 +63,7 @@ export function volumeLampSet(lights: ClusterLights | null, [lo, hi]: readonly [
   const found: number[] = [];
   const keys: string[] = [];
   const spheres: number[][] = [];
+  let areas = false;
   const rec = new Array<number>(VOLUME_LAMP_FLOATS);
   for (let i = 0; i < lights.count; i++) {
     const field = lights.kind[i]!;
@@ -92,9 +95,10 @@ export function volumeLampSet(lights: ClusterLights | null, [lo, hi]: readonly [
     found.push(...rec);
     keys.push(rec.map((v) => v.toFixed(3)).join(','));
     spheres.push([x, y, z, r]);
+    if (kind >= CLUSTER_RECT) areas = true;
   }
   if (spheres.length === 0) return NO_VOLUME_LAMPS;
-  return { data: new Float32Array(found), count: spheres.length, key: keys.join(';'), spheres };
+  return { data: new Float32Array(found), count: spheres.length, key: keys.join(';'), spheres, areas };
 }
 
 /** A list job: a brick (of `level`) and the slot its list goes to; or a slot cleared (`brick` null). */
@@ -126,6 +130,8 @@ export class VolumeLampLists {
   readonly slots: GpuBuffer;
   /** Lamps in the table (the update loops over all of them at a hit no list holds). */
   lampCount = 0;
+  /** Some lamp of the table is an area light. */
+  hasAreas = false;
   private jobs: GpuBuffer | null = null;
   private readonly params: GpuBuffer;
   private readonly counts: GpuBuffer;
@@ -177,6 +183,7 @@ export class VolumeLampLists {
     this.lampBuffer = grownGpuBuffer(this.device, this.lampBuffer, Math.max(set.data.byteLength, 256), GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_DST, 'voxel light volume lamps');
     this.device.queue.writeBuffer(this.lampBuffer, 0, set.data);
     this.lampCount = set.count;
+    this.hasAreas = set.areas;
   }
 
   /** Rows of the lists' window index uploaded (`index`: the whole index, as the pool's, a row of `VOLUME_INDEX_WIDTH`). */
