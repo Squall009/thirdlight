@@ -374,7 +374,11 @@ export class VoxelShaderGrids {
    * the first grid makes 4³), copying the old texture in on the GPU: a
    * small step, so little of the texture stands empty.
    */
-  private grow(renderer: VoxelGridRenderer): void {
+  /**
+   * The texture replaced by a larger one, its texels copied (when no region is free; a check calls it at will: draws
+   * made before the replacement must read the new texture once the old one is disposed).
+   */
+  grow(renderer: VoxelGridRenderer): void {
     const s = this.layout.side;
     const per = Math.floor(VOXEL_GRID_MAX_EDGE / s);
     const old = this.dims;

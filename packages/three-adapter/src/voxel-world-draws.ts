@@ -581,6 +581,21 @@ export class VoxelWorldDraws {
     this.volume.frame();
   }
 
+  /**
+   * Every world's near grid texture replaced by a larger one now, as when it fills (a check: draws made before the
+   * replacement read the new texture); each world's grid regions after.
+   */
+  growGrids(): Record<string, number> {
+    const r = this.opts.renderer();
+    const out: Record<string, number> = {};
+    if (r === null) return out;
+    for (const [name, w] of this.worlds) {
+      w.surface.grids.grow(r as unknown as VoxelGridRenderer);
+      out[name] = w.surface.grids.capacity;
+    }
+    return out;
+  }
+
   /** The voxel light volume (null: the store is not the volume, or not made yet). */
   lightVolume(): VoxelLightVolume | null {
     return this.volume;

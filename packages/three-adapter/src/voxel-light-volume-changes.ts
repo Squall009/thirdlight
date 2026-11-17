@@ -89,14 +89,19 @@ export class VolumeHistory<B extends VolumeHistoryBrick> {
     this.stale(b);
   }
 
-  /** A brick a change reaches (`continuing`: what {@link change} said). */
-  marked(b: B, continuing: boolean): void {
+  /**
+   * A brick a change reaches (`continuing`: what {@link change} said). `later`: once changes stop it starts from nothing
+   * (a light's change); false for the world's own changes (blocks arriving as the world streams in, a brush stroke),
+   * where the bricks beside each change start from nothing anyway and starting the rest again would double the work
+   * of every arrival.
+   */
+  marked(b: B, continuing: boolean, later = true): void {
     if (!continuing) {
       this.restart(b);
       return;
     }
     b.updates = Math.min(b.updates, this.settle >> 1);
-    this.later.add(b);
+    if (later) this.later.add(b);
     this.stale(b);
   }
 
