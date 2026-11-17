@@ -31,8 +31,9 @@
  *   measurement under `lighting`. The pool is made once at its size (see
  *   {@link POOL_SLOTS}); bricks past it wait for a slot.
  * - **The lamps.** The clustered lights' record of the page's lamps
- *   (voxel-light-volume-lamps.ts): a table of those whose reach meets the
- *   windows, and a list per kept brick of every level of those reaching it,
+ *   (voxel-light-volume-lamps.ts; point, spot and area lights, lit at a hit
+ *   as the per-pixel light lights them): a table of those whose reach meets
+ *   the windows, and a list per kept brick of every level of those reaching it,
  *   built in compute when the table changes and for slots taken or given up;
  *   a ray's hit is lit by the list of the level-0 brick holding the open cell
  *   in front of it, else of the finest coarse brick holding it with a slot,

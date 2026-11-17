@@ -524,8 +524,8 @@ export function volumeMarkBoxes<B extends VolumeMarkable>(bricks: Iterable<B>, l
  * f32 words a lamp takes in the volume's lamp table, as five vec4s: place and reach; colour × intensity and decay; a
  * spot's axis or an area light's facing, and its kind field (the clustered lights' record: kind in the low two bits,
  * its flags above); an area light's first half side and a spot's cos of its outer half-angle; its second half side and
- * the cos of the inner one. One description of a lamp with the clustered lights (`ClusterLights`): what a spot's cone
- * or an area light's shape needs is in the record whether or not the update reads it yet.
+ * the cos of the inner one. One description of a lamp with the clustered lights (`ClusterLights`): the update lights a
+ * spot within its cone and an area light by its shape from these words.
  */
 export const VOLUME_LAMP_FLOATS = 20;
 /** vec4s a lamp takes. */

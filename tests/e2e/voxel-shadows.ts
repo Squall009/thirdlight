@@ -13,7 +13,7 @@ export interface ShadowCheckSetup {
   readonly page: Page;
   readonly psid: string;
   readonly at: readonly number[];
-  readonly ids: { readonly blue: string; readonly mover: string; readonly lamp: string };
+  readonly ids: { readonly blue: string; readonly mover: string; readonly lamp: string; readonly spot: string; readonly panel: string };
   readonly away: number[];
   readonly api: (path: string, body?: unknown) => Promise<{ status: number; json: Record<string, unknown> }>;
 }
@@ -431,6 +431,8 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   const [midRoom] = (await hook<VolumeCell[] | null>('volumeCells', { points: [rel(0, 1.5, 7)], level: 1 })) ?? [];
   const sky = ((await hook<{ skyUp: number[] } | null>('volume'))?.skyUp ?? [0, 0, 0]) as number[];
   await place(ids.blue, away);
+  // In the shut hut: a red spot mid-room aimed at its east wall, and a blue panel under the ceiling at its south end.
+  const typed = await lightTypeChecks(o, hook, settled, staleSoon);
   const t0 = Date.now();
   await counted('unstone', 'stubDug');
   await counted('hutopen', 'hutOpened');
@@ -513,6 +515,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   console.log(`[voxel-play] light volume: settled ${litMs} ms after the switch (${JSON.stringify(stats).slice(0, 900)}); hut walls off ${walls.off.toFixed(1)}, shut ${walls.shut.toFixed(1)}, open ${walls.open.toFixed(1)} (roof opened → settled ${openMs} ms); walls' green/red over the green floor ${tint.green.ratio.toFixed(4)} against ${tint.plain.ratio.toFixed(4)} over plaster (${tint.green.n} px); cells round the hut ${cells.length}, updated ${updated.length}, holding light on the GPU ${holdsGpu}, differing from the CPU's rule ${differ.length}; 1 m cells updated ${coarseUpdated.length}, holding ${coarseHolds}, differing ${coarseDiffer.length}; inside the shut hut ${JSON.stringify(inside?.faces)}, its 1 m cell mid-room ${JSON.stringify(midRoom?.faces)}; over its roof ${JSON.stringify(roof?.faces)} against the sky's ${JSON.stringify(sky)}; off before and after ${same} px apart`);
   console.log(`[voxel-play] light volume readers: the blue box in the shut hut ${boxIn.volume.lum.toFixed(1)} against ${boxIn.off.lum.toFixed(1)} by the flat term (${boxIn.off.n} px); the kit pieces on the stub ${kit.volume.lum.toFixed(1)} against ${kit.off.lum.toFixed(1)} (${kit.off.n} px); the box 1.7 m over the pad ${boxOpen.volume.lum.toFixed(1)} against ${boxOpen.off.lum.toFixed(1)} (${boxOpen.off.n} px)`);
   console.log(`[voxel-play] light volume lamp lists: ${lists.length} bricks round the lamp, ${listsKept.length} kept, ${listsLit.length} listing a lamp, ${listsDiffer.length} differing from the CPU's rule (${JSON.stringify(listsDiffer.slice(0, 2))}); up the wall's face ${faceLists.length} bricks, ${faceLists.filter(listsLamp).length} listing the red lamp (${JSON.stringify(lampAt)}); 1 m level ${listsCoarse.length} kept, ${listsCoarse.filter(listsLamp).length} listing it, ${listsCoarseDiffer.length} differing (${JSON.stringify(listsCoarseDiffer.slice(0, 2))}; the first lists ${JSON.stringify(faceLists[0]?.at)}); most reaching one ${Math.max(0, ...lists.map((l) => l.cpu.total))}`);
+  console.log(`[voxel-play] light volume light types: the spot's red bounce on the west wall's cells: faces looking at the wall it lights ${typed.front.toFixed(3)} (${typed.frontN} faces), at the wall behind it ${typed.behind.toFixed(3)} (ratio ${typed.ratio.toFixed(3)}; settled ${typed.litMs} ms); the panel's blue bounce on the faces looking down at the floor it lights ${typed.panel.toFixed(3)} (${typed.panelN} faces; before it was placed ${typed.panelBefore.toFixed(3)}), with both taken out ${typed.panelOff.toFixed(3)} (settled ${typed.offMs} ms), the spot's then ${typed.frontOff.toFixed(3)}`);
   console.log(`[voxel-play] light volume edit: the lamp's red bounce up the wall's face ${lit.red.toFixed(3)} (${lit.n} cells), the pillar built ${shaded.red.toFixed(3)} (settled ${builtMs} ms after the command), dug ${relit.red.toFixed(3)} (${dugMs} ms); the pillar and the face's cells ${across ? 'in two chunks' : 'in one chunk'}`);
   expect(updated.length, 'cells round the hut were updated').toBeGreaterThan(200);
   expect(holdsGpu, 'cells round the hut hold light on the GPU').toBeGreaterThan(100);
@@ -547,6 +550,67 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   expect(shaded.red, "the pillar built between them takes the lamp's bounce off").toBeLessThan(VOLUME_EDIT_SHADED_SHARE * lit.red);
   expect(relit.red, 'dug again, the bounce comes back').toBeGreaterThan(VOLUME_EDIT_BACK_SHARE * lit.red);
   expect(same, 'switched off, the picture is the store-off one').toBeLessThan(OFF_SAME_MAX_PX);
+  expect(typed.frontN, "faces looking at the spot's wall hold light").toBeGreaterThan(5);
+  expect(typed.front, "the spot's bounce off the wall it lights").toBeGreaterThan(VOLUME_SPOT_BOUNCE_MIN);
+  expect(typed.ratio, 'the wall behind the spot, outside its cone, bounces far less than the wall it lights').toBeLessThan(VOLUME_SPOT_BEHIND_SHARE);
+  expect(typed.panelN, "faces looking at the panel's floor hold light").toBeGreaterThan(5);
+  expect(typed.panel, "the area light's bounce off the floor it lights").toBeGreaterThan(VOLUME_PANEL_BOUNCE_MIN);
+  expect(typed.panelBefore, 'before the area light is placed, no blue bounce on the floor').toBeLessThan(VOLUME_PANEL_OFF_SHARE * typed.panel);
+}
+
+/** The colour of one face's light over another channel's, summed over the cells holding light (`face` 0 … 5, `ch` 0 … 2). */
+function faceExcess(cells: readonly VolumeCell[], face: number, ch: number, other: number): { sum: number; n: number } {
+  let sum = 0;
+  let n = 0;
+  for (const c of cells) {
+    const f = c.faces[face];
+    if (f === null || f === undefined) continue;
+    n++;
+    sum += Math.max(0, f[ch]! - f[other]!);
+  }
+  return { sum, n };
+}
+
+/**
+ * The light types the volume bounces besides points, in the shut hut (no sky inside to speak of): a red spot mid-room
+ * aimed at the east wall 2 m off (20°, a soft edge of 0.2), and a blue rect panel 1 × 0.5 m under the ceiling at the
+ * south end shining down. The cells along the west wall (behind the spot): their +x faces look at the lit east wall and
+ * hold its red bounce; their −x faces look at the west wall beside them, outside the cone, which a lamp lit as a point
+ * lights directly from 2.3 m (brighter than the far wall's bounce); with the cone, only light bounced twice reaches it.
+ * The panel's blue bounce on the down faces of the cells over the floor under it, none before it is placed. Both taken
+ * out and settled again (what is left is logged).
+ */
+async function lightTypeChecks(
+  o: FarLightSetup,
+  hook: <T>(f: string, arg?: unknown) => Promise<T>,
+  settled: (what: string) => Promise<number>,
+  staleSoon: (what: string) => Promise<void>,
+): Promise<{ front: number; frontN: number; behind: number; ratio: number; panel: number; panelN: number; panelBefore: number; panelOff: number; frontOff: number; litMs: number; offMs: number }> {
+  const { ids, away } = o;
+  const { rel, place } = driver(o);
+  // The open cells along the west wall (the hut's dug box lands a cell west of its metres here: cells by both walls hold light).
+  const westPts: number[][] = [];
+  for (let y = 1; y < 2.5; y += 0.5) for (let z = 7.5; z < 9; z += 0.5) westPts.push(rel(-2.25, y + 0.25, z + 0.25));
+  const floorPts: number[][] = [];
+  for (let x = -1; x < 1; x += 0.5) for (let z = 3; z < 5; z += 0.5) floorPts.push(rel(x + 0.25, 0.75, z + 0.25));
+  const read = async (pts: number[][]): Promise<VolumeCell[]> => (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? [];
+  const panelBefore = faceExcess(await read(floorPts), 3, 2, 1);
+  await place(ids.spot, rel(0, 1.75, 8.25));
+  await place(ids.panel, rel(0, 2.9, 4));
+  await staleSoon('the spot and the panel');
+  const litMs = await settled('the spot and the panel in the shut hut');
+  // +x faces (0) look east at the lit wall; −x faces (1) at the west wall behind the spot; down faces (3) at the floor.
+  const west = await read(westPts);
+  const front = faceExcess(west, 0, 0, 1);
+  const behind = faceExcess(west, 1, 0, 1);
+  const panel = faceExcess(await read(floorPts), 3, 2, 1);
+  await place(ids.spot, away);
+  await place(ids.panel, away);
+  await staleSoon('the spot and the panel taken out');
+  const offMs = await settled('the spot and the panel taken out');
+  const panelOff = faceExcess(await read(floorPts), 3, 2, 1);
+  const frontOff = faceExcess(await read(westPts), 0, 0, 1);
+  return { front: front.sum, frontN: front.n, behind: behind.sum, ratio: behind.sum / Math.max(front.sum, 1e-6), panel: panel.sum, panelN: panel.n, panelBefore: panelBefore.sum, panelOff: panelOff.sum, frontOff: frontOff.sum, litMs, offMs };
 }
 
 /** Rows of the hut's inside picture showing its walls (the upper part: the far wall and the sides above the floor). */
@@ -597,3 +661,13 @@ const VOLUME_EDIT_BACK_SHARE = 0.8;
  * a third of the least, so a bounce that barely reaches the wall fails where "above 0" would pass.
  */
 const VOLUME_LAMP_BOUNCE_MIN = 480;
+/**
+ * The spot's red bounce on the west wall's cells, faces looking at the wall it lights: 4.86 in the first run, bound a
+ * third of it; the faces looking at the wall behind it hold 0.09 of that (bound a third; lit as a point it lights that
+ * wall directly and the share is well over 1). The panel's blue bounce on the floor's faces: 109 in the first run,
+ * bound a third; before it was placed 0 (bound a tenth of it lit).
+ */
+const VOLUME_SPOT_BOUNCE_MIN = 1.6;
+const VOLUME_SPOT_BEHIND_SHARE = 0.33;
+const VOLUME_PANEL_BOUNCE_MIN = 36;
+const VOLUME_PANEL_OFF_SHARE = 0.1;

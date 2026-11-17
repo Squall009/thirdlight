@@ -17,6 +17,12 @@
  *   updates). Past the level-0 window (or where its brick has no slot yet)
  *   the finest coarse brick holding that cell with a slot lists the lamps;
  *   a hit no kept brick of any level holds loops over the whole table.
+ *   A lamp lights the hit as the clustered per-pixel light does
+ *   (voxel-light-volume-terms.ts): a point or spot light by three's falloff,
+ *   a spot within its cone only (its cookie is not read); an area light
+ *   (rect or line) by its diffuse form factor, on its facing side unless
+ *   two-sided, its walk toward a point on it that the ray's own sequence
+ *   picks, so its shadow softens over a face's updates.
  *
  * The estimate (π × the rays' mean radiance) is blended into the face's old
  * light with the brick's weight (1 / its updates), so a brick settles over
@@ -32,6 +38,8 @@
 import { WALK_GPU_MAX_STEPS, voxelWalkWgsl } from './voxel-walk-wgsl';
 import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
 import { SH_Y0, SH_Y1 } from './surface-probes';
+import { CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED } from './cluster-build';
+import { volumeLampTermsWgsl } from './voxel-light-volume-terms';
 
 /** Threads a workgroup: one a cell of a brick. */
 export const VOLUME_WORKGROUP = VOLUME_BRICK_VOLUME;
@@ -63,6 +71,7 @@ struct Params {
 @group(0) @binding(9) var<storage, read> lamp_slots: array<u32>;
 ${voxelWalkWgsl({ group: 0, table: 3, pages: 4 })}
 ${volumeWordsWgsl()}
+${volumeLampTermsWgsl()}
 
 const PI: f32 = 3.14159265;
 const CELL_M: f32 = 0.5;
@@ -186,9 +195,9 @@ ${Array.from({ length: VOLUME_LEVELS - 1 }, (_, k) => k + 1).map((l) => `  if (v
 /**
  * The light on a surface at p facing n (unit, a face's) from the sun and the lamps, each behind its walk: the lamps
  * listed for the brick holding open cell air (the cell in front of the face), every lamp of the table where no kept
- * brick holds it (\`params.misc.y\` lamps).
+ * brick holds it (\`params.misc.y\` lamps). xi (in [0, 1)²) picks the point of an area light its walk goes to.
  */
-fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>) -> vec3<f32> {
+fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>, xi: vec2<f32>) -> vec3<f32> {
   var e = vec3<f32>(0.0);
   let q = p + n * 0.01;
   let ns = dot(n, params.sun_dir.xyz);
@@ -204,24 +213,44 @@ fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>) -> vec3<f32> {
     let li = select(lamp_lists[base + 2u + k], k, whole);
     let a = lamps[${VOLUME_LAMP_VEC4S}u * li];
     let b = lamps[${VOLUME_LAMP_VEC4S}u * li + 1u];
+    let c = lamps[${VOLUME_LAMP_VEC4S}u * li + 2u];
     let to = a.xyz - p;
     let d = length(to);
-    if (d >= a.w || d < 1e-3) { continue; }
+    if (d >= a.w) { continue; }
+    let field = u32(c.w);
+    if ((field & 3u) >= ${CLUSTER_RECT}u) {
+      // An area light: its diffuse light at the hit, then the walk toward one point of it.
+      let su = lamps[${VOLUME_LAMP_VEC4S}u * li + 3u].xyz;
+      let sv = lamps[${VOLUME_LAMP_VEC4S}u * li + 4u].xyz;
+      let f = volume_area_light(p, n, a.xyz, su, sv, select(0.0, 1.0, (field & ${CLUSTER_TWO_SIDED}u) != 0u), a.w);
+      if (f <= 0.0) { continue; }
+      let s = a.xyz + su * (2.0 * xi.x - 1.0) + sv * (2.0 * xi.y - 1.0) - q;
+      let ds = length(s);
+      if (ds > 1e-3 && !volume_clear(q, s / ds, max(ds - 0.3, 0.0))) { continue; }
+      e = e + b.xyz * (PI * f);
+      continue;
+    }
+    if (d < 1e-3) { continue; }
     let l = to / d;
     let nl = dot(n, l);
     if (nl <= 0.0) { continue; }
     // three's punctual falloff: 1 / d^decay, smoothed to 0 at the range.
     let r = d / a.w;
     let w = clamp(1.0 - r * r * r * r, 0.0, 1.0);
-    let fall = w * w / max(pow(d, b.w), 0.01);
+    var fall = w * w / max(pow(d, b.w), 0.01);
+    if ((field & 3u) == ${CLUSTER_SPOT}u) {
+      // Its cone, as the per-pixel light's (axis in c, cos outer and inner in the last words of the next two).
+      fall = fall * volume_spot_cone(dot(l, -c.xyz), lamps[${VOLUME_LAMP_VEC4S}u * li + 3u].w, lamps[${VOLUME_LAMP_VEC4S}u * li + 4u].w);
+      if (fall <= 0.0) { continue; }
+    }
     if (!volume_clear(q, l, max(d - 0.3, 0.0))) { continue; }
     e = e + b.xyz * (fall * nl);
   }
   return e;
 }
 
-/** The radiance a ray from p along d sees: the sky past the reach, else the bounce of the surface it meets. */
-fn ray_radiance(p: vec3<f32>, d: vec3<f32>) -> vec3<f32> {
+/** The radiance a ray from p along d sees: the sky past the reach, else the bounce of the surface it meets (xi: direct_light's). */
+fn ray_radiance(p: vec3<f32>, d: vec3<f32>, xi: vec2<f32>) -> vec3<f32> {
   var cell: vec3<i32>;
   var frac: vec3<f32>;
   var inv: vec3<f32>;
@@ -237,7 +266,7 @@ fn ray_radiance(p: vec3<f32>, d: vec3<f32>) -> vec3<f32> {
   let air = h.cell + toward;
   let hp = p + d * h.t;
   let face = a * 2u + select(0u, 1u, n[a] < 0.0);
-  let e = direct_light(hp, n, air) + volume_light(air, face);
+  let e = direct_light(hp, n, air, xi) + volume_light(air, face);
   return volume_albedo(air) * e / PI;
 }
 
@@ -282,7 +311,8 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
     d[axis] = sgn * sqrt(max(1.0 - u.x, 0.0));
     d[t1] = rr * cos(th);
     d[t2] = rr * sin(th);
-    sum = sum + ray_radiance(origin, normalize(d));
+    // The ray's area-light point: the same sequence turned and offset, so it covers a light over a face's updates.
+    sum = sum + ray_radiance(origin, normalize(d), fract(u.yx + vec2<f32>(0.3819660113, 0.6180339887)));
   }
   let est = sum * (PI / f32(max(rays, 1u)));
   let old = textureLoad(pool, at).x;

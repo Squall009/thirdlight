@@ -1380,6 +1380,9 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
       blue: await make('Shadowed box', 'box', { box: { size: [0.6, 0.6, 0.6], material: { color: '#2050f0' } } }),
       mover: await make('Moving box', 'box', { box: { size: [0.8, 0.8, 0.8], material: { color: '#e0e0e0' } } }),
       lamp: await make('Red lamp', 'group', { components: { light: { type: 'point', color: '#ff3030', intensity: 400, range: 10, decay: 2, castShadow: true } } }),
+      // The light volume's other light types (no shadow maps: the volume walks its own shadows).
+      spot: await make('Red spot', 'group', { components: { light: { type: 'spot', color: '#ff0000', intensity: 400, range: 8, decay: 2, angle: 20, penumbra: 0.2, direction: [1, 0, 0], castShadow: false } } }),
+      panel: await make('Blue panel', 'group', { components: { light: { type: 'area', shape: 'rect', width: 1, height: 0.5, color: '#0000ff', intensity: 400, range: 6, castShadow: false } } }),
     };
     const errors = consoleErrors(page);
     const url = editorUrlFor(be.editorUrl, renderer);
@@ -1624,7 +1627,7 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     // Back to 2 m (the cache keeps the baked levels; a scene asking 2 m neither reads nor ships them).
     await playCmd('setComponent', { entityId: playWorld!, component: 'voxelWorld', value: { bakeLevel: null, quality: { low: FAR_TEST_RINGS } } });
     await groundRelief(false);
-    await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp] });
+    await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp, shadowObjects.spot, shadowObjects.panel] });
   });
 }
 

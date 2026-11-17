@@ -32,8 +32,8 @@ import { WALK_BRICK_WORDS, WALK_CELL_WORDS, WALK_EMPTY_KEY, WALK_INV_NONE, WALK_
 /** Steps a GPU walk takes at most (a block, a brick or a cell crossed is one). */
 export const WALK_GPU_MAX_STEPS = 4096;
 
-/** A step function as WGSL: its `let`s from the shared steps and the value it returns. */
-function stepFn(name: string, args: readonly string[], ret: string, body: (w: ReturnType<typeof wgslScalarWriter>) => string): string {
+/** A step function as WGSL (every argument an `f32`): its `let`s from steps written over `ScalarOps` and the value it returns. */
+export function wgslStepFn(name: string, args: readonly string[], ret: string, body: (w: ReturnType<typeof wgslScalarWriter>) => string): string {
   const w = wgslScalarWriter('v');
   const out = body(w);
   return `fn ${name}(${args.map((a) => `${a}: f32`).join(', ')}) -> ${ret} {\n  ${w.lines.join('\n  ')}\n  return ${out};\n}`;
@@ -42,12 +42,12 @@ function stepFn(name: string, args: readonly string[], ret: string, body: (w: Re
 /** The walk's shared steps in WGSL. */
 export function walkStepsWgsl(): string {
   return [
-    stepFn('walk_cross', ['rel', 'frac', 'inv'], 'f32', (w) => walkCrossSteps(w.ops, 'rel', 'frac', 'inv')),
-    stepFn('walk_first', ['tx', 'ty', 'tz'], 'vec2<f32>', (w) => {
+    wgslStepFn('walk_cross', ['rel', 'frac', 'inv'], 'f32', (w) => walkCrossSteps(w.ops, 'rel', 'frac', 'inv')),
+    wgslStepFn('walk_first', ['tx', 'ty', 'tz'], 'vec2<f32>', (w) => {
       const f = walkFirstSteps(w.ops, 'tx', 'ty', 'tz');
       return `vec2<f32>(${f.t}, ${f.axis})`;
     }),
-    stepFn('walk_before', ['ta', 'a', 'tb', 'b'], 'f32', (w) => walkBeforeSteps(w.ops, 'ta', 'a', 'tb', 'b')),
+    wgslStepFn('walk_before', ['ta', 'a', 'tb', 'b'], 'f32', (w) => walkBeforeSteps(w.ops, 'ta', 'a', 'tb', 'b')),
   ].join('\n\n');
 }
 

@@ -673,30 +673,75 @@ describe('the light volume lamp lists', () => {
     }
   });
 
-  it("the lamp table from the clustered lights' record: point and spot lights with a range, on, near the windows; their record passed through", () => {
+  it("the lamp table from the clustered lights' record: point and spot lights with a range and area lights, on, near the windows; their record passed through", () => {
     const l = new ClusterLights();
     const base = { position: [1, 2, 3], reach: 8, color: [2, 1, 0.5], decay: 2 };
     l.add({ ...base, kind: 'point' });
     l.add({ ...base, kind: 'spot', position: [4, 2, 3], direction: [0, -1, 0], cosOuter: 0.8, cosInner: 0.9 });
-    l.add({ ...base, kind: 'rect', u: [1, 0, 0], v: [0, 0, 1], direction: [0, -1, 0] });
+    l.add({ ...base, kind: 'rect', position: [6, 3, 3], u: [1, 0, 0], v: [0, 0, 0.5], direction: [0, -1, 0] });
+    l.add({ ...base, kind: 'line', position: [7, 3, 3], u: [0.6, 0, 0], direction: [0, -1, 0] });
+    l.add({ ...base, kind: 'rect', position: [8, 3, 3], u: [0, 0, 0.3], v: [0, 0.3, 0], direction: [1, 0, 0], twoSided: true });
     l.add({ ...base, kind: 'point', unbounded: true });
     l.add({ ...base, kind: 'point', uncached: true });
     l.add({ ...base, kind: 'point', visible: false });
+    l.add({ ...base, kind: 'rect', u: [1, 0, 0], v: [0, 0, 1], visible: false });
     l.add({ ...base, kind: 'point', color: [0, 0, 0] });
     l.add({ ...base, kind: 'point', position: [500, 2, 3] });
+    l.add({ ...base, kind: 'rect', position: [500, 2, 3], u: [1, 0, 0], v: [0, 0, 1] });
     const box: [number[], number[]] = [[-50, -20, -50], [50, 20, 50]];
     const set = volumeLampSet(l, box);
-    expect(set.count).toBe(2);
-    expect(set.spheres).toEqual([[1, 2, 3, 8], [4, 2, 3, 8]]);
-    const rec = (i: number): number[] => [...set.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS)].map((v) => Number(v.toFixed(4)));
+    expect(set.count).toBe(5);
+    expect(set.spheres).toEqual([[1, 2, 3, 8], [4, 2, 3, 8], [6, 3, 3, 8], [7, 3, 3, 8], [8, 3, 3, 8]]);
+    const rec = (i: number): number[] => [...set.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS)].map((v) => Number(v.toFixed(4)) + 0);
     expect(rec(0).slice(0, 8)).toEqual([1, 2, 3, 8, 2, 1, 0.5, 2]);
-    // The spot's axis, kind (1) and cone: what its bounce by cone will read.
+    // The spot's axis, kind (1) and cone: what its bounce by cone reads.
     expect(rec(1).slice(8, 12)).toEqual([0, -1, 0, 1]);
     expect([rec(1)[15], rec(1)[19]]).toEqual([0.8, 0.9]);
+    // The rect: facing and kind (2) in words 8–11, its half sides u (12–14) and v (16–18), u × v along its facing.
+    expect(rec(2).slice(8, 12)).toEqual([0, -1, 0, 2]);
+    expect([rec(2).slice(12, 15), rec(2).slice(16, 19)]).toEqual([[1, 0, 0], [0, 0, 0.5]]);
+    // The line (3): its v the strip across it, as the clustered lights keep it.
+    expect(rec(3)[11]).toBe(3);
+    expect(rec(3).slice(12, 15)).toEqual([0.6, 0, 0]);
+    expect(rec(3).slice(16, 19).map((v, a) => Number((v - l.v[3 * 3 + a]!).toFixed(4)) + 0)).toEqual([0, 0, 0]);
+    expect(Math.hypot(...rec(3).slice(16, 19))).toBeGreaterThan(0);
+    // The two-sided rect: its flag kept in the kind field (2 | 4), not read as a range-less point light's.
+    expect(rec(4)[11]).toBe(6);
     expect(volumeLampSet(l, box).key).toBe(set.key);
+    // A spot turned, an area light moved or resized: the key changes (what the old and new reach is marked).
+    for (const change of [(): void => void (l.direction[1 * 3 + 0] = 0.3), (): void => void (l.position[2 * 3 + 1] = 3.5), (): void => void (l.u[2 * 3 + 0] = 1.4), (): void => void (l.v[3 * 3 + 2] = l.v[3 * 3 + 2]! * 2)]) {
+      const was = volumeLampSet(l, box).key;
+      change();
+      expect(volumeLampSet(l, box).key).not.toBe(was);
+    }
     l.position[0] = 1.5;
     expect(volumeLampSet(l, box).key).not.toBe(set.key);
     expect(volumeLampSet(null, box).count).toBe(0);
     expect(volumeLampSet(l, [[100, 0, 0], [200, 1, 1]]).count).toBe(0);
+  });
+
+  it('an area light (rect, line, two-sided) is listed by every brick its reach meets and no other', () => {
+    const l = new ClusterLights();
+    l.add({ kind: 'rect', position: [3.2, 2.9, -1.1], reach: 6, color: [0, 0, 5], direction: [0, -1, 0], u: [0.5, 0, 0], v: [0, 0, 0.25] });
+    l.add({ kind: 'line', position: [-6.4, 1.3, 4.7], reach: 9.5, color: [3, 3, 3], direction: [0, 0, 1], u: [0.6, 0, 0] });
+    l.add({ kind: 'rect', position: [10.1, 4, -8], reach: 12, color: [1, 2, 1], direction: [1, 0, 0], u: [0, 0, 0.3], v: [0, 0.3, 0], twoSided: true });
+    l.add({ kind: 'point', position: [0, 1, 0], reach: 5, color: [1, 1, 1] });
+    const set = volumeLampSet(l, [[-50, -20, -50], [50, 20, 50]]);
+    expect(set.count).toBe(4);
+    const met = [0, 0, 0];
+    for (const level of [0, 1]) {
+      for (const b of BRICKS) {
+        const want: number[] = [];
+        for (let i = 0; i < 4; i++) {
+          const o = i * VOLUME_LAMP_FLOATS;
+          const m = VOLUME_BRICK_M * 2 ** level;
+          const d = Math.hypot(...b.map((v, a) => set.data[o + a]! - Math.min(Math.max(set.data[o + a]!, v * m), v * m + m)));
+          if (d < set.data[o + 3]!) want.push(i);
+        }
+        expect(volumeBrickLamps(set.data, set.count, b[0]!, b[1]!, b[2]!, undefined, level).listed, `level ${level} brick ${b.join(',')}`).toEqual(want);
+        for (let i = 0; i < 3; i++) if (level === 0 && want.includes(i)) met[i]!++;
+      }
+    }
+    expect(met.every((n) => n > 20), JSON.stringify(met)).toBe(true);
   });
 });

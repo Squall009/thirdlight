@@ -5,11 +5,14 @@
  * description of a lamp on the page), and a list per kept brick (every
  * level) of the lamps that reach it, in world space, built in compute.
  *
- * - **The table.** Point and spot lights with a range whose reach meets the
- *   volume's windows, as `VOLUME_LAMP_FLOATS` words each (their kind passed
- *   through: a spot is lit as a point by the update for now; area lights and
- *   an effect's lights are not in it). Uploaded when it changes, into a
- *   buffer that grows with it: no count of lamps is capped.
+ * - **The table.** Point and spot lights with a range and area lights (rect
+ *   and line) whose reach meets the volume's windows, as
+ *   `VOLUME_LAMP_FLOATS` words each, kind and flags passed through (the
+ *   update lights a spot within its cone and an area light by its shape; an
+ *   effect's lights are not in it). Uploaded when it changes, into a buffer
+ *   that grows with it: no count of lamps is capped. A spot turning or an
+ *   area light moving or resized changes its words, so the table's key, and
+ *   marks what the old and the new reach.
  * - **The lists.** A slot of the pool's words: the lamps a brick's box is
  *   reached by (`volumeBrickLamps`, at most `VOLUME_LAMP_LIST_ENTRIES`; an
  *   overflowing brick keeps those that give it the most light, the rest
@@ -50,8 +53,8 @@ export interface VolumeLampSet {
 export const NO_VOLUME_LAMPS: VolumeLampSet = Object.freeze({ data: new Float32Array(VOLUME_LAMP_FLOATS), count: 0, key: '', spheres: [] });
 
 /**
- * The volume's lamp table from the clustered lights' record: the point and spot lights on, with a range, lit, and an
- * update's lamp (not an effect's), whose reach meets the box lo … hi (metres).
+ * The volume's lamp table from the clustered lights' record: the point and spot lights on, with a range, and the area
+ * lights on, lit, not an effect's, whose reach meets the box lo … hi (metres).
  */
 export function volumeLampSet(lights: ClusterLights | null, [lo, hi]: readonly [readonly number[], readonly number[]]): VolumeLampSet {
   if (lights === null || lights.count === 0) return NO_VOLUME_LAMPS;
@@ -62,9 +65,9 @@ export function volumeLampSet(lights: ClusterLights | null, [lo, hi]: readonly [
   for (let i = 0; i < lights.count; i++) {
     const field = lights.kind[i]!;
     const kind = field & 3;
-    // Area lights are not lamps of the volume yet; an effect's lights are not held by the lighting stores; a lamp
-    // without a range has no reach to list it by.
-    if (kind >= CLUSTER_RECT || (field & CLUSTER_UNCACHED) !== 0 || (field & CLUSTER_UNBOUNDED) !== 0 || lights.visible[i] !== 1) continue;
+    // An effect's lights are not held by the lighting stores; a point or spot light without a range has no reach to
+    // list it by (on an area light the same bit means two-sided: its reach is always its range's).
+    if ((field & CLUSTER_UNCACHED) !== 0 || (kind < CLUSTER_RECT && (field & CLUSTER_UNBOUNDED) !== 0) || lights.visible[i] !== 1) continue;
     const r = lights.reach[i]!;
     const x = lights.position[i * 3]!;
     const y = lights.position[i * 3 + 1]!;
