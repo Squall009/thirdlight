@@ -243,7 +243,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
 | 46e.10 | Done 2026-11-17 (cb7229fa…5503e495): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); 10b: walk blocks only while the page reads its GPU walk; 10c: sim frames build full diagnostics only when sent (11.8 ms a tick of voxel stats after a 150 m/s stop): store off nothing pending 7.0–7.3 s (base 7.4–7.5, before 10.5–11.4), D701 fixed; D672 narrowed; D711 |
 | 46e.11 | Proposed 2026-11-16 (24296e84), published as acc46e-11: `docs/briefs/proposal-46e.11-emissive.md` — no new stored field (the voxel path reads the record's `params.emissive` × `params.emissiveIntensity`; the volume keeps one more word a cell, 28 → 32 B); three questions with defaults. **Waiting for the owner's note; nothing built.** |
-| 46e.12 | not started |
+| 46e.12 | (a) done 2026-11-17 (b73ee726…2b80a9c2): lamp list per kept brick (every level, ≤ 16, overflow counted), built in compute from the clustered lights' record; no-list hits (0.17 %) loop the table; night = flat loop's (0.001–0.007 %); 128 extra lamps: pass 4.1–6.1 → 0.21–0.24 ms a brick; +1.8 MB. (b), (c) next; (d) waits for the owner |
 | 46e.13 | not started |
 | 46e.14 | not started |
 | 46e.15 | not started |
@@ -2172,6 +2172,118 @@ runtime's; the full set rides on frames 1, 61 and 121 and is built exactly those
 against > 90 under the gate's load (peak 13.3; D659's watch); `gate-rerun-20261117-020753` (2 min): GREEN. The Play
 test (`voxel-world.e2e.ts:1369`) 2.4 min (46e.10b: 2.3–2.5), voxel area 282 s (267–278).
 
+### 46e.12a — a lamp list per brick, built in compute (the update's loop over every lamp replaced)
+
+**What was built** (b73ee726, e2156be8, 62835578, 2b80a9c2; the bench option 9feb0e9a). Work folder
+`~/.cache/thirdlight-phase46e/work/46e.12a/`.
+- **One description of a lamp.** The volume's lamp table is made from the clustered lights' record (`ClusterLights`,
+  gathered each frame before the draw; `AdapterClusters.lights`, `SceneAdapter.localLights`, the voxel draws' `lamps`
+  option): point and spot lights on, with a range, not an effect's, whose reach meets the windows (the same set the
+  scene walk `sceneLamps` found, now removed). A lamp is `VOLUME_LAMP_FLOATS` = 20 words: place and reach; colour ×
+  intensity and decay; axis (a spot's, an area light's facing) and the record's kind field; `u` and cos outer; `v`
+  and cos inner. Spots still bounce as points; area lights are not in the table yet. The table's buffer grows with it
+  (`grownGpuBuffer`): no cap on lamps.
+- **The layout: a fixed list a slot** (`VOLUME_LAMP_LIST_WORDS` = 18 u32: listed, reaching, 16 entries), for every
+  kept brick of every level, in one buffer of the pool's 16,384 slots (1.18 MB), and a window index of the lists'
+  own (every level's rows, wrapped and stacked as the pool's index; 387 KB) written as a brick takes or gives up a
+  slot (the pool's index is written only after a brick's first update). Chosen over offset + count in a shared index
+  (two passes and a prefix sum) because the measurement fits it: with the town's five lamps the most reaching one
+  brick is 3; with 32 extra lamps 14, no overflow; with 128 extra 33 (D714). Its size is a constant in the layout
+  file, to become a tier setting in 46e.14 (D702).
+- **The rule** (`volumeBrickLamps`, the CPU reference; WGSL `VOLUME_LAMP_LIST_WGSL` `build`): a brick lists every
+  lamp whose reach sphere meets its box (strictly), by index; past 16, the 16 that give it the most light
+  (`volumeLampStrength`: brightest channel × the update's falloff at the box's nearest point, d ≥ 0.1 m; equal: the
+  lower index), the rest counted. One invocation a brick; a job carries the brick, its slot and level, or a slot to
+  clear. Built for every kept brick when the table changes (the existing key check, every 15 frames), else for the
+  slots taken or given up since; never while nothing changed. After a build every slot's list is summed in compute
+  (`count`) and read back one reading at a time: `__tlVoxelPlay.light.volume().lampLists` (bytes, builds, the last
+  build's GPU ms, `counts`: bricks lit, listed, most reaching, bricks over, lamps dropped; lamps reaching past every
+  window; bricks waiting for a slot).
+- **The lookup at a hit** (`lamp_list_at`, CPU reference `volumeLampListBrick`): the open cell in front of the face;
+  its level-0 brick's list when that brick is in the window with a slot, else the finest coarse level's brick holding
+  it with one, else (no kept brick of any level holds it) the whole table, as every hit did before.
+- Stale marks as before (a table change marks what the old and new spheres reach, half history). Nothing of pacing,
+  rays, reach, blend or the read changed. Page hook `__tlVoxelPlay.light.volumeLamps(points | { points, level })`:
+  the bricks' lists read back from the GPU with the CPU's rule beside each.
+
+**The finding the slice was fixed for (lead's review of the first pictures).** The first slice (b73ee726) lit a hit
+only from its level-0 brick's list. Its night picture was 0.21–0.33 % of pixels darker than the flat loop's (head
+darker by about 8 levels on them; within each version 0.009–0.023 %): `first-slice/pic-{base,head}-r{1,2}/`.
+Coarse lists (e2156be8) moved it by 0.05 % only (`second-slice/pic-*`: still 0.25–0.30 %; the difference image
+`second-slice/diff-night-base-head-r1.png`: the left fence's top rail and blotches on the right house front, near
+the camera, not the far lamps). Variants, one run each (`second-slice/var-*`): the flat loop with the new table =
+the old picture (0.001–0.006 %: the table is the same); lists + the whole table only for hits with no list = the old
+picture (0.001–0.006 %, `var-B`); the same with that loop's count forced to 0 = the lists' picture (`var-D`). So the
+loss was the hits no kept brick holds: 0.17 % of hits at the night camera (35.6 k of 20.5 M, a GPU count; street
+1.0 %), and they carry lamp light. Which hits they are is not traced (D712: a count of those within a lamp's reach
+read 0, which the pictures contradict). The whole-table loop for them (2b80a9c2) is the fix; with many lamps those
+0.17 % pay the flat loop.
+
+**Pictures** (2b80a9c2 against the base 9feb0e9a built in a worktree, A B A B, five-camera runs, low, WebGPU,
+1280 × 720, 30 Hz; `pic-base-r1`, `pic-head-r1`, `pic-base-r2`, `pic-head-r2`; `compare-pics.txt`; pixels differing
+by more than 10 a channel):
+
+| | street | room | cave | night | far |
+|---|---|---|---|---|---|
+| base r1 / r2 | 0.089 % | 0.000 | 1.163 | 0.005 | 0.007 |
+| head r1 / r2 | 0.121 | 0.000 | 0.410 | 0.014 | 0.004 |
+| base against head (4 pairs) | 0.053–0.071 | 0.000 | 0.010–1.234 | 0.001–0.007 | 0.006–0.008 |
+
+Looked at: `pic-head-r1/night-lamps.png` beside `pic-base-r1/night-lamps.png` (the same picture), the head's cave. Night
+within each version's spread.
+
+**Cost** (low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone, `uptime` beside each (`*.uptime`; load 0.7–3.8),
+committed built code; `light-shots --only night-lamps --gpu --gpu-stale --gpu-only lighting`, `--extra-lamps N`;
+`cost{0,128}-{base,head}-r{1,2}`, `cost32-{base,head}-r1`). Every run exits 1: not a failed reading but the bench's
+after-measurement picture check on night-only runs (2.0–3.5 % differ; D713). `lighting` while every brick is stale
+is `measureGpu`'s; the pass's ms a brick is its own timestamps (`msPerBrick`, the pacing's reading).
+
+| extra lamps (lamps in table) | stale `lighting` GPU ms, base | head | pass ms a brick, base | head | page `voxel light volume` ms, base | head |
+|---|---|---|---|---|---|---|
+| 0 (5) | 8.81, 10.32 | 9.48, 9.20 | 0.021, 0.019 | 0.021, 0.021 | 0.68, 0.87 | 0.56, 0.55 |
+| 32 (37), one round | 10.13 | 9.43 | 0.030 | 0.028 | — | — |
+| 128 (133) | ≥ 7.63, 8.73 | 8.59, ≥ 9.66 | **4.07, 6.06** | **0.24, 0.21** | 0.55, 0.62 | 0.56, 0.45 |
+
+The `lighting` row is the paced pass filling its share of the frame either way (bricks a frame = budget ÷ ms a
+brick), so it does not move; what the lists change is the bricks a frame at the same ms: with 133 lamps 17–29 × as
+many (a stale town relights in ~1/20 of the time). With the town's five lamps no change (not resolved, within the
+run-to-run spread). Settled: `lighting` below resolution in every run. Page ms a frame (profiler): 4.6–5.3 (0),
+5.1–6.0 (128) both. At 128 the head's lists drop 562 entries (D714), so the 128 comparison is not exactly like for
+like. List builds: a full build (the table changed) of 1,100–7,000 bricks 0.01–0.09 ms GPU; an incremental one
+(slots taken) 0.01–0.16 ms; every frame a slot is taken, none once settled. **Bytes**: the volume's GPU bytes
+29.78 → 31.61 MB (+1.83: the lists 1.18, their index 0.39, the table, jobs and counts), within its row of the
+budget table (`surfaceCache` + `probes`; the pool's slots count the lists' words, so the budget still holds; 16,384
+slots kept).
+
+**Tests.** vitest `voxel-light-volume-layout.test.ts` (+6): a brick's list against a brute-force clamp reference
+over 240 lamps of mixed reach (0.5–20 m) and 3,584 bricks, overflow keeping the strongest and counting the rest;
+equal strengths keep the lower index; a lamp moved changes the lists of bricks its old or new sphere meets and none
+other; coarse bricks (levels 1–3) against brute force; a hit 55 m out lit by the level-3 brick's list (none past
+every window, level 0 first, the coarse level while a level-0 brick has no slot); the table from the clustered
+record (area, unbounded, effect, off, black and far lamps left out; a spot's axis, kind and cone passed through).
+Broken once (`broken-overflow-weakest-vitest.log`, an overflowing list keeping the weakest): 2 of 16 fail. Play e2e (`voxelVolumeLightChecks`,
+no new wait: read during the lamp-and-wall settle): the GPU's lists of 108 bricks round the red lamp (86 kept) and of
+the 1 m level's (32 kept) equal the CPU's rule, non-zero (86 listing it), and the wall face's 6 bricks list the red
+lamp. Broken once (`broken-lists-empty-e2e.log`, the build writing every list empty): "bricks round the lamp list a
+lamp" fails, and the lamp's red bounce read 0.6 against its bound 480 (the existing bounce check fails too). Play test
+2.4 min (gate-fast-20261117-015410) → 2.2–2.3 min (three gates below).
+
+**Gates.** `gate-fast-20261117-023149` (b73ee726) RED 1 of 70, `shadows.e2e.ts:270` worst pixel 43 (D645's watch) →
+`gate-rerun-20261117-024532` GREEN; `gate-fast-20261117-030233` RED (a duplicate name in the e2e helper) → 62835578,
+`gate-fast-20261117-030854` RED 1 of 70, `rendering.e2e.ts:491` exportRoot not a directory (D642's watch) →
+`gate-rerun-20261117-032233` GREEN; `gate-fast-20261117-040531` (2b80a9c2) GREEN; `gate-area-20261117-150037`
+(play, the leak test on: 24 passed, GREEN; the leak tests run with the store off, so they do not open the volume:
+its lamp buffers are released with it in `VolumeGpu.dispose`, not covered by a leak test).
+
+**Not done / unverified.** D712's hits are not identified. The many-lamps reading is an interim one (bench lamps
+scattered over the window, no shadows; the proper scene is 46e.14's). Medium and high not measured.
+
+**For (b) and (c).** The record already holds a spot's axis (words 8–10) and cone (15, 19) and an area light's
+facing, half sides (12–14, 16–18) and kind field (11): `volumeLampSet` passes them; (b) reads them in `direct_light`
+(a spot's `smoothstep` as the clustered loop does, `cluster-lights.ts`); (c) adds area kinds to `volumeLampSet` (now
+skipped by `kind >= CLUSTER_RECT`), lists them by their reach sphere as is, and shades them in `direct_light` by
+kind. The whole-table fallback loops the same records.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -2504,6 +2616,13 @@ test (`voxel-world.e2e.ts:1369`) 2.4 min (46e.10b: 2.3–2.5), voxel area 282 s 
   (state, step, time, frame count, errors) and builds the full diagnostics, every voxel world's stats among them,
   only on the frames that send them (asked for, a change, every 60 frames, as before); the stats' spans stay in the
   profile. Making the stats themselves cheaper was left (a 1-in-60 tick) (§8c 46e.10c).
+- 2026-11-17 (46e.12a, default chosen, owner to confirm): a brick's lamp list is a fixed 16 entries a pool slot
+  (`VOLUME_LAMP_LIST_ENTRIES`), the strongest kept past that and the rest counted, for kept bricks of every level; a
+  hit no kept brick holds loops over the whole table (0.17 % of hits at night). Fixed lists over offset + count:
+  the town's lamps reach at most 3 a brick, 32 extra 14, 128 extra 33 (D714); the size goes to the tuning (D702).
+- 2026-11-17 (46e.12a, default chosen, owner to confirm): the volume's lamps are the clustered lights' gathered
+  record (point and spot lights on, with a range, not an effect's), not a second walk of the scene graph; lamps
+  without a range and effects' lights stay out of the volume, as before.
 
 ## 10. Open questions for the owner (asked with the plan)
 

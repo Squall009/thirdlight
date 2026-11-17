@@ -72,7 +72,7 @@ page in the same commit.
   `__tlVoxelPlay.light.setStore` changes it at run time; `?surfaceRead=0` lights it without reading it). WebGPU only: it
   keeps light in the open cells beside surfaces (`voxel-light-volume.ts`): six values a cell (an ambient cube), 2 m
   bricks in a pool texture round the camera, updated in compute by walk rays (the sky past 24 m; at a surface its
-  colour times the sun and lamps seen by walks and the volume's own light there), and three coarse levels of 1, 2 and
+  colour times the sun and lamps seen by walks, the lamps from a list per kept brick built in compute from the clustered lights' record (the hit's level-0 brick, else its finest coarse one, else the whole table), and the volume's own light there), and three coarse levels of 1, 2 and
   4 m cells for open air (a clipmap to ±24, ±48 and ±96 m), all in one pool made once (29.8 MB); read per pixel by
   every lit draw (voxel surfaces, kit pieces, props, moving objects; the far shade opts out) in place of the flat
   ambient term. The sun's and lamps' direct light stay per pixel. Measured: plan-46e §8a 46e.6b, §8b.
