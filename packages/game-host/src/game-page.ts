@@ -743,6 +743,8 @@ function voxelLightHooks(draws: VoxelWorldDraws, adapter: () => SceneAdapter | n
     volume: () => draws.lightVolume()?.diagnostics() ?? null,
     /** Cells of the light volume read back from the GPU at world points (metres; or a level's cells, `{ points, level }`), the CPU's rule beside each. */
     volumeCells: (at: number[][] | { points: number[][]; level: number }) => (Array.isArray(at) ? draws.lightVolume()?.cells(at) : draws.lightVolume()?.cells(at.points, at.level)) ?? Promise.resolve(null),
+    /** The lamp lists of the light volume's level-0 bricks holding world points (metres) read back from the GPU, the CPU's rule beside each. */
+    volumeLamps: (points: number[][]) => draws.lightVolume()?.lampLists(points) ?? Promise.resolve(null),
   };
 }
 
@@ -806,6 +808,8 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       fineOff();
     },
     walkFeed: (feed) => walkFeed(feed),
+    // The light volume's lamps: the clustered lights' record of them.
+    lamps: () => adapter()?.localLights?.() ?? null,
   });
   // The profile's voxel counters (what is drawn and waiting) and its GPU room: this page has the headroom meter.
   pageProfile.attach({

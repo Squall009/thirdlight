@@ -137,6 +137,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
       const starting = state.disposed || p.renderer.backend === null;
       return { tier: p.qualityControl.tier(), live: light?.live === true, settled: !starting && (light === null || light.settled) };
     },
+    localLights: () => p.clusters.lights,
     takeGpuTime: () => p.gpuTiming.take(),
     gpuPasses: () => p.gpuTiming.lastPasses(),
     gpuLoad: () => p.gpuLoad,

@@ -72,6 +72,7 @@
  * measured: from the edit (the simulation's swap less its edit-to-swap ms)
  * over the hop to this page to the first frame drawn after the batch.
  */
+import type { ClusterLights } from './cluster-build';
 import * as THREE from 'three';
 import { frameSliceMs, residentBytes, threadProfiler, wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SKY_NONE, SkyColumns, SUN_TILE_TEXELS, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
@@ -159,6 +160,8 @@ export interface VoxelWorldDrawsOptions {
    * default store (`off`) draws them as before.
    */
   readonly lighting?: boolean;
+  /** The page's lamps as its clustered lights gathered them last (absent or null: none; the light volume's lamps). */
+  lamps?(): ClusterLights | null;
 }
 
 /** The page's say over the voxel texture arrays' resident levels. */
@@ -572,7 +575,7 @@ export class VoxelWorldDraws {
       const device = renderer === null ? null : fineDeviceOf(renderer);
       if (world === undefined || renderer === null || scene === null || device === null || this.walks.get(world)!.buffers() === null) return;
       this.volumeWorld = world;
-      this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), read: new URLSearchParams(pageSearch()).get(SURFACE_READ_URL_PARAM) !== '0' });
+      this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), lamps: () => this.opts.lamps?.() ?? null, read: new URLSearchParams(pageSearch()).get(SURFACE_READ_URL_PARAM) !== '0' });
       // The grids of chunks drawn before it came are not at hand: their bricks bounce the default grey until drawn again.
     }
     this.volume.frame();

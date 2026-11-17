@@ -516,3 +516,89 @@ export function volumeMarkBoxes<B extends VolumeMarkable>(bricks: Iterable<B>, l
   marked.sort((p, q) => p[0] - q[0]);
   return marked.map((m) => m[1]);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// The lamps a brick lists
+
+/**
+ * f32 words a lamp takes in the volume's lamp table, as five vec4s: place and reach; colour × intensity and decay; a
+ * spot's axis or an area light's facing, and its kind field (the clustered lights' record: kind in the low two bits,
+ * its flags above); an area light's first half side and a spot's cos of its outer half-angle; its second half side and
+ * the cos of the inner one. One description of a lamp with the clustered lights (`ClusterLights`): what a spot's cone
+ * or an area light's shape needs is in the record whether or not the update reads it yet.
+ */
+export const VOLUME_LAMP_FLOATS = 20;
+/** vec4s a lamp takes. */
+export const VOLUME_LAMP_VEC4S = VOLUME_LAMP_FLOATS / 4;
+
+/**
+ * Lamps a level-0 brick's list holds at most. A brick reached by more keeps those that give it the most light
+ * ({@link volumeLampStrength}); the rest are counted (bricks over, lamps dropped), never dropped silently. Sized by
+ * measurement on the town with many lamps (the phase plan's results); a tier setting when the volume is tuned.
+ */
+export const VOLUME_LAMP_LIST_ENTRIES = 16;
+/** u32 words a slot's list takes: the lamps listed, the lamps that reach the brick (listed or not), the entries. */
+export const VOLUME_LAMP_LIST_WORDS = VOLUME_LAMP_LIST_ENTRIES + 2;
+/** Metres a level-0 brick spans. */
+export const VOLUME_BRICK_M = VOLUME_BRICK_CELLS * VOXEL_SIZE_M;
+
+/** The squared distance from `p` to level-0 brick (bx, by, bz)'s box (0 inside it). */
+export function volumeLampBrickGap2(px: number, py: number, pz: number, bx: number, by: number, bz: number): number {
+  const g = (v: number, b: number): number => {
+    const lo = b * VOLUME_BRICK_M;
+    const hi = lo + VOLUME_BRICK_M;
+    return v < lo ? lo - v : v > hi ? v - hi : 0;
+  };
+  const x = g(px, bx);
+  const y = g(py, by);
+  const z = g(pz, bz);
+  return x * x + y * y + z * z;
+}
+
+/** Whether lamp `i` of a lamp table reaches level-0 brick (bx, by, bz): its reach sphere meets the brick's box (strictly). */
+export function volumeLampReaches(lamps: ArrayLike<number>, i: number, bx: number, by: number, bz: number): boolean {
+  const o = i * VOLUME_LAMP_FLOATS;
+  const r = lamps[o + 3]!;
+  return volumeLampBrickGap2(lamps[o]!, lamps[o + 1]!, lamps[o + 2]!, bx, by, bz) < r * r;
+}
+
+/**
+ * How much light lamp `i` gives brick (bx, by, bz), the rule an overflowing list keeps lamps by: its brightest channel
+ * times its falloff (the update's: 1 / d^decay, floored at 0.01, smoothed to 0 at the reach) at the brick's nearest
+ * point to it (d at least 0.1 m: a lamp inside the brick counts as one 0.1 m off). The update's WGSL `lamp_strength`.
+ */
+export function volumeLampStrength(lamps: ArrayLike<number>, i: number, bx: number, by: number, bz: number): number {
+  const o = i * VOLUME_LAMP_FLOATS;
+  const r = lamps[o + 3]!;
+  const d = Math.sqrt(volumeLampBrickGap2(lamps[o]!, lamps[o + 1]!, lamps[o + 2]!, bx, by, bz));
+  const t = d / r;
+  const w = Math.min(Math.max(1 - t * t * t * t, 0), 1);
+  return (Math.max(lamps[o + 4]!, lamps[o + 5]!, lamps[o + 6]!) * w * w) / Math.max(Math.max(d, 0.1) ** lamps[o + 7]!, 0.01);
+}
+
+/** A brick's lamp list: the lamps listed (table indices, ascending) and how many reach it (listed or not). */
+export interface VolumeBrickLamps {
+  readonly listed: number[];
+  readonly total: number;
+}
+
+/**
+ * The lamps level-0 brick (bx, by, bz) lists, the CPU reference of the list build (`VOLUME_LAMP_LIST_WGSL`): every lamp
+ * of the table (`count` lamps) whose reach meets the brick's box; past `entries` of them, the `entries` strongest
+ * ({@link volumeLampStrength}; equal strengths: the lower index), listed by index.
+ */
+export function volumeBrickLamps(lamps: ArrayLike<number>, count: number, bx: number, by: number, bz: number, entries = VOLUME_LAMP_LIST_ENTRIES): VolumeBrickLamps {
+  const hit: number[] = [];
+  for (let i = 0; i < count; i++) if (volumeLampReaches(lamps, i, bx, by, bz)) hit.push(i);
+  if (hit.length <= entries) return { listed: hit, total: hit.length };
+  const ranked = hit.map((i) => [i, volumeLampStrength(lamps, i, bx, by, bz)] as const);
+  ranked.sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  return { listed: ranked.slice(0, entries).map((s) => s[0]).sort((a, b) => a - b), total: hit.length };
+}
+
+/** The level-0 bricks a lamp's reach sphere can meet (inclusive, a box of them; those in it are tested one by one). */
+export function volumeLampBrickBox(lamps: ArrayLike<number>, i: number): [number[], number[]] {
+  const o = i * VOLUME_LAMP_FLOATS;
+  const r = lamps[o + 3]!;
+  return [[0, 1, 2].map((a) => Math.floor((lamps[o + a]! - r) / VOLUME_BRICK_M)), [0, 1, 2].map((a) => Math.floor((lamps[o + a]! + r) / VOLUME_BRICK_M))];
+}

@@ -11,9 +11,11 @@
  * - a ray that meets a surface sees its bounce: the colour of the cells
  *   there (`albedo`, the materials' colours a brick's cells border) times
  *   the light on it: the sun if a walk toward the sun from there meets
- *   nothing within its reach, each listed lamp in range whose walk to it
- *   meets nothing, and the volume's own light in the open cell in front of
- *   the face (so bounces build over updates).
+ *   nothing within its reach, each lamp in range on the list of the brick
+ *   holding the open cell in front of the face whose walk to it meets
+ *   nothing, and the volume's own light in that cell (so bounces build over
+ *   updates). A hit whose open cell lies in no kept level-0 brick with a slot
+ *   (past the level-0 window, or not kept yet) gets no lamp light.
  *
  * The estimate (π × the rays' mean radiance) is blended into the face's old
  * light with the brick's weight (1 / its updates), so a brick settles over
@@ -27,15 +29,13 @@
  * level-0 cells at their hits.
  */
 import { WALK_GPU_MAX_STEPS, voxelWalkWgsl } from './voxel-walk-wgsl';
-import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
+import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_WIDTH, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
 import { SH_Y0, SH_Y1 } from './surface-probes';
 
 /** Threads a workgroup: one a cell of a brick. */
 export const VOLUME_WORKGROUP = VOLUME_BRICK_VOLUME;
 /** u32 words a listed brick takes (its brick and slot, its weight and update). */
 export const VOLUME_LIST_WORDS = 8;
-/** f32 words a listed lamp takes (place and range, colour and decay). */
-export const VOLUME_LAMP_FLOATS = 8;
 /** f32 words of the pass's parameters. */
 export const VOLUME_PARAM_FLOATS = 48;
 
@@ -56,6 +56,8 @@ struct Params {
 @group(0) @binding(5) var pool: texture_storage_2d<r32uint, read_write>;
 @group(0) @binding(6) var index_tex: texture_2d<u32>;
 @group(0) @binding(7) var albedo_tex: texture_2d<u32>;
+@group(0) @binding(8) var<storage, read> lamp_lists: array<u32>;
+@group(0) @binding(9) var<storage, read> lamp_slots: array<u32>;
 ${voxelWalkWgsl({ group: 0, table: 3, pages: 4 })}
 ${volumeWordsWgsl()}
 
@@ -157,18 +159,41 @@ fn volume_clear(p: vec3<f32>, d: vec3<f32>, max_t: f32) -> bool {
   return h.end != 1u;
 }
 
-/** The light on a surface at p facing n (unit, a face's) from the sun and the lamps, each behind its walk. */
-fn direct_light(p: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+/**
+ * Where the lamp list of the level-0 brick holding cell c starts (its slot's words), or -1: the brick is past the
+ * level-0 window or holds no slot. The lists' own window index, written as a brick takes and gives up a slot (the
+ * pool's index is written only after its first update).
+ */
+fn lamp_list_at(c: vec3<i32>) -> i32 {
+  let b = c >> vec3<u32>(2u);
+  let o = params.origin.xyz;
+  let d = params.dims.xyz;
+  if (any(b < o) || any(b >= o + d)) { return -1; }
+  let s = ((b % d) + d) % d;
+  let v = lamp_slots[u32(s.y) * ${VOLUME_INDEX_WIDTH}u + u32(s.x + d.x * s.z)];
+  if (v == 0u) { return -1; }
+  return i32((v - 1u) * ${VOLUME_LAMP_LIST_WORDS}u);
+}
+
+/**
+ * The light on a surface at p facing n (unit, a face's) from the sun and the lamps, each behind its walk: the lamps
+ * listed for the brick holding open cell air (the cell in front of the face).
+ */
+fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>) -> vec3<f32> {
   var e = vec3<f32>(0.0);
   let q = p + n * 0.01;
   let ns = dot(n, params.sun_dir.xyz);
   if (params.sun_dir.w > 0.5 && ns > 0.0 && volume_clear(q, params.sun_dir.xyz, params.sun_rgb.w)) {
     e = e + params.sun_rgb.xyz * ns;
   }
-  let count = u32(params.misc.y);
+  let at = lamp_list_at(air);
+  if (at < 0) { return e; }
+  let base = u32(at);
+  let count = lamp_lists[base];
   for (var k = 0u; k < count; k++) {
-    let a = lamps[2u * k];
-    let b = lamps[2u * k + 1u];
+    let li = lamp_lists[base + 2u + k];
+    let a = lamps[${VOLUME_LAMP_VEC4S}u * li];
+    let b = lamps[${VOLUME_LAMP_VEC4S}u * li + 1u];
     let to = a.xyz - p;
     let d = length(to);
     if (d >= a.w || d < 1e-3) { continue; }
@@ -202,7 +227,7 @@ fn ray_radiance(p: vec3<f32>, d: vec3<f32>) -> vec3<f32> {
   let air = h.cell + toward;
   let hp = p + d * h.t;
   let face = a * 2u + select(0u, 1u, n[a] < 0.0);
-  let e = direct_light(hp, n) + volume_light(air, face);
+  let e = direct_light(hp, n, air) + volume_light(air, face);
   return volume_albedo(air) * e / PI;
 }
 
@@ -255,6 +280,116 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
   var v = est;
   if (old != 0u && blend < 1.0) { v = mix(volume_decode(old), est, blend); }
   textureStore(pool, at, vec4<u32>(volume_encode(v), 0u, 0u, 0u));
+}
+`;
+
+/** Threads a workgroup of the lamp lists' build and count. */
+export const VOLUME_LAMP_LIST_WORKGROUP = 64;
+/** u32 words of the lists' build parameters (jobs, lamps, slots, pad). */
+export const VOLUME_LAMP_LIST_PARAM_WORDS = 4;
+/** u32 words of the lists' counts: bricks listing a lamp, lamps listed, the most lamps reaching one brick, bricks over, lamps dropped. */
+export const VOLUME_LAMP_LIST_STAT_WORDS = 8;
+
+/**
+ * The lamp lists' build (entry point `build`): one invocation a job, a job a level-0 brick and its slot (x, y, z,
+ * slot), or a slot to clear (w = −1 − slot). It tests every lamp of the table against the brick's box (its reach
+ * sphere meets the box), keeps the `VOLUME_LAMP_LIST_ENTRIES` that are strongest while more reach it (the weakest
+ * goes, the latest of equals), and writes them by index with the count listed and the count reaching it. The CPU
+ * reference is `volumeBrickLamps`. The count (entry point `count`): every slot's list summed into the counts the
+ * volume's diagnostics show (bricks over, lamps dropped), one invocation a slot.
+ */
+export const VOLUME_LAMP_LIST_WGSL = /* wgsl */ `
+struct ListParams {
+  jobs: u32,
+  lamps: u32,
+  slots: u32,
+  pad: u32,
+}
+@group(0) @binding(0) var<uniform> lp: ListParams;
+@group(0) @binding(1) var<storage, read> jobs: array<vec4<i32>>;
+@group(0) @binding(2) var<storage, read> lamps: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read_write> lists: array<u32>;
+@group(0) @binding(4) var<storage, read_write> counts: array<atomic<u32>>;
+
+const ENTRIES: u32 = ${VOLUME_LAMP_LIST_ENTRIES}u;
+const WORDS: u32 = ${VOLUME_LAMP_LIST_WORDS}u;
+const BRICK_M: f32 = ${VOLUME_BRICK_M.toFixed(1)};
+
+/** The CPU twin is volumeLampStrength. */
+fn lamp_strength(a: vec4<f32>, b: vec4<f32>, d: f32) -> f32 {
+  let t = d / a.w;
+  let w = clamp(1.0 - t * t * t * t, 0.0, 1.0);
+  return max(b.x, max(b.y, b.z)) * w * w / max(pow(max(d, 0.1), b.w), 0.01);
+}
+
+@compute @workgroup_size(${VOLUME_LAMP_LIST_WORKGROUP})
+fn build(@builtin(global_invocation_id) gid: vec3<u32>) {
+  if (gid.x >= lp.jobs) { return; }
+  let job = jobs[gid.x];
+  if (job.w < 0) {
+    let base = u32(-job.w - 1) * WORDS;
+    lists[base] = 0u;
+    lists[base + 1u] = 0u;
+    return;
+  }
+  let base = u32(job.w) * WORDS;
+  let lo = vec3<f32>(job.xyz) * BRICK_M;
+  let hi = lo + vec3<f32>(BRICK_M);
+  var ids: array<u32, ${VOLUME_LAMP_LIST_ENTRIES}>;
+  var sc: array<f32, ${VOLUME_LAMP_LIST_ENTRIES}>;
+  var n = 0u;
+  var total = 0u;
+  for (var i = 0u; i < lp.lamps; i++) {
+    let a = lamps[${VOLUME_LAMP_VEC4S}u * i];
+    let g = max(max(lo - a.xyz, a.xyz - hi), vec3<f32>(0.0));
+    let d2 = dot(g, g);
+    if (!(d2 < a.w * a.w)) { continue; }
+    total = total + 1u;
+    let s = lamp_strength(a, lamps[${VOLUME_LAMP_VEC4S}u * i + 1u], sqrt(d2));
+    if (n < ENTRIES) {
+      ids[n] = i;
+      sc[n] = s;
+      n = n + 1u;
+      continue;
+    }
+    var w = 0u;
+    for (var k = 1u; k < ENTRIES; k++) {
+      if (sc[k] < sc[w] || (sc[k] == sc[w] && ids[k] > ids[w])) { w = k; }
+    }
+    if (s > sc[w]) {
+      ids[w] = i;
+      sc[w] = s;
+    }
+  }
+  // By index, as the CPU's rule lists them.
+  for (var k = 1u; k < n; k++) {
+    let v = ids[k];
+    var j = k;
+    while (j > 0u && ids[j - 1u] > v) {
+      ids[j] = ids[j - 1u];
+      j = j - 1u;
+    }
+    ids[j] = v;
+  }
+  lists[base] = n;
+  lists[base + 1u] = total;
+  for (var k = 0u; k < n; k++) { lists[base + 2u + k] = ids[k]; }
+}
+
+@compute @workgroup_size(${VOLUME_LAMP_LIST_WORKGROUP})
+fn count(@builtin(global_invocation_id) gid: vec3<u32>) {
+  if (gid.x >= lp.slots) { return; }
+  let base = gid.x * WORDS;
+  let n = lists[base];
+  let total = lists[base + 1u];
+  if (total == 0u) { return; }
+  atomicAdd(&counts[0], 1u);
+  atomicAdd(&counts[1], n);
+  atomicMax(&counts[2], total);
+  if (total > n) {
+    atomicAdd(&counts[3], 1u);
+    atomicAdd(&counts[4], total - n);
+  }
 }
 `;
 

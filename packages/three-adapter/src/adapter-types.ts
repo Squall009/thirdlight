@@ -510,6 +510,8 @@ export interface SceneAdapter {
    * while the renderer or the live light is still starting).
    */
   lightingState?(): { readonly tier: LightingTier; readonly live: boolean; readonly settled: boolean };
+  /** The page's local lights as the clusters gathered them last (point, spot, area and effect lights, world space; read, never written). */
+  localLights?(): import('./cluster-build').ClusterLights;
   /** The GPU time (ms) and frames measured since the last call; null where nothing is measured (no timestamp queries). */
   takeGpuTime?(): { ms: number; frames: number; worst: number } | null;
   /** GPU ms per frame of the render and compute passes in the last timestamp resolve, taking nothing (null: none measured); shares, not milliseconds, at a frame-rate cap. */

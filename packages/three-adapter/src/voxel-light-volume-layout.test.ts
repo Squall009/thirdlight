@@ -2,13 +2,17 @@
  * The light volume's layout: its words, the window's wrapped index, which cells hold light and which bricks are kept
  * against a cell-by-cell reference on generated chunks, the bricks an edit changes and marks (and a batch's walk
  * changes taken in one pass as block by block), and the surfaces' read
- * (the ambient cube, and that a reader beside a 0.5 m wall reads only the cells on its own side).
+ * (the ambient cube, and that a reader beside a 0.5 m wall reads only the cells on its own side); the lamps a brick
+ * lists against a brute-force reference over 240 lamps (overflow, a lamp moved), and the lamp table from the clustered
+ * lights' record.
  */
 import { describe, expect, it } from 'vitest';
 import { CPU_SCALAR_OPS } from '@thirdlight/shared';
 import { applyWalkWires, OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView, type WalkSource } from '@thirdlight/voxel';
 
-import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { ClusterLights } from './cluster-build';
+import { volumeLampSet } from './voxel-light-volume-lamps';
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampStrength, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
 
 /** A cached brick lookup over a walk source's level-0 blocks (as the volume keeps them). */
 function brickLookup(tsrc: WalkSource): (bx: number, by: number, bz: number) => VolumeBlockBricks | null {
@@ -487,5 +491,150 @@ describe('the light volume coarse levels', () => {
       left -= want;
     }
     expect(r.weight).toBeCloseTo(1 - left, 12);
+  });
+});
+
+describe('the light volume lamp lists', () => {
+  /** 240 lamps over a 48 × 12 × 48 m scrap across negative bricks: reaches 0.5–20 m (mixed), colours and decays apart. */
+  function scrap(): Float32Array {
+    const n = 240;
+    const t = new Float32Array(n * VOLUME_LAMP_FLOATS);
+    for (let i = 0; i < n; i++) {
+      const o = i * VOLUME_LAMP_FLOATS;
+      const f = (k: number): number => (0.5 + i * k) % 1;
+      t.set([-24 + 48 * f(0.7548776662), -2 + 12 * f(0.5698402910), -24 + 48 * f(0.4301597090), i % 7 === 0 ? 0.5 + f(0.31) : i % 5 === 0 ? 12 + 8 * f(0.21) : 2 + 8 * f(0.13)], o);
+      t.set([1 + 9 * f(0.17), 2 * f(0.23), 3 * f(0.29), i % 3 === 0 ? 1 : 2], o + 4);
+      // A spot's axis and its kind field, passed through (the list does not read them).
+      t.set([0, -1, 0, i % 4 === 0 ? 1 : 0], o + 8);
+    }
+    return t;
+  }
+  /** Brute force: a lamp reaches a brick where the box's nearest point to it (clamped) is nearer than its reach. */
+  const reaches = (t: Float32Array, i: number, b: readonly number[]): boolean => {
+    const o = i * VOLUME_LAMP_FLOATS;
+    let d2 = 0;
+    for (let a = 0; a < 3; a++) {
+      const lo = b[a]! * VOLUME_BRICK_M;
+      const q = Math.min(Math.max(t[o + a]!, lo), lo + VOLUME_BRICK_M);
+      d2 += (t[o + a]! - q) ** 2;
+    }
+    return Math.sqrt(d2) < t[o + 3]!;
+  };
+  const BRICKS: number[][] = [];
+  for (let x = -14; x < 14; x++) for (let y = -2; y < 6; y++) for (let z = -14; z < 14; z++) BRICKS.push([x, y, z]);
+
+  it('a brick lists every lamp whose reach meets its box and none other, by index; past the entries the strongest, the rest counted', () => {
+    const t = scrap();
+    const n = t.length / VOLUME_LAMP_FLOATS;
+    let over = 0;
+    let dropped = 0;
+    let most = 0;
+    let lit = 0;
+    for (const b of BRICKS) {
+      const want: number[] = [];
+      for (let i = 0; i < n; i++) if (reaches(t, i, b)) want.push(i);
+      const all = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!, Infinity);
+      expect(all.listed, `brick ${b.join(',')}`).toEqual(want);
+      expect(all.total).toBe(want.length);
+      const r = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!);
+      expect(r.total).toBe(want.length);
+      most = Math.max(most, r.total);
+      if (want.length > 0) lit++;
+      if (want.length <= VOLUME_LAMP_LIST_ENTRIES) {
+        expect(r.listed).toEqual(want);
+        continue;
+      }
+      // Overflow: as many as the list holds, by index, each at least as strong as every lamp left out.
+      over++;
+      dropped += want.length - r.listed.length;
+      expect(r.listed.length).toBe(VOLUME_LAMP_LIST_ENTRIES);
+      expect([...r.listed].sort((a, c) => a - c)).toEqual(r.listed);
+      const strength = (i: number): number => volumeLampStrength(t, i, b[0]!, b[1]!, b[2]!);
+      const least = Math.min(...r.listed.map(strength));
+      for (const i of want) if (!r.listed.includes(i)) expect(strength(i), `lamp ${i} left out of ${b.join(',')}`).toBeLessThanOrEqual(least);
+    }
+    // The scrap reaches its bricks unevenly: some bricks over the list, most within it.
+    expect(lit).toBeGreaterThan(BRICKS.length / 2);
+    expect(over).toBeGreaterThan(20);
+    expect(dropped).toBeGreaterThan(over);
+    expect(most).toBeGreaterThan(VOLUME_LAMP_LIST_ENTRIES);
+    // A brick of the scrap reached by no lamp lists none.
+    expect(volumeBrickLamps(t, n, 400, 0, 0)).toEqual({ listed: [], total: 0 });
+  });
+
+  it('equal strengths keep the lower index; the strength falls with distance and grows with the light', () => {
+    const t = new Float32Array(20 * VOLUME_LAMP_FLOATS);
+    // Twenty identical lamps at one place over brick (0, 0, 0): the first entries by index are kept.
+    for (let i = 0; i < 20; i++) t.set([1, 1, 1, 6, 1, 1, 1, 2], i * VOLUME_LAMP_FLOATS);
+    expect(volumeBrickLamps(t, 20, 0, 0, 0)).toEqual({ listed: [...Array(VOLUME_LAMP_LIST_ENTRIES).keys()], total: 20 });
+    // Lamp 19 brighter: it takes the place of the last of the equals.
+    t[19 * VOLUME_LAMP_FLOATS + 4] = 5;
+    expect(volumeBrickLamps(t, 20, 0, 0, 0).listed).toEqual([...[...Array(VOLUME_LAMP_LIST_ENTRIES - 1).keys()], 19]);
+    t.set([5, 1, 1], 0);
+    expect(volumeLampStrength(t, 0, 0, 0, 0)).toBeLessThan(volumeLampStrength(t, 1, 0, 0, 0));
+    expect(volumeLampStrength(t, 19, 0, 0, 0)).toBeGreaterThan(volumeLampStrength(t, 1, 0, 0, 0));
+  });
+
+  it('a lamp moved changes the lists of bricks its old or new reach meets and no other; those only one meets change', () => {
+    const t = scrap();
+    const n = t.length / VOLUME_LAMP_FLOATS;
+    const before = BRICKS.map((b) => volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!));
+    const beforeAll = BRICKS.map((b) => volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!, Infinity));
+    const moved = 37;
+    const old = t.slice(moved * VOLUME_LAMP_FLOATS, moved * VOLUME_LAMP_FLOATS + VOLUME_LAMP_FLOATS);
+    const meetsOld = BRICKS.map((b) => reaches(t, moved, b));
+    t[moved * VOLUME_LAMP_FLOATS] = old[0]! + 7.3;
+    t[moved * VOLUME_LAMP_FLOATS + 2] = old[2]! - 3.1;
+    const meetsNew = BRICKS.map((b) => reaches(t, moved, b));
+    // The box a lamp's bricks are looked for in holds every brick it meets.
+    const [lo, hi] = volumeLampBrickBox(t, moved);
+    BRICKS.forEach((b, k) => {
+      if (meetsNew[k]) for (let a = 0; a < 3; a++) expect(b[a]! >= lo[a]! && b[a]! <= hi[a]!).toBe(true);
+    });
+    let changed = 0;
+    let onlyOne = 0;
+    BRICKS.forEach((b, k) => {
+      const after = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!);
+      const afterAll = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!, Infinity);
+      const differs = JSON.stringify(after) !== JSON.stringify(before[k]);
+      if (differs) changed++;
+      if (!meetsOld[k] && !meetsNew[k]) expect(differs, `brick ${b.join(',')} met by neither`).toBe(false);
+      if (meetsOld[k] !== meetsNew[k]) {
+        onlyOne++;
+        // Its reach gained or lost the lamp: the count reaching it changes, and the full list by exactly that lamp.
+        expect(after.total - before[k]!.total).toBe(meetsNew[k] ? 1 : -1);
+        expect(afterAll.listed.includes(moved)).toBe(meetsNew[k]);
+        expect(afterAll.listed.filter((i) => i !== moved)).toEqual(beforeAll[k]!.listed.filter((i) => i !== moved));
+      }
+    });
+    expect(onlyOne).toBeGreaterThan(10);
+    expect(changed).toBeGreaterThanOrEqual(onlyOne);
+  });
+
+  it("the lamp table from the clustered lights' record: point and spot lights with a range, on, near the windows; their record passed through", () => {
+    const l = new ClusterLights();
+    const base = { position: [1, 2, 3], reach: 8, color: [2, 1, 0.5], decay: 2 };
+    l.add({ ...base, kind: 'point' });
+    l.add({ ...base, kind: 'spot', position: [4, 2, 3], direction: [0, -1, 0], cosOuter: 0.8, cosInner: 0.9 });
+    l.add({ ...base, kind: 'rect', u: [1, 0, 0], v: [0, 0, 1], direction: [0, -1, 0] });
+    l.add({ ...base, kind: 'point', unbounded: true });
+    l.add({ ...base, kind: 'point', uncached: true });
+    l.add({ ...base, kind: 'point', visible: false });
+    l.add({ ...base, kind: 'point', color: [0, 0, 0] });
+    l.add({ ...base, kind: 'point', position: [500, 2, 3] });
+    const box: [number[], number[]] = [[-50, -20, -50], [50, 20, 50]];
+    const set = volumeLampSet(l, box);
+    expect(set.count).toBe(2);
+    expect(set.spheres).toEqual([[1, 2, 3, 8], [4, 2, 3, 8]]);
+    const rec = (i: number): number[] => [...set.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS)].map((v) => Number(v.toFixed(4)));
+    expect(rec(0).slice(0, 8)).toEqual([1, 2, 3, 8, 2, 1, 0.5, 2]);
+    // The spot's axis, kind (1) and cone: what its bounce by cone will read.
+    expect(rec(1).slice(8, 12)).toEqual([0, -1, 0, 1]);
+    expect([rec(1)[15], rec(1)[19]]).toEqual([0.8, 0.9]);
+    expect(volumeLampSet(l, box).key).toBe(set.key);
+    l.position[0] = 1.5;
+    expect(volumeLampSet(l, box).key).not.toBe(set.key);
+    expect(volumeLampSet(null, box).count).toBe(0);
+    expect(volumeLampSet(l, [[100, 0, 0], [200, 1, 1]]).count).toBe(0);
   });
 });

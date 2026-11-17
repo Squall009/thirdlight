@@ -253,6 +253,14 @@ export class AdapterClusters {
     return { any: pools.length > 0, layered: pools.some((p) => p.abilities.layered) };
   }
 
+  /**
+   * The local lights as last gathered (each frame, before the draw): every point, spot and area light and effect light,
+   * in world space. The one record of a lamp other lighting reads (the voxel light volume's lamp table).
+   */
+  get lights(): ClusterLights {
+    return this.input;
+  }
+
   /** Lights the heat map draws the lists of (0 while it is off). */
   heatLights(): number {
     return this.heat.light !== null ? this.last.packed : 0;
