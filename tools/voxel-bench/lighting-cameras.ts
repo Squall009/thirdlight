@@ -110,6 +110,18 @@ export function benchExtraLamps(n: number): ReadonlyArray<{ readonly name: strin
 }
 export const BENCH_EXTRA_LAMP_LIGHT = Object.freeze({ ...BENCH_LAMP_LIGHT, castShadow: false });
 
+/**
+ * `--light-types`: one spot and one rect area light in the night camera's view (bench data, placed before Play and
+ * taken out after, as the street lamps are; no shadow maps: the light volume walks its own shadows): a cool spot 5 m up
+ * and 2.5 m out from the house front left of the street at x 20, aimed down at it (30°, a soft edge of 0.3), and a warm
+ * 2 × 1 m panel 3 m up against the back of the house right of the street at x 38, facing the street (turned −90° about
+ * x: an area light faces its local −y). A look sets point lights only, so they shine at noon too.
+ */
+export const BENCH_LIGHT_TYPES: ReadonlyArray<{ readonly name: string; readonly position: readonly [number, number, number]; readonly rotation?: readonly [number, number, number, number]; readonly light: Readonly<Record<string, unknown>> }> = Object.freeze([
+  { name: 'Bench spot', position: [20, 5, -26.5], light: { type: 'spot', color: '#bfe0ff', intensity: 150, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -0.8137, 0.5812], castShadow: false } },
+  { name: 'Bench panel', position: [38, 3, -31.3], rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], light: { type: 'area', shape: 'rect', width: 2, height: 1, color: '#ffd9a8', intensity: 150, range: 10, castShadow: false } },
+] as const);
+
 /** The house the room camera stands in: lot (6, 6), two storeys, x −5…5 m, z −4…6 m, windows in its west wall at 1–2 m. */
 export const ROOM_HOUSE = Object.freeze({ min: Object.freeze([-5, 0.5, -4] as const), max: Object.freeze([5, 3, 6] as const) });
 
@@ -279,6 +291,8 @@ export interface LightShotsOptions {
   readonly textureUnits: 'off' | 'volume' | null;
   /** `--extra-lamps N`: N more point lamps over the night camera's window ({@link benchExtraLamps}; 0: none). */
   readonly extraLamps: number;
+  /** `--light-types`: the spot and the area light of {@link BENCH_LIGHT_TYPES} placed too. */
+  readonly lightTypes: boolean;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -332,6 +346,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
       return v as LightShotsOptions['textureUnits'];
     })(arg('texture-units')),
     extraLamps: num('extra-lamps', 0, 0, 4096),
+    lightTypes: argv.includes('--light-types'),
     viewport: { width: Number(m[1]), height: Number(m[2]) },
   };
 }

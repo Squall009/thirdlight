@@ -13,6 +13,7 @@ import { townWorld } from './town';
 import {
   BENCH_EXTRA_LAMP_LIGHT,
   BENCH_LAMPS,
+  BENCH_LIGHT_TYPES,
   benchExtraLamps,
   CAVE,
   caveStroke,
@@ -135,6 +136,23 @@ describe('the light-shots options', () => {
     expect(() => parseLightShotsArgs(['--gpu-repeats', '1'])).toThrow(/--gpu-repeats/);
     expect([parseLightShotsArgs([]).extraLamps, parseLightShotsArgs(['--extra-lamps', '128']).extraLamps]).toEqual([0, 128]);
     expect(() => parseLightShotsArgs(['--extra-lamps', '-1'])).toThrow(/--extra-lamps/);
+    expect([parseLightShotsArgs([]).lightTypes, parseLightShotsArgs(['--light-types']).lightTypes]).toEqual([false, true]);
+  });
+  it('place the light types in the night camera\'s view: a spot aimed down at a front, a panel turned to face the street', () => {
+    const eye = LIGHTING_CAMERAS.find((c) => c.name === 'night-lamps')!.eye;
+    const [spot, panel] = BENCH_LIGHT_TYPES;
+    expect([spot!.light['type'], panel!.light['type'], panel!.light['shape']]).toEqual(['spot', 'area', 'rect']);
+    // In front of the camera (it looks along −x), within the light volume's window.
+    for (const l of BENCH_LIGHT_TYPES) expect(eye[0] - l.position[0]).toBeGreaterThan(0);
+    for (const l of BENCH_LIGHT_TYPES) expect(Math.hypot(l.position[0] - eye[0], l.position[2] - eye[2])).toBeLessThan(44);
+    // The spot's axis is a unit way down and toward the fronts at z −24; the panel's turn takes its local −y to +z.
+    const d = spot!.light['direction'] as number[];
+    expect(Math.hypot(...d)).toBeCloseTo(1, 3);
+    expect([d[1]! < -0.5, d[2]! > 0]).toEqual([true, true]);
+    const [x, y, z, w] = panel!.rotation!;
+    // q (0, −1, 0) q⁻¹ for a unit quaternion: its −y column.
+    const face = [-(2 * (x * y - z * w)), -(1 - 2 * (x * x + z * z)), -(2 * (y * z + x * w))];
+    expect(face.map((v) => Number(v.toFixed(6)) + 0)).toEqual([0, 0, 1]);
   });
   it('scatter the extra lamps over the night camera\'s window, the same places every run, apart, without shadows', () => {
     const eye = LIGHTING_CAMERAS.find((c) => c.name === 'night-lamps')!.eye;
