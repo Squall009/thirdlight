@@ -532,7 +532,8 @@ export const VOLUME_LAMP_FLOATS = 20;
 export const VOLUME_LAMP_VEC4S = VOLUME_LAMP_FLOATS / 4;
 
 /**
- * Lamps a level-0 brick's list holds at most. A brick reached by more keeps those that give it the most light
+ * Lamps a brick's list holds at most (a level-0 brick's, or a coarse one's: a hit whose level-0 brick holds no slot,
+ * past the level-0 window, is lit by the finest coarse brick holding it that has one). A brick reached by more keeps those that give it the most light
  * ({@link volumeLampStrength}); the rest are counted (bricks over, lamps dropped), never dropped silently. Sized by
  * measurement on the town with many lamps (the phase plan's results); a tier setting when the volume is tuned.
  */
@@ -542,11 +543,12 @@ export const VOLUME_LAMP_LIST_WORDS = VOLUME_LAMP_LIST_ENTRIES + 2;
 /** Metres a level-0 brick spans. */
 export const VOLUME_BRICK_M = VOLUME_BRICK_CELLS * VOXEL_SIZE_M;
 
-/** The squared distance from `p` to level-0 brick (bx, by, bz)'s box (0 inside it). */
-export function volumeLampBrickGap2(px: number, py: number, pz: number, bx: number, by: number, bz: number): number {
+/** The squared distance from `p` to brick (bx, by, bz) of `level`'s box (0 inside it). */
+export function volumeLampBrickGap2(px: number, py: number, pz: number, bx: number, by: number, bz: number, level = 0): number {
+  const m = VOLUME_BRICK_M * 2 ** level;
   const g = (v: number, b: number): number => {
-    const lo = b * VOLUME_BRICK_M;
-    const hi = lo + VOLUME_BRICK_M;
+    const lo = b * m;
+    const hi = lo + m;
     return v < lo ? lo - v : v > hi ? v - hi : 0;
   };
   const x = g(px, bx);
@@ -555,11 +557,11 @@ export function volumeLampBrickGap2(px: number, py: number, pz: number, bx: numb
   return x * x + y * y + z * z;
 }
 
-/** Whether lamp `i` of a lamp table reaches level-0 brick (bx, by, bz): its reach sphere meets the brick's box (strictly). */
-export function volumeLampReaches(lamps: ArrayLike<number>, i: number, bx: number, by: number, bz: number): boolean {
+/** Whether lamp `i` of a lamp table reaches brick (bx, by, bz) of `level`: its reach sphere meets the brick's box (strictly). */
+export function volumeLampReaches(lamps: ArrayLike<number>, i: number, bx: number, by: number, bz: number, level = 0): boolean {
   const o = i * VOLUME_LAMP_FLOATS;
   const r = lamps[o + 3]!;
-  return volumeLampBrickGap2(lamps[o]!, lamps[o + 1]!, lamps[o + 2]!, bx, by, bz) < r * r;
+  return volumeLampBrickGap2(lamps[o]!, lamps[o + 1]!, lamps[o + 2]!, bx, by, bz, level) < r * r;
 }
 
 /**
@@ -567,10 +569,10 @@ export function volumeLampReaches(lamps: ArrayLike<number>, i: number, bx: numbe
  * times its falloff (the update's: 1 / d^decay, floored at 0.01, smoothed to 0 at the reach) at the brick's nearest
  * point to it (d at least 0.1 m: a lamp inside the brick counts as one 0.1 m off). The update's WGSL `lamp_strength`.
  */
-export function volumeLampStrength(lamps: ArrayLike<number>, i: number, bx: number, by: number, bz: number): number {
+export function volumeLampStrength(lamps: ArrayLike<number>, i: number, bx: number, by: number, bz: number, level = 0): number {
   const o = i * VOLUME_LAMP_FLOATS;
   const r = lamps[o + 3]!;
-  const d = Math.sqrt(volumeLampBrickGap2(lamps[o]!, lamps[o + 1]!, lamps[o + 2]!, bx, by, bz));
+  const d = Math.sqrt(volumeLampBrickGap2(lamps[o]!, lamps[o + 1]!, lamps[o + 2]!, bx, by, bz, level));
   const t = d / r;
   const w = Math.min(Math.max(1 - t * t * t * t, 0), 1);
   return (Math.max(lamps[o + 4]!, lamps[o + 5]!, lamps[o + 6]!) * w * w) / Math.max(Math.max(d, 0.1) ** lamps[o + 7]!, 0.01);
@@ -583,15 +585,15 @@ export interface VolumeBrickLamps {
 }
 
 /**
- * The lamps level-0 brick (bx, by, bz) lists, the CPU reference of the list build (`VOLUME_LAMP_LIST_WGSL`): every lamp
+ * The lamps brick (bx, by, bz) of `level` lists, the CPU reference of the list build (`VOLUME_LAMP_LIST_WGSL`): every lamp
  * of the table (`count` lamps) whose reach meets the brick's box; past `entries` of them, the `entries` strongest
  * ({@link volumeLampStrength}; equal strengths: the lower index), listed by index.
  */
-export function volumeBrickLamps(lamps: ArrayLike<number>, count: number, bx: number, by: number, bz: number, entries = VOLUME_LAMP_LIST_ENTRIES): VolumeBrickLamps {
+export function volumeBrickLamps(lamps: ArrayLike<number>, count: number, bx: number, by: number, bz: number, entries = VOLUME_LAMP_LIST_ENTRIES, level = 0): VolumeBrickLamps {
   const hit: number[] = [];
-  for (let i = 0; i < count; i++) if (volumeLampReaches(lamps, i, bx, by, bz)) hit.push(i);
+  for (let i = 0; i < count; i++) if (volumeLampReaches(lamps, i, bx, by, bz, level)) hit.push(i);
   if (hit.length <= entries) return { listed: hit, total: hit.length };
-  const ranked = hit.map((i) => [i, volumeLampStrength(lamps, i, bx, by, bz)] as const);
+  const ranked = hit.map((i) => [i, volumeLampStrength(lamps, i, bx, by, bz, level)] as const);
   ranked.sort((a, b) => b[1] - a[1] || a[0] - b[0]);
   return { listed: ranked.slice(0, entries).map((s) => s[0]).sort((a, b) => a - b), total: hit.length };
 }
@@ -601,4 +603,22 @@ export function volumeLampBrickBox(lamps: ArrayLike<number>, i: number): [number
   const o = i * VOLUME_LAMP_FLOATS;
   const r = lamps[o + 3]!;
   return [[0, 1, 2].map((a) => Math.floor((lamps[o + a]! - r) / VOLUME_BRICK_M)), [0, 1, 2].map((a) => Math.floor((lamps[o + a]! + r) / VOLUME_BRICK_M))];
+}
+
+/**
+ * The brick whose lamp list lights a ray's hit, the CPU reference of the update's WGSL `lamp_list_at`: of the open
+ * level-0 cell (x, y, z) in front of the hit, the level-0 brick holding it when it lies in that level's window and has a
+ * list (`listed(level, bx, by, bz)`: kept, with a slot), else the finest coarse level's brick holding it that does;
+ * null when none does (the hit gets no lamp light). `origins`: each level's window corner brick.
+ */
+export function volumeLampListBrick(x: number, y: number, z: number, origins: readonly (readonly number[])[], listed: (level: number, bx: number, by: number, bz: number) => boolean): [number, number, number, number] | null {
+  for (let level = 0; level < VOLUME_LEVELS; level++) {
+    const sh = VOLUME_BRICK_SHIFT + level;
+    const b = [x >> sh, y >> sh, z >> sh];
+    const o = origins[level]!;
+    const d = VOLUME_LEVEL_WINDOWS[level]!;
+    if (b.some((v, a) => v < o[a]! || v >= o[a]! + d[a]!)) continue;
+    if (listed(level, b[0]!, b[1]!, b[2]!)) return [level, b[0]!, b[1]!, b[2]!];
+  }
+  return null;
 }

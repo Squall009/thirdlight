@@ -743,8 +743,8 @@ function voxelLightHooks(draws: VoxelWorldDraws, adapter: () => SceneAdapter | n
     volume: () => draws.lightVolume()?.diagnostics() ?? null,
     /** Cells of the light volume read back from the GPU at world points (metres; or a level's cells, `{ points, level }`), the CPU's rule beside each. */
     volumeCells: (at: number[][] | { points: number[][]; level: number }) => (Array.isArray(at) ? draws.lightVolume()?.cells(at) : draws.lightVolume()?.cells(at.points, at.level)) ?? Promise.resolve(null),
-    /** The lamp lists of the light volume's level-0 bricks holding world points (metres) read back from the GPU, the CPU's rule beside each. */
-    volumeLamps: (points: number[][]) => draws.lightVolume()?.lampLists(points) ?? Promise.resolve(null),
+    /** The lamp lists of the light volume's bricks (level 0, or `{ points, level }`) holding world points (metres) read back from the GPU, the CPU's rule beside each. */
+    volumeLamps: (at: number[][] | { points: number[][]; level: number }) => (Array.isArray(at) ? draws.lightVolume()?.lampLists(at) : draws.lightVolume()?.lampLists(at.points, at.level)) ?? Promise.resolve(null),
   };
 }
 

@@ -2,24 +2,27 @@
  * The voxel light volume's lamps (voxel-light-volume.ts uses them): the lamp
  * table its update reads, made from the clustered lights' record of every
  * lamp (`ClusterLights`, gathered each frame for the clusters: one
- * description of a lamp on the page), and a list per level-0 brick of the
- * lamps that reach it, in world space, built in compute.
+ * description of a lamp on the page), and a list per kept brick (every
+ * level) of the lamps that reach it, in world space, built in compute.
  *
  * - **The table.** Point and spot lights with a range whose reach meets the
  *   volume's windows, as `VOLUME_LAMP_FLOATS` words each (their kind passed
  *   through: a spot is lit as a point by the update for now; area lights and
  *   an effect's lights are not in it). Uploaded when it changes, into a
  *   buffer that grows with it: no count of lamps is capped.
- * - **The lists.** A slot of the pool's words: the lamps a level-0 brick's
- *   box is reached by (`volumeBrickLamps`, at most `VOLUME_LAMP_LIST_ENTRIES`;
- *   an overflowing brick keeps those that give it the most light, the rest
- *   counted). Built for every level-0 brick holding a slot when the table
+ * - **The lists.** A slot of the pool's words: the lamps a brick's box is
+ *   reached by (`volumeBrickLamps`, at most `VOLUME_LAMP_LIST_ENTRIES`; an
+ *   overflowing brick keeps those that give it the most light, the rest
+ *   counted). A hit is lit by its level-0 brick's list, past the level-0
+ *   window (or before its brick has a slot) by the finest coarse brick's
+ *   holding it, so the bounce of lamps out to the coarse levels' reach is
+ *   kept. Built for every brick holding a slot when the table
  *   changes, and for the slots taken or given up since the last build
  *   otherwise; never while nothing changed. The clustered lists are per
  *   camera and leave out what is off screen; the update's rays reach bricks
  *   off screen, so these are the bricks' own.
- * - **Where a brick's list is.** A window index of its own (level 0, wrapped
- *   as the pool's index), written as a brick takes or gives up a slot: the
+ * - **Where a brick's list is.** A window index of its own (every level's,
+ *   wrapped and stacked as the pool's index), written as a brick takes or gives up a slot: the
  *   pool's index is written only after a brick's first update, and a lamp's
  *   bounce off a brick not yet updated must not wait for it.
  * - **The counts.** After a build, every slot's list is summed in compute
@@ -29,7 +32,7 @@
  */
 import { CLUSTER_RECT, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED, type ClusterLights } from './cluster-build';
 import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer } from './tracer-gpu';
-import { VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_WORDS, VOLUME_WINDOW_BRICKS } from './voxel-light-volume-layout';
+import { VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_WORDS } from './voxel-light-volume-layout';
 import { VOLUME_LAMP_LIST_PARAM_WORDS, VOLUME_LAMP_LIST_STAT_WORDS, VOLUME_LAMP_LIST_WGSL, VOLUME_LAMP_LIST_WORKGROUP } from './voxel-light-volume-wgsl';
 import type { VolumeDevice } from './voxel-light-volume';
 
@@ -90,15 +93,16 @@ export function volumeLampSet(lights: ClusterLights | null, [lo, hi]: readonly [
   return { data: new Float32Array(found), count: spheres.length, key: keys.join(';'), spheres };
 }
 
-/** A list job: a level-0 brick and the slot its list goes to; or a slot cleared (`brick` null). */
+/** A list job: a brick (of `level`) and the slot its list goes to; or a slot cleared (`brick` null). */
 export interface VolumeLampListJob {
   readonly slot: number;
+  readonly level: number;
   readonly brick: readonly [number, number, number] | null;
 }
 
 /** The lists' counts over every slot, as the last reading found them. */
 export interface VolumeLampListCounts {
-  /** Level-0 bricks with a slot that some lamp reaches, and lamps listed over them. */
+  /** Bricks with a slot that some lamp reaches, and lamps listed over them. */
   readonly bricksLit: number;
   readonly listed: number;
   /** The most lamps reaching one brick (listed or not). */
@@ -114,7 +118,7 @@ export class VolumeLampLists {
   lampBuffer: GpuBuffer;
   /** A slot's list (`VOLUME_LAMP_LIST_WORDS` words) for every slot of the pool. */
   readonly lists: GpuBuffer;
-  /** The level-0 window's slot + 1 of each brick (0: none), wrapped as the pool's index. */
+  /** Every level's window's slot + 1 of each brick (0: none), wrapped and stacked as the pool's index. */
   readonly slots: GpuBuffer;
   private lampCount = 0;
   private jobs: GpuBuffer | null = null;
@@ -144,7 +148,7 @@ export class VolumeLampLists {
     this.lampBuffer = d.createBuffer({ size: 256, usage: STORAGE, label: 'voxel light volume lamps' });
     // New buffers are zeros: every list empty, no brick's slot known.
     this.lists = d.createBuffer({ size: capacity * VOLUME_LAMP_LIST_WORDS * 4, usage: STORAGE | GPU_BUFFER_USAGE.COPY_SRC, label: 'voxel light volume lamp lists' });
-    this.slots = d.createBuffer({ size: VOLUME_INDEX_WIDTH * VOLUME_WINDOW_BRICKS[1] * 4, usage: STORAGE, label: 'voxel light volume lamp list index' });
+    this.slots = d.createBuffer({ size: VOLUME_INDEX_WIDTH * VOLUME_INDEX_ROWS * 4, usage: STORAGE, label: 'voxel light volume lamp list index' });
     this.params = d.createBuffer({ size: VOLUME_LAMP_LIST_PARAM_WORDS * 4, usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST, label: 'voxel light volume lamp list params' });
     this.counts = d.createBuffer({ size: VOLUME_LAMP_LIST_STAT_WORDS * 4, usage: STORAGE | GPU_BUFFER_USAGE.COPY_SRC, label: 'voxel light volume lamp list counts' });
     const module = d.createShaderModule({ code: VOLUME_LAMP_LIST_WGSL, label: 'voxel light volume lamp lists' }) as { getCompilationInfo?(): Promise<{ messages: ReadonlyArray<{ type: string; lineNum: number; message: string }> }> };
@@ -170,7 +174,7 @@ export class VolumeLampLists {
     this.lampCount = set.count;
   }
 
-  /** Rows of the level-0 window's slot index uploaded (`index`: the whole index, a row of `VOLUME_INDEX_WIDTH` a brick height). */
+  /** Rows of the lists' window index uploaded (`index`: the whole index, as the pool's, a row of `VOLUME_INDEX_WIDTH`). */
   writeSlots(index: Uint32Array, rows: Iterable<number>): void {
     const w = VOLUME_INDEX_WIDTH;
     for (const y of rows) this.device.queue.writeBuffer(this.slots, y * w * 4, index.subarray(y * w, (y + 1) * w));
@@ -185,7 +189,7 @@ export class VolumeLampLists {
       if (j.brick === null) words[k * 4 + 3] = -1 - j.slot;
       else {
         words.set(j.brick, k * 4);
-        words[k * 4 + 3] = j.slot;
+        words[k * 4 + 3] = j.slot | (j.level << 24);
       }
     });
     this.jobs = grownGpuBuffer(d, this.jobs, Math.max(words.byteLength, 256), GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_DST, 'voxel light volume lamp list jobs');

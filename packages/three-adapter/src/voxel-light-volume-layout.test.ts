@@ -12,7 +12,7 @@ import { applyWalkWires, OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView
 
 import { ClusterLights } from './cluster-build';
 import { volumeLampSet } from './voxel-light-volume-lamps';
-import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampStrength, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
 
 /** A cached brick lookup over a walk source's level-0 blocks (as the volume keeps them). */
 function brickLookup(tsrc: WalkSource): (bx: number, by: number, bz: number) => VolumeBlockBricks | null {
@@ -609,6 +609,68 @@ describe('the light volume lamp lists', () => {
     });
     expect(onlyOne).toBeGreaterThan(10);
     expect(changed).toBeGreaterThanOrEqual(onlyOne);
+  });
+
+  it('a hit past the level-0 window is lit by the finest coarse brick holding it with a list, which lists the lamps reaching it', () => {
+    // The eye at the origin: level 0 spans ±48 m across, level 1 ±24 m, level 2 ±48 m, level 3 ±96 m (corner bricks).
+    const origins = VOLUME_LEVEL_WINDOWS.map((d) => d.map((n) => -(n >> 1)));
+    const kept = new Set<string>();
+    const listed = (level: number, bx: number, by: number, bz: number): boolean => kept.has(`${level},${bx},${by},${bz}`);
+    const cellOf = (p: readonly number[]): number[] => p.map((v) => Math.floor(v / 0.5));
+    // A lamp 60 m out, past the level-0, 1 and 2 windows (±48, ±24, ±48 m), inside level 3's (±96 m); another 10 m out.
+    const t = new Float32Array(2 * VOLUME_LAMP_FLOATS);
+    t.set([60, 2, 3, 14, 1, 0.8, 0.5, 2], 0);
+    t.set([10, 2, 3, 6, 1, 1, 1, 2], VOLUME_LAMP_FLOATS);
+    const hit = [55.25, 0.75, 3.25];
+    const c = cellOf(hit);
+    // No brick kept anywhere: no list, no lamp light.
+    expect(volumeLampListBrick(c[0]!, c[1]!, c[2]!, origins, listed)).toBeNull();
+    // Level 3 keeps the brick holding it (8 m bricks, 4 m cells): its list, and the lamp reaching the hit is on it.
+    const b3 = c.map((v) => v >> (2 + 3));
+    kept.add(`3,${b3.join(',')}`);
+    const at = volumeLampListBrick(c[0]!, c[1]!, c[2]!, origins, listed);
+    expect(at).toEqual([3, ...b3]);
+    const list = volumeBrickLamps(t, 2, b3[0]!, b3[1]!, b3[2]!, undefined, 3);
+    expect(Math.hypot(hit[0]! - 60, hit[1]! - 2, hit[2]! - 3)).toBeLessThan(14);
+    expect(list.listed).toEqual([0]);
+    // Past level 0's window the level-0 brick does not serve even if kept; inside it, it does, before any coarse one.
+    kept.add(`0,${c.map((v) => v >> 2).join(',')}`);
+    expect(volumeLampListBrick(c[0]!, c[1]!, c[2]!, origins, listed)![0]).toBe(3);
+    const near = cellOf([10.25, 0.75, 3.25]);
+    kept.add(`0,${near.map((v) => v >> 2).join(',')}`);
+    kept.add(`1,${near.map((v) => v >> 3).join(',')}`);
+    expect(volumeLampListBrick(near[0]!, near[1]!, near[2]!, origins, listed)![0]).toBe(0);
+    // A level-0 brick without a slot yet: the finest coarse level holding it with one.
+    kept.delete(`0,${near.map((v) => v >> 2).join(',')}`);
+    expect(volumeLampListBrick(near[0]!, near[1]!, near[2]!, origins, listed)![0]).toBe(1);
+    // Past every window: none.
+    const out = cellOf([130, 0.75, 3]);
+    kept.add(`3,${out.map((v) => v >> 5).join(',')}`);
+    expect(volumeLampListBrick(out[0]!, out[1]!, out[2]!, origins, listed)).toBeNull();
+  });
+
+  it('a coarse brick lists every lamp whose reach meets its box (brute force, levels 1–3), by the same rule', () => {
+    const t = scrap();
+    const n = t.length / VOLUME_LAMP_FLOATS;
+    for (const level of [1, 2, 3]) {
+      const m = VOLUME_BRICK_M * 2 ** level;
+      let lit = 0;
+      for (let x = -4; x < 4; x++) for (let y = -1; y < 2; y++) for (let z = -4; z < 4; z++) {
+        const want: number[] = [];
+        for (let i = 0; i < n; i++) {
+          const o = i * VOLUME_LAMP_FLOATS;
+          const d = Math.hypot(...[x, y, z].map((b, a) => t[o + a]! - Math.min(Math.max(t[o + a]!, b * m), b * m + m)));
+          if (d < t[o + 3]!) want.push(i);
+        }
+        const r = volumeBrickLamps(t, n, x, y, z, Infinity, level);
+        expect(r.listed, `level ${level} brick ${x},${y},${z}`).toEqual(want);
+        if (want.length > 0) lit++;
+        const k = volumeBrickLamps(t, n, x, y, z, undefined, level);
+        expect(k.total).toBe(want.length);
+        expect(k.listed.length).toBe(Math.min(want.length, VOLUME_LAMP_LIST_ENTRIES));
+      }
+      expect(lit).toBeGreaterThan(10);
+    }
   });
 
   it("the lamp table from the clustered lights' record: point and spot lights with a range, on, near the windows; their record passed through", () => {

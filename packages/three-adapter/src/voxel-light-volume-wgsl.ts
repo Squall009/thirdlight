@@ -14,8 +14,9 @@
  *   nothing within its reach, each lamp in range on the list of the brick
  *   holding the open cell in front of the face whose walk to it meets
  *   nothing, and the volume's own light in that cell (so bounces build over
- *   updates). A hit whose open cell lies in no kept level-0 brick with a slot
- *   (past the level-0 window, or not kept yet) gets no lamp light.
+ *   updates). Past the level-0 window (or where its brick has no slot yet)
+ *   the finest coarse brick holding that cell with a slot lists the lamps;
+ *   a hit no kept brick of any level holds gets no lamp light.
  *
  * The estimate (π × the rays' mean radiance) is blended into the face's old
  * light with the brick's weight (1 / its updates), so a brick settles over
@@ -29,7 +30,7 @@
  * level-0 cells at their hits.
  */
 import { WALK_GPU_MAX_STEPS, voxelWalkWgsl } from './voxel-walk-wgsl';
-import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_WIDTH, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
+import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
 import { SH_Y0, SH_Y1 } from './surface-probes';
 
 /** Threads a workgroup: one a cell of a brick. */
@@ -37,7 +38,9 @@ export const VOLUME_WORKGROUP = VOLUME_BRICK_VOLUME;
 /** u32 words a listed brick takes (its brick and slot, its weight and update). */
 export const VOLUME_LIST_WORDS = 8;
 /** f32 words of the pass's parameters. */
-export const VOLUME_PARAM_FLOATS = 48;
+export const VOLUME_PARAM_FLOATS = 52;
+/** Where in them the coarse levels' window corners start (a vec4 of i32 each, levels 1 … 3). */
+export const VOLUME_PARAM_COARSE = 40;
 
 export const VOLUME_UPDATE_WGSL = /* wgsl */ `
 struct Params {
@@ -48,7 +51,7 @@ struct Params {
   sky: array<vec4<f32>, 4>,
   misc: vec4<f32>,
   levels: vec4<u32>,
-  pad: array<vec4<f32>, 2>,
+  coarse: array<vec4<i32>, ${VOLUME_LEVELS - 1}>,
 }
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> bricks: array<vec4<i32>>;
@@ -159,18 +162,23 @@ fn volume_clear(p: vec3<f32>, d: vec3<f32>, max_t: f32) -> bool {
   return h.end != 1u;
 }
 
+/** The slot + 1 of the brick of \`level\` holding level-0 cell c in the lists' window index (0: none there). */
+fn lamp_slot_of(c: vec3<i32>, level: u32, o: vec3<i32>, d: vec3<i32>, row: u32) -> u32 {
+  let b = c >> vec3<u32>(2u + level);
+  if (any(b < o) || any(b >= o + d)) { return 0u; }
+  let s = ((b % d) + d) % d;
+  return lamp_slots[(row + u32(s.y)) * ${VOLUME_INDEX_WIDTH}u + u32(s.x + d.x * s.z)];
+}
+
 /**
- * Where the lamp list of the level-0 brick holding cell c starts (its slot's words), or -1: the brick is past the
- * level-0 window or holds no slot. The lists' own window index, written as a brick takes and gives up a slot (the
- * pool's index is written only after its first update).
+ * Where the lamp list lighting a hit whose open cell is c starts (its slot's words), or -1: the list of the level-0
+ * brick holding c when that brick is in its window with a slot, else the finest coarse level's brick holding c that
+ * has one (the CPU reference is volumeLampListBrick). The lists' own window index, written as a brick takes and gives
+ * up a slot (the pool's index is written only after its first update).
  */
 fn lamp_list_at(c: vec3<i32>) -> i32 {
-  let b = c >> vec3<u32>(2u);
-  let o = params.origin.xyz;
-  let d = params.dims.xyz;
-  if (any(b < o) || any(b >= o + d)) { return -1; }
-  let s = ((b % d) + d) % d;
-  let v = lamp_slots[u32(s.y) * ${VOLUME_INDEX_WIDTH}u + u32(s.x + d.x * s.z)];
+  var v = lamp_slot_of(c, 0u, params.origin.xyz, params.dims.xyz, 0u);
+${Array.from({ length: VOLUME_LEVELS - 1 }, (_, k) => k + 1).map((l) => `  if (v == 0u) { v = lamp_slot_of(c, ${l}u, params.coarse[${l - 1}].xyz, vec3<i32>(${VOLUME_LEVEL_WINDOWS[l]!.join(', ')}), ${VOLUME_INDEX_ROW_BASE[l]}u); }`).join('\n')}
   if (v == 0u) { return -1; }
   return i32((v - 1u) * ${VOLUME_LAMP_LIST_WORDS}u);
 }
@@ -291,8 +299,8 @@ export const VOLUME_LAMP_LIST_PARAM_WORDS = 4;
 export const VOLUME_LAMP_LIST_STAT_WORDS = 8;
 
 /**
- * The lamp lists' build (entry point `build`): one invocation a job, a job a level-0 brick and its slot (x, y, z,
- * slot), or a slot to clear (w = −1 − slot). It tests every lamp of the table against the brick's box (its reach
+ * The lamp lists' build (entry point `build`): one invocation a job, a job a brick and its slot (x, y, z, and the
+ * slot with the brick's level over its low 24 bits), or a slot to clear (w = −1 − slot). It tests every lamp of the table against the brick's box (its reach
  * sphere meets the box), keeps the `VOLUME_LAMP_LIST_ENTRIES` that are strongest while more reach it (the weakest
  * goes, the latest of equals), and writes them by index with the count listed and the count reaching it. The CPU
  * reference is `volumeBrickLamps`. The count (entry point `count`): every slot's list summed into the counts the
@@ -332,9 +340,10 @@ fn build(@builtin(global_invocation_id) gid: vec3<u32>) {
     lists[base + 1u] = 0u;
     return;
   }
-  let base = u32(job.w) * WORDS;
-  let lo = vec3<f32>(job.xyz) * BRICK_M;
-  let hi = lo + vec3<f32>(BRICK_M);
+  let base = (u32(job.w) & 0xffffffu) * WORDS;
+  let size = BRICK_M * f32(1u << (u32(job.w) >> 24u));
+  let lo = vec3<f32>(job.xyz) * size;
+  let hi = lo + vec3<f32>(size);
   var ids: array<u32, ${VOLUME_LAMP_LIST_ENTRIES}>;
   var sc: array<f32, ${VOLUME_LAMP_LIST_ENTRIES}>;
   var n = 0u;
