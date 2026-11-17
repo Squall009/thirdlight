@@ -243,7 +243,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
 | 46e.10 | Done 2026-11-17 (cb7229fa…5503e495): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); 10b: walk blocks only while the page reads its GPU walk; 10c: sim frames build full diagnostics only when sent (11.8 ms a tick of voxel stats after a 150 m/s stop): store off nothing pending 7.0–7.3 s (base 7.4–7.5, before 10.5–11.4), D701 fixed; D672 narrowed; D711 |
 | 46e.11 | Proposed 2026-11-16 (24296e84), published as acc46e-11: `docs/briefs/proposal-46e.11-emissive.md` — no new stored field (the voxel path reads the record's `params.emissive` × `params.emissiveIntensity`; the volume keeps one more word a cell, 28 → 32 B); three questions with defaults. **Waiting for the owner's note; nothing built.** |
-| 46e.12 | (a) done 2026-11-17 (b73ee726…2b80a9c2): lamp list per kept brick (every level, ≤ 16, overflow counted), built in compute from the clustered lights' record; no-list hits (0.17 %) loop the table; night = flat loop's (0.001–0.007 %); 128 extra lamps: pass 4.1–6.1 → 0.21–0.24 ms a brick; +1.8 MB. (b), (c) next; (d) waits for the owner |
+| 46e.12 | (a) done 2026-11-17 (b73ee726…2b80a9c2): lamp list per kept brick built in compute, 128 extra lamps 4.1–6.1 → 0.21–0.24 ms a brick. (b), (c) done 2026-11-17 (3d198037…38220994): spots by cone, rect and line lights by the LTC form factor (one definition, = per-pixel to 1e-6), walk to a point per ray; one spot + one area 0.029 ms a brick (base 0.024–0.028). (d) waits for the owner |
 | 46e.13 | not started |
 | 46e.14 | not started |
 | 46e.15 | not started |
@@ -2284,6 +2284,155 @@ facing, half sides (12–14, 16–18) and kind field (11): `volumeLampSet` passe
 skipped by `kind >= CLUSTER_RECT`), lists them by their reach sphere as is, and shades them in `direct_light` by
 kind. The whole-table fallback loops the same records.
 
+### 46e.12b, c — spot lights bounce within their cone; area lights (rect and line) bounce
+
+**What was built** (3d198037, 162ef563, 38220994; the bench option fc79f2c0). Work folder
+`~/.cache/thirdlight-phase46e/work/46e.12bc/`.
+- **The lamp maths, written once.** `voxel-light-volume-terms.ts` writes the two new terms over `ScalarOps`
+  (`@thirdlight/shared`): the update's WGSL is generated from them (`wgslScalarWriter`, through `wgslStepFn`, now
+  exported from `voxel-walk-wgsl.ts`) and the CPU reference the tests run is the same definition. The per-pixel
+  light stays three's nodes (unchanged); a test holds the two equal against a line-by-line CPU copy of those nodes.
+  - **A spot's cone**: three's `smoothstep(cos outer, cos inner, cos to the axis)`, as `cluster-lights.ts` calls it
+    (the record's words 15 and 19); outside the cone the hit gets none, and no walk is made. Equal edges (no soft
+    edge) are a step (WGSL leaves smoothstep undefined there). The spot's falloff is the point's (three's
+    `getDistanceAttenuation` with the range window, as before). **A spot's cookie is not read** by the volume.
+  - **An area light's diffuse light** (rect, or a line as the strip `ClusterLights` gives it): the form the
+    clustered loop uses for lighting models without a rectangle light of their own (`cluster-area.ts`): three's
+    `LTC_Evaluate` with the identity matrix (the four edges' vector form factor, its rational θ / sin θ fit, the
+    horizon clip by its sphere fit), lit on its facing side only unless two-sided (three's back-side test and the
+    two-sided flip of `v`), radiance colour × intensity over 4 |u| |v|, the window (1 − (d² / r²)²)² toward its
+    reach from its centre. Irradiance π × colour × the factor, as the physical model's `directRectArea` gives the
+    diffuse light (L × albedo × F); Lambert, Phong and custom-lit materials per pixel take `direct` with π L F over the
+    centre's N·L clamped at 0.05 and multiply it back, so they differ only where the centre is under 3° above the
+    surface's horizon (0 at and below it per pixel; the volume keeps the part of the light still above the horizon).
+    The sum is taken in world space: three's frame round the normal is mirrored (its second tangent negated), so the
+    normal's part changes sign; no view direction is needed.
+  - **Which form** (the brief: exact if the update affords it, else a documented cheaper one): exact. The cheaper
+    form (the form factor from the centre with both facing cosines, i.e. a point of the light's intensity) against
+    the exact over 571 lit points round a 1 × 0.5 m panel: median error 3.0 %, 90th percentile 19 %, worst 100 %;
+    within 1.5 m of its centre median 19 %, 90th 57 % (`voxel-light-volume-terms.test.ts`, logged). Read as ms a
+    brick with one area light in reach (table below): the approximation (a measurement build) was not cheaper
+    (0.087–0.102 against 0.065–0.070 ms in the same hour): the term is not what costs. What cost was the area light's
+    walk as a second call site of the occupancy walk in the lamp loop (a second inlined copy of the walk:
+    registers and size); with one walk for every kind (38220994) the pass reads 0.029 ms a brick.
+- **The update** (`voxel-light-volume-wgsl.ts` `direct_light`): each listed lamp gives its light at the hit and the
+  walk's way and length by its kind (point: falloff × N·L; spot: that × its cone, nothing outside it; area light:
+  π × colour × the factor), then one walk toward it. **An area light's shadow**: the walk goes toward a point of the
+  rectangle (a line: along its length) that the ray picks from its own sequence (the ray's low-discrepancy point
+  turned and offset), so over a face's updates its rays cover the light and the bounce's shadow is soft; within a
+  single update a hit is lit or not. The per-pixel area light casts through its five atlas faces (six two-sided)
+  when it casts (`castShadow`, on by default); the volume walks every lamp whether it casts per pixel or not (as it
+  did for points), so with `castShadow` off the per-pixel light is unshadowed and its bounce is shadowed.
+- **Two pipelines.** The area lights' code costs every invocation registers and size when no area light is listed
+  (measured with the town's five points: 0.034–0.041 ms a brick against the base's 0.021–0.023 before the split),
+  as the clustered loop's area kinds cost every lit pixel; the update runs without it while the table holds no area
+  light (`volumeUpdateWgsl(areas)`, each pipeline made when first needed), as the clustered lights build theirs.
+  Whether one pipeline would do since the single walk is not measured.
+- **The table and the lists** (`voxel-light-volume-lamps.ts` `volumeLampSet`): area lights (rect and line, on, lit,
+  not an effect's) are admitted with their record (facing and kind field in words 8–11, half sides in 12–14 and
+  16–18); the two-sided bit (the same bit as a range-less point's) is no longer read as range-less on an area
+  light. They are listed by their reach sphere, as every lamp (no cone or facing test for the lists: a brick behind
+  an area light or outside a spot's cone lists it and its hits get nothing). A spot turned, an area light moved or
+  resized changes its words, so the table's key, and marks what the old and new reach (as before).
+- **Hemisphere lights** are in the volume's sky term already: `surface-probe-sky.ts:123` (`held.push({ kind:
+  'hemisphere', … })`, the ambient and hemisphere lights the volume holds, projected into the sky SH the update's
+  rays see). No change.
+- Nothing per pixel changed; no tuning (rays, reach, pacing, read, list size as they were).
+
+**Tests.**
+- vitest `voxel-light-volume-terms.test.ts` (new, 7): the spot's cone against three's smoothstep over 600 surfaces
+  (≥ 150 each inside the inner cone, in the soft edge, outside), equal edges a step; the area light's diffuse light
+  against the CPU copy of three's `LTC_Evaluate` (its frame from a random view direction) with cluster-area's window
+  and radiance, 600 surfaces each (in front, beside, behind) for a ceiling panel, a turned 2 × 1 m wall panel, a
+  two-sided square and a 1.2 m line light, relative error < 1e-6, nothing behind a one-sided light; the cheaper form's
+  error (recorded); the WGSL carries both terms, and the update without area lights carries no area code. Broken once
+  (`broken-normal-sign-vitest.log`: the normal's part of the sum unmirrored): the four area cases fail.
+  `voxel-light-volume-layout.test.ts`: the lamp table admits a rect, a line and a two-sided rect with their words
+  (facing, kind 2 / 3 / 6, half sides, the line's strip), leaves out an area light switched off or past the
+  windows; a spot turned, an area light moved or resized changes the key; points and spots alone run without the
+  area code; an area light (rect, line, two-sided) is listed by every level-0 and 1 m brick its reach meets and no
+  other (brute force over 3,584 bricks).
+- Play e2e (`voxelVolumeLightChecks` → `lightTypeChecks`, in the shut hut after its first reads: one settle with
+  both lights, one after taking them out): a red spot mid-room 2 m from the east wall aimed at it (20°, soft edge
+  0.2) and a blue 1 × 0.5 m panel under the ceiling at the south end. Read back from the GPU (`volumeCells`): the
+  cells along the west wall, behind the spot: +x faces (looking at the lit wall) hold its red bounce 4.86 (bound
+  1.6), −x faces (looking at the west wall beside them, outside the cone) 0.43: ratio 0.088 (bound 0.33); the cells
+  over the floor under the panel, down faces: blue bounce 109 (bound 36), before it was placed 0 (bound a tenth).
+  **Broken once** (`broken-cone-ignored-area-not-admitted-e2e.log`, the cone forced to 1 and area lights left out
+  of the table, one run): the ratio reads 0.892 (front 109, behind 97) and fails; the panel's bounce reads 0 (its
+  check would fail next). Taken out and settled again: the panel's bounce reads 57.8, the spot's 2.69: about half
+  stays (D715). Play test 2.2 min (gate-fast-20261117-040531) → 2.4, 2.4, 2.5 min (the three gates below; timeout 240 s); its settles here 0.5 s
+  each.
+
+**Pictures** (low, WebGPU, 1280 × 720, 30 Hz; base = c660f6ca with the bench option cherry-picked, built in a scratch
+worktree, removed after; A B A B; `compare-pics.txt`; pixels differing by more than 10 a channel).
+
+| | street | room | cave | night | far |
+|---|---|---|---|---|---|
+| standard, base r1 / r2 | 0.013 % | 0.000 | 0.533 | 0.016 | 0.003 |
+| standard, head r1 / r2 (3d198037) | 0.059 | 0.000 | 0.267 | 0.002 | 0.004 |
+| standard, base against head (4 pairs) | 0.011–0.079 | 0.000 | 0.065–0.862 | 0.005–0.019 | 0.005–0.008 |
+| standard, 162ef563 against base r1 / r2 | 0.248 / 0.265 (edges only) | 0.000 | 1.377 / 0.894 | 0.004 / 0.019 | 0.004 / 0.005 |
+| `--light-types`, base r1 / r2 | 0.921 | 0.000 | 1.083 | 0.003 | 0.007 |
+| `--light-types`, head r1 / r2 | 0.058 | 0.000 | 0.703 | 0.086 | 0.001 |
+| `--light-types`, base against head | 0.079–1.008 | 0.000 | 0.585–1.015 | **3.99–4.26** | 0.006–0.029 |
+| standard, 38220994 against base r1 / r2 | 0.209 / 0.223 (edges only) | 0.000 | 0.494 / 0.009 | 0.003 / 0.007 | 0.006 / 0.015 |
+| `--light-types`, 38220994 against base r1 / r2; against head r1 | 1.188 / 0.353; 0.332 | 0.000 | 0.951 / 0.773; 0.386 | **4.38 / 4.38**; 0.072 | 0.015 / 0.002; 0.052 |
+
+Without the option the five pictures are the base's within each version's run-to-run (night 0.002–0.019 %; the
+later runs' street 0.16–0.27 % against every other run, 162ef563 against 38220994 too, are window and roof edges a
+pixel off, `diff-street-head-head2.png`, `diff-street-base-head3.png`: no lamp is lit at noon). With it the night
+picture differs in 4 %: looked at, `pictypes-base-r1/night-lamps.png` beside `pictypes-head-r1/night-lamps.png`
+and `pictypes-head2-r1/night-lamps.png`, with `diff-night-types-base-head-r1.png` (`diff-night-types-base-head3.png`
+for 38220994: the same) (red: darker after, blue:
+brighter after): the right street's plaster house front at x 15–25 and the left front's edge round the spot lose
+the bounce the spot lit as a point gave them (it lit everything in its 12 m), so the spot's bounce now comes only
+from the strip its cone lights on the left front (seen nearly edge-on from this camera); the walls and fence round
+the panel (right, near the camera) gain bounce, in blotches a metre across rather than soft (D692's 32-ray noise,
+46e.13). `diff-night-head-types-vs-standard-r1.png`: the light types' whole effect after (the panel's per-pixel
+light on the ground and fence, the spot's strip, the bounce blotches).
+
+**Cost** (low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone, `uptime` beside each (`*.uptime`; load 1.3–4.4),
+committed built code; `light-shots --only night-lamps --gpu --gpu-stale --gpu-only lighting`, with or without
+`--light-types`; while every brick is stale: `lighting` GPU ms (`measureGpu`), the pass's ms a brick (its own
+timestamps, the pacing's reading, at the end of the stale measurement), bricks a frame (the stale frames' update
+rows, every level), page `voxel light volume` ms). Every run exits 1: the after-measurement picture check of a
+night-only run (D713), not a failed reading. Rounds 1 and 2 interleaved with the base; round 3 head only, the same
+hour (`cost*`, `costtypes*`; `cost-table*.txt`).
+
+| | `lighting` GPU ms | ms a brick | bricks a frame | page ms |
+|---|---|---|---|---|
+| five lamps, base (4 runs) | 8.34–10.20 | 0.020–0.023 | 278–298 | 0.50–0.66 |
+| five lamps, 3d198037 (area code in the loop) | 8.88, 9.12 | 0.034, 0.041 | 161, 173 | 0.62, 0.75 |
+| five lamps, 162ef563 (two pipelines) | 10.38, 8.81 | 0.022, 0.023 | 282, 282 | 0.45, 0.50 |
+| five lamps, 38220994 (one walk) | 9.11, 9.93 | 0.023, 0.022 | 291, 297 | 0.46, 0.45 |
+| light types, base (spot as a point, no area light) | 8.84, 8.65 | 0.028, 0.024 | 264, 278 | 0.46, 0.65 |
+| light types, 3d198037 | 8.58, 9.44 | 0.058, 0.069 | 103, 80 | 0.44, 0.50 |
+| light types, 162ef563, exact term | 10.59, 9.35 | 0.070, 0.065 | 88, 88 | 0.63, 0.53 |
+| light types, 162ef563 with the centre approximation (a measurement build) | 10.04, 10.01 | 0.102, 0.087 | 84, 69 | 0.56, 0.64 |
+| light types, 38220994 | 9.45, 9.90 | 0.029, 0.029 | 216, 204 | 0.54, 0.46 |
+
+The `lighting` row is the paced pass filling its share of the frame either way (8.3–10.6 ms against 6.67, D690);
+what moves is the bricks a frame. Five lamps: the head equals the base (0.022–0.023 against 0.020–0.023 ms a brick;
+not resolved). One spot and one area light in reach: 0.029 ms a brick against 0.024–0.028 with the spot lit as a
+point and no area light (not resolved to better than ~+10 %; a stale town relights in about the same time).
+Settled: `lighting` below resolution in every run. Lamps in the table 5 / 7 (6 at the base: no area light);
+the most reaching one brick 3 / 5; no overflow.
+
+**Gates.** `gate-fast-20261117-153003` (3d198037) GREEN; `gate-fast-20261117-164728` (162ef563) GREEN;
+`gate-fast-20261117-171152` (38220994) GREEN. No watch row failed.
+
+**Not done / unverified.** The list rule tests the reach sphere only (no cone or facing test for a brick).
+Cookies are not read. Emissive materials (46e.12d) wait for the owner's note on 46e.11; nothing of them is built.
+The area light's softness over updates is by construction (the ray's sequence), not measured; the pictures show
+blotches (D692). Medium and high not measured. A lamp taken out leaves half its bounce (D715).
+
+**For 46e.13.** D715 (a lamp's bounce kept at half after it goes: the half history a lamp change keeps plus the
+volume's own light read back at the hits); D692's blotches show in the panel's bounce at the night camera
+(`diff-night-types-base-head-r1.png`, blue); the shut hut's spot bounce settles in 0.5 s, so dark rooms are not
+slow to light but dim (one bounce of a cone-lit patch); D690's `lighting` row 8.3–10.6 ms against 6.67 in every
+stale run here; D695 and D696 not touched.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -2623,6 +2772,18 @@ kind. The whole-table fallback loops the same records.
 - 2026-11-17 (46e.12a, default chosen, owner to confirm): the volume's lamps are the clustered lights' gathered
   record (point and spot lights on, with a range, not an effect's), not a second walk of the scene graph; lamps
   without a range and effects' lights stay out of the volume, as before.
+- 2026-11-17 (46e.12b, c, default chosen, owner to confirm): an area light's bounce uses the clustered loop's form
+  for models without a rectangle light (three's LTC with the identity matrix, horizon clip, one-sided unless
+  two-sided), not a cheaper centre form (its error: median 3 %, 90th percentile 19 %, 57 % within 1.5 m; and it was
+  not cheaper per brick). Lambert-type materials per pixel differ from it only where the light's centre is under 3°
+  above a surface's horizon.
+- 2026-11-17 (46e.12b, c, default chosen, owner to confirm): the volume shadows an area light by one walk a ray hit
+  toward a point of it the ray's sequence picks (soft over updates), and walks every lamp whether it casts per pixel
+  or not, as for points; a spot's cookie is not read; equal cone edges are a step; the lists keep the reach-sphere
+  rule (no cone or facing test).
+- 2026-11-17 (46e.12b, c, default chosen, owner to confirm): the update has two pipelines, without and with the area
+  lights' code, chosen by whether the table holds one (as the clustered lights build their area kinds only while one
+  is there), and one occupancy walk call in its lamp loop for every kind (a second call site cost 2–3× a brick).
 
 ## 10. Open questions for the owner (asked with the plan)
 
