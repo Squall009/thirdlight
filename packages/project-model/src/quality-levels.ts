@@ -415,6 +415,11 @@ export interface FrameBudget {
   readonly jobs: FrameBudgetShares;
   /** The GPU's frame, compared with pass shares (timestamps are not milliseconds at a cap). */
   readonly gpu: FrameBudgetShares;
+  /**
+   * What each measured GPU pass plans for within its row (`GPU_PASS_BUDGET`), as shares of the frame: a pass that
+   * paces itself (the light volume's update under `lighting`) keeps to its own, leaving the others in its row theirs.
+   */
+  readonly gpuPasses: Readonly<Partial<Record<GpuPassCategory, number>>>;
   /** The frame arbiter's time slices at the tier. */
   readonly slices: Readonly<Record<FrameSliceId, FrameSlice>>;
 }
@@ -435,7 +440,14 @@ const FRAME_SHARES: Readonly<{ page: FrameBudgetShares; sim: FrameBudgetShares; 
 /** The frame rate medium and high are planned at (their levels set no cap: a 60 Hz display's rate). */
 const UNCAPPED_TIER_HZ = 60;
 
-const frameBudget = (tier: LightingTier, hz: number): FrameBudget => Object.freeze({ tier, hz, intervalMs: 1000 / hz, ...FRAME_SHARES, slices: FRAME_SLICE_DEFAULTS });
+/**
+ * The measured GPU passes' own shares within their rows (default chosen, owner to confirm): the shadow maps keep a
+ * fiftieth of the frame (0.67 ms at 30 Hz; the town measured 0.6–0.7 ms at the low tier), the live light the rest of
+ * the lighting row.
+ */
+const GPU_PASS_SHARES: Readonly<Partial<Record<GpuPassCategory, number>>> = Object.freeze({ shadows: 0.02, lighting: 0.18 });
+
+const frameBudget = (tier: LightingTier, hz: number): FrameBudget => Object.freeze({ tier, hz, intervalMs: 1000 / hz, ...FRAME_SHARES, gpuPasses: GPU_PASS_SHARES, slices: FRAME_SLICE_DEFAULTS });
 
 /** Each tier's frame budget: the one place it is defined. */
 export const FRAME_BUDGET_BY_TIER: Readonly<Record<LightingTier, FrameBudget>> = Object.freeze({
@@ -452,6 +464,11 @@ export function levelFrameBudget(level: Pick<QualityLevelConfig, 'lighting'>): F
 /** What a category may spend on a thread (ms) in a frame of the budget's interval (0: nothing planned). */
 export function frameBudgetMs(budget: FrameBudget, thread: 'page' | 'sim' | 'jobs' | 'gpu', category: SpanCategory): number {
   return (budget[thread][category] ?? 0) * budget.intervalMs;
+}
+
+/** What a measured GPU pass may spend (ms) in a frame of the budget's interval (0: nothing planned). */
+export function gpuPassBudgetMs(budget: FrameBudget, pass: GpuPassCategory): number {
+  return (budget.gpuPasses[pass] ?? 0) * budget.intervalMs;
 }
 
 /**

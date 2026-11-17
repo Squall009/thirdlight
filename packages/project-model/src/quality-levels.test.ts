@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModelErrorV2 } from './errors';
 import { canonicalEnvironment, validateEnvironment, type PostConfig } from './materials';
 import { TEXTURE_BUDGET_DEFAULT_MB } from './texture-streaming';
-import { DEFAULT_QUALITY_LEVELS, FRAME_BUDGET_BY_TIER, MEMORY_BUDGET_BY_TIER, PHYSICS_MEMORY_CAP_BYTES, PROBE_RESIDENT_BYTES, frameBudgetMs, levelFrameBudget, LIGHTING_TIERS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_BUDGET_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
+import { DEFAULT_QUALITY_LEVELS, FRAME_BUDGET_BY_TIER, GPU_PASS_BUDGET, GPU_PASS_CATEGORIES, gpuPassBudgetMs, MEMORY_BUDGET_BY_TIER, PHYSICS_MEMORY_CAP_BYTES, PROBE_RESIDENT_BYTES, frameBudgetMs, levelFrameBudget, LIGHTING_TIERS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_BUDGET_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
 import { validateQualityBindings } from './save-schema';
 import { FRAME_SLICE_DEFAULTS, MEMORY_BUDGET_IDS, SPAN_CATEGORIES } from '@thirdlight/shared';
 import { FAR_BUDGET_BYTES, FAR_GPU_BUDGET_BYTES_BY_TIER, UNDO_MEMORY_BUDGET_BYTES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
@@ -197,6 +197,22 @@ describe('the frame budget per tier', () => {
     }
     expect(levelFrameBudget({})).toBe(FRAME_BUDGET_BY_TIER.medium);
     expect(levelFrameBudget(DEFAULT_QUALITY_LEVELS[0]!)).toBe(FRAME_BUDGET_BY_TIER.low);
+  });
+
+  it('splits a GPU row among the measured passes held against it, never past the row', () => {
+    for (const tier of LIGHTING_TIERS) {
+      const b = FRAME_BUDGET_BY_TIER[tier];
+      for (const row of Object.keys(b.gpu)) {
+        const passes = GPU_PASS_CATEGORIES.filter((p) => GPU_PASS_BUDGET[p] === row);
+        const planned = passes.reduce((n, p) => n + gpuPassBudgetMs(b, p), 0);
+        expect(planned).toBeLessThanOrEqual(frameBudgetMs(b, 'gpu', row as never) + 1e-9);
+      }
+    }
+    // The low tier's lighting row (6.67 ms) less the shadow maps' share: the live light's.
+    const low = FRAME_BUDGET_BY_TIER.low;
+    expect(gpuPassBudgetMs(low, 'shadows')).toBeCloseTo(0.667, 3);
+    expect(gpuPassBudgetMs(low, 'lighting')).toBeCloseTo(frameBudgetMs(low, 'gpu', 'lighting') - gpuPassBudgetMs(low, 'shadows'), 9);
+    expect(gpuPassBudgetMs(low, 'near')).toBe(0);
   });
 });
 
