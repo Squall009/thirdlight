@@ -31,6 +31,7 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | 2026-11-14 | The format spec may gain an add-only entry for three derived outputs, never stored: region labels, chunk face connectivity, sky columns (for 46e's lighting and regions). Nothing else in an approved spec changes. | `plan-phase-46e.md` §8 |
 | 2026-11-16 | The lighting storage for voxel worlds is the voxel light volume. 46e-b's order: remove the cache's voxel port and the hybrid; every light type into the volume (per-brick lamp list in world space, spot cones, area lights, emissive materials); fix the observed defects on the update side; only then tune, on the town and a many-lamps scene; low tier 720p at the 30 Hz cap. Shadows and the sun field stay on at every tier. | `plan-phase-46e.md` §6, §9 |
 | 2026-11-16 | Emissive light is a property of the voxel's material, never stored per voxel; the volume keeps it per cell as it keeps the bounce colour. The add-only material format entry is proposed for approval before it is built. | `plan-phase-46e.md` 46e.11 |
+| 2026-11-17 | Emissive voxel materials (46e.11), approved with changes (relayed by the owner's other session): reuse `params.emissive` × `params.emissiveIntensity`; without a mask the surface draws glow × the material's colour texture and the volume uses glow × the material's mean colour; a glow mask affects only the drawn pixel, packed in a spare channel of a map already read (no new array, no 14th binding; none free = stop), the volume using the mask's mean computed by the engine; the mask's entry text goes to the owner before it is built; no far-field glow in 46e-b. | `briefs/proposal-46e.11-emissive.md` |
 
 ## Dropped, superseded or deferred (do not rebuild without the owner's word)
 
@@ -55,6 +56,6 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 
 ## Format proposals waiting for the owner's note
 
-Each is a hard stop when its phase arrives: an emissive entry in the material record, read by the light volume (46e-b, 46e.11); a `gas` role (value 10) with shape as density and a mip rule like
+Each is a hard stop when its phase arrives: the glow mask's spare-channel entry in a material's surface sets (46e-b, 46e.11: the no-mask part is approved); a `gas` role (value 10) with shape as density and a mip rule like
 liquid's (47b); a fill stroke kind in the edit command (47b); narrowed feeds for liquid edits (47a); a liquid
 derived part per chunk (49); a medium channel (liquid and fog) on far-cache nodes (49).

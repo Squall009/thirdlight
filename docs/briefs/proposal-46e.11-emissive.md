@@ -1,6 +1,22 @@
 # 46e.11 — emissive voxel materials: the proposed entry (owner's note needed)
 
-**Status: proposed 2026-11-16. Nothing of it is built.** Only 46e.12 (d) and the tuning (46e.14) wait for your
+**Status: the owner's note came 2026-11-17 (relayed by the owner's other session): approved with changes.**
+
+- Question 1: yes, reuse the two existing fields.
+- Question 2, changed: drawn glow and light given off are separate. **Without a mask** a voxel surface draws
+  glow colour × strength × the material's colour texture (a glowing block keeps its texture), and the volume uses
+  glow colour × strength × the material's mean colour: one value a material. **A mask** affects only the drawn pixel
+  (and so bloom); it is packed into a spare channel of a map the voxel surface already reads (no extra texture
+  read, no 14th binding); the volume then uses glow × the mask's mean, computed by the engine when the table is
+  built, never set by hand. If no channel is free: report what was checked and stop. The mask is stored data in a
+  material's surface sets: its add-only entry text is published for the owner **before** the mask part is built.
+- Question 3: no glow in the far field in 46e-b.
+- Known and accepted: voxel materials that already carry a glow start glowing.
+
+The no-mask part is approved and 46e.12 (d) is built on it. The text below is the proposal as first published; where
+it differs from the note above (the surface drawing the bare glow colour; "the mean glow of the faces"), the note wins.
+
+**As first published (2026-11-16):** nothing of it was built. Only 46e.12 (d) and the tuning (46e.14) wait for your
 note; the other light types and the defect fixes go on meanwhile. Answer **yes / no / change** to the three
 questions at the end; a default you leave stands once you say "approved".
 
