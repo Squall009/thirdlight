@@ -115,6 +115,31 @@ describe('the light volume against closed forms', () => {
     expect(Math.abs(filtered[0]! / plain[0]! - 1)).toBeLessThan(0.02);
   });
 
+  it('a room lit through a window by the sky and the sun: refined, the update holds what the reference does at its floor, walls and ceiling', () => {
+    // A room 4 × 2.5 × 5 m inside (cells x 0 … 7, y 0 … 4, z 0 … 9), walls and roof a cell thick, a 1 × 1 m window in
+    // its west wall (x −1) at z 4 … 5, y 2 … 3; the sun low from the west through it, a sky of radiance 0.8.
+    const solid = (x: number, y: number, z: number): boolean => {
+      if (y < 0) return true;
+      const inside = x >= 0 && x < 8 && y >= 0 && y < 5 && z >= 0 && z < 10;
+      const shell = x >= -1 && x < 9 && y >= 0 && y < 6 && z >= -1 && z < 11;
+      const window = x === -1 && y >= 2 && y < 4 && z >= 4 && z < 6;
+      return shell && !inside && !window;
+    };
+    const sun = new Float32Array(7);
+    const d = [-0.7, 0.5, 0.1];
+    const len = Math.hypot(d[0]!, d[1]!, d[2]!);
+    sun.set([d[0]! / len, d[1]! / len, d[2]! / len, 1, 3, 3, 3]);
+    const w: VolumeLightWorld = { ...world(solid, { sky: 0.8, albedo: 0.6 }), sun };
+    const m = new VolumeUpdateModel(w, [0, 0, 0], [8, 5, 10], { rays: 4, reach: 24, sunReach: 48, filter: true });
+    for (let u = 0; u < VOLUME_HISTORY_UPDATES; u++) m.step();
+    const read = [[2, 0, 2, 2], [5, 0, 7, 2], [6, 0, 4, 2], [7, 2, 5, 1], [3, 2, 9, 5], [4, 4, 5, 3], [1, 4, 2, 3], [0, 1, 8, 0]];
+    const gpu = mean(read.map(([x, y, z, f]) => grey(m.held([x!, y!, z!], f!))));
+    const ref = mean(read.map(([x, y, z, f]) => grey(volumeReferenceFace(w, [x!, y!, z!], f!, { rays: 2048, bounces: 6, reach: 24, sunReach: 48 }))));
+    console.log(`room with a window: the update refined ${gpu.toFixed(4)}, the reference ${ref.toFixed(4)} (${(gpu / ref).toFixed(3)})`);
+    expect(gpu / ref).toBeGreaterThan(0.9);
+    expect(gpu / ref).toBeLessThan(1.1);
+  });
+
   it('the filter never reads across a 0.5 m wall: a lamp in one room, the room beside it behind one cell of wall stays black', () => {
     // Two closed rooms x 0 … 5 and 7 … 12 (cells), the wall between them one cell thick (x = 6); the lamp in the first.
     const solid = (x: number, y: number, z: number): boolean => y < 0 || y >= 6 || z < 0 || z >= 6 || x < 0 || x >= 13 || x === 6;

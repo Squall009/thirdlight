@@ -200,9 +200,10 @@ export const VOLUME_HISTORY_UPDATES = 64;
 export const VOLUME_HISTORY_SHARE = 4;
 
 /**
- * The weight a face's same-face neighbours each take against its own light in the update's write, at its brick's first
- * update; it falls as 1 / (updates + 1), so the filter fades out as the face's own mean holds more rays. At 0.5 four
- * neighbours hold two thirds of a first write, a ninth of the eighth.
+ * The weight a face's same-face neighbours each take against its own light in the update's write, at its brick's
+ * second update; it falls as 1 / (updates + 1), so the filter fades out as the face's own mean holds more rays (at 0.5
+ * four neighbours hold half of the second write, a third of the fourth, a ninth of the eighth). A brick's first update
+ * after a start takes none: its neighbours may still hold a light that went (they start a frame or two later).
  */
 export const VOLUME_FILTER_SHARE = 0.5;
 
@@ -211,9 +212,9 @@ export function volumeBlendWeight(updates: number): number {
   return 1 / (Math.ceil(updates / VOLUME_HISTORY_SHARE) + 1);
 }
 
-/** The weight each same-face neighbour takes in a face's write after `updates` updates of its brick. */
+/** The weight each same-face neighbour takes in a face's write after `updates` updates of its brick (none at the first). */
 export function volumeFilterShare(updates: number): number {
-  return VOLUME_FILTER_SHARE / (updates + 1);
+  return updates === 0 ? 0 : VOLUME_FILTER_SHARE / (updates + 1);
 }
 
 /** Half a cell off a surface along its normal, where a reader looks for its open cell (metres, of a 0.5 m cell). */

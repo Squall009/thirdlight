@@ -33,7 +33,8 @@
  * open cells next to it in the same open space), by a share that falls as
  * its brick's updates grow (`volumeFilterShare`), each neighbour taken
  * against the face's own light as held, so a field the same everywhere stays
- * as it is. A face's rays over its updates are consecutive points of one
+ * as it is (a brick's first update after a start takes no neighbours: they
+ * may still hold a light that went). A face's rays over its updates are consecutive points of one
  * low-discrepancy sequence (the brick's own count of rays cast), so its first
  * settle's rays cover the hemisphere evenly.
  *
@@ -353,9 +354,10 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
   var was = est;
   if (old != 0u && blend < 1.0) { was = volume_decode(old); }
   var v = mix(was, est, blend);
-  // The filter (level 0): the same face of the four cells beside it along the surface that hold light, each against
-  // this face's own light as held (the same age), with the share its brick's updates leave it. Their words are this
-  // dispatch's or the last one's, whichever the GPU reads first; a brick in its first update is not in the index yet.
+  // The filter (level 0, from a brick's second update): the same face of the four cells beside it along the surface
+  // that hold light, each against this face's own light as held (the same age), with the share its brick's updates
+  // leave it. Their words are this dispatch's or the last one's, whichever the GPU reads first; a brick in its first
+  // update is not in the index yet.
   let share = bitcast<f32>(info.w);
   if (level == 0u && share > 0.0) {
     var nsum = vec3<f32>(0.0);
