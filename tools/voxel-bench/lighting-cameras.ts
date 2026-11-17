@@ -87,6 +87,29 @@ export const BENCH_LAMPS: ReadonlyArray<{ readonly name: string; readonly positi
 export const BENCH_LAMP_LIGHT = Object.freeze({ type: 'point', color: '#ffc27a', intensity: 1, range: 14, decay: 2, castShadow: true });
 export const BENCH_LAMP_NIGHT_CD = 60;
 
+/** Metres round the night camera's eye (across and along) the bench's extra lamps are scattered over: the light volume's 0.5 m window (±48 m) less a margin. */
+const EXTRA_LAMP_SPREAD_M = 44;
+
+/**
+ * `--extra-lamps N`: N more point lamps (bench data, placed before Play and taken out after, as the street lamps are),
+ * scattered over the night camera's window by a fixed sequence (the same places every run), 1.5–4.5 m up, the street
+ * lamps' light without a shadow (their atlas tiles are not what a lamp count measures). For the light volume's cost
+ * with many lamps; the night preset lights them with the street lamps.
+ */
+export function benchExtraLamps(n: number): ReadonlyArray<{ readonly name: string; readonly position: readonly [number, number, number] }> {
+  const eye = LIGHTING_CAMERAS.find((c) => c.name === 'night-lamps')!.eye;
+  const out: Array<{ name: string; position: readonly [number, number, number] }> = [];
+  for (let i = 0; i < n; i++) {
+    // The plastic sequence (an even scatter without a grid's rows): each lamp's x, z and height from its index.
+    const u = (0.5 + i * 0.819172513) % 1;
+    const v = (0.5 + i * 0.671043607) % 1;
+    const w = (0.5 + i * 0.549700478) % 1;
+    out.push({ name: `Bench extra lamp ${i + 1}`, position: [eye[0] + (2 * u - 1) * EXTRA_LAMP_SPREAD_M, 1.5 + 3 * w, eye[2] + (2 * v - 1) * EXTRA_LAMP_SPREAD_M] });
+  }
+  return out;
+}
+export const BENCH_EXTRA_LAMP_LIGHT = Object.freeze({ ...BENCH_LAMP_LIGHT, castShadow: false });
+
 /** The house the room camera stands in: lot (6, 6), two storeys, x −5…5 m, z −4…6 m, windows in its west wall at 1–2 m. */
 export const ROOM_HOUSE = Object.freeze({ min: Object.freeze([-5, 0.5, -4] as const), max: Object.freeze([5, 3, 6] as const) });
 
@@ -254,6 +277,8 @@ export interface LightShotsOptions {
   readonly lightOut: boolean;
   /** The store set on the page after it loads, with the texture-unit guard's record kept in each shot; null: none. */
   readonly textureUnits: 'off' | 'volume' | null;
+  /** `--extra-lamps N`: N more point lamps over the night camera's window ({@link benchExtraLamps}; 0: none). */
+  readonly extraLamps: number;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -306,6 +331,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
       if (!['off', 'volume'].includes(v)) throw new Error(`--texture-units: off or volume, not ${v}`);
       return v as LightShotsOptions['textureUnits'];
     })(arg('texture-units')),
+    extraLamps: num('extra-lamps', 0, 0, 4096),
     viewport: { width: Number(m[1]), height: Number(m[2]) },
   };
 }

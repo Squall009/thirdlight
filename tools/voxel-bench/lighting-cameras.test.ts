@@ -11,7 +11,9 @@ import { validateEnvironmentPresets, type ModelErrorV2 } from '@thirdlight/proje
 import { chunkGrid, createDenseChunk, localIndex, VOXEL_ROLE } from '@thirdlight/voxel';
 import { townWorld } from './town';
 import {
+  BENCH_EXTRA_LAMP_LIGHT,
   BENCH_LAMPS,
+  benchExtraLamps,
   CAVE,
   caveStroke,
   changedShare,
@@ -131,6 +133,27 @@ describe('the light-shots options', () => {
     expect([o.quality, o.query, o.only, o.out, o.edits, o.gpu]).toEqual(['medium', '&voxelShadows=off', ['cave', 'far-view'], 'x', 0, false]);
     expect([parseLightShotsArgs(['--gpu']).gpu, parseLightShotsArgs(['--gpu', '--gpu-repeats', '7']).gpuRepeats]).toEqual([true, 7]);
     expect(() => parseLightShotsArgs(['--gpu-repeats', '1'])).toThrow(/--gpu-repeats/);
+    expect([parseLightShotsArgs([]).extraLamps, parseLightShotsArgs(['--extra-lamps', '128']).extraLamps]).toEqual([0, 128]);
+    expect(() => parseLightShotsArgs(['--extra-lamps', '-1'])).toThrow(/--extra-lamps/);
+  });
+  it('scatter the extra lamps over the night camera\'s window, the same places every run, apart, without shadows', () => {
+    const eye = LIGHTING_CAMERAS.find((c) => c.name === 'night-lamps')!.eye;
+    const a = benchExtraLamps(128);
+    expect(a).toEqual(benchExtraLamps(128));
+    expect(benchExtraLamps(32)).toEqual(a.slice(0, 32));
+    expect(new Set(a.map((l) => l.name)).size).toBe(128);
+    for (const l of a) {
+      expect(Math.abs(l.position[0] - eye[0])).toBeLessThanOrEqual(44);
+      expect(Math.abs(l.position[2] - eye[2])).toBeLessThanOrEqual(44);
+      expect(l.position[1]).toBeGreaterThanOrEqual(1.5);
+      expect(l.position[1]).toBeLessThanOrEqual(4.5);
+    }
+    // Spread over the window: no two closer than 1 m, every quarter of it holding some.
+    let least = Infinity;
+    for (let i = 0; i < a.length; i++) for (let j = i + 1; j < a.length; j++) least = Math.min(least, Math.hypot(a[i]!.position[0] - a[j]!.position[0], a[i]!.position[2] - a[j]!.position[2]));
+    expect(least).toBeGreaterThan(1);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) expect(a.filter((l) => Math.sign(l.position[0] - eye[0]) === sx && Math.sign(l.position[2] - eye[2]) === sz).length).toBeGreaterThan(16);
+    expect(BENCH_EXTRA_LAMP_LIGHT.castShadow).toBe(false);
   });
   it('refuse bad values, naming the option', () => {
     expect(() => parseLightShotsArgs(['--quality', 'ultra'])).toThrow(/--quality/);
