@@ -16,7 +16,7 @@
  *   nothing, and the volume's own light in that cell (so bounces build over
  *   updates). Past the level-0 window (or where its brick has no slot yet)
  *   the finest coarse brick holding that cell with a slot lists the lamps;
- *   a hit no kept brick of any level holds gets no lamp light.
+ *   a hit no kept brick of any level holds loops over the whole table.
  *
  * The estimate (π × the rays' mean radiance) is blended into the face's old
  * light with the brick's weight (1 / its updates), so a brick settles over
@@ -185,7 +185,8 @@ ${Array.from({ length: VOLUME_LEVELS - 1 }, (_, k) => k + 1).map((l) => `  if (v
 
 /**
  * The light on a surface at p facing n (unit, a face's) from the sun and the lamps, each behind its walk: the lamps
- * listed for the brick holding open cell air (the cell in front of the face).
+ * listed for the brick holding open cell air (the cell in front of the face), every lamp of the table where no kept
+ * brick holds it (\`params.misc.y\` lamps).
  */
 fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>) -> vec3<f32> {
   var e = vec3<f32>(0.0);
@@ -194,12 +195,13 @@ fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>) -> vec3<f32> {
   if (params.sun_dir.w > 0.5 && ns > 0.0 && volume_clear(q, params.sun_dir.xyz, params.sun_rgb.w)) {
     e = e + params.sun_rgb.xyz * ns;
   }
+  // A hit no kept brick of any level holds (past the windows, a brick not kept or waiting for a slot): the whole table.
   let at = lamp_list_at(air);
-  if (at < 0) { return e; }
-  let base = u32(at);
-  let count = lamp_lists[base];
+  let whole = at < 0;
+  let base = select(u32(at), 0u, whole);
+  let count = select(lamp_lists[base], u32(params.misc.y), whole);
   for (var k = 0u; k < count; k++) {
-    let li = lamp_lists[base + 2u + k];
+    let li = select(lamp_lists[base + 2u + k], k, whole);
     let a = lamps[${VOLUME_LAMP_VEC4S}u * li];
     let b = lamps[${VOLUME_LAMP_VEC4S}u * li + 1u];
     let to = a.xyz - p;

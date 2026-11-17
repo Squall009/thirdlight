@@ -609,7 +609,7 @@ export function volumeLampBrickBox(lamps: ArrayLike<number>, i: number): [number
  * The brick whose lamp list lights a ray's hit, the CPU reference of the update's WGSL `lamp_list_at`: of the open
  * level-0 cell (x, y, z) in front of the hit, the level-0 brick holding it when it lies in that level's window and has a
  * list (`listed(level, bx, by, bz)`: kept, with a slot), else the finest coarse level's brick holding it that does;
- * null when none does (the hit gets no lamp light). `origins`: each level's window corner brick.
+ * null when none does (the hit loops over the whole lamp table). `origins`: each level's window corner brick.
  */
 export function volumeLampListBrick(x: number, y: number, z: number, origins: readonly (readonly number[])[], listed: (level: number, bx: number, by: number, bz: number) => boolean): [number, number, number, number] | null {
   for (let level = 0; level < VOLUME_LEVELS; level++) {

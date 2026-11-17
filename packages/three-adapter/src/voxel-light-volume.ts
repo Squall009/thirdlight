@@ -35,7 +35,8 @@
  *   windows, and a list per kept brick of every level of those reaching it,
  *   built in compute when the table changes and for slots taken or given up;
  *   a ray's hit is lit by the list of the level-0 brick holding the open cell
- *   in front of it, else of the finest coarse brick holding it with a slot.
+ *   in front of it, else of the finest coarse brick holding it with a slot,
+ *   else (no kept brick of any level holds it) by the whole table.
  * - **The colours bounced.** Each kept level-0 brick's open cells carry the
  *   mean colour of the solid cells across their faces (the materials' look
  *   colours, from the chunks' shader grids; a textured look with no colour of
@@ -829,8 +830,8 @@ export class VoxelLightVolume {
       raysPerFace: VOLUME_RAYS,
       settleUpdates: VOLUME_SETTLE_UPDATES,
       lamps: this.lamps.count,
-      // Where a hit gets no lamp light (no kept brick of any level holds it with a list): past every window (lamps whose
-      // reach goes past the windows' box), or a brick waiting for a slot.
+      // Where a hit has no list (no kept brick of any level holds it with one: it loops over the whole table): past every
+      // window (lamps whose reach goes past the windows' box), or a brick waiting for a slot.
       lampLists: { entries: VOLUME_LAMP_LIST_ENTRIES, bytes: this.gpu.lamps.bytes, ...this.gpu.lamps.stats, counts: this.gpu.lamps.lastCounts satisfies VolumeLampListCounts | null, lampsPastWindows: lampsPast(this.lamps, this.windowBox()), waitingForSlot: this.waitingSlots.size },
       sun: [...this.gpu.sun],
       gpuBytes: this.gpu.bytes,
@@ -1107,7 +1108,7 @@ class VolumeGpu {
     pi.set([this.origins[0]![0]!, this.origins[0]![1]!, this.origins[0]![2]!, count, VOLUME_WINDOW_BRICKS[0], VOLUME_WINDOW_BRICKS[1], VOLUME_WINDOW_BRICKS[2], VOLUME_RAYS], 0);
     p.set([this.sun[0]!, this.sun[1]!, this.sun[2]!, this.sun[3]!, this.sun[4]!, this.sun[5]!, this.sun[6]!, VOLUME_SUN_REACH_M], 8);
     for (let b = 0; b < 4; b++) p.set([this.skyCoefficients[b * 3]!, this.skyCoefficients[b * 3 + 1]!, this.skyCoefficients[b * 3 + 2]!, 0], 16 + b * 4);
-    p.set([VOLUME_RAY_REACH_M, 0, BOUNCE_ALBEDO, frame], 32);
+    p.set([VOLUME_RAY_REACH_M, lamps.lampCount, BOUNCE_ALBEDO, frame], 32);
     pu.set([wb.maxLevel, VOLUME_POOL_WIDTH, VOLUME_INDEX_WIDTH, VOLUME_ALBEDO_WIDTH], 36);
     for (let l = 1; l < VOLUME_LEVELS; l++) pi.set([...this.origins[l]!, 0], VOLUME_PARAM_COARSE + (l - 1) * 4);
     d.queue.writeBuffer(this.params, 0, p);

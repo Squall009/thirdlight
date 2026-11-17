@@ -16,7 +16,8 @@
  *   counted). A hit is lit by its level-0 brick's list, past the level-0
  *   window (or before its brick has a slot) by the finest coarse brick's
  *   holding it, so the bounce of lamps out to the coarse levels' reach is
- *   kept. Built for every brick holding a slot when the table
+ *   kept; a hit no kept brick holds (0.17 % of the night camera's) loops
+ *   over the whole table, as every hit did before the lists. Built for every brick holding a slot when the table
  *   changes, and for the slots taken or given up since the last build
  *   otherwise; never while nothing changed. The clustered lists are per
  *   camera and leave out what is off screen; the update's rays reach bricks
@@ -120,7 +121,8 @@ export class VolumeLampLists {
   readonly lists: GpuBuffer;
   /** Every level's window's slot + 1 of each brick (0: none), wrapped and stacked as the pool's index. */
   readonly slots: GpuBuffer;
-  private lampCount = 0;
+  /** Lamps in the table (the update loops over all of them at a hit no list holds). */
+  lampCount = 0;
   private jobs: GpuBuffer | null = null;
   private readonly params: GpuBuffer;
   private readonly counts: GpuBuffer;
