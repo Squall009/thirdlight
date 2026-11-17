@@ -244,7 +244,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.10 | Done 2026-11-17 (cb7229fa…5503e495): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); 10b: walk blocks only while the page reads its GPU walk; 10c: sim frames build full diagnostics only when sent (11.8 ms a tick of voxel stats after a 150 m/s stop): store off nothing pending 7.0–7.3 s (base 7.4–7.5, before 10.5–11.4), D701 fixed; D672 narrowed; D711 |
 | 46e.11 | Proposed 2026-11-16 (24296e84), published as acc46e-11: `docs/briefs/proposal-46e.11-emissive.md` — no new stored field (the voxel path reads the record's `params.emissive` × `params.emissiveIntensity`; the volume keeps one more word a cell, 28 → 32 B); three questions with defaults. **Waiting for the owner's note; nothing built.** |
 | 46e.12 | (a) done 2026-11-17 (b73ee726…2b80a9c2): lamp list per kept brick built in compute, 128 extra lamps 4.1–6.1 → 0.21–0.24 ms a brick. (b), (c) done 2026-11-17 (3d198037…38220994): spots by cone, rect and line lights by the LTC form factor (one definition, = per-pixel to 1e-6), walk to a point per ray; one spot + one area 0.029 ms a brick (base 0.024–0.028). (d) waits for the owner |
-| 46e.13 | (a) done 2026-11-17 (f2bc0110…6280f957): a change restarts what it reaches (a lamp out leaves 3–8 %, was 53 %; D715, D695 fixed), batch work in the slice (D708), D696 cannot happen (checked); pacing at the live share 6.0 ms but `lighting` stale 7.3–9.2 (base 8.4–11.1): the rest is other passes' (D690 open); edit settles 2× (b) the look next |
+| 46e.13 | (a) done (f2bc0110…6280f957): a change restarts what it reaches (D715, D695), batch work in the slice (D708), share 6.0 ms (D690 open). (b) done 2026-11-17 (99f2526a, 9e74e084): bounces converge, refining while idle (4.2–5.3 ms GPU), a write-time filter, texture-mean colours; room blotch 0.67 → 0.27, error vs a CPU reference 0.33 → 0.16; room dark (§10 Q) |
 | 46e.14 | not started |
 | 46e.15 | not started |
 | 46e.16 | not started |
@@ -2556,6 +2556,232 @@ the rays' restart, its brightness the same (5.3–5.5): darkness and blotches ar
 restart's first update reads its neighbours' old light (3–8 % of a removed light left): an accumulate-while-idle pass
 would also wash that out. The update still overruns its share by 1.2–1.4× through what other passes pay (D690).
 
+### 46e.13b — the look: bounces that converge, refining while idle, a filter where cells are written, the bounce colours of textured looks
+
+**What was built** (99f2526a, 9e74e084; docs in the commit after them). Work folder `~/.cache/thirdlight-phase46e/work/46e.13b/` (`diag/` the
+diagnosis runs, `measure.sh`, `lib.sh`, `summ.py`, `summ_ref.py`, `cmp.mjs`, `m/` the measured runs with `*.uptime`,
+`pw/` the hand runs of the light-volume Play test, `broken-*.log`).
+
+- **A CPU reference and a model of the update** (`voxel-light-volume-reference.ts`, checks only, nothing drawn reads
+  it): the light arriving at a cell face by path tracing over the same voxels (the CPU occupancy walk, light stop),
+  sky, sun, lamps and colours, with any number of bounces and any reach; and the update's own arithmetic over a box
+  of cells (its rays, reach, blend and filter) that the vitest closed forms run. The page hook
+  `__tlVoxelPlay.light.volumeReference({ eye | cells, grid, variants })` runs the reference over the page's own world
+  beside the cells read back from the GPU; `light-shots --reference FILE` calls it at each camera (a variant names its
+  rays, bounces, reaches and colour rule: the open cell's mean colour as the update reads it, or the hit face's own
+  material and side; the looks' colours alone or times their texture means).
+- **Bounces converge.** A face's light is the mean of about the last quarter of its brick's updates
+  (`volumeBlendWeight`: an estimate blended in by 1 / (⌈updates / 4⌉ + 1); `VOLUME_HISTORY_SHARE`), where it was the
+  mean of every update since the brick started: the estimates made while the light a brick's rays read at their hits
+  was still building stayed in that mean (the dark room's measured loss, below).
+- **Refining while idle** (`voxel-light-volume-refine.ts` `VolumeRefiner`). While nothing is stale the update keeps
+  taking settled bricks, the fewest updates first, a brick waiting two updates more for every 2 m it lies from the eye
+  and sixteen more behind the camera, until each has had `VOLUME_HISTORY_UPDATES` = 64 (256 rays a face); then nothing
+  is dispatched until something changes. Its rate is the live light's share while idle, a new budget-table entry
+  (`FrameBudget.gpuIdle`, `gpuPassIdleBudgetMs`; lighting 9 % of the frame, 3.0 ms at 30 Hz, half the live share),
+  spent as a dispatch of the live share's size on that share of frames (every other frame at low): a small dispatch
+  every frame held the pass's fixed cost a dispatch over a few bricks, the pacing's ms a brick read 5× high and the
+  stale work after it crawled (`pw/b4.log`: 5–17 bricks a dispatch, 0.28 ms a brick; one size: 58–60, 0.057). With
+  stale work under the live share, refining fills the dispatch to it.
+- **A filter where cells are written** (the WGSL update's write, level 0): the value written is filtered with the same
+  face of the four cells beside it along the surface (the two axes across the face's) that hold light, each taken
+  against the face's own light as held: `v + a (Σ n − N × held) / (1 + a N)`, a = 0.5 / (updates + 1) from a brick's
+  second update (`VOLUME_FILTER_SHARE`, `volumeFilterShare`; its first update after a start takes none: its
+  neighbours may still hold a light that went, and with them the Play test's panel taken out left 4.0 % of its bounce
+  where 3.5 % is left without). Taken against the held light, a field the same everywhere stays as it
+  is (no energy moves while bounces build; filtering the new estimate against the neighbours' older means lost 2–13 %,
+  vitest's broken variant); the share fades as the face's own mean holds more rays. The neighbours are open cells next
+  to it, so nothing solid lies between, and a cell across a wall is never one (vitest: a lit room and a dark one behind
+  one cell of wall, the dark one exactly 0 with the filter on). Their words are this dispatch's or the last one's,
+  whichever the GPU reads first. A brick goes into the index the frame after its first update (`VolumeIndexRows`), and
+  a brick's first update replaces what its slot held, so neither a reader nor a neighbour's filter reads a slot's
+  previous brick's light. The coarse levels are not filtered.
+- **The bounce colours of textured looks** (`voxel-light-volume-colours.ts`): a look bounces its tint times the mean
+  colour of its albedo texture for the side seen (the floor set under a cell, the ceiling set over it, the wall set
+  beside it), measured once on the GPU from a coarse level (≤ 16² texels) of every layer of the albedo array as the
+  surfaces get their arrays (`textureLayerMeans`: a compute pass and one read back; no per-frame cost; every brick's
+  colours made again and the light restarted once); a white look before that, or one without a set, bounces the
+  default grey as before. `?voxelBounceMeans=0` keeps the looks' colours alone (a comparison).
+- **Readings.** `progress().refined` (settled and every brick refined: the update has stopped) beside `settled`
+  (nothing stale: the old meaning, which the benches and tests still wait for); the volume's diagnostics: `idleUpdated`,
+  `lastIdle`, `refined`, `refining`, `historyUpdates`. Bench: `--arrival-at LIST` (pictures at those seconds after a
+  move), `--auto-exposure` (the camera's own exposure for the run, set back after), the blotch metrics with every shot
+  (`cellBlotch`: the brightness of each face against its same-face neighbours along the surface, |a − b| over their
+  mean, from the cells read back ±4 m round the eye; `pictureBlotch`: the relative standard deviation of the picture's
+  flat, not-black parts less their 48 px gradient).
+- Nothing per pixel changed; rays a face (4), reach (24 m), the first settle (8 updates), the settle's pacing and the
+  restart rules as they were.
+
+**The dark room, diagnosed** (the room camera, noon, low, WebGPU, the 30 Hz cap, auto-exposure off; the reference at
+212 open cells over the room's floor, every 0.5 m within ±4 m of the eye, 512 rays a cell, 6 bounces; `diag/h1`, and
+`diag/r2` with 8,192 rays at 13 cells; the GPU cells of the same places read back; "dark" = the 166 cells the full
+reference holds under 0.05). Each suspect switched alone in the reference, or measured on the GPU:
+
+| Suspect | How it was switched | Measured (dark cells; all cells) | Fixed? |
+|---|---|---|---|
+| The update's convergence: its mean kept the estimates made before the light its rays read at their hits had built | base GPU against its own update's converged target (reference with its reaches and colour rule: cells, looks, 24 m, 6 bounces), 2 rounds | **0.69–0.70 mean, 0.32 median** (the mean held up by single bright cells, the blotches); 0.88 | **fixed**: head 1.09 mean, 0.99 median; 1.01–1.02 (its own target with the texture colours) |
+| The bounce count | reference, 6 bounces against 1 (cells, looks, 24 m) | 2.48 against 1.47 of the full reference: bounces past the first give 40 % of the dark floor's light | the update now holds them (row above); the white furnace 0.60 → 0.78 at the first settle, 0.79 → 1.02 refined |
+| The 0.3 grey for textured white looks (and a tint without its texture for tinted ones) | reference, the looks' colours against tint × texture mean (cells, 24 m) | 2.48 against 1.40: the grey made the dark floor **1.8× too bright** (its floor is the plaster look's timber set, 0.14, and it is what the sun patch bounces; walls and ceiling plaster 0.58 against 0.30) | **fixed** (the true colours: the room darker on the floor, brighter off the walls) |
+| One colour an open cell (the mean of its solid neighbours) | reference, cells against each hit face's own material and side (textures, 24 m) | 1.40 against 1.49 (−6 %); 1.05 against 1.08 | not changed (one colour word a cell is the layout) |
+| The 24 m ray reach (48 m toward the sun) | reference, 24 / 48 m against 4 km (faces, textures) | **1.49 (+49 %)**; 1.08: light gained, not lost (4,776 of 108,544 path rays saw the sky at 24 m against 4,427 at 4 km) | not changed: a cost knob for 46e.14 (D716) |
+| Sky rays ending in unknown space | the reference's rays from the room's cells | none: 4 % of paths leave by the windows and none reach the world's edge; the room's rays meet its walls within metres | — |
+| The sun patch | the reference's counts | 2 % of first hits are sunlit: the room's main source is small and bright, so 4 rays a face find it by luck (the blotches); the GPU's mean over the floor is its target's (row 1) | lit right; the noise is D692 |
+| The cosine and π factors | vitest closed forms | the sky πL up and πρL down within 3 %; the furnace reference 1.04 (cells ¼ m off the walls) | none |
+| Coverage ≥ 128 at windows and kit pieces | the reference and the cells by the windows | window frames are kit pieces (not in the walk, D448); the openings pass the sky (cells beside them 1.2–1.3 of the reference: their own sky, not stopped) | none |
+
+Against the full reference (the truth over these voxels) the room's floor cells moved from a mean absolute error of
+0.33 of its light (base, 2 rounds: 0.330, 0.331) to **0.16** (0.157, 0.160); against each version's own converged target
+from 0.34 to 0.14. What is left on the dark cells (1.52 × the truth) is the reach (D716) and the cell colour rule.
+
+So no light is lost in the room but by the update's own convergence: its estimates kept the early, bounce-starved
+ones (fixed); the colours were wrong in the brightening direction (the room's floor is the plaster look's timber floor
+set, 0.14 against the grey's 0.30, and it is what the sun patch bounces); the 24 m reach leaks the sky in. The room is
+dark because it is: a deep room lit through three small windows by a sun patch on a dark wooden floor (its pictures
+4.1–4.4 of 255 at the look's fixed exposure, the street's 95–99). With the camera's auto-exposure on (`m/auto-base`,
+`m/auto-head`, the camera's defaults: at most one stop up) it reads 9.3 (base) and 8.0 (head) at 60 s: brighter,
+still too dark to play in; head smooth where base is blotchy (`cmp-room-auto-base-head.png`). No fill light was
+added; §10 asks the owner.
+
+**Accumulation and the filter, measured.** A B A B (base 5686851d, head 9e74e084; `m/pic-{base,head}-r{1,2}`; 1280 × 720, low, the 30 Hz cap, each run alone,
+load 1.1–2.5). Cell blotch: same-face neighbours' brightness apart over their mean, cells read back ±4 m round the eye
+(lower is smoother); picture blotch: the flat parts' relative spread; arrival: seconds after the camera's move.
+
+| | street | room | cave | night | far |
+|---|---|---|---|---|---|
+| cell blotch, base r1 / r2 (frozen once settled: the same at 2, 10, 60 s) | 0.133 / 0.131 | 0.667 / 0.667 | 0.422 / 0.413 | 0.275 / 0.217 | — (no cells round the eye) |
+| cell blotch, head r1 / r2, at 2 s → 10 s → 60 s | 0.210 → 0.186 → 0.112; 0.207 → 0.173 → 0.113 | 0.337 → 0.326 → 0.273; 0.335 → 0.321 → 0.273 | 0.419 → 0.280 → 0.179; 0.570 → 0.279 → 0.187 | 0.288 → 0.174 → 0.165; 0.274 → 0.166 → 0.163 | — |
+| picture blotch, base / head | 0.130 / 0.132 | 1.247–1.249 / 1.110–1.111 | 0.156 / 0.164 | 0.620–0.631 / 0.637–0.639 | 0.108 / 0.108 |
+| mean brightness, base / head | 98.5, 98.8 / 95.4, 95.4 | 4.39, 4.38 / 4.19, 4.14 | 62.1, 62.2 / 60.8, 60.8 | 13.9, 13.9 / 13.3, 13.3 | 99.5, 99.5 / 99.4, 99.4 |
+| refined at the shot (60 s + settle after arriving) | no | no | no | yes | yes |
+| `--light-types` night (one round): cell blotch, mean | | | | 0.315, 29.0 / 0.240, 27.9 | |
+
+The room's floor cells against the reference: above (mean absolute error 0.33 → 0.16 of the truth). A picture a
+second later (`*-1s.png`): 0 % of pixels changed by more than 16 at every camera in both head rounds while refining
+(0.22 % in the room in the discarded first round); the light types' run 0.05–0.58 %. Each refining update moves a
+face by at most a third of the difference at its brick's 8th update and a seventeenth at its 64th. The picture
+blotch hardly moves (it is the textures' and the geometry's at these cameras) but in the room. The Play test's hut,
+refined: its cells' neighbour difference 0.214–0.226 at their settle (10–11 updates) → 0.155 at 32 updates (ratio
+0.69–0.72 in five runs; bound 0.85).
+
+**D715's acceptance** (the Play test, gate-fast-20261117-221613): a removed light leaves, once the bricks settle again,
+the panel 3.5 % (46e.13a: 2.9–3.0 %), the spot 0.1 % (7.8 %), the hut's cells 5.8 % of what the lights moved them
+(8.9–10.1 %); with the filter at a brick's first update the panel left 4.0 % (gate-fast-20261117-212015), so it takes
+none there. The panel's half point more is its bounce doubled (109 → 223: the converged bounces) with the same restart
+mechanism; the refining clears it further after the settle (not read in the test).
+
+**Tests.**
+- vitest `voxel-light-volume-reference.test.ts` (new, 7): the sky's light on a face through the update's model and
+  the reference (π L up over open ground, π ρ L down from a floor of colour ρ, within 3 %); **the white furnace** (a
+  closed 5 m box of colour 0.7 lit by a point lamp: the walls' indirect light ρΦ / (A (1 − ρ))): the reference holds
+  1.04 of it (its cells sit a quarter metre off the walls), the update's model 0.78 after its first settle and 1.02
+  refined to 64 updates, the filter on within 0.1 % of that (bounds: refined 0.95–1.06; the filter moves under 1 %);
+  **a room lit through a window** by the sky and a low sun: refined, the update's model 0.95 of the reference
+  (6 bounces, the update's reaches) over its floor, walls and ceiling (bound 0.9–1.1); the filter never reads across a
+  0.5 m wall (a lit room and a dark one behind one cell of wall: the dark one exactly 0 on every face after 12 updates
+  with the filter on); the history's weights (falling, 1/17 at 64; a noisy face's spread 0.130 → 0.054 from 8 to 64
+  updates; a change followed to 91 % in 40 updates at the last weight); a textured look's bounce (tint × the mean for
+  the side seen, the grey before the means) and an open cell's colour from the floor set under it and the wall set
+  beside it. **Broken**, each run once: the plain mean of every estimate (`broken-plain-mean-vitest.log`): the furnace
+  refined 0.82, the sky's down faces 0.87, the weights: 3 fail; the filter's neighbours taken two cells off across the
+  face's axis (`broken-filter-across-vitest.log`): the dark room's brightest face 2.59, fails; the filter on the new
+  estimate against the neighbours' held light (`broken-filter-estimate-vitest.log`): first settle 0.67, the filter
+  moves 2.3 %, fails.
+- vitest `voxel-light-volume-refine.test.ts` (new, 2): the refining's order on a row of 101 bricks (the brick at the
+  eye, the two beside it, then the next in front; partway those round the eye 40+ updates ahead of bricks 80 m off
+  and 10+ ahead of those behind), every brick to 64 then nothing until a change, a brick taken once a call; the
+  index puts a brick in at the publish after its first update, never one forgotten. **Broken**
+  (`broken-refine-twice-vitest.log`: the once-a-call rule out, a bug this test found): a brick reaches 65, fails.
+- vitest `quality-levels.test.ts` (+1): a pass's idle share is under its own on every tier; the live light's is
+  3.0 ms at low.
+
+**The Play tests.** `tests/e2e/voxel-world.e2e.ts`'s Play test is two on the same backend: the first keeps
+the world, shadows, sun field, walk, profile, regions, save and bake checks; the second (`startPlay` shared) the light
+volume's (`voxelVolumeLightChecks`), with the pillar's dig-again check back (dug, the bounce comes back: 1,478–1,482
+against 1,471; its cells 5.3–6.0 % of what the pillar moved them, bound 20 %) and one new reading: the open hut's
+cells in view refine (their neighbour difference at 32 updates against their settle, above; it waits for the bricks
+there to reach 32 updates, 11–12 s). It builds and digs the script's wall once first: digging it takes the stub's end
+with it, so alone the store-off pictures before and after differed in 798 px at the stub's kit pieces (the first test
+used to do it before). Times: first 1.8 / 1.6 min, second 2.4 / 2.2 min in the two gates (under load); the second
+alone 2.3 min (`pw/b10.log`, the file's set-up in it). The Play test was 3.3 min (46e.13a). Nothing moved to vitest
+(no check of it was arithmetic). Broken (one run, `pw/broken-no-refine.log`, the refining never taken): the hut's bricks stay at 8 updates and the test fails at "the open hut is refined". The light types' spot
+check reads 0.18–0.25 behind against front (bound 0.33; 0.09 at 46e.12b, c): converged bounces light the wall behind
+it twice-bounced.
+
+**Pictures**
+(looked at; side by side base | head: `cmp-*-base-head-r1.png`, `cmp-night-types-base-head.png`,
+`cmp-room-auto-base-head.png` in the work folder; the runs' `<camera>.png`, `-arrive-{2,10,60}s.png`). **Room**: the
+base's soft cell-to-metre blotches on the walls round the windows and on the floor are gone from the floor and fainter
+and larger on the walls (the filter spreads a lucky ray's light before the refining averages it out); the floor a
+little darker (its true timber colour bounces less of the sun patch), the walls by the windows as bright. **Night
+with the light types**: the base's grey mottling over the white house's lit gable and the grass is gone; the gable
+evenly lit. **Cave**: the floor's mottling smoother, the walls a little darker (rock's texture mean 0.19 against the
+grey 0.3). **Street**: the gable's metre-scale mottling smoother at 60 s; the picture 3 % darker in mean (95.4 against
+98.6: the textured looks' true colours: grass 0.11, stone 0.27 against the grey's 0.3). **Far** the same. Over time
+(head, arrival 2 → 10 → 60 s) the room and the cave visibly smooth; the base's pictures do not change after settling.
+
+**Cost**
+(base 5686851d in a worktree with its own workspace links, against 9e74e084; each run alone, the brief's 10G
+scope, `*.uptime` beside each, load 0.7–4.6; `m/`.) A first series was thrown away: the base worktree's
+`node_modules` was a link to the head's, whose workspace packages point at the head's sources, so its "base" pages
+ran the head's code (`invalid-base-was-head/`; it showed `idleUpdated`). The base was then linked to its own packages
+and checked (no `idleUpdated` in its bundle).
+
+| | street | room | cave | night | far |
+|---|---|---|---|---|---|
+| `measureGpu` `lighting` settled-idle, base (1 round) | below resolution ×5 (nothing dispatched) | | | | |
+| the same, head r1 / r2 (refining) | 4.77 / 5.31 | 4.70 / 5.11 | 4.15 / 4.21 | 4.83 / 4.97 | 4.67 / below (refined, stopped) |
+| page `voxel light volume` mean (worst), base / head | 0.12 (2.2) / 0.51–0.54 (5.8–8.7) | 0.13 (0.4) / 0.31–0.37 (1.4) | 0.68 (5.3) / 0.85–0.89 (5.4) | 0.78 (5.6) / 1.05–1.14 (5.1) | 0.05 (0.3) / 0.22–0.31 (0.9) |
+| `lighting` while every brick is stale, base r1, r2 / head r1, r2 | | 7.80, 7.23 / 6.59, 9.12 (spread 5.5) | | 6.76, 6.63 / 6.96, 7.81 | |
+| bricks a stale frame, base / head | | 104, 102 / 96, 101 | | 257, 253 / 235, 248 | |
+| page while stale, base / head | | 0.18 / 0.51–0.55 | | 0.20 / 0.46–0.52 | |
+
+The refining's GPU cost reads 4.2–5.3 ms against its planned 3.0 (the idle share): its dispatches are the live
+share's size every other frame, and a dispatch of that size reads 1.2–1.4× over its own stamps as the stale work does
+(D690), so half of ~9 ms. It lasts until every brick has had 64 updates: past 70 s at the street, room and cave (the
+view's bricks first), done by then at night and far. While stale the `lighting` row is within run-to-run (46e.13a's
+head: 7.90–8.40 room, 7.26–8.09 night) and the bricks a frame 2–9 % fewer (not resolved). The page pays the refining's
+ordering (a pass over the kept bricks every four frames): +0.2–0.4 ms a frame while it refines, worst frames as before
+but the street's 8.7 ms once.
+
+| Town orbit (`m/orbit-*`, 1 round each, interleaved) | room at the cap | `lighting` | `near` | page `lighting` mean / worst | page ms |
+|---|---|---|---|---|---|
+| base r1, r2 | 7, −1 copies (D711's low rounds) | 5.56, 4.61 | 6.43, 5.71 | 0.93 / 3.5, 1.02 / 3.6 | 6.82, 7.88 |
+| head r1, r2 | 88, 88 | 7.15, — (ballast line failed) | 4.91, — | 1.47 / 4.9, 1.36 / 3.9 | 8.21, 8.10 |
+
+On the moving eye the update is at its share all the time either way; the head's page `lighting` +0.4–0.5 ms (the
+refining's ordering when a frame's stale work leaves room). Not resolved past that (one round each, D711's rounds).
+
+| Settle (`m/pic-*`, `m/types-*`) | base | head |
+|---|---|---|
+| Play start → the street settled (`types-*`, no arrival pictures; `progress().settled`) | 15.6 s | 16.5 s |
+| arrive → settled: street, room, cave, night (`types-*`) | 1.3, 3.8, 1.8, 1.3 s | 2.3, 4.6, 1.8, 1.3 s |
+| `--cache-edits`: window dug / wall built / dug, settled (r1, r2) | 3.79, 3.79 / 1.09, 1.23 / 1.18, 1.19 s | 3.81, 3.80 / 1.22, 1.19 / 1.10, 1.06 s |
+| refined (`progress().refined`, new: settled and every brick at 64 updates) | — | night and far within 60 s of arriving; street, room, cave not by 70 s |
+
+**Memory.** No new per-cell or per-brick state on the GPU (the pool, colours, index and lamp lists as they were,
+31.6 MB of the 160 MiB row); the texture means' pass makes and frees 3 small buffers once. On the page: the refining's
+order (at most four frames' worth of bricks), the means by voxel id (12 here).
+
+**Gates.** `gate-fast-20261117-212015` (99f2526a; every area: project-model changed) RED 2 of 323, both watched:
+`layered-material.e2e.ts` `drawBuilding` (D349) and `terrain-cdlod.e2e.ts:520` 0.5992 (D643) → `gate-rerun-20261117-215845`
+GREEN; `gate-fast-20261117-221613` (9e74e084) GREEN (22 passed, voxel area 356 s); the docs commit's fast gate is named in the item's report.
+
+**Not done / unverified.** Motion is unseen: no one has watched the light refine while standing still (stills at 2, 10
+and 60 s only), turned the camera mid-refining (the order follows the view), or walked through the town with the
+refining and the filter on; a person should look at the room and the cave for a minute after arriving (walls should
+calm, not swim) and at a lamp switched off (its light should fade, not leave patches). Medium and high not measured
+(the Play test runs at high: refining 10 → 32 updates in 11–12 s there). The room's darkness at a game's exposure is
+the owner's question (§10). The coarse levels are not filtered (D717). The texture means are read from the arrays'
+coarse level once; a project whose arrays change at run time measures again (the arrays' key), not tested in a
+browser beyond the town's six sets.
+
+**For 46e.14 (the tuning).** New values for D702: `VOLUME_HISTORY_UPDATES` 64, `VOLUME_HISTORY_SHARE` 4,
+`VOLUME_FILTER_SHARE` 0.5, the refining's order (`REFINE_UPDATES_A_BRICK` 2, `REFINE_BEHIND_UPDATES` 16,
+`REFINE_LOOKAHEAD` 4) and the idle share (a table entry, `FrameBudget.gpuIdle` 9 %). The reach (D716) brightens dark
+interiors by half; the idle cost reads like the stale one, 1.2–1.4× its share (D690); the room asks for an answer on
+exposure before rays or reach are tuned for it; the light types' "behind" check now reads 0.18–0.25 of its bound 0.33
+(converged bounces).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -2915,6 +3141,28 @@ would also wash that out. The update still overruns its share by 1.2–1.4× thr
   farther bricks, light changes restarting them once they stop, world changes (arrivals, strokes) not.
 - 2026-11-17 (46e.13a, default chosen, owner to confirm): the Play e2e's pillar dig-again settle is cut to keep the
   test under 3.3 min (the light-removal check carries the same rule).
+- 2026-11-17 (46e.13b, default chosen, owner to confirm): the light volume keeps refining while nothing is stale:
+  settled bricks, those round the eye first (a brick waits two updates more for every 2 m from the eye, sixteen more
+  behind the camera), until each has had 64 updates (`VOLUME_HISTORY_UPDATES`, 256 rays a face); then nothing is
+  dispatched until something changes. Its rate is a new budget-table entry, the live light's share while idle
+  (`FrameBudget.gpuIdle`, lighting 9 % of the frame: 3.0 ms at 30 Hz, half its share), spent as a dispatch of the
+  live share's size every other frame (one size of dispatch keeps the pacing's ms a brick true); with stale work under
+  the share, refining fills the dispatch to it.
+- 2026-11-17 (46e.13b, default chosen, owner to confirm): a face's light is the mean of about the last quarter of its
+  brick's updates (an estimate blended in by 1 / (⌈updates / 4⌉ + 1), `VOLUME_HISTORY_SHARE`), not of every update:
+  the estimates made while the bounces a brick reads were still building fade out (a closed white box holds 0.78 of
+  its light after the first settle and 1.02 refined, against 0.60 and 0.79 with the plain mean).
+- 2026-11-17 (46e.13b, default chosen, owner to confirm): each write at level 0 is filtered with the same face of the
+  four cells beside it along the surface that hold light, each against the face's own held light, by a share of
+  0.5 / (updates + 1) from a brick's second update (`VOLUME_FILTER_SHARE`); the coarse levels are not filtered. A brick goes into the index the
+  frame after its first update.
+- 2026-11-17 (46e.13b, default chosen, owner to confirm): a textured look bounces its tint times its albedo texture's
+  mean for the side seen (floor set under a cell, ceiling over it, wall beside it), measured once on the GPU from a
+  coarse level of each layer when the surfaces get their arrays; a white look before that, or without a set, bounces
+  the default grey.
+- 2026-11-17 (46e.13b, default chosen, owner to confirm): the Play e2e's light-volume checks are a test of their own
+  on the same backend (the shadows, sun field and the rest stay in the first); it builds and digs the script's wall
+  once first, as the shadow checks do before it in the other test, so its store-off pictures see the same world.
 
 ## 10. Open questions for the owner (asked with the plan)
 
@@ -2936,3 +3184,15 @@ The page with pictures and the table: `docs/briefs/acceptance-46e-a.md` (publish
    a cheaper read as the low tier's setting if it still does not fit.
 5. **The default path's cost** (shadows and the sun field on: GPU +0.5–0.6 ms, page about +1 ms, about 90 MB,
    more missed frames at 150 m/s). Default: keep them on at every tier; D667, D675, D701 fixed in 46e-b's first item.
+
+### At 46e.13b (2026-11-17): one question, with the default that stands if unanswered
+
+1. **Rooms are dark at a game's exposure.** With the update's loss fixed the room camera's room holds what a path
+   tracer over the same voxels gives it (its floor's cells within 1.01–1.09 of the update's own target, the rest the
+   24 m reach's gain, D716); it is dark because it is: a deep room lit through three small windows, its sun patch on a
+   dark wooden floor. At the look's fixed exposure its picture reads 4.1–4.4 of 255 (the street 95–99); with the
+   camera's auto-exposure on (defaults: at most one stop up, "a night or a cellar stays dark") 8.0, still too dark to
+   play in (`~/.cache/thirdlight-phase46e/work/46e.13b/cmp-room-auto-base-head.png`, `m/auto-head/room-window.png`).
+   Should a scene be able to set a minimum light indoors (a floor under the volume's light, per scene), or the
+   camera's default lift be larger? **Default: none** (rooms stay as dark as their openings make them; a game raises
+   its camera's `exposureMax` or places lamps).

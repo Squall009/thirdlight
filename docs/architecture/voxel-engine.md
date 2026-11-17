@@ -72,10 +72,13 @@ page in the same commit.
   `__tlVoxelPlay.light.setStore` changes it at run time; `?surfaceRead=0` lights it without reading it). WebGPU only: it
   keeps light in the open cells beside surfaces (`voxel-light-volume.ts`): six values a cell (an ambient cube), 2 m
   bricks in a pool texture round the camera, updated in compute by walk rays (the sky past 24 m; at a surface its
-  colour times the sun and lamps seen by walks, the lamps from a list per kept brick built in compute from the clustered lights' record (the hit's level-0 brick, else its finest coarse one, else the whole table) and lit as the per-pixel light lights them: points by three's falloff, spots within their cone (no cookie), area lights (rect and line) by their diffuse form factor on their facing side, walked toward a point of them each ray picks; the ambient and hemisphere lights are in its sky term; emissive materials wait for the owner; and the volume's own light there), and three coarse levels of 1, 2 and
+  colour (the look's tint times its albedo texture's mean for the side seen, measured once on the GPU when the arrays arrive) times the sun and lamps seen by walks, the lamps from a list per kept brick built in compute from the clustered lights' record (the hit's level-0 brick, else its finest coarse one, else the whole table) and lit as the per-pixel light lights them: points by three's falloff, spots within their cone (no cookie), area lights (rect and line) by their diffuse form factor on their facing side, walked toward a point of them each ray picks; the ambient and hemisphere lights are in its sky term; emissive materials wait for the owner; and the volume's own light there), and three coarse levels of 1, 2 and
   4 m cells for open air (a clipmap to ±24, ±48 and ±96 m), all in one pool made once (29.8 MB); a change of light
   or an edit restarts the bricks a ray can reach it from (half history while changes continue), the update paced to
-  the live light's share of the GPU frame (`gpuPassBudgetMs`), batches' work in its frame slice; read per pixel by
+  the live light's share of the GPU frame (`gpuPassBudgetMs`), batches' work in its frame slice; while nothing is
+  stale it keeps refining settled bricks (the view in front first) within its idle share (`gpuPassIdleBudgetMs`) until
+  each has had 64 updates, a face's light the mean of about the last quarter of them, and each write filtered with
+  the same face of the cells beside it along the surface (a share that fades as the brick's updates grow); read per pixel by
   every lit draw (voxel surfaces, kit pieces, props, moving objects; the far shade opts out) in place of the flat
   ambient term. The sun's and lamps' direct light stay per pixel. Measured: plan-46e §8a 46e.6b, §8b.
 
