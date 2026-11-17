@@ -50,21 +50,22 @@ export const VOLUME_PARAM_FLOATS = 52;
 /** Where in them the coarse levels' window corners start (a vec4 of i32 each, levels 1 … 3). */
 export const VOLUME_PARAM_COARSE = 40;
 
-/** An area light at a hit in `direct_light`'s loop (its lamp's words a, b, c and field read). */
+/**
+ * An area light at a hit in `direct_light`'s loop (its lamp's words a, b, c and field read): its diffuse light, and the
+ * walk's way and length toward one point of it (the loop's one walk takes them).
+ */
 const AREA_LIGHT_WGSL = /* wgsl */ `
     if ((field & 3u) >= ${CLUSTER_RECT}u) {
-      // An area light: its diffuse light at the hit, then the walk toward one point of it.
       let su = lamps[${VOLUME_LAMP_VEC4S}u * li + 3u].xyz;
       let sv = lamps[${VOLUME_LAMP_VEC4S}u * li + 4u].xyz;
       let f = volume_area_light(p, n, a.xyz, su, sv, select(0.0, 1.0, (field & ${CLUSTER_TWO_SIDED}u) != 0u), a.w);
       if (f <= 0.0) { continue; }
       let s = a.xyz + su * (2.0 * xi.x - 1.0) + sv * (2.0 * xi.y - 1.0) - q;
       let ds = length(s);
-      if (ds > 1e-3 && !volume_clear(q, s / ds, max(ds - 0.3, 0.0))) { continue; }
-      e = e + b.xyz * (PI * f);
-      continue;
-    }
-`;
+      way = s / max(ds, 1e-3);
+      len = select(0.0, max(ds - 0.3, 0.0), ds > 1e-3);
+      lit = b.xyz * (PI * f);
+    } else {`;
 
 /**
  * The update's WGSL. `areas`: with the area lights' code (the form factor and its walk); without it a pass whose table
@@ -240,21 +241,31 @@ fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>, xi: vec2<f32>) -> ve
     let d = length(to);
     if (d >= a.w) { continue; }
     let field = u32(c.w);
-${areas ? AREA_LIGHT_WGSL : ''}    if (d < 1e-3) { continue; }
-    let l = to / d;
-    let nl = dot(n, l);
-    if (nl <= 0.0) { continue; }
-    // three's punctual falloff: 1 / d^decay, smoothed to 0 at the range.
-    let r = d / a.w;
-    let w = clamp(1.0 - r * r * r * r, 0.0, 1.0);
-    var fall = w * w / max(pow(d, b.w), 0.01);
-    if ((field & 3u) == ${CLUSTER_SPOT}u) {
-      // Its cone, as the per-pixel light's (axis in c, cos outer and inner in the last words of the next two).
-      fall = fall * volume_spot_cone(dot(l, -c.xyz), lamps[${VOLUME_LAMP_VEC4S}u * li + 3u].w, lamps[${VOLUME_LAMP_VEC4S}u * li + 4u].w);
-      if (fall <= 0.0) { continue; }
+    // Each kind gives the light at the hit and the walk toward it; one walk for every kind (a second call site of the
+    // walk in the loop is a second copy of its code: registers and size the whole pass pays).
+    var way: vec3<f32>;
+    var len: f32;
+    var lit: vec3<f32>;
+${areas ? AREA_LIGHT_WGSL : '    {'}
+      if (d < 1e-3) { continue; }
+      let l = to / d;
+      let nl = dot(n, l);
+      if (nl <= 0.0) { continue; }
+      // three's punctual falloff: 1 / d^decay, smoothed to 0 at the range.
+      let r = d / a.w;
+      let w = clamp(1.0 - r * r * r * r, 0.0, 1.0);
+      var fall = w * w / max(pow(d, b.w), 0.01);
+      if ((field & 3u) == ${CLUSTER_SPOT}u) {
+        // Its cone, as the per-pixel light's (axis in c, cos outer and inner in the last words of the next two).
+        fall = fall * volume_spot_cone(dot(l, -c.xyz), lamps[${VOLUME_LAMP_VEC4S}u * li + 3u].w, lamps[${VOLUME_LAMP_VEC4S}u * li + 4u].w);
+        if (fall <= 0.0) { continue; }
+      }
+      way = l;
+      len = max(d - 0.3, 0.0);
+      lit = b.xyz * (fall * nl);
     }
-    if (!volume_clear(q, l, max(d - 0.3, 0.0))) { continue; }
-    e = e + b.xyz * (fall * nl);
+    if (!volume_clear(q, way, len)) { continue; }
+    e = e + lit;
   }
   return e;
 }
