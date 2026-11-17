@@ -475,8 +475,8 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   const faceBricks = new Set(facePts.map((p) => p.map((v) => Math.floor(v / 2)).join(',')));
   const faceLists = listsKept.filter((l) => faceBricks.has(l.brick.join(',')));
   // The 1 m level's bricks there too (a hit past the level-0 window is lit by the finest coarse brick's list).
-  const coarseLists = ((await hook<VolumeLampList[] | null>('volumeLamps', { points: brickPts, level: 1 })) ?? []).filter((l) => l.kept && !l.pending);
-  const coarseDiffer = coarseLists.filter((l) => JSON.stringify(l.gpu) !== JSON.stringify(l.cpu));
+  const listsCoarse = ((await hook<VolumeLampList[] | null>('volumeLamps', { points: brickPts, level: 1 })) ?? []).filter((l) => l.kept && !l.pending);
+  const listsCoarseDiffer = listsCoarse.filter((l) => JSON.stringify(l.gpu) !== JSON.stringify(l.cpu));
   const tBuild = Date.now();
   await counted('pillar', 'pillarBuilt');
   await staleSoon('the pillar built');
@@ -512,7 +512,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   const across = chunkOf(rel(-1.75, 1, -1.5)) !== chunkOf(rel(-2.25, 1, -1.5));
   console.log(`[voxel-play] light volume: settled ${litMs} ms after the switch (${JSON.stringify(stats).slice(0, 900)}); hut walls off ${walls.off.toFixed(1)}, shut ${walls.shut.toFixed(1)}, open ${walls.open.toFixed(1)} (roof opened → settled ${openMs} ms); walls' green/red over the green floor ${tint.green.ratio.toFixed(4)} against ${tint.plain.ratio.toFixed(4)} over plaster (${tint.green.n} px); cells round the hut ${cells.length}, updated ${updated.length}, holding light on the GPU ${holdsGpu}, differing from the CPU's rule ${differ.length}; 1 m cells updated ${coarseUpdated.length}, holding ${coarseHolds}, differing ${coarseDiffer.length}; inside the shut hut ${JSON.stringify(inside?.faces)}, its 1 m cell mid-room ${JSON.stringify(midRoom?.faces)}; over its roof ${JSON.stringify(roof?.faces)} against the sky's ${JSON.stringify(sky)}; off before and after ${same} px apart`);
   console.log(`[voxel-play] light volume readers: the blue box in the shut hut ${boxIn.volume.lum.toFixed(1)} against ${boxIn.off.lum.toFixed(1)} by the flat term (${boxIn.off.n} px); the kit pieces on the stub ${kit.volume.lum.toFixed(1)} against ${kit.off.lum.toFixed(1)} (${kit.off.n} px); the box 1.7 m over the pad ${boxOpen.volume.lum.toFixed(1)} against ${boxOpen.off.lum.toFixed(1)} (${boxOpen.off.n} px)`);
-  console.log(`[voxel-play] light volume lamp lists: ${lists.length} bricks round the lamp, ${listsKept.length} kept, ${listsLit.length} listing a lamp, ${listsDiffer.length} differing from the CPU's rule (${JSON.stringify(listsDiffer.slice(0, 2))}); up the wall's face ${faceLists.length} bricks, ${faceLists.filter(listsLamp).length} listing the red lamp (${JSON.stringify(lampAt)}); 1 m level ${coarseLists.length} kept, ${coarseLists.filter(listsLamp).length} listing it, ${coarseDiffer.length} differing (${JSON.stringify(coarseDiffer.slice(0, 2))}; the first lists ${JSON.stringify(faceLists[0]?.at)}); most reaching one ${Math.max(0, ...lists.map((l) => l.cpu.total))}`);
+  console.log(`[voxel-play] light volume lamp lists: ${lists.length} bricks round the lamp, ${listsKept.length} kept, ${listsLit.length} listing a lamp, ${listsDiffer.length} differing from the CPU's rule (${JSON.stringify(listsDiffer.slice(0, 2))}); up the wall's face ${faceLists.length} bricks, ${faceLists.filter(listsLamp).length} listing the red lamp (${JSON.stringify(lampAt)}); 1 m level ${listsCoarse.length} kept, ${listsCoarse.filter(listsLamp).length} listing it, ${listsCoarseDiffer.length} differing (${JSON.stringify(listsCoarseDiffer.slice(0, 2))}; the first lists ${JSON.stringify(faceLists[0]?.at)}); most reaching one ${Math.max(0, ...lists.map((l) => l.cpu.total))}`);
   console.log(`[voxel-play] light volume edit: the lamp's red bounce up the wall's face ${lit.red.toFixed(3)} (${lit.n} cells), the pillar built ${shaded.red.toFixed(3)} (settled ${builtMs} ms after the command), dug ${relit.red.toFixed(3)} (${dugMs} ms); the pillar and the face's cells ${across ? 'in two chunks' : 'in one chunk'}`);
   expect(updated.length, 'cells round the hut were updated').toBeGreaterThan(200);
   expect(holdsGpu, 'cells round the hut hold light on the GPU').toBeGreaterThan(100);
@@ -539,8 +539,8 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   expect(listsLit.length, 'bricks round the lamp list a lamp').toBeGreaterThan(10);
   expect(listsDiffer.length, "the GPU's lamp lists equal the CPU's rule").toBe(0);
   expect(faceLists.length, "the wall face's bricks are kept").toBeGreaterThan(0);
-  expect(coarseLists.filter(listsLamp).length, "the 1 m level's bricks round the lamp list it").toBeGreaterThan(0);
-  expect(coarseDiffer.length, "the GPU's 1 m lamp lists equal the CPU's rule").toBe(0);
+  expect(listsCoarse.filter(listsLamp).length, "the 1 m level's bricks round the lamp list it").toBeGreaterThan(0);
+  expect(listsCoarseDiffer.length, "the GPU's 1 m lamp lists equal the CPU's rule").toBe(0);
   expect(faceLists.every(listsLamp), "the wall face's bricks list the red lamp").toBe(true);
   expect(lit.n, 'cells up the wall hold light').toBeGreaterThan(10);
   expect(lit.red, "the lamp's bounce reaches the wall's face").toBeGreaterThan(VOLUME_LAMP_BOUNCE_MIN);
