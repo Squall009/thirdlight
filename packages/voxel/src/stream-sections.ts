@@ -827,17 +827,6 @@ export class SectionDerives {
     return s.parts === DERIVED_PART.shader && s.derived?.assembly != null;
   }
 
-  /**
-   * Whether streaming derives (not an edit's) wait to be sent now or to come back: what a world catching up after a
-   * stop is waiting for. Usually answered by the first section or job looked at.
-   */
-  streaming(): boolean {
-    for (const part of this.jobs.values()) if (part.some((s) => s.derive !== 'edit')) return true;
-    const now = this.host.deriveNow;
-    for (const s of this.wanted) if (s.derive === 'yes' && (now === undefined || now(s.cx, s.cy, s.cz)) && (this.shaderOnly(s) || this.canDerive(s))) return true;
-    return false;
-  }
-
   /** Whether anything wanted can be sent now (for the streamer's idle check). */
   pending(): boolean {
     if (this.jobs.size > 0) return true;
