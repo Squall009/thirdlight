@@ -152,6 +152,7 @@ export {
   type ModuleResetContext,
   type Runtime,
   type RuntimeDiagnostics,
+  type RuntimeDiagnosticsHead,
   type RuntimeScene,
   type RuntimeSnapshot,
   type RuntimeSnapshotEntity,

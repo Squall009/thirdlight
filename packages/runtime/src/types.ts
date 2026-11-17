@@ -108,6 +108,11 @@ export interface Runtime {
   /** Manual driver only; rAF driver ⇒ `tick_not_allowed`. */
   tick(nowSeconds: number): { ok: true } | { ok: false; error: RuntimeError };
   getDiagnostics(): { ok: true; diagnostics: RuntimeDiagnostics } | { ok: false; error: RuntimeError };
+  /**
+   * The few diagnostics fields a frame reads every time, without building the rest: the full set walks every
+   * voxel world's streamer, far field and open regions, which a per-frame reader would pay for nothing.
+   */
+  diagnosticsHead?(): RuntimeDiagnosticsHead;
   getInterpolatedState(): { ok: true; state: InterpolatedState } | { ok: false; error: RuntimeError };
   /**
    * The same interpolated transforms without allocating — each
@@ -411,3 +416,6 @@ export interface RuntimeDiagnostics {
   voxelWorlds?: import('./voxel-world-host').VoxelHostStats[];
 
 }
+
+/** The diagnostics fields a frame reads every time (`Runtime.diagnosticsHead`). */
+export type RuntimeDiagnosticsHead = Pick<RuntimeDiagnostics, 'state' | 'stepIndex' | 'simTime' | 'frameCount' | 'errorCount'>;

@@ -20,7 +20,7 @@
  * (the MCP observation, bots and the determinism tests compare them).
  */
 import { AUDIO_MAX_QUEUED_COMMANDS, clampAlpha, DEFAULT_FIXED_STEP_HZ, EFFECT_MAX_QUEUED_REQUESTS, interpolateTransformInto, materialChangeKey, type TransformState } from '@thirdlight/runtime';
-import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
+import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type Runtime, type RuntimeDiagnostics, type RuntimeDiagnosticsHead, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
 import { CAMERA_POSE_FLOATS, STEP_PAIR_STRIDE, TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
 import { deepFreeze, threadProfiler } from '@thirdlight/shared';
 
@@ -141,18 +141,24 @@ export class FrameEncoder {
 
   encode(rt: Runtime, seq: number, extra: { digests?: string[]; tickError?: { code: string; message: string }; memoryBytes?: number | null }): { state: FrameState; transfer: ArrayBuffer[] } {
     const transfer: ArrayBuffer[] = [];
-    threadProfiler.begin(DIAGNOSTICS_SPAN);
-    const d = rt.getDiagnostics();
-    threadProfiler.end(DIAGNOSTICS_SPAN);
-    const diag = d.ok ? d.diagnostics : null;
+    // Every frame reads only the head; the full diagnostics (every voxel world's stats among them) are built on
+    // the frames that send them.
+    const full = (): RuntimeDiagnostics | null => {
+      threadProfiler.begin(DIAGNOSTICS_SPAN);
+      const d = rt.getDiagnostics();
+      threadProfiler.end(DIAGNOSTICS_SPAN);
+      return d.ok ? d.diagnostics : null;
+    };
+    let diag: RuntimeDiagnostics | null = null;
+    const head: RuntimeDiagnosticsHead | null = rt.diagnosticsHead !== undefined ? rt.diagnosticsHead() : (diag = full());
     const out: MutableFrame = {
       seq,
-      stepIndex: diag?.stepIndex ?? 0,
-      simTime: diag?.simTime ?? 0,
+      stepIndex: head?.stepIndex ?? 0,
+      simTime: head?.simTime ?? 0,
       alpha: 0,
       rate: 0,
-      frameCount: diag?.frameCount ?? 0,
-      state: diag?.state ?? 'disposed',
+      frameCount: head?.frameCount ?? 0,
+      state: head?.state ?? 'disposed',
       paused: rt.isPaused === true,
       debugHeld: rt.debugHeld === true,
     };
@@ -418,12 +424,15 @@ export class FrameEncoder {
     }
     // Diagnostics: on a change of state or error count, on request, and now and then.
     this.framesSinceDiag += 1;
-    if (diag !== null && (this.diagWanted || diag.state !== this.diagState || diag.errorCount !== this.diagErrors || this.framesSinceDiag >= DIAG_EVERY)) {
-      this.diagWanted = false;
-      this.diagState = diag.state;
-      this.diagErrors = diag.errorCount;
-      this.framesSinceDiag = 0;
-      out.diag = diag;
+    if (head !== null && (this.diagWanted || head.state !== this.diagState || head.errorCount !== this.diagErrors || this.framesSinceDiag >= DIAG_EVERY)) {
+      diag ??= full();
+      if (diag !== null) {
+        this.diagWanted = false;
+        this.diagState = diag.state;
+        this.diagErrors = diag.errorCount;
+        this.framesSinceDiag = 0;
+        out.diag = diag;
+      }
     }
     if (extra.digests !== undefined && extra.digests.length > 0) out.digests = extra.digests;
     if (extra.tickError !== undefined) out.tickError = extra.tickError;

@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { createSimulationRegistry, instantiateRuntime, neutralFrame, type Runtime } from '@thirdlight/runtime';
+
 import { FrameEncoder, FrameMirror, MIRROR_AUDIO_LIMIT, MIRROR_EFFECT_LIMIT } from './sim-state';
 import { STEP_PAIR_STRIDE, TRANSFORM_STRIDE } from './sim-protocol';
 
@@ -188,5 +190,58 @@ describe('FrameMirror draws between the last two steps by the page clock', () =>
     expect(taken()).toEqual([1, 2]);
     m.present(11 + DT / 4);
     expect(taken()).toEqual([1]);
+  });
+});
+
+describe('FrameEncoder: the diagnostics a frame reads', () => {
+  /** A real runtime of one camera, its full diagnostics builds counted. */
+  const runtime = () => {
+    const now = { t: 0 };
+    const res = instantiateRuntime({
+      snapshot: { snapshotId: 'diag@r1', projectId: 'diag', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: [{ id: 'cam-main', components: { transform: { position: [0, 4, 12], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } }] } },
+      registry: createSimulationRegistry(),
+      modules: [],
+      actions: { sample: (i: number) => neutralFrame(i) },
+      settings: {},
+      clock: () => now.t,
+      driver: { kind: 'manual' },
+    } as never);
+    if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify(res.error)}`);
+    const rt: Runtime = res.runtime;
+    const builds = { n: 0 };
+    const real = rt.getDiagnostics.bind(rt);
+    rt.getDiagnostics = () => {
+      builds.n += 1;
+      return real();
+    };
+    expect(rt.start().ok).toBe(true);
+    return { rt, now, builds, real };
+  };
+
+  it('every frame carries the step, time and state; the full set (every voxel world walked) is built only on the frames that send it', () => {
+    const { rt, now, builds, real } = runtime();
+    const enc = new FrameEncoder({ shared: false });
+    const sent: number[] = [];
+    for (let seq = 1; seq <= 180; seq += 1) {
+      now.t += 1 / 30;
+      expect(rt.tick(now.t).ok).toBe(true);
+      const { state } = enc.encode(rt, seq, {});
+      const d = real();
+      if (!d.ok) throw new Error('diagnostics failed');
+      expect([state.stepIndex, state.simTime, state.frameCount, state.state]).toEqual([d.diagnostics.stepIndex, d.diagnostics.simTime, d.diagnostics.frameCount, d.diagnostics.state]);
+      if (state.diag !== undefined) sent.push(seq);
+    }
+    // The first frame, then once every 60 frames.
+    expect(sent).toEqual([1, 61, 121]);
+    expect(builds.n).toBe(sent.length);
+    // Asked for, and on a change of state: the next frame sends them (built for it).
+    enc.wantDiagnostics();
+    expect(enc.encode(rt, 181, {}).state.diag).toBeDefined();
+    expect(rt.stop().ok).toBe(true);
+    const stopped = enc.encode(rt, 182, {}).state;
+    expect(stopped.diag?.state).toBe(stopped.state);
+    expect(stopped.state).not.toBe('running');
+    expect(enc.encode(rt, 183, {}).state.diag).toBeUndefined();
+    expect(builds.n).toBe(sent.length + 2);
   });
 });

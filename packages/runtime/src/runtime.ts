@@ -111,6 +111,7 @@ import {
   type ModelBounds,
   type Runtime,
   type RuntimeDiagnostics,
+  type RuntimeDiagnosticsHead,
   type SimEntityData,
   type SimState,
   type SimulationModule,
@@ -1045,7 +1046,53 @@ export class RuntimeInstance implements Runtime {
 
   getDiagnostics(): { ok: true; diagnostics: RuntimeDiagnostics } | { ok: false; error: RuntimeError } {
     // Works in every state, including disposed.
-    return { ok: true, diagnostics: this.buildDiagnostics() };
+    const sim = this.sim;
+    const base: RuntimeDiagnostics = {
+      state: sim.stateName,
+      snapshotId: this.snapshotId,
+      revision: this.revision,
+      simTime: sim.simTime,
+      stepIndex: sim.stepIndex,
+      fixedStepHz: sim.hz,
+      droppedSteps: this.frame.clock.droppedSteps,
+      frameCount: this.frame.clock.frameCount,
+      entityCount: sim.entityCount,
+      modules: [...this.modules],
+      clock: this.clockLabel,
+      clockWarningCount: this.frame.clock.clockWarningCount,
+      ...this.faults.base(),
+    };
+    if (!this.isM2) return { ok: true, diagnostics: base };
+    const m2: RuntimeDiagnostics = {
+      ...base,
+      ...this.faults.phasedFields(this.actions, this.controllers.first, { inputSamples: this.input.samples, droppedInputSteps: this.frame.clock.droppedInputSteps, settleSteps: this.frame.settleSteps, physicsSteps: this.chars.physicsSteps, intentCommitCount: this.phases.commitCount }),
+    };
+    // Generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
+    const ea = this.entityAccess;
+    if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
+    // Script messages refused at the per-step limit (only once one was: the warning); block layers' memory (with layers).
+    const queue = this.blocks?.messageQueueView() ?? null;
+    if (queue !== null) m2.messageQueue = queue;
+    const blockMemory = this.grid.memory();
+    if (blockMemory !== null) m2.blockMemory = blockMemory;
+    const terrainMemory = this.grid.terrain.memory();
+    if (terrainMemory !== null) m2.terrainMemory = terrainMemory;
+    const scatterCopies = this.grid.scatter.diagnostics();
+    if (scatterCopies !== null) m2.scatterCopies = scatterCopies;
+    const splines = this.grid.splines.diagnostics();
+    if (splines !== null) m2.splines = splines;
+    const architecture = this.grid.architecture.diagnostics();
+    if (architecture !== null) m2.architecture = architecture;
+    const worldStream = this.grid.stream.diagnostics();
+    if (worldStream !== null) m2.worldStream = { ...worldStream, suspended: this.chars.suspension.diagnostics() };
+    const voxelWorlds = this.entities.voxels.stats();
+    if (voxelWorlds.length > 0) m2.voxelWorlds = voxelWorlds;
+    return { ok: true, diagnostics: Object.assign(m2, this.faults.failure()) };
+  }
+
+  diagnosticsHead(): RuntimeDiagnosticsHead {
+    const sim = this.sim;
+    return { state: sim.stateName, stepIndex: sim.stepIndex, simTime: sim.simTime, frameCount: this.frame.clock.frameCount, errorCount: this.faults.errorCount };
   }
 
   /** The two steps a draw reads now (a failed runtime draws its last committed step). */
@@ -1803,50 +1850,5 @@ export class RuntimeInstance implements Runtime {
   /** The property values every behavior instance on `entityId` reads (public and private), read-only, for the Play debug view. */
   behaviorProperties(entityId: string): BehaviorPropertyView[] {
     return behaviorPropertiesOf(this.sim.entries, entityId);
-  }
-
-  private buildDiagnostics(): RuntimeDiagnostics {
-    const sim = this.sim;
-    const base: RuntimeDiagnostics = {
-      state: sim.stateName,
-      snapshotId: this.snapshotId,
-      revision: this.revision,
-      simTime: sim.simTime,
-      stepIndex: sim.stepIndex,
-      fixedStepHz: sim.hz,
-      droppedSteps: this.frame.clock.droppedSteps,
-      frameCount: this.frame.clock.frameCount,
-      entityCount: sim.entityCount,
-      modules: [...this.modules],
-      clock: this.clockLabel,
-      clockWarningCount: this.frame.clock.clockWarningCount,
-      ...this.faults.base(),
-    };
-    if (!this.isM2) return base;
-    const m2: RuntimeDiagnostics = {
-      ...base,
-      ...this.faults.phasedFields(this.actions, this.controllers.first, { inputSamples: this.input.samples, droppedInputSteps: this.frame.clock.droppedInputSteps, settleSteps: this.frame.settleSteps, physicsSteps: this.chars.physicsSteps, intentCommitCount: this.phases.commitCount }),
-    };
-    // Generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
-    const ea = this.entityAccess;
-    if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
-    // Script messages refused at the per-step limit (only once one was: the warning); block layers' memory (with layers).
-    const queue = this.blocks?.messageQueueView() ?? null;
-    if (queue !== null) m2.messageQueue = queue;
-    const blockMemory = this.grid.memory();
-    if (blockMemory !== null) m2.blockMemory = blockMemory;
-    const terrainMemory = this.grid.terrain.memory();
-    if (terrainMemory !== null) m2.terrainMemory = terrainMemory;
-    const scatterCopies = this.grid.scatter.diagnostics();
-    if (scatterCopies !== null) m2.scatterCopies = scatterCopies;
-    const splines = this.grid.splines.diagnostics();
-    if (splines !== null) m2.splines = splines;
-    const architecture = this.grid.architecture.diagnostics();
-    if (architecture !== null) m2.architecture = architecture;
-    const worldStream = this.grid.stream.diagnostics();
-    if (worldStream !== null) m2.worldStream = { ...worldStream, suspended: this.chars.suspension.diagnostics() };
-    const voxelWorlds = this.entities.voxels.stats();
-    if (voxelWorlds.length > 0) m2.voxelWorlds = voxelWorlds;
-    return Object.assign(m2, this.faults.failure());
   }
 }

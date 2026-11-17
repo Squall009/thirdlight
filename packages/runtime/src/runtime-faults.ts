@@ -151,6 +151,11 @@ export class RuntimeFaults {
     return this.logTotals;
   }
 
+  /** Errors so far (cumulative; what the ring keeps is bounded). */
+  get errorCount(): number {
+    return this.count;
+  }
+
   /** The diagnostics' error ring and its count. */
   base(): { errors: DiagnosticErrorEntry[]; errorCount: number } {
     return { errors: this.ring.entries(), errorCount: this.count };
