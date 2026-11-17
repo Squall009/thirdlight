@@ -25,10 +25,17 @@
  *   picks, so its shadow softens over a face's updates.
  *
  * The estimate (π × the rays' mean radiance) is blended into the face's old
- * light with the brick's weight (1 / its updates), so a brick settles over
- * its first few updates. A face's rays over its updates are consecutive
- * points of one low-discrepancy sequence (the brick's own count of rays
- * cast), so its first settle's rays cover the hemisphere evenly.
+ * light with the brick's weight (`volumeBlendWeight`: about the mean of the
+ * last quarter of its updates), so a brick settles over its first few
+ * updates and keeps converging as it is refined while nothing changes. The
+ * value written is then filtered with the same face of the four cells beside
+ * it along the surface that hold light (never across what is solid: those are
+ * open cells next to it in the same open space), by a share that falls as
+ * its brick's updates grow (`volumeFilterShare`), each neighbour taken
+ * against the face's own light as held, so a field the same everywhere stays
+ * as it is. A face's rays over its updates are consecutive points of one
+ * low-discrepancy sequence (the brick's own count of rays cast), so its first
+ * settle's rays cover the hemisphere evenly.
  *
  * A brick of a coarse level (1, 2 or 4 m cells) is updated the same way
  * from its cells' centres; such a cell holds light wherever it is open
@@ -43,7 +50,7 @@ import { volumeLampTermsWgsl, volumeSpotConeWgsl } from './voxel-light-volume-te
 
 /** Threads a workgroup: one a cell of a brick. */
 export const VOLUME_WORKGROUP = VOLUME_BRICK_VOLUME;
-/** u32 words a listed brick takes (its brick and slot, its weight and update). */
+/** u32 words a listed brick takes (its brick and slot; its blend weight, rays' place, level and filter share). */
 export const VOLUME_LIST_WORDS = 8;
 /** f32 words of the pass's parameters. */
 export const VOLUME_PARAM_FLOATS = 52;
@@ -161,12 +168,16 @@ fn pool_at(slot: u32, cell: u32, face: u32) -> vec2<i32> {
   return vec2<i32>(i32(i % ${VOLUME_POOL_WIDTH}u), i32(i / ${VOLUME_POOL_WIDTH}u));
 }
 
+/** The word the volume holds at face f of open cell c (0: none held, or its brick not in the index). */
+fn volume_word(c: vec3<i32>, f: u32) -> u32 {
+  let s = volume_slot(c);
+  if (s == 0u) { return 0u; }
+  return textureLoad(pool, pool_at(s - 1u, volume_local(c), f)).x;
+}
+
 /** The light the volume holds at face f of open cell c (0 where none is held). */
 fn volume_light(c: vec3<i32>, f: u32) -> vec3<f32> {
-  let s = volume_slot(c);
-  if (s == 0u) { return vec3<f32>(0.0); }
-  let w = textureLoad(pool, pool_at(s - 1u, volume_local(c), f)).x;
-  return volume_decode(w);
+  return volume_decode(volume_word(c, f));
 }
 
 /** The colour of the solid cells open cell c borders (the default grey where no brick holds it). */
@@ -338,8 +349,29 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
   let est = sum * (PI / f32(max(rays, 1u)));
   let old = textureLoad(pool, at).x;
   let blend = bitcast<f32>(info.x);
-  var v = est;
-  if (old != 0u && blend < 1.0) { v = mix(volume_decode(old), est, blend); }
+  // A brick's first update replaces what its slot held (a slot's last brick's light, or its own before a restart).
+  var was = est;
+  if (old != 0u && blend < 1.0) { was = volume_decode(old); }
+  var v = mix(was, est, blend);
+  // The filter (level 0): the same face of the four cells beside it along the surface that hold light, each against
+  // this face's own light as held (the same age), with the share its brick's updates leave it. Their words are this
+  // dispatch's or the last one's, whichever the GPU reads first; a brick in its first update is not in the index yet.
+  let share = bitcast<f32>(info.w);
+  if (level == 0u && share > 0.0) {
+    var nsum = vec3<f32>(0.0);
+    var nn = 0.0;
+    for (var k = 0u; k < 4u; k++) {
+      var nc = c;
+      let ax = select(t1, t2, k >= 2u);
+      nc[ax] = nc[ax] + select(1, -1, (k & 1u) == 1u);
+      let w = volume_word(nc, face);
+      if (w != 0u) {
+        nsum = nsum + volume_decode(w);
+        nn = nn + 1.0;
+      }
+    }
+    v = max(v + share * (nsum - nn * was) / (1.0 + share * nn), vec3<f32>(0.0));
+  }
   textureStore(pool, at, vec4<u32>(volume_encode(v), 0u, 0u, 0u));
 }
 `;

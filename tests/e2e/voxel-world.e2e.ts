@@ -1363,59 +1363,80 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
   return changed;
 }
 
+/** The shadow and light checks' objects (500 m under the pad until placed) and the Play session they run in. */
+interface PlayStart {
+  readonly at: [number, number, number];
+  readonly psid: string;
+  readonly answer: { playSessionId: string; playContent: { path: string } };
+  readonly canvas: Locator;
+  readonly errors: string[];
+  readonly shadowObjects: { blue: string; mover: string; lamp: string; spot: string; panel: string };
+  away(): number[];
+  observe(): Promise<PlayObservation>;
+  drawn(): Promise<ReturnType<VoxelPlayHook['stats']>>;
+}
+
+/**
+ * Play of the Play project on WebGPU with the simulation in its worker, the high tier switched at run time before the
+ * world streams in: the world streams, collides and draws at the new tier (a body is let go only on a column whose
+ * sections all derived), its kit pieces drawn, the character standing on the pad. The shadow checks' objects are made
+ * 500 m under the pad first: a blue box the wall's shadow falls on, a grey box over the pad (both moving objects: not
+ * static), a red lamp that casts, and the light volume's other light types (no shadow maps: the volume walks its own
+ * shadows).
+ */
+async function startPlay(page: Page, renderer: 'webgpu'): Promise<PlayStart> {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const at = await playProject();
+  await groundRelief(true);
+  const away = (): number[] => [at[0], at[1] - 500, at[2]];
+  const make = async (name: string, kind: 'box' | 'group', parts: Record<string, unknown>): Promise<string> => String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind, name, transform: { position: away() }, ...parts }))['createdId']);
+  const shadowObjects = {
+    blue: await make('Shadowed box', 'box', { box: { size: [0.6, 0.6, 0.6], material: { color: '#2050f0' } } }),
+    mover: await make('Moving box', 'box', { box: { size: [0.8, 0.8, 0.8], material: { color: '#e0e0e0' } } }),
+    lamp: await make('Red lamp', 'group', { components: { light: { type: 'point', color: '#ff3030', intensity: 400, range: 10, decay: 2, castShadow: true } } }),
+    spot: await make('Red spot', 'group', { components: { light: { type: 'spot', color: '#ff0000', intensity: 400, range: 8, decay: 2, angle: 20, penumbra: 0.2, direction: [1, 0, 0], castShadow: false } } }),
+    panel: await make('Blue panel', 'group', { components: { light: { type: 'area', shape: 'rect', width: 1, height: 0.5, color: '#0000ff', intensity: 400, range: 6, castShadow: false } } }),
+  };
+  const errors = consoleErrors(page);
+  const url = editorUrlFor(be.editorUrl, renderer);
+  await page.goto(url);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+  await page.getByTitle('Start an isolated play preview').click();
+  const answer = (await (await started).json()) as { playSessionId: string; playContent: { path: string } };
+  const psid = String(answer.playSessionId);
+  const frame = page.frameLocator('iframe.tl-app__preview-frame');
+  const canvas = frame.locator('canvas').first();
+  await expectRendererBackend(canvas, renderer);
+  const observe = async (): Promise<PlayObservation> => (await projectApi(`play/${psid}/observe`)).json as PlayObservation;
+  const q = await projectApi(`play/${psid}/control`, { command: 'setQuality', level: 'high' });
+  expect(q.status, JSON.stringify(q.json)).toBe(200);
+  const drawn = (): Promise<ReturnType<VoxelPlayHook['stats']>> => canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.stats());
+  await expect.poll(async () => (await observe()).counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident' }).toBe(1);
+  // The world is drawn round the camera and the character stands on its ground (it waited over unloaded ground).
+  await expect.poll(async () => (await drawn()).worlds['far']?.chunks ?? 0, { timeout: 30_000 }).toBeGreaterThan(20);
+  // Kit pieces drawn: the stone kit's GLB read from the build's content and parsed on the page, the default kit's elsewhere.
+  await expect.poll(async () => Object.values(await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.kits())), { timeout: 20_000 }).toEqual([expect.stringMatching(/^ready, sheet \S+/)]);
+  // The pieces come with their chunks' draws, which may land after the kit's meshes.
+  await expect.poll(async () => (await drawn()).worlds['far']?.kitInstances ?? 0, { timeout: 20_000 }).toBeGreaterThan(5);
+  // It waits over ground not streamed in yet and then lands on it (its origin stands above its feet).
+  await expect.poll(async () => { const y = (await observe()).player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
+  return { at, psid, answer, canvas, errors, shadowObjects, away, observe, drawn };
+}
+
 {
   // WebGPU only, the simulation in its worker (the product's way; sim-worker.e2e.ts runs a game with it in the page).
   const renderer = 'webgpu';
   test("Play: a world 8 km out streams with the simulation in its worker at a tier switched at run time, a script digs a pit, the pixels change and the character falls in; a voxel save in the game's slot brings the pit back after a restart, not the wetness", async ({ page }) => {
-    // The shadow, sun-field and light volume checks on one page take most of it.
+    // The shadow and sun-field checks on one page take most of it (the light volume's are the next test's).
     test.setTimeout(240_000);
-    await page.setViewportSize({ width: 1280, height: 720 });
-    const at = await playProject();
-    await groundRelief(true);
-    // The shadow checks' objects, 500 m under the pad until they are placed (taken out at the end): a blue box the
-    // wall's shadow falls on, a grey box over the pad (both moving objects: not static), a red lamp that casts.
-    const away = (): number[] => [at[0], at[1] - 500, at[2]];
-    const make = async (name: string, kind: 'box' | 'group', parts: Record<string, unknown>): Promise<string> => String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind, name, transform: { position: away() }, ...parts }))['createdId']);
-    const shadowObjects = {
-      blue: await make('Shadowed box', 'box', { box: { size: [0.6, 0.6, 0.6], material: { color: '#2050f0' } } }),
-      mover: await make('Moving box', 'box', { box: { size: [0.8, 0.8, 0.8], material: { color: '#e0e0e0' } } }),
-      lamp: await make('Red lamp', 'group', { components: { light: { type: 'point', color: '#ff3030', intensity: 400, range: 10, decay: 2, castShadow: true } } }),
-      // The light volume's other light types (no shadow maps: the volume walks its own shadows).
-      spot: await make('Red spot', 'group', { components: { light: { type: 'spot', color: '#ff0000', intensity: 400, range: 8, decay: 2, angle: 20, penumbra: 0.2, direction: [1, 0, 0], castShadow: false } } }),
-      panel: await make('Blue panel', 'group', { components: { light: { type: 'area', shape: 'rect', width: 1, height: 0.5, color: '#0000ff', intensity: 400, range: 6, castShadow: false } } }),
-    };
-    const errors = consoleErrors(page);
-    const url = editorUrlFor(be.editorUrl, renderer);
-    await page.goto(url);
-    await expect(page.locator('.tl-statusbar')).toContainText('connected');
-    const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
-    await page.getByTitle('Start an isolated play preview').click();
-    const answer = (await (await started).json()) as { playSessionId: string; playContent: { path: string } };
-    const psid = String(answer.playSessionId);
-    const frame = page.frameLocator('iframe.tl-app__preview-frame');
-    const canvas = frame.locator('canvas').first();
-    await expectRendererBackend(canvas, renderer);
+    const { at, psid, answer, canvas, errors, shadowObjects, away, observe, drawn } = await startPlay(page, renderer);
     // The play's locator serves the world its scenes name, not the project's other worlds.
     const preview = new URL((await page.locator('iframe.tl-app__preview-frame').getAttribute('src'))!, be.origin).origin;
     const voxelStatus = async (world: string): Promise<number> => (await fetch(`${preview}${answer.playContent.path}voxels/${world}`)).status;
     expect([await voxelStatus('far'), await voxelStatus('slice')]).toEqual([200, 404]);
-    const observe = async (): Promise<PlayObservation> => (await projectApi(`play/${psid}/observe`)).json as PlayObservation;
-    // The high tier, switched at run time before the world streams in: the world streams, collides and draws at the
-    // new tier (a body is let go only on a column whose sections all derived).
-    const q = await projectApi(`play/${psid}/control`, { command: 'setQuality', level: 'high' });
-    expect(q.status, JSON.stringify(q.json)).toBe(200);
-    const drawn = (): Promise<ReturnType<VoxelPlayHook['stats']>> => canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.stats());
-    await expect.poll(async () => (await observe()).counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident' }).toBe(1);
-    // The world is drawn round the camera and the character stands on its ground (it waited over unloaded ground).
-    await expect.poll(async () => (await drawn()).worlds['far']?.chunks ?? 0, { timeout: 30_000 }).toBeGreaterThan(20);
     // Drawn at its object's blend distance.
     expect((await drawn()).worlds['far']?.blendM).toBe(PLAY_BLEND_M);
-    // Kit pieces drawn: the stone kit's GLB read from the build's content and parsed on the page, the default kit's elsewhere.
-    await expect.poll(async () => Object.values(await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.kits())), { timeout: 20_000 }).toEqual([expect.stringMatching(/^ready, sheet \S+/)]);
-    // The pieces come with their chunks' draws, which may land after the kit's meshes.
-    await expect.poll(async () => (await drawn()).worlds['far']?.kitInstances ?? 0, { timeout: 20_000 }).toBeGreaterThan(5);
-    // It waits over ground not streamed in yet and then lands on it (its origin stands above its feet).
-    await expect.poll(async () => { const y = (await observe()).player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad' }).toBe(true);
     const standing = (await observe()).player!;
     // Both wall marks: the clipped one cut from the wall's chunk once it streamed in, the projected one in the wall's draws.
     type DecalDiag = { renderer?: { clippedDecals?: { drawn: number; pending: number; triangles: number; workerMs: { mean: number; max: number } }; projectedDecals?: { drawn: number; receiverDraws: number } } };
@@ -1460,7 +1481,6 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     expect(wc.mismatches, JSON.stringify(wc.examples)).toBe(0);
     await voxelShadowChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
     await voxelFarLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
-    await voxelVolumeLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);
@@ -1626,6 +1646,25 @@ async function reliefMoves(frame: { evaluate<R>(fn: () => R | Promise<R>): Promi
     await page.getByTitle('Stop the play preview').click();
     // Back to 2 m (the cache keeps the baked levels; a scene asking 2 m neither reads nor ships them).
     await playCmd('setComponent', { entityId: playWorld!, component: 'voxelWorld', value: { bakeLevel: null, quality: { low: FAR_TEST_RINGS } } });
+    await groundRelief(false);
+    await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp, shadowObjects.spot, shadowObjects.panel] });
+  });
+
+  test('Play: the voxel light volume lights the hut, its kit pieces and moving objects, bounces every light type, follows edits and lights, and refines while nothing changes', async ({ page }) => {
+    test.setTimeout(240_000);
+    const { at, psid, errors, shadowObjects, away, observe } = await startPlay(page, renderer);
+    // The script's wall built and dug once first, as the shadow checks do before the other Play test reaches here: the
+    // light checks build and dig it again, and digging it takes the stub's end with it (its kit pieces change shape), so
+    // the store-off pictures before and after them show the same world.
+    for (const [name, counter] of [['wall', 'wallBuilt'], ['unwall', 'wallDug']] as const) {
+      const r = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name });
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+      await expect.poll(async () => (await observe()).counters?.[counter] ?? 0, { timeout: 10_000 }).toBe(1);
+    }
+    await voxelVolumeLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
+    expect(errors).toEqual([]);
+    await page.getByTitle('Stop the play preview').click();
+    await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
     await groundRelief(false);
     await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp, shadowObjects.spot, shadowObjects.panel] });
   });

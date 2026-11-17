@@ -7,6 +7,7 @@ import { writeFileSync } from 'node:fs';
 
 import { changedPixels, decodePng } from './png';
 import { expect, test, type Page } from './pw';
+import { cellBlotch } from '../../tools/voxel-bench/lighting-cameras';
 
 /** What the checks drive: the editor page with Play running, the play session, the character's stand (metres), the test objects' ids and where they wait, and the project API. */
 export interface ShadowCheckSetup {
@@ -450,6 +451,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   await staleSoon('the opened roof');
   await settled('the hut opened');
   const openMs = Date.now() - t0;
+  const refine = await refiningCheck(o, hook);
   const open = await still('volume-hut-open');
   // The near grid texture replaced under draws made before it (the hut's chunks are drawn; the old texture is
   // disposed two frames on), then the floor repainted green under the open roof: the floor shows green, so those draws
@@ -500,11 +502,17 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   const builtMs = Date.now() - tBuild;
   const shadedCells = await faceCells();
   const shaded = lampBounce(shadedCells);
-  // (Dug again and settled, the face's cells came back to what they held before it, 1.2–1.8 % apart of what the pillar
-  // moved them; that settle was cut to keep the test's time: a light taken out is the same rule, checked in the hut.)
+  const tDig = Date.now();
+  await counted('unpillar', 'pillarDug');
+  await staleSoon('the pillar dug');
+  await settled('the pillar dug');
+  const dugMs = Date.now() - tDig;
+  const relitCells = await faceCells();
+  const relit = lampBounce(relitCells);
+  // Dug again, the face's cells hold what they held before the pillar was built (nothing left of its shadow).
+  const pillarResidue = cellsApart(relitCells, litCells) / Math.max(cellsApart(shadedCells, litCells), 1e-6);
   // The store off: the box outside by the flat term, then the picture as before.
   await hook('setStore', 'off');
-  await counted('unpillar', 'pillarDug');
   await expect.poll(() => hook('volume'), { timeout: 10_000 }).toBeNull();
   await place(ids.lamp, away);
   await counted('unwall', 'wallDug');
@@ -529,7 +537,8 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   console.log(`[voxel-play] light volume readers: the blue box in the shut hut ${boxIn.volume.lum.toFixed(1)} against ${boxIn.off.lum.toFixed(1)} by the flat term (${boxIn.off.n} px); the kit pieces on the stub ${kit.volume.lum.toFixed(1)} against ${kit.off.lum.toFixed(1)} (${kit.off.n} px); the box 1.7 m over the pad ${boxOpen.volume.lum.toFixed(1)} against ${boxOpen.off.lum.toFixed(1)} (${boxOpen.off.n} px)`);
   console.log(`[voxel-play] light volume lamp lists: ${lists.length} bricks round the lamp, ${listsKept.length} kept, ${listsLit.length} listing a lamp, ${listsDiffer.length} differing from the CPU's rule (${JSON.stringify(listsDiffer.slice(0, 2))}); up the wall's face ${faceLists.length} bricks, ${faceLists.filter(listsLamp).length} listing the red lamp (${JSON.stringify(lampAt)}); 1 m level ${listsCoarse.length} kept, ${listsCoarse.filter(listsLamp).length} listing it, ${listsCoarseDiffer.length} differing (${JSON.stringify(listsCoarseDiffer.slice(0, 2))}; the first lists ${JSON.stringify(faceLists[0]?.at)}); most reaching one ${Math.max(0, ...lists.map((l) => l.cpu.total))}`);
   console.log(`[voxel-play] light volume light types: the spot's red bounce on the west wall's cells: faces looking at the wall it lights ${typed.front.toFixed(3)} (${typed.frontN} faces), at the wall behind it ${typed.behind.toFixed(3)} (ratio ${typed.ratio.toFixed(3)}; settled ${typed.litMs} ms); the panel's blue bounce on the faces looking down at the floor it lights ${typed.panel.toFixed(3)} (${typed.panelN} faces; before it was placed ${typed.panelBefore.toFixed(3)}), with both taken out ${typed.panelOff.toFixed(3)} (settled ${typed.offMs} ms), the spot's then ${typed.frontOff.toFixed(3)} (before it came ${typed.frontBefore.toFixed(3)}); the cells then against before the lights came ${(typed.residue * 100).toFixed(2)} % of what the lights moved them`);
-  console.log(`[voxel-play] light volume edit: the lamp's red bounce up the wall's face ${lit.red.toFixed(3)} (${lit.n} cells), the pillar built ${shaded.red.toFixed(3)} (settled ${builtMs} ms after the command), the pillar and the face's cells ${across ? 'in two chunks' : 'in one chunk'}`);
+  console.log(`[voxel-play] light volume edit: the lamp's red bounce up the wall's face ${lit.red.toFixed(3)} (${lit.n} cells), the pillar built ${shaded.red.toFixed(3)} (settled ${builtMs} ms after the command), dug ${relit.red.toFixed(3)} (${dugMs} ms), its cells against before it was built ${(pillarResidue * 100).toFixed(2)} % of what the pillar moved them; the pillar and the face's cells ${across ? 'in two chunks' : 'in one chunk'}`);
+  console.log(`[voxel-play] light volume refining: the open hut's cells' neighbour difference at its settle ${refine.settled.mean.toFixed(4)} (${refine.settled.pairs} pairs, bricks at ${refine.settledUpdates} updates), refined ${refine.refined.mean.toFixed(4)} (${refine.refined.pairs} pairs, bricks at ${refine.refinedUpdates} updates, ${refine.ms} ms later): ratio ${(refine.refined.mean / Math.max(refine.settled.mean, 1e-9)).toFixed(3)}`);
   expect(updated.length, 'cells round the hut were updated').toBeGreaterThan(200);
   expect(holdsGpu, 'cells round the hut hold light on the GPU').toBeGreaterThan(100);
   expect(differ.length, JSON.stringify(differ.slice(0, 3))).toBe(0);
@@ -563,6 +572,11 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   expect(lit.n, 'cells up the wall hold light').toBeGreaterThan(10);
   expect(lit.red, "the lamp's bounce reaches the wall's face").toBeGreaterThan(VOLUME_LAMP_BOUNCE_MIN);
   expect(shaded.red, "the pillar built between them takes the lamp's bounce off").toBeLessThan(VOLUME_EDIT_SHADED_SHARE * lit.red);
+  expect(relit.red, 'dug again, the bounce comes back').toBeGreaterThan(VOLUME_EDIT_BACK_SHARE * lit.red);
+  expect(pillarResidue, 'dug again, the cells hold what they held before the pillar was built').toBeLessThan(VOLUME_RESIDUE_SHARE);
+  expect(refine.settled.pairs, 'the open hut holds cells side by side').toBeGreaterThan(200);
+  expect(refine.refinedUpdates, 'refined while nothing changes').toBeGreaterThanOrEqual(VOLUME_REFINED_UPDATES);
+  expect(refine.refined.mean, 'refined, the cells beside each other differ less than at their first settle').toBeLessThan(VOLUME_REFINED_SHARE * refine.settled.mean);
   expect(same, 'switched off, the picture is the store-off one').toBeLessThan(OFF_SAME_MAX_PX);
   expect(typed.frontN, "faces looking at the spot's wall hold light").toBeGreaterThan(5);
   expect(typed.front, "the spot's bounce off the wall it lights").toBeGreaterThan(VOLUME_SPOT_BOUNCE_MIN);
@@ -573,6 +587,28 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   expect(typed.panelOff, "the area light taken out, its bounce is gone once the bricks settle again").toBeLessThan(VOLUME_GONE_SHARE * typed.panel);
   expect(typed.frontOff - typed.frontBefore, "the spot taken out, its bounce is gone once the bricks settle again").toBeLessThan(VOLUME_GONE_SHARE * typed.front);
   expect(typed.residue, 'the lights taken out, the cells are back near what they held before the lights came').toBeLessThan(VOLUME_RESIDUE_SHARE);
+}
+
+/**
+ * The refining while nothing changes, in the open hut just settled: the hut's cells in view (every 0.5 m inside its walls) read
+ * back, their same-face neighbours' brightness apart (`cellBlotch`), then again once every brick there holding light
+ * has had {@link VOLUME_REFINED_UPDATES} updates (polled; the update refines the bricks round the eye first).
+ */
+async function refiningCheck(o: FarLightSetup, hook: <T>(f: string, arg?: unknown) => Promise<T>): Promise<{ settled: { mean: number; pairs: number }; refined: { mean: number; pairs: number }; settledUpdates: number; refinedUpdates: number; ms: number }> {
+  const { rel } = driver(o);
+  const pts: number[][] = [];
+  // In front of the camera (it stands at z 9.5 looking down the hut): the refining takes what is in view first.
+  for (let x = -2; x < 2; x += 0.5) for (let y = 0.5; y < 3; y += 0.5) for (let z = 2.5; z < 8.5; z += 0.5) pts.push(rel(x + 0.25, y + 0.25, z + 0.25));
+  const read = async (): Promise<VolumeCell[]> => ((await hook<VolumeCell[] | null>('volumeCells', pts)) ?? []).filter((c) => c.faces.some((f) => f !== null));
+  const least = (cells: readonly VolumeCell[]): number => Math.min(...cells.map((c) => c.updates));
+  const first = await read();
+  const t0 = Date.now();
+  let last = first;
+  await expect.poll(async () => {
+    last = await read();
+    return last.length > 0 ? least(last) : 0;
+  }, { timeout: 60_000, intervals: [500], message: 'the open hut is refined' }).toBeGreaterThanOrEqual(VOLUME_REFINED_UPDATES);
+  return { settled: cellBlotch(first), refined: cellBlotch(last), settledUpdates: least(first), refinedUpdates: least(last), ms: Date.now() - t0 };
 }
 
 /** The colour of one face's light over another channel's, summed over the cells holding light (`face` 0 … 5, `ch` 0 … 2). */
@@ -688,6 +724,15 @@ const VOLUME_TINT_FACTOR = 1.02;
  */
 const VOLUME_OPEN_SHARE = 0.7;
 const VOLUME_EDIT_SHADED_SHARE = 0.7;
+/** Dug again, at least this share of the lamp's bounce up the wall's face comes back (32 rays a face: noise). */
+const VOLUME_EDIT_BACK_SHARE = 0.8;
+/**
+ * The open hut's cells refined while nothing changes: their bricks past this many updates (four times the first settle's
+ * rays), their same-face neighbours' brightness apart by at most this share of what it was at their first settle
+ * (set before the first run; the bench's room cells went 0.66 → 0.35 refined to 24–33).
+ */
+const VOLUME_REFINED_UPDATES = 32;
+const VOLUME_REFINED_SHARE = 0.85;
 /**
  * The lamp's red bounce summed over the wall face's cells (`bounce()`): 1,461–1,921 in every gate that logged it;
  * a third of the least, so a bounce that barely reaches the wall fails where "above 0" would pass.

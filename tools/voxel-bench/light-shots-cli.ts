@@ -48,6 +48,10 @@
  *                 same cells read again: how far the light the camera arrived to lies from a volume made with the
  *                 lights as they are (`freshApart`: summed face differences over the summed light; what a change of
  *                 look, sun or lamps on the way left behind)
+ *   --arrival-at LIST  with --arrival-shots, the seconds after each move (default 2,10)
+ *   --auto-exposure  the camera adapts its exposure (the look's fixed exposure otherwise), set back after
+ *   --reference FILE  at each camera the light volume's room cells read back beside the CPU path-traced reference's
+ *                 variants in FILE (`{ variants: [{ name, rays, bounces, reach?, sunReach?, albedo, means? }] }`)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
  *
  * How to (staging running, nothing else on the GPU):
@@ -67,7 +71,7 @@ import { commandEnvelope } from '../../tests/support/commands';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
+import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { openPlay, type PlayGame } from './travel-page';
 import { settleAfter, type CountSample } from './travel';
@@ -183,6 +187,16 @@ async function volumeCellsFlat(eye: number[]): Promise<number[] | null> {
   return cells.flatMap((c) => c.faces.flatMap((f) => f ?? [0, 0, 0]));
 }
 
+/** In the page: the light volume's cells in {@link volumeCellsRound}'s box with their places (the blotch metric's input). */
+async function volumeCellsPlaced(eye: number[]): Promise<BenchVolumeCell[] | null> {
+  type Cell = { cell: number[]; faces: (number[] | null)[] };
+  const l = (window as unknown as { __tlVoxelPlay?: { light?: { volumeCells?(p: number[][]): Promise<Cell[] | null> } } }).__tlVoxelPlay?.light;
+  const pts: number[][] = [];
+  for (let dx = -4; dx <= 4; dx += 0.5) for (let dy = -2; dy <= 2; dy += 0.5) for (let dz = -4; dz <= 4; dz += 0.5) pts.push([eye[0]! + dx + 0.25, eye[1]! + dy + 0.25, eye[2]! + dz + 0.25]);
+  const cells = (await l?.volumeCells?.(pts)) ?? null;
+  return cells === null ? null : cells.map((c) => ({ cell: c.cell, faces: c.faces }));
+}
+
 /** Waits for the page's lighting store to light what it holds (`off`: nothing to wait for). */
 async function storeLit(game: PlayGame, store: string): Promise<{ litS: number | null; state: VolumeStats | null }> {
   return store === 'volume' ? volumeLit(game) : { litS: null, state: null };
@@ -192,6 +206,16 @@ async function storeLit(game: PlayGame, store: string): Promise<{ litS: number |
 const LIT_TIMEOUT_MS = 120_000;
 
 const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });
+
+/** The mean brightness of a picture (luminance of 255). */
+function meanBrightness(img: { width: number; height: number; pixel(x: number, y: number): readonly number[] }): number {
+  let s = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const p = img.pixel(x, y);
+    s += 0.2126 * p[0]! + 0.7152 * p[1]! + 0.0722 * p[2]!;
+  }
+  return Number((s / (img.width * img.height)).toFixed(2));
+}
 
 function sceneEntities(): Array<{ id: string; name: string }> {
   return JSON.parse(readFileSync(join(PROJECT_DIR, 'scenes', 'scene-main.json'), 'utf8')).scene.entities as Array<{ id: string; name: string }>;
@@ -246,7 +270,12 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   }
   const before = cameraBehaviour(PROJECT_DIR);
   await publishCameraBehaviour(b, PROJECT_DIR, BEHAVIOR, lightShotsSource());
+  // The camera's own exposure (as a game runs it), set back after.
+  const camEntity = sceneEntities().find((e) => e.name === 'Perf far camera') as { id: string; components?: { virtualCamera?: Record<string, unknown> } } | undefined;
+  const camWas = camEntity?.components?.virtualCamera ?? null;
+  if (O.autoExposure && camEntity !== undefined && camWas !== null) await b.command('setComponent', { entityId: camEntity.id, component: 'virtualCamera', value: { ...camWas, autoExposure: true } });
   return async () => {
+    if (O.autoExposure && camEntity !== undefined && camWas !== null) await b.command('setComponent', { entityId: camEntity.id, component: 'virtualCamera', value: camWas }).catch((err: unknown) => console.error(`camera not set back: ${String(err)}`));
     for (const lamp of lamps) {
       const e = sceneEntities().find((x) => x.name === lamp.name);
       if (e !== undefined) await b.command('deleteEntity', { entityId: e.id }).catch((err: unknown) => console.error(`lamp not taken out: ${String(err)}`));
@@ -292,7 +321,7 @@ function lightingSpans(r: ProfileReport | null): Record<string, { mean: number; 
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   const b = benchApi({ origin: O.origin, token: TOKEN, project: O.project, clientId: 'voxel-bench-light-shots' });
-  const out: Record<string, unknown> = { bench: 'light-shots', extraLamps: O.extraLamps, lightTypes: O.lightTypes, quality: O.quality, renderer: 'webgpu', viewport: O.viewport, tierScale: TIER_SCALE, cap: LEVEL?.frameRateCap ?? null, query: O.query, world: O.world, start: host(), shots: [] as unknown[], problems: [] as string[] };
+  const out: Record<string, unknown> = { bench: 'light-shots', extraLamps: O.extraLamps, lightTypes: O.lightTypes, autoExposure: O.autoExposure, arrivalAt: O.arrivalAt, quality: O.quality, renderer: 'webgpu', viewport: O.viewport, tierScale: TIER_SCALE, cap: LEVEL?.frameRateCap ?? null, query: O.query, world: O.world, start: host(), shots: [] as unknown[], problems: [] as string[] };
   const problems = out['problems'] as string[];
   const restore = await prepare(b);
   const browser = await launchGpuBrowser({ vsync: true });
@@ -325,12 +354,13 @@ async function main(): Promise<void> {
       const arrived = Date.now();
       const arrival: Record<string, unknown>[] = [];
       if (O.arrivalShots) {
-        // What a player sees before the light has caught up: 2 s and 10 s after the move.
-        for (const at of [2, 10]) {
+        // What a player sees before the light has caught up (and as it refines): 2 s and 10 s after the move, or as asked.
+        for (const at of O.arrivalAt) {
           await page.waitForTimeout(Math.max(0, arrived + at * 1000 - Date.now()));
           const f = join(OUT, `${cam.name}-arrive-${at}s.png`);
-          await game.screenshot(f);
-          arrival.push({ at, file: f, progress: await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null).catch(() => null) });
+          const pic = decodePng(await game.screenshot(f));
+          const cellsNow = await game.frame.evaluate(volumeCellsPlaced, [...cam.eye]).catch(() => null);
+          arrival.push({ at, file: f, mean: meanBrightness(pic), blotch: pictureBlotch(pic), cellBlotch: cellsNow === null ? null : cellBlotch(cellsNow), progress: await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null).catch(() => null) });
         }
       }
       const s = await settle(game);
@@ -346,6 +376,16 @@ async function main(): Promise<void> {
       // The same view a second later: what changes in a still, settled picture (flicker).
       await page.waitForTimeout(1000);
       const secondShare = changedShare(shown, decodePng(await game.screenshot(join(OUT, `${cam.name}-1s.png`))));
+      const placed = store === 'volume' ? await game.frame.evaluate(volumeCellsPlaced, [...cam.eye]).catch(() => null) : null;
+      const blotch = { picture: pictureBlotch(shown), cells: placed === null ? null : cellBlotch(placed), mean: meanBrightness(shown) };
+      console.log(`${cam.name}: blotch ${JSON.stringify(blotch)}`);
+      let reference: unknown = null;
+      if (O.reference !== null && store === 'volume') {
+        const asked = JSON.parse(readFileSync(O.reference, 'utf8')) as { variants: unknown[]; grid?: unknown };
+        const t0 = Date.now();
+        reference = await game.frame.evaluate((a) => (window as unknown as { __tlVoxelPlay?: { light?: { volumeReference?(o: unknown): Promise<unknown> } } }).__tlVoxelPlay?.light?.volumeReference?.(a) ?? null, { eye: [...cam.eye], variants: asked.variants, ...(asked.grid !== undefined ? { grid: asked.grid } : {}) }).catch((e: unknown) => String(e));
+        console.log(`${cam.name}: reference (${((Date.now() - t0) / 1000).toFixed(1)} s) ${JSON.stringify(reference).slice(0, 1500)}`);
+      }
       // The same view with the voxel draws hidden: what changes is what the voxels drew.
       await meterSet(game, { near: true, far: true });
       await page.waitForTimeout(CONVERGE_MS);
@@ -445,6 +485,8 @@ async function main(): Promise<void> {
         counts: s.counts,
         voxelShare: Number(voxelShare.toFixed(3)),
         secondShare: Number(secondShare.toFixed(4)),
+        blotch,
+        ...(O.reference !== null ? { reference, cellsPlaced: placed } : {}),
         problems: shotProblemsFound,
         profile: report === null ? null : profileSummary(report),
         memory: report?.counters.memory ?? null,

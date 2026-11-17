@@ -294,6 +294,12 @@ export interface LightShotsOptions {
   /** `--light-types`: the spot and the area light of {@link BENCH_LIGHT_TYPES} placed too. */
   readonly lightTypes: boolean;
   readonly freshCells: boolean;
+  /** `--arrival-at LIST`: with `--arrival-shots`, the seconds after each move its pictures are taken at (default 2, 10). */
+  readonly arrivalAt: readonly number[];
+  /** `--auto-exposure`: the camera adapts its exposure (as a game runs it) instead of the look's fixed exposure. */
+  readonly autoExposure: boolean;
+  /** `--reference FILE`: at each camera, the light volume's room cells against the CPU reference's variants in FILE (JSON `{ variants }`); null: none. */
+  readonly reference: string | null;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -349,6 +355,13 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     extraLamps: num('extra-lamps', 0, 0, 4096),
     lightTypes: argv.includes('--light-types'),
     freshCells: argv.includes('--fresh-cells'),
+    arrivalAt: (arg('arrival-at') ?? '2,10').split(',').map((x) => {
+      const n = Number(x);
+      if (!Number.isFinite(n) || n <= 0 || n > 600) throw new Error(`--arrival-at: seconds in (0, 600], not ${x}`);
+      return n;
+    }),
+    autoExposure: argv.includes('--auto-exposure'),
+    reference: arg('reference'),
     viewport: { width: Number(m[1]), height: Number(m[2]) },
   };
 }
@@ -374,6 +387,103 @@ export function changedShare(a: Picture, b: Picture): number {
     if (Math.abs(p[0] - q[0]) > CHANGED_PIXEL_DELTA || Math.abs(p[1] - q[1]) > CHANGED_PIXEL_DELTA || Math.abs(p[2] - q[2]) > CHANGED_PIXEL_DELTA) n++;
   }
   return n / (a.width * a.height);
+}
+
+/** A light volume cell as the page reads it back, with its place (level-0 cell). */
+export interface BenchVolumeCell {
+  readonly cell: readonly number[];
+  readonly faces: readonly (readonly number[] | null)[];
+}
+
+const cellLum = (c: readonly number[]): number => 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+
+/**
+ * How blotchy the volume's light is: over every face of every cell holding light, and each of its four neighbours along
+ * that face's surface holding light on the same face, the difference of their brightness over their mean (pairs whose
+ * mean is under `floor` left out: black and near black say nothing); the mean of those, and how many pairs.
+ */
+export function cellBlotch(cells: readonly BenchVolumeCell[], floor = 1e-3): { mean: number; pairs: number } {
+  const at = new Map<string, BenchVolumeCell>();
+  for (const c of cells) at.set(c.cell.join(','), c);
+  let sum = 0;
+  let pairs = 0;
+  for (const c of cells) for (let f = 0; f < 6; f++) {
+    const a = c.faces[f];
+    if (a === null || a === undefined) continue;
+    const axis = f >> 1;
+    // Each pair once: the neighbour a step up the two axes across the face's.
+    for (const t of [(axis + 1) % 3, (axis + 2) % 3]) {
+      const n = [...c.cell];
+      n[t]! += 1;
+      const b = at.get(n.join(','))?.faces[f];
+      if (b === null || b === undefined) continue;
+      const la = cellLum(a);
+      const lb = cellLum(b);
+      const m = (la + lb) / 2;
+      if (m < floor) continue;
+      sum += Math.abs(la - lb) / m;
+      pairs++;
+    }
+  }
+  return { mean: pairs === 0 ? 0 : sum / pairs, pairs };
+}
+
+/** A box filter of a luminance image (radius `r` px, clamped at the edges), by running sums. */
+function boxBlur(l: Float32Array, w: number, h: number, r: number): Float32Array {
+  const tmp = new Float32Array(w * h);
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    let s = 0;
+    for (let x = -r; x <= r; x++) s += l[y * w + Math.min(w - 1, Math.max(0, x))]!;
+    for (let x = 0; x < w; x++) {
+      tmp[y * w + x] = s / (2 * r + 1);
+      s += l[y * w + Math.min(w - 1, x + r + 1)]! - l[y * w + Math.max(0, x - r)]!;
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let s = 0;
+    for (let y = -r; y <= r; y++) s += tmp[Math.min(h - 1, Math.max(0, y)) * w + x]!;
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = s / (2 * r + 1);
+      s += tmp[Math.min(h - 1, y + r + 1) * w + x]! - tmp[Math.max(0, y - r) * w + x]!;
+    }
+  }
+  return out;
+}
+
+/**
+ * How blotchy a picture's flat parts are: its luminance a little blurred (3 px, the texture's grain out) less its
+ * low-frequency gradient (a 48 px blur), over pixels where the little-blurred picture has no edge (a step of under 3 of
+ * 255 across 6 px each way) and is not black: the standard deviation of that over the gradient's mean, and the share
+ * of the picture it covers. Blotches of a cell to a metre at the cameras are 10–100 px across.
+ */
+export function pictureBlotch(img: Picture): { relStd: number; flatShare: number } {
+  const w = img.width;
+  const h = img.height;
+  const l = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const p = img.pixel(x, y);
+    l[y * w + x] = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+  }
+  const mid = boxBlur(l, w, h, 3);
+  const low = boxBlur(l, w, h, 48);
+  let s = 0;
+  let s2 = 0;
+  let m = 0;
+  let n = 0;
+  for (let y = 6; y < h - 6; y++) for (let x = 6; x < w - 6; x++) {
+    const i = y * w + x;
+    const edge = Math.abs(mid[i + 6]! - mid[i - 6]!) + Math.abs(mid[i + 6 * w]! - mid[i - 6 * w]!);
+    if (edge >= 3 || low[i]! < 2) continue;
+    const d = mid[i]! - low[i]!;
+    s += d;
+    s2 += d * d;
+    m += low[i]!;
+    n++;
+  }
+  if (n === 0) return { relStd: 0, flatShare: 0 };
+  const mean = s / n;
+  return { relStd: Math.sqrt(Math.max(0, s2 / n - mean * mean)) / (m / n), flatShare: n / (w * h) };
 }
 
 /** What makes a shot not count: never settled, no voxel draws counted, or nothing in it changes when the voxels are hidden. */

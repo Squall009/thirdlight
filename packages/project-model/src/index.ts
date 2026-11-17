@@ -1774,6 +1774,7 @@ export {
   GPU_PASS_BUDGET,
   GPU_PASS_CATEGORIES,
   gpuPassBudgetMs,
+  gpuPassIdleBudgetMs,
   type GpuPassCategory,
   levelFrameBudget,
   type FrameBudget,

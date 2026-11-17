@@ -389,6 +389,7 @@ export class VoxelWorldDraws {
     const old = this.arrays;
     this.arrays = next;
     for (const w of this.worlds.values()) this.giveArrays(w.surface);
+    this.volumeBounce();
     if (old !== null) for (const t of Object.values(old.textures)) if (t !== undefined && !Object.values(next?.textures ?? {}).includes(t)) this.opts.release?.(t);
     this.density = null;
     this.capArrays();
@@ -577,8 +578,17 @@ export class VoxelWorldDraws {
       this.volumeWorld = world;
       this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), lamps: () => this.opts.lamps?.() ?? null, read: new URLSearchParams(pageSearch()).get(SURFACE_READ_URL_PARAM) !== '0' });
       // The grids of chunks drawn before it came are not at hand: their bricks bounce the default grey until drawn again.
+      this.volumeBounce();
     }
     this.volume.frame();
+  }
+
+  /** The volume's bounce colours from the surfaces' albedo array (its layers' means), as the arrays are drawn. */
+  private volumeBounce(): void {
+    const a = this.arrays;
+    // `?voxelBounceMeans=0` keeps the looks' colours alone (a comparison of what the texture means change).
+    const off = new URLSearchParams(pageSearch()).get('voxelBounceMeans') === '0';
+    this.volume?.setBounceTextures(off ? null : (a?.textures.albedo ?? null), off ? null : (a?.layers ?? null));
   }
 
   /**

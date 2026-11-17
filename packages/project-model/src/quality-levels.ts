@@ -420,6 +420,11 @@ export interface FrameBudget {
    * paces itself (the light volume's update under `lighting`) keeps to its own, leaving the others in its row theirs.
    */
   readonly gpuPasses: Readonly<Partial<Record<GpuPassCategory, number>>>;
+  /**
+   * What such a pass may spend while it only refines what it holds (nothing changed: the light volume converging while
+   * the view stands still), as shares of the frame; less than its own share, so a still frame keeps room.
+   */
+  readonly gpuIdle: Readonly<Partial<Record<GpuPassCategory, number>>>;
   /** The frame arbiter's time slices at the tier. */
   readonly slices: Readonly<Record<FrameSliceId, FrameSlice>>;
 }
@@ -447,7 +452,13 @@ const UNCAPPED_TIER_HZ = 60;
  */
 const GPU_PASS_SHARES: Readonly<Partial<Record<GpuPassCategory, number>>> = Object.freeze({ shadows: 0.02, lighting: 0.18 });
 
-const frameBudget = (tier: LightingTier, hz: number): FrameBudget => Object.freeze({ tier, hz, intervalMs: 1000 / hz, ...FRAME_SHARES, gpuPasses: GPU_PASS_SHARES, slices: FRAME_SLICE_DEFAULTS });
+/**
+ * The passes' shares while they only refine (default chosen, owner to confirm): the live light half its own share
+ * (3.0 ms at 30 Hz), so a view standing still converges in a minute or so and keeps most of the light's row free.
+ */
+const GPU_IDLE_SHARES: Readonly<Partial<Record<GpuPassCategory, number>>> = Object.freeze({ lighting: 0.09 });
+
+const frameBudget = (tier: LightingTier, hz: number): FrameBudget => Object.freeze({ tier, hz, intervalMs: 1000 / hz, ...FRAME_SHARES, gpuPasses: GPU_PASS_SHARES, gpuIdle: GPU_IDLE_SHARES, slices: FRAME_SLICE_DEFAULTS });
 
 /** Each tier's frame budget: the one place it is defined. */
 export const FRAME_BUDGET_BY_TIER: Readonly<Record<LightingTier, FrameBudget>> = Object.freeze({
@@ -469,6 +480,11 @@ export function frameBudgetMs(budget: FrameBudget, thread: 'page' | 'sim' | 'job
 /** What a measured GPU pass may spend (ms) in a frame of the budget's interval (0: nothing planned). */
 export function gpuPassBudgetMs(budget: FrameBudget, pass: GpuPassCategory): number {
   return (budget.gpuPasses[pass] ?? 0) * budget.intervalMs;
+}
+
+/** What a measured GPU pass may spend (ms) in a frame while it only refines what it holds (0: nothing planned). */
+export function gpuPassIdleBudgetMs(budget: FrameBudget, pass: GpuPassCategory): number {
+  return (budget.gpuIdle[pass] ?? 0) * budget.intervalMs;
 }
 
 /**

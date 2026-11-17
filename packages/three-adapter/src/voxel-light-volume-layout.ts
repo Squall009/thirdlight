@@ -181,6 +181,41 @@ export function ambientCubeSteps<F, B>(o: ScalarOps<F, B>, nx: F, ny: F, nz: F, 
   return o.add(o.add(o.mul(o.mul(nx, nx), x), o.mul(o.mul(ny, ny), y)), o.mul(o.mul(nz, nz), z));
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// How an update writes a face
+
+/**
+ * Updates a brick is refined to while nothing changes (each update 4 rays a face): past its first settle the update
+ * keeps taking settled bricks, nearest the eye first, until each has had this many, then stops again. A tier setting
+ * once the volume is tuned.
+ */
+export const VOLUME_HISTORY_UPDATES = 64;
+
+/**
+ * A face's light is the mean of about the last 1 / this of its brick's updates (an estimate is blended in by
+ * 1 / (⌈updates / this⌉ + 1)): the estimates made while the bounces a brick reads were still building fade out, where a
+ * mean of every estimate kept them (a closed white box held 0.62 of its light after 8 updates and 0.79 after 64 with
+ * the plain mean, 0.74 and 0.98 with this; vitest `voxel-light-volume-reference.test.ts`).
+ */
+export const VOLUME_HISTORY_SHARE = 4;
+
+/**
+ * The weight a face's same-face neighbours each take against its own light in the update's write, at its brick's first
+ * update; it falls as 1 / (updates + 1), so the filter fades out as the face's own mean holds more rays. At 0.5 four
+ * neighbours hold two thirds of a first write, a ninth of the eighth.
+ */
+export const VOLUME_FILTER_SHARE = 0.5;
+
+/** The weight a brick's new estimate is blended in by after `updates` updates (1: it replaces what was there). */
+export function volumeBlendWeight(updates: number): number {
+  return 1 / (Math.ceil(updates / VOLUME_HISTORY_SHARE) + 1);
+}
+
+/** The weight each same-face neighbour takes in a face's write after `updates` updates of its brick. */
+export function volumeFilterShare(updates: number): number {
+  return VOLUME_FILTER_SHARE / (updates + 1);
+}
+
 /** Half a cell off a surface along its normal, where a reader looks for its open cell (metres, of a 0.5 m cell). */
 export const VOLUME_READ_OFFSET_CELLS = 0.5;
 
