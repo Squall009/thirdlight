@@ -20,13 +20,21 @@
  *   light where it has no 0.5 m cell round it.
  * - **What is stale.** A brick that comes into its window or is kept anew
  *   (no light yet); the bricks a changed block's changed bricks can reach by
- *   a ray (the edit's own bricks and those beside them from scratch, the
- *   rest keeping half their history); the sun or the sky changed, or a lamp
- *   moved (those it reaches, half their history). A brick settles after
- *   `VOLUME_SETTLE_UPDATES` updates.
+ *   a ray; the sun or the sky changed; the bricks a ray can reach a lamp's
+ *   light from (its reach and the rays' past it) when a lamp came, went,
+ *   moved or changed. A brick a change reaches starts again from nothing,
+ *   its rays from the start of their sequence, so once settled it holds what
+ *   a volume started with the new light holds: nothing of a light that went.
+ *   While changes keep coming (a light or an edit within a second of the
+ *   last: a blend of looks, a moving lamp, a brush stroke) the bricks farther
+ *   than two from an edit keep half their history, so the light follows
+ *   smoothly, and start again from nothing once the changes stop. A brick
+ *   settles after `VOLUME_SETTLE_UPDATES` updates.
  * - **Pacing.** Stale bricks nearest the eye first, as many a frame as the
- *   tier's GPU `lighting` row holds by the pass's own measured ms a brick
- *   (timestamps); none once settled. The CPU's share (windows, keeping,
+ *   live light's share of the tier's GPU frame (`gpuPassBudgetMs`: the
+ *   lighting row less the shadow maps') holds by the pass's measured ms a
+ *   brick (voxel-light-volume-pacing.ts: its timestamps taken wide, the wait
+ *   for the pool to be readable inside them); none once settled. The CPU's share (windows, keeping,
  *   marks) runs within the lighting preparation slice. Hidden by the GPU
  *   measurement under `lighting`. The pool is made once at its size (see
  *   {@link POOL_SLOTS}); bricks past it wait for a slot.
@@ -55,7 +63,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { frameSliceMs, residentBytes, threadProfiler } from '@thirdlight/shared';
-import { frameBudgetMs, levelFrameBudget, MEMORY_BUDGET_BY_TIER, type QualityLevelConfig } from '@thirdlight/project-model';
+import { gpuPassBudgetMs, levelFrameBudget, MEMORY_BUDGET_BY_TIER, type QualityLevelConfig } from '@thirdlight/project-model';
 import { MATERIAL_BITS, VOXEL_SIZE_M, type WalkBlockView, type WalkBlockWire, type WalkTable } from '@thirdlight/voxel';
 
 import type { N } from './effects-tsl';
@@ -69,10 +77,12 @@ import { BOUNCE_ALBEDO, SH_E0, SH_E1 } from './surface-probes';
 import { texelTexture } from './texel-texture-node';
 import type { VoxelMaterialLook } from './voxel-surface';
 import type { VoxelWalkGpu } from './voxel-walk-gpu';
-import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, RAY_COST_WEIGHT, type GpuBuffer, type GpuEncoder, type GpuTexture } from './tracer-gpu';
+import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer, type GpuEncoder, type GpuTexture } from './tracer-gpu';
 import type { ClusterLights } from './cluster-build';
 import { NO_VOLUME_LAMPS, VolumeLampLists, volumeLampSet, type VolumeLampListCounts, type VolumeLampListJob, type VolumeLampSet } from './voxel-light-volume-lamps';
 import { ambientCubeSteps, VOLUME_ALBEDO_WIDTH, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_BRICKS_PER_ROW, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_READ_OFFSET_CELLS, VOLUME_WINDOW_BRICKS, VOLUME_WORD, volumeBlockBrick, volumeBlockBricks, volumeBrickKey, volumeBrickLamps, volumeCellM, volumeChangedBricks, volumeDecode, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumePoolTexel, VOLUME_READ_KEY, volumeMarkBoxes, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { VolumePacing } from './voxel-light-volume-pacing';
+import { VolumeHistory, VolumePendingChanges } from './voxel-light-volume-changes';
 import { VOLUME_LIST_WORDS, VOLUME_PARAM_COARSE, VOLUME_PARAM_FLOATS, volumeUpdateWgsl } from './voxel-light-volume-wgsl';
 
 const TSL: N = TSLTyped;
@@ -89,6 +99,8 @@ export const VOLUME_SUN_REACH_M = 48;
 const START_BRICKS = 32;
 /** Frames between looks at the scene's lamps (a walk of the scene graph). */
 const LAMP_LOOK_FRAMES = 15;
+/** A change within this many frames of the last one continues it (two looks at the lamps: a lamp moved each look). */
+const CHANGES_CONTINUE_FRAMES = 2 * LAMP_LOOK_FRAMES;
 /**
  * Slots the pool is made with (29 MiB; within the tier's budget, never more): the most the town's windows were seen to
  * keep is ~12 k. It is made once and never replaced: lit draws made before a replaced texture kept reading the old one
@@ -102,7 +114,10 @@ const SLOT_BYTES = (VOLUME_BRICK_TEXELS + VOLUME_BRICK_VOLUME + VOLUME_LAMP_LIST
 const MAX_TEXTURE_ROWS = 8192;
 
 const VOLUME_SPAN = threadProfiler.span('voxel light volume', 'lighting');
-/** What a batch's chunks and walk blocks ask of the volume as the batch is shown (inside the batch's own span). */
+/**
+ * What a batch's chunks and walk blocks ask of the volume as the batch is shown (inside the batch's own span): the
+ * grids and cells as they were kept; what changed is found in the volume's slice of later frames.
+ */
 const VOLUME_GRIDS_SPAN = threadProfiler.span('voxel light volume grids', 'lighting');
 const VOLUME_WALK_SPAN = threadProfiler.span('voxel light volume walk changes', 'lighting');
 
@@ -211,6 +226,9 @@ export class VoxelLightVolume {
   private readonly indexDirty = new Set<number>();
   /** Level-0 chunks' shader grids (the colours), by `cx,cy,cz`: the grid, or its one entry. */
   private readonly chunkCells = new Map<string, Uint16Array | number>();
+  /** Chunks whose grid changed (by `cx,cy,cz`; the grid the volume last saw, undefined: none) and walk blocks whose cells did (`bx,by,bz`; their cells before): looked at in the volume's slice. */
+  private readonly gridChanges = new VolumePendingChanges<Uint16Array | number | undefined>();
+  private readonly walkChanges = new VolumePendingChanges<WalkBlockView | null>();
   private readonly albedoDirty = new Set<Brick>();
   private readonly sky = new SkyProbe();
   private skyVersion = -1;
@@ -224,19 +242,18 @@ export class VoxelLightVolume {
   /** Slots whose lamp list is built (a brick) or cleared (null) at the next build. */
   private readonly listJobs = new Map<number, Brick | null>();
   private frames = 0;
+  /** What a change of light or an edit does to the bricks it reaches (from nothing; half while changes continue). */
+  private readonly history = new VolumeHistory<Brick>(VOLUME_SETTLE_UPDATES, CHANGES_CONTINUE_FRAMES, (b) => this.stale.add(b));
   private hidden = false;
   private readonly gpu: VolumeGpu;
   private readonly offs: Array<() => void> = [];
   private readonly heldHere = new Set<THREE.Light>();
   private scannedChildren = -1;
   private disposed = false;
-  /** Bricks updated a frame now (by the measured cost), the measured ms a brick, and counts since made. */
-  private perFrame = START_BRICKS;
-  private msPerBrick: number | null = null;
-  /** The last dispatches timed: bricks of each level listed, and the pass's ms (diagnostics). */
+  /** Bricks updated a frame, by the measured cost of one. */
+  private readonly pacing = new VolumePacing(START_BRICKS);
+  /** The last dispatches timed: bricks of each level listed, the pass's ms and the wide reading's (diagnostics). */
   private readonly timings: number[][] = [];
-  /** The last readings of the pass's ms a brick. */
-  private readonly perBrickSeen: number[] = [];
   readonly stats = { updates: 0, bricksUpdated: 0, texelsWritten: 0, marks: 0, lookedBlocks: 0, lookedCoarse: 0, frameMs: 0, lastBricks: 0, lastMs: 0, timedBricks: 0, timedMs: 0, shrunk: 0, settledAt: null as number | null, staleSince: performance.now() };
 
   constructor(private readonly deps: VoxelLightVolumeDeps) {
@@ -279,56 +296,66 @@ export class VoxelLightVolume {
   /** A level-0 chunk's shader grid arrived (its draw or its shader data; null and −1: it went). */
   chunkGrid(cx: number, cy: number, cz: number, cells: Uint16Array | null, solid: number): void {
     threadProfiler.begin(VOLUME_GRIDS_SPAN);
-    try {
-      this.chunkGridNow(cx, cy, cz, cells, solid);
-    } finally {
-      threadProfiler.end(VOLUME_GRIDS_SPAN);
-    }
-  }
-
-  private chunkGridNow(cx: number, cy: number, cz: number, cells: Uint16Array | null, solid: number): void {
     const key = `${cx},${cy},${cz}`;
     const was = this.chunkCells.get(key);
-    const next = cells !== null ? cells.slice() : solid;
     if (cells === null && solid < 0) this.chunkCells.delete(key);
-    else this.chunkCells.set(key, next);
-    // A material changed where the walk saw nothing change (a repaint): what its bounce reaches is stale.
-    if (was !== undefined && !(cells === null && solid < 0)) {
-      const box = changedCells(was, next);
-      if (box !== null) this.markBox(box[0].map((v, a) => Math.floor((v + [cx, cy, cz][a]! * 32) / 4)), box[1].map((v, a) => Math.floor((v + [cx, cy, cz][a]! * 32) / 4)));
-    }
-    // Its bricks' colours are made again.
-    const b0 = [cx * VOLUME_BLOCK_BRICKS, cy * VOLUME_BLOCK_BRICKS, cz * VOLUME_BLOCK_BRICKS];
-    for (const b of this.bricks.values()) if (b.level === 0 && b.slot >= 0 && b.bx >= b0[0]! && b.bx < b0[0]! + VOLUME_BLOCK_BRICKS && b.by >= b0[1]! && b.by < b0[1]! + VOLUME_BLOCK_BRICKS && b.bz >= b0[2]! && b.bz < b0[2]! + VOLUME_BLOCK_BRICKS) this.albedoDirty.add(b);
+    else this.chunkCells.set(key, cells !== null ? cells.slice() : solid);
+    this.gridChanges.add(key, was);
+    threadProfiler.end(VOLUME_GRIDS_SPAN);
   }
 
-  /** Before a batch's walk blocks go into the table: the level-0 blocks' cells as they were, to find what changed. */
+  /**
+   * A chunk's grid changed since the volume last saw `was`: a material changed where the walk saw nothing change (a
+   * repaint) makes what its bounce reaches stale, and its bricks' colours are made again.
+   */
+  private gridChanged(key: string, was: Uint16Array | number | undefined): void {
+    const [cx, cy, cz] = key.split(',').map(Number) as [number, number, number];
+    const next = this.chunkCells.get(key);
+    if (was !== undefined && next !== undefined) {
+      const box = changedCells(was, next);
+      if (box !== null) this.markBoxes([[box[0].map((v, a) => Math.floor((v + [cx, cy, cz][a]! * 32) / 4)), box[1].map((v, a) => Math.floor((v + [cx, cy, cz][a]! * 32) / 4))]]);
+    }
+    const B = VOLUME_BLOCK_BRICKS;
+    for (let x = 0; x < B; x++) for (let y = 0; y < B; y++) for (let z = 0; z < B; z++) {
+      const b = this.bricks.get(volumeBrickKey(cx * B + x, cy * B + y, cz * B + z, 0));
+      if (b !== undefined && b.slot >= 0) this.albedoDirty.add(b);
+    }
+  }
+
+  /**
+   * Before a batch's walk blocks go into the table: the level-0 blocks' cells as they were, to find what changed (a
+   * block still waiting to be looked at keeps the cells of its first change).
+   */
   beforeWalk(table: WalkTable, wires: readonly WalkBlockWire[]): Map<string, WalkBlockView | null> {
     threadProfiler.begin(VOLUME_WALK_SPAN);
     const was = new Map<string, WalkBlockView | null>();
-    for (const w of wires) if (w.level === 0) was.set(`${w.bx},${w.by},${w.bz}`, table.viewCopy(0, w.bx, w.by, w.bz, 'light'));
+    for (const w of wires) {
+      const key = `${w.bx},${w.by},${w.bz}`;
+      if (w.level === 0 && !this.walkChanges.has(key)) was.set(key, table.viewCopy(0, w.bx, w.by, w.bz, 'light'));
+    }
     threadProfiler.end(VOLUME_WALK_SPAN);
     return was;
   }
 
-  /** After them: each changed block's bricks are looked at again, and the bricks its changed bricks reach are marked. */
-  afterWalk(table: WalkTable, was: Map<string, WalkBlockView | null>): void {
+  /** After them: the blocks' bits are read again when next needed, and what changed waits for the volume's slice. */
+  afterWalk(_table: WalkTable, was: Map<string, WalkBlockView | null>): void {
     threadProfiler.begin(VOLUME_WALK_SPAN);
-    try {
-      this.afterWalkNow(table, was);
-    } finally {
-      threadProfiler.end(VOLUME_WALK_SPAN);
+    for (const [key, before] of was) {
+      this.blocks.delete(key);
+      this.walkChanges.add(key, before);
     }
+    threadProfiler.end(VOLUME_WALK_SPAN);
   }
 
-  private afterWalkNow(table: WalkTable, was: Map<string, WalkBlockView | null>): void {
+  /** Walk blocks that changed, looked at while `more()` says so (one at least): their bricks looked at again and what their changed bricks reach marked. */
+  private walkChanged(table: WalkTable, more: () => boolean): void {
     const boxes: Array<readonly [readonly number[], readonly number[]]> = [];
-    for (const [key, before] of was) {
+    this.walkChanges.drain(more, (key, before) => {
       const [bx, by, bz] = key.split(',').map(Number) as [number, number, number];
       const after = table.view(0, bx, by, bz, 'light');
       this.blocks.delete(key);
       const changed = volumeChangedBricks(before, after);
-      if (changed.length === 0) continue;
+      if (changed.length === 0) return;
       // The block and those beside it (their bricks along its faces may be kept or not now).
       for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) <= 1) this.toLook.set(`${bx + dx},${by + dy},${bz + dz}`, [bx + dx, by + dy, bz + dz]);
       // The coarse bricks over it and one brick round (a coarse brick is kept by what its neighbours hold too).
@@ -349,33 +376,33 @@ export class VoxelLightVolume {
         }
       }
       boxes.push([lo, hi]);
-    }
+    });
     this.markBoxes(boxes);
   }
 
   /**
-   * Bricks a ray from which can reach the level-0 bricks lo … hi are stale: near ones from nothing, the rest keeping half.
-   * A coarse brick is measured in its own bricks (the box's bricks of that level; near: the next brick).
-   */
-  private markBox(lo: readonly number[], hi: readonly number[]): void {
-    this.markBoxes([[lo, hi]]);
-  }
-
-  /**
-   * {@link markBox} for several boxes in one pass over the kept bricks (a batch's walk changes: a flight's start takes
-   * out the blocks of the whole level-0 ring at once), the same as marking them one after another (`volumeMarkBoxes`).
+   * Bricks a ray from which can reach the level-0 bricks lo … hi of any box are stale (those near a box from nothing,
+   * the rest by the history rule), in one pass over the kept bricks (a batch's walk changes: a flight's start takes out
+   * the blocks of the whole level-0 ring at once), the same as marking them one after another (`volumeMarkBoxes`). A
+   * coarse brick is measured in its own bricks (the box's bricks of that level; near: the next brick).
    */
   private markBoxes(list: ReadonlyArray<readonly [readonly number[], readonly number[]]>): void {
     if (list.length === 0) return;
     this.stats.marks += list.length;
-    for (const b of volumeMarkBoxes(this.bricks.values(), list, MARK_REACH, VOLUME_SETTLE_UPDATES)) this.stale.add(b);
+    const continuing = this.history.change(this.frames);
+    // Those beside an edit start from nothing whatever comes after (their cells may have turned solid or open).
+    for (const b of volumeMarkBoxes(this.bricks.values(), list, MARK_REACH, VOLUME_SETTLE_UPDATES)) {
+      if (b.updates === 0) this.history.restart(b);
+      else this.history.marked(b, continuing);
+    }
   }
 
-  /** Every kept brick stale (`full`: from nothing; else keeping half its history: the sun or the sky changed). */
+  /** Every kept brick stale (`full`: from nothing; else as a change reaching all of them: the sun or the sky changed). */
   markAll(full: boolean): void {
+    const continuing = full ? false : this.history.change(this.frames);
     for (const b of this.bricks.values()) {
-      b.updates = full ? 0 : Math.min(b.updates, VOLUME_SETTLE_UPDATES >> 1);
-      this.stale.add(b);
+      if (full) this.history.restart(b);
+      else this.history.marked(b, continuing);
     }
     this.stats.marks++;
   }
@@ -406,9 +433,14 @@ export class VoxelLightVolume {
     this.frames++;
     for (let level = 0; level < VOLUME_LEVELS; level++) this.follow(level, eye);
     const slice = frameSliceMs('surfacePrepare');
-    this.look(() => performance.now() - t0 < slice);
+    const more = (): boolean => performance.now() - t0 < slice;
+    // What batches changed first (it may queue blocks to look at), then the looks.
+    if (this.walkChanges.size > 0) this.walkChanged(walk.table, more);
+    if (this.gridChanges.size > 0) this.gridChanges.drain(more, (key, was) => this.gridChanged(key, was));
+    this.look(more);
     if (this.light.read) this.holdAmbient();
     this.lights();
+    this.history.frame(this.frames);
     this.colours();
     this.flushIndex();
     if (!this.hidden) this.buildLampLists();
@@ -419,9 +451,9 @@ export class VoxelLightVolume {
     threadProfiler.end(VOLUME_SPAN);
   }
 
-  /** Level-0 blocks and coarse bricks waiting to be looked at. */
+  /** Level-0 blocks and coarse bricks waiting to be looked at, changes from batches waiting for the volume's slice, and bricks waiting to start again once changes stop. */
   private lookWaiting(): number {
-    return this.toLook.size + this.toLookCoarse.size;
+    return this.toLook.size + this.toLookCoarse.size + this.walkChanges.size + this.gridChanges.size + this.history.waiting;
   }
 
   /** The level-0 window's corner brick. */
@@ -496,6 +528,7 @@ export class VoxelLightVolume {
   private drop(key: number, b: Brick): void {
     this.bricks.delete(key);
     this.stale.delete(b);
+    this.history.forget(b);
     this.albedoDirty.delete(b);
     this.waitingSlots.delete(b);
     if (b.slot >= 0) {
@@ -574,6 +607,7 @@ export class VoxelLightVolume {
     this.waitingSlots.delete(b);
     b.slot = slot;
     b.updates = 0;
+    b.samples = 0;
     this.slotTaken(b);
     if (b.level === 0) this.albedoDirty.add(b);
   }
@@ -671,20 +705,15 @@ export class VoxelLightVolume {
     if (this.frames % LAMP_LOOK_FRAMES !== 1) return;
     const next = volumeLampSet(this.deps.lamps?.() ?? null, this.windowBox());
     if (next.key === this.lamps.key) return;
-    // What the old and the new lamps reach is stale (half its history), and every brick's list is built again.
-    const reach = [...this.lamps.spheres, ...next.spheres];
+    // What a ray can reach the changed lamps' light from is stale (their reach, and the rays' past it: a cell outside a
+    // lamp's reach bounces its light from a hit inside), and every brick's list is built again.
+    const was = new Map(this.lamps.spheres.map((sp, i) => [this.lamps.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join(), sp] as const));
+    const now = new Set(next.spheres.map((_, i) => next.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join()));
+    const changed = [...[...was].filter(([k]) => !now.has(k)).map(([, sp]) => sp), ...next.spheres.filter((_, i) => !was.has(next.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join()))];
     this.lamps = next;
     this.gpu.lamps.setLamps(next);
     this.lampsChanged = true;
-    for (const sp of reach) {
-      const box = VOLUME_LEVEL_WINDOWS.map((_, l) => [[0, 1, 2].map((a) => Math.floor((sp[a]! - sp[3]!) / brickM(l))), [0, 1, 2].map((a) => Math.floor((sp[a]! + sp[3]!) / brickM(l)))] as const);
-      for (const b of this.bricks.values()) {
-        const [lo, hi] = box[b.level]!;
-        if (b.bx < lo[0]! || b.bx > hi[0]! || b.by < lo[1]! || b.by > hi[1]! || b.bz < lo[2]! || b.bz > hi[2]!) continue;
-        b.updates = Math.min(b.updates, VOLUME_SETTLE_UPDATES >> 1);
-        this.stale.add(b);
-      }
-    }
+    this.markBoxes(changed.map((sp) => [[0, 1, 2].map((a) => Math.floor((sp[a]! - sp[3]!) / brickM(0))), [0, 1, 2].map((a) => Math.floor((sp[a]! + sp[3]!) / brickM(0)))] as const));
   }
 
   /** The kept bricks' colours made and uploaded (those that took a slot or whose grids changed). */
@@ -735,7 +764,7 @@ export class VoxelLightVolume {
   /** Bricks listed for this frame's update (nearest the eye first) and the pass dispatched. */
   private update(walk: VoxelWalkGpu, eye: readonly number[]): void {
     const level = this.deps.level();
-    const budget = level === null ? 0 : frameBudgetMs(levelFrameBudget(level), 'gpu', 'lighting');
+    const budget = level === null ? 0 : gpuPassBudgetMs(levelFrameBudget(level), 'lighting');
     if (budget <= 0) return;
     // Nearest the eye first, by the gap between the eye's level-0 brick and a brick's span in level-0 bricks.
     const e = eye.map((v) => Math.floor(v / brickM(0)));
@@ -747,7 +776,7 @@ export class VoxelLightVolume {
       const n = 1 << b.level;
       buckets[Math.min(reach, Math.max(gap(b.bx * n, n, e[0]!), gap(b.by * n, n, e[1]!), gap(b.bz * n, n, e[2]!)))]!.push(b);
     }
-    const n = this.msPerBrick === null ? this.perFrame : Math.max(1, Math.floor(budget / this.msPerBrick));
+    const n = this.pacing.bricks(budget);
     const list: Brick[] = [];
     for (const bucket of buckets) {
       for (const b of bucket) {
@@ -784,13 +813,7 @@ export class VoxelLightVolume {
       if (this.timings.length > 16) this.timings.shift();
       this.stats.timedMs += ms;
       this.stats.timedBricks += count;
-      // A pass's timestamps may hold a wait for the work before it (its first stamp written as the GPU reaches it,
-      // still drawing the last frame): a reading past twice the least of the recent ones is taken at that.
-      const raw = ms / count;
-      this.perBrickSeen.push(raw);
-      if (this.perBrickSeen.length > 16) this.perBrickSeen.shift();
-      const per = Math.min(raw, 2 * Math.min(...this.perBrickSeen));
-      this.msPerBrick = this.msPerBrick === null ? per : this.msPerBrick + (per - this.msPerBrick) * RAY_COST_WEIGHT;
+      this.pacing.read(count, ms);
     });
     for (const b of list) {
       b.updates++;
@@ -825,8 +848,8 @@ export class VoxelLightVolume {
       waiting: this.lookWaiting() + this.waitingSlots.size,
       settled: this.progress().settled,
       origin: [...this.origin],
-      perFrame: this.msPerBrick === null ? this.perFrame : null,
-      msPerBrick: this.msPerBrick,
+      perFrame: this.pacing.msPerBrick === null ? START_BRICKS : null,
+      msPerBrick: this.pacing.msPerBrick,
       timings: this.timings,
       raysPerFace: VOLUME_RAYS,
       settleUpdates: VOLUME_SETTLE_UPDATES,
@@ -924,6 +947,8 @@ export class VoxelLightVolume {
     this.bricks.clear();
     this.stale.clear();
     this.chunkCells.clear();
+    this.gridChanges.clear();
+    this.walkChanges.clear();
   }
 }
 
