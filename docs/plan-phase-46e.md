@@ -241,7 +241,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.7 | Done 2026-11-16 (225ec7b5, b99489b2): `?voxelLight=hybrid` (cache probes near, volume past `voxelLightHandoverM`, 12 m low); A/B in one session, §8b: orbit room off 136 / cache 1 / volume 76 / hybrid −1 copies; settled near over off +2.3 / +4.1 / +5.9 ms (room); edit → settled 2.5 / 1.7 / 4.7 s; D693 = the read (D698); D697–D700 |
 | 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `docs/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
 | 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
-| 46e.10 | Done 2026-11-16 (cb7229fa…e2c35bee): stitch searches in the slice (each call ≤ slice + a unit; a catch-up tick still 4 × 2 ms); far sun tiles under changed nodes wait at speed (sun page 1.6 → 0.4 ms/frame at 150 m/s); bench removes its exports; D701 traced to the walk-block feed + stitch (pending 10.9–11.8 → 8.6–9.2 s without), open; D672 not shadows/sun; low rounds D711 |
+| 46e.10 | Done 2026-11-17 (cb7229fa…f99ad659): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); bench removes exports; 10b: walk blocks only while the page reads its GPU walk, packed by words (0.41 → 0.05 ms a block), volume pending 1.0–1.4 s < head; store off still 1.5–3.7 s > base (D701 narrowed); D672 not shadows/sun; D711 |
 | 46e.11 | Proposed 2026-11-16 (24296e84), published as acc46e-11: `docs/briefs/proposal-46e.11-emissive.md` — no new stored field (the voxel path reads the record's `params.emissive` × `params.emissiveIntensity`; the volume keeps one more word a cell, 28 → 32 B); three questions with defaults. **Waiting for the owner's note; nothing built.** |
 | 46e.12 | not started |
 | 46e.13 | not started |
@@ -1986,6 +1986,114 @@ spans' commits in its changed set): GREEN. `gate-fast-20261116-225321` (a45be84e
 `terrain-cdlod.e2e.ts:133` (D643's family); `gate-rerun-20261116-233052` (e2c35bee, 7 min): GREEN, the four passed (the far-light check 731 px again). The Play test
 (`voxel-world.e2e.ts:1369`) 2.3–2.4 min in the gates (46e.9: 2.5), voxel area 272–278 s (288).
 
+### 46e.10b — the walk feed only while something reads it (D701)
+
+The second slice of 46e.10: D701's traced cause, the simulation packing walk blocks into every batch for a GPU walk
+that nothing reads with the store off. Commits a0dd0127 (the feed and the packing), 8b7af45b (bench reading, test
+types), 339877ab (the stitch's yield, measured and reverted by 60a3e93a), f99ad659 (a span). Work folder
+`~/.cache/thirdlight-phase46e/work/46e.10b/` (`measure.sh`, `measure2.sh`, `lib.sh`, `table.py`, `after.py`,
+`summ.py`, `broken.sh`; every raw `*.json` / `*.log` with an `*.uptime` beside it).
+
+**What changed, in plain words.**
+
+- **The walk feed follows its readers** (`voxel-world-draws.ts` `readWalk`, `chunk-batch.ts` `setWalkFeed`,
+  `voxel-play.ts`, `sim-protocol.ts` `voxels.walk`, `game-page.ts`). The page counts readers of its GPU walk: the
+  light volume while it is the store, and a bench's or a check's read (`__tlVoxelPlay.walk.read(on)`). The first
+  reader gives the feed a new number and the simulation's batchers (every world's, open and to come; the worker's
+  start message carries the number the page has then) pack walk blocks for it: first every block the streamer knows
+  (each chunk with a derived section, each mip node with a result: `streamerWalkBlocks`), then the blocks its changes
+  touch; the page drops blocks of another number (a batch already on its way when the readers changed). With no
+  reader nothing is touched, packed or sent; when the last one goes, every world's walk (table and GPU buffers) is
+  released, as when a world closes. The run-time switch `setStore('volume')` is a reader appearing.
+- **Packing in the derive's slice.** A batch packs walk blocks while the `voxelDerive` slice lasts (at least one);
+  what is left goes in a later task (`setTimeout`, not a microtask), so the resend after a switch is sliced.
+- **Packing by words** (`walk-pages.ts` `packWalkBlock`, `walk-sources.ts` `derivedWalkView`, `occupancy-walk.ts`
+  `WalkBlockView.column`). Measured first (Node, the town scrap of `walk.test.ts`): a block cost 0.39–0.60 ms, almost
+  all of it the per-cell reads (65,536 closure calls a block). A derived result's view now gives a column's 16 or 32
+  cells as one word, read from the occupancy mask and, for the light stop, the full-cover mask and a mask of the
+  partly covering cells at half cover or more (built once a view); the packer ORs the word in and sets a brick bit
+  for each four cells holding one: 0.41 → 0.05 ms a town block, the same bytes. Chosen over moving the packing into
+  the derive workers (the result would carry a new part: a derived-format step, an owner stop) and over packing only
+  changed blocks (a block is packed once a batch already; the cost was the per-cell reads).
+- **Not kept: the stitch's yield.** While level-0 streaming derives waited, the stitch took one unit of work a step
+  (339877ab). Measured (set 2 below), it did not raise the derive rate or move the settle; reverted (60a3e93a).
+- **Kept: a span** for keeping far nodes' bricks for the walk where the world runs (`far walk nodes kept`): 0.05 ms
+  a frame in flight, not D701's.
+- **Bench**: `walk-cli.ts` reads the walk before it waits for its blocks; `light-shots --texture-units volume`
+  (the store switched at run time) now sets it off after the shots and keeps the walk's reading before and after
+  (`walkRelease`).
+
+**Measured** 2026-11-17 00:19–01:03 UTC, Iris Xe, WebGPU, 1280 × 720, low, the 30 Hz cap, each run alone
+(`thirdlight-gate` inactive), the brief's 10G scope; uptime 24.3 d, load (1 min) 1.6–5.0. Exports of staging's world
+(`voxel-slice`, world `far`) made by each code's own staging backend, served with the backend stopped, flown by the
+head's bench (`coverage --dir … --quality low --speed 150`). **A** = 2ff4af22 + d2cc91a3's `page-profile.ts`, **B**
+= a206fcd7, **C** = 8b7af45b, **C3** = 339877ab (C + the stitch's yield), **T** = f99ad659 (the span), A and B in
+scratch worktrees built with `node tools/build.mjs`, removed after. Set 1: A B C, A B C store off, then B C B C with
+`&voxelLight=volume`; set 2: A C C3, A C C3 store off; then T once. Falls through the true ground 0 of 34 in every run.
+
+| Run (150 m/s) | Longest ms | > 100 | Missed /min | Sim spikes (stitch ms, first 1 s) | Ground s | Full detail s | Nothing pending s | Holes |
+|---|---|---|---|---|---|---|---|---|
+| A off, set 1 r1 / r2; set 2 r1 / r2 | 52.4 / 50.3; 48.4 / 48.2 | 0 | 12.8 / 14.6; 8.2 / 6.4 | 1 / 1; 1 / 0 (—) | 0.03 | 4.71 / 4.30; 6.37 / 5.29 | **8.67 / 8.30; 7.41 / 8.57** | 0 |
+| B off, r1 / r2 | 47.9 / 51.4 | 0 | 11.0 / 14.6 | 13 / 19 (8.0 / 5.5) | 0.03 | 5.91 / 6.94 | 11.04 / 10.71 | 0 |
+| C off, set 1 r1 / r2; set 2 r1 / r2 | 58.7 / 65.1; 51.0 / 52.1 | 0 | 18.3 / 15.5; 11.9 / 12.8 | 6 / 8; 9 / 12 (5.5 / 8.0; 8.0 / 8.1) | 0.03–0.05 | 7.68 / 8.81; 4.83 / 6.41 | **10.33 / 9.94; 11.10 / 10.79** | 0 |
+| C3 off (reverted), r1 / r2 | 55.3 / 47.1 | 0 | 16.5 / 11.0 | 5 / 5 (6.0 / 8.0) | 0.03 | 5.46 / 9.58 | 10.11 / 10.92 | 0 / 1 of 1,969 |
+| T off | 55.1 | 0 | 16.5 | 22 (8.4) | 0.03 | 6.14 | 10.54 | 0 |
+| B volume, r1 / r2 | 56.0 / 52.4 | 0 | 10.1 / 14.6 | 5 / 13 (8.0 / 6.1) | 0.03 | 6.36 / 6.46 | 11.06 / 11.26 | 1 / 0 |
+| C volume, r1 / r2 | 58.3 / 60.9 | 0 | 14.6 / 12.8 | 4 / 3 (8.0 / 6.0) | 0.03 | 6.25 / 6.84 | **10.02 / 9.84** | 0 |
+
+The simulation's ms a frame in the 12 s after the stop (`spanTotals.after`):
+
+| Span | B off | C off | B volume | C volume | A off |
+|---|---|---|---|---|---|
+| walk blocks packed | 1.26 / 1.18 | **none** | 1.46 / 1.45 | **0.27 / 0.28** | — |
+| open regions stitched | 0.49 / 0.46 | 0.45–0.50 | 0.51 / 0.53 | 0.46 / 0.49 | — |
+| voxel streaming (sending and taking jobs) | 9.63 / 8.88 | 8.33–9.76 | 10.14 / 10.61 | 8.68 / 8.84 | 7.18–8.84 |
+| the tick outside any span | 12.6 / 12.8 | 13.5–15.0 | 11.4 / 11.9 | 12.1 / 11.1 | 7.6–8.8 |
+
+**Against the goals.** With the volume on, C settles nothing pending 1.0–1.4 s before B and its packing is a fifth of
+B's (1.45 → 0.28 ms a frame): met. With the store off, nothing is packed and nothing pending comes 0.3–0.7 s before
+B in the same set, but stays 1.5–3.7 s behind A over four rounds each (C 9.94–11.10, A 7.41–8.67): **not met**.
+Full detail scatters 4.3–6.4 s at A and 4.8–8.8 s at C in the same hour (the outer ring's level 1 arriving 1–4 s
+later: `afterSeries`); not resolved. **What is left** (`after.py`, `afterBySecond`): after the stop the job workers
+run less derive a second at C than at A (0.5–0.8 s against 0.7–1.6 in seconds 2–5) while the simulation's
+streaming span is no larger; the simulation's ticks carry 13.5–15.0 ms a frame outside any span at C against 7.6–8.8
+at A (in flight 9.5–11.1 against 4.8–5.6; B alike), and run 24.6–27.4 ticks a second against 27.4–28.7. Neither the
+walk packing (gone at C) nor the stitch (C3: its share of the second 4–9 ms instead of 15–22, the settle unchanged)
+nor keeping far bricks for the walk (T: 0.05 ms a frame) is it. D701 stays open, narrowed to that unspanned tick time.
+
+**The run-time switch** (`switch-C`, `switch-C2`: Play with `&voxelLight=off`, the store set to the volume on the
+page, the room camera; `switch-B` the same on B; `url-C`: the room camera alone with the store in the URL). In each
+the volume settled (`storeState`: 9,910 kept bricks, none stale; lit 0.8 s after streaming settled), and the pictures of the
+room (pixels more than 10 apart in a channel, `tool/compare.mjs`): switch-C against url-C 0.254 %, switch-C2 against
+url-C 0.244 %, switch-C against switch-C2 0.039 %; url-C against the five-camera run's room (`shots-C-vol`) 0.333 %,
+so within the run-to-run spread of two URL runs; B's switch against B's URL run 1.359 %. Looked at:
+`switch-C/room-window.png`, `url-C/room-window.png`, `switch-B/room-window.png`: the same room. Back to off
+(`walkRelease` in `switch-C/light-shots.json`): with the volume the walk held 3,170 blocks, 339 pages, 4.9 MB of
+table and 8.5 MB on the GPU; off, the page holds no walk (`walk.stats` null) and the `voxelStream` row went from
+204.0 to 180.0 MB.
+
+**Pictures** (`light-shots --quality low`, B and C; `compare.mjs`): store off street 0.090 %, room 0.000, cave 0.000,
+night 0.073, far view 0.004; volume street 0.176, room 0.000, cave 0.655, night 0.368, far view 0.027. Looked at:
+`shots-C-off/street-noon.png`, `far-view.png`; `shots-C-vol/cave.png` beside `shots-B-vol/cave.png`,
+`shots-C-vol/night-lamps.png`: the same pictures.
+
+**Tested.** `tools/voxel-bench/walk-feed.test.ts` (new; a streamer deriving with the world rules in workers from
+region files on disk, 16³ sections and a mip level, two batchers on it): off, no block packed or sent and every
+draw, seam and swap the same as with the feed on; turned on (a 0.05 ms slice on the arbiter), the 58 blocks known
+(mip nodes among them) arrive over 24 batches, each page byte for byte what the per-cell packing gives (level 0 read
+from 16³ sections, the mip nodes from 32³ results); off again, nothing packed while the focus moves. `tools/voxel-bench/walk.test.ts` (new case): the
+town's 108 blocks packed by words equal the per-cell packing byte for byte, at under half its time.
+`packages/voxel/src/occupancy-walk.test.ts` (new case): a derived result's column words equal its cell reads for
+both stops at edges 16 and 32 (masks, partial cover on both sides of the stop, uniform cover). The Play e2e: no
+walk on the page before the check reads it, every block once it does (the check taken once the count holds still),
+released after; its later volume checks switch the store at run time as before. **Broken** (each once, logs
+`broken-*-vitest.log`): the feed always on (`feed-always-on`: 644 packed, fails), no resend on turning on
+(`no-resend`), the resend in one batch (`unsliced`), the partial cover ignored (`no-partial`: the column test and
+both packing tests fail), a brick bit every eight cells (`brick-bits`) — each fails.
+
+**Gate.** `gate-fast-20261116-235634` (a0dd0127): RED at the build (the new test's types); `gate-rerun-20261116-235856`
+(8b7af45b, 18 min): GREEN, every e2e of voxel, rendering and play (62), the Play test 2.5 min (46e.10: 2.3–2.4).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -2303,6 +2411,17 @@ spans' commits in its changed set): GREEN. `gate-fast-20261116-225321` (a45be84e
   more than this item's local fixes; a later item, placed by the lead.
 - 2026-11-16 (46e.10, default chosen, owner to confirm): `run.mjs coverage --export` stops staging and flies in the
   export it made, then removes it; `--keep-export` keeps the old export-only step.
+- 2026-11-17 (46e.10b, default chosen, owner to confirm): the batches carry walk blocks only while the page has a
+  reader of its GPU walk (the light volume as the store, a bench's or a check's `walk.read`), counted on the page;
+  the first reader gets every block the streamer knows, packed in the `voxelDerive` slice a task (the walk feed's
+  packing is streaming work of the derive's kind: no slice of its own in the arbiter's table); the last one going
+  releases the page's walks. A bench that reads `__tlVoxelPlay.walk` turns its read on first (§8c 46e.10b).
+- 2026-11-17 (46e.10b, default chosen, owner to confirm): a walk block is packed by column words from the derive's
+  masks on the simulation thread, not in the derive workers: a packed page in the derive result would be a new part
+  of the derived format (an owner stop), and by words the packing is an eighth of what it was (§8c 46e.10b).
+- 2026-11-17 (46e.10b, default chosen, owner to confirm): the stitch keeps its slice after a stop; one unit a step
+  while level-0 derives waited was measured (no change to the derive rate or the settle) and reverted. What still
+  holds the settle behind the base is time in the simulation's ticks that no span covers (D701, narrowed).
 
 ## 10. Open questions for the owner (asked with the plan)
 
