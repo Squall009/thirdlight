@@ -241,7 +241,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.7 | Done 2026-11-16 (225ec7b5, b99489b2): `?voxelLight=hybrid` (cache probes near, volume past `voxelLightHandoverM`, 12 m low); A/B in one session, §8b: orbit room off 136 / cache 1 / volume 76 / hybrid −1 copies; settled near over off +2.3 / +4.1 / +5.9 ms (room); edit → settled 2.5 / 1.7 / 4.7 s; D693 = the read (D698); D697–D700 |
 | 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `docs/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
 | 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
-| 46e.10 | Done 2026-11-17 (cb7229fa…f99ad659): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); bench removes exports; 10b: walk blocks only while the page reads its GPU walk, packed by words (0.41 → 0.05 ms a block), volume pending 1.0–1.4 s < head; store off still 1.5–3.7 s > base (D701 narrowed); D672 not shadows/sun; D711 |
+| 46e.10 | Done 2026-11-17 (cb7229fa…5503e495): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); 10b: walk blocks only while the page reads its GPU walk; 10c: sim frames build full diagnostics only when sent (11.8 ms a tick of voxel stats after a 150 m/s stop): store off nothing pending 7.0–7.3 s (base 7.4–7.5, before 10.5–11.4), D701 fixed; D672 narrowed; D711 |
 | 46e.11 | Proposed 2026-11-16 (24296e84), published as acc46e-11: `docs/briefs/proposal-46e.11-emissive.md` — no new stored field (the voxel path reads the record's `params.emissive` × `params.emissiveIntensity`; the volume keeps one more word a cell, 28 → 32 B); three questions with defaults. **Waiting for the owner's note; nothing built.** |
 | 46e.12 | not started |
 | 46e.13 | not started |
@@ -2098,6 +2098,80 @@ both packing tests fail), a brick bit every eight cells (`brick-bits`) — each 
 once in the run and passed alone (D472's watch); Play's start and stop and the play preview's GPU set back to their
 baselines.
 
+### 46e.10c — the simulation's unspanned tick time named and taken out (D701)
+
+The third and last slice of 46e.10: name the 13.5–15.0 ms a simulation tick spent outside any span after a 150 m/s
+stop (46e.10b). Commits 6a1af73a (spans), 5503e495 (the fix). Work folder `~/.cache/thirdlight-phase46e/work/46e.10c/`
+(`trace.sh`, `measure.sh`, `lib.sh`, `summ.py`, `table.py`, `A-spans.patch`; every raw `*.json` / `*.log` with an
+`*.uptime` beside it).
+
+**The trace** (`trace-T-r1.json`, 6a1af73a, the head with spans over the rest of the tick: the frame's state for the
+page, the runtime's diagnostics read inside it, a voxel world's stats in four parts, the scene requests). A simulation
+frame in the profile is the tick message's handler (`beginFrame` at the tick, `endFrame` before the answer), so work
+between ticks (job workers' answers, the page's messages, applying results, posting batches) is not in its ms; inside
+it the new spans left 0.3 ms a frame unnamed after the stop (−0.5 in flight: rounding of the own times). Split after
+the stop, ms a frame:
+
+| Cause (sim, 12 s after the stop) | Head 6a1af73a | A (+ the same spans), r1 / r2 |
+|---|---|---|
+| voxel stats: far field (`FarField.metrics`: its quantiles, counters, stand-ins) | 5.82 | 3.19 / 3.62 |
+| voxel stats: streamer (`VoxelStreamer.metrics`: every chunk walked, the derive quantiles) | 4.64 | 1.64 / 0.93 |
+| voxel stats: the rest (pool quantiles, coverage copy, the object) | 1.34 | 1.26 / 1.24 |
+| voxel stats: open regions (every region's summary) | 0.05 | — |
+| the frame's state otherwise, scene requests | 0.06 | 0.05 |
+| still unnamed | 0.30 | 0.18 / 0.20 |
+
+The cause: `FrameEncoder.encode` read `rt.getDiagnostics()` every tick for the step, time and state, and the full
+diagnostics walk every voxel world's streamer, far field and pool (`VoxelWorldHost.stats`); they ride to the page
+one frame in 60. So 11.8 ms a tick after the stop at the head (6.1 at A; in flight 4.9 at A) was built and thrown
+away. At the head the streamer's and far field's stats cost more than at A (more chunks resident after the stop,
+the far field's added quantiles); not split further, the fix takes both out. Not the derive results' messages, the
+batches or GC: none of them runs inside a tick's frame, and the derive's own time per job did not rise (46e.10b).
+The workers derived less a second because the simulation thread was busy: a job's answer waits for the tick to end
+before the pool sends the next job (`WorkerPool.reply` → `pump`), so a 24–30 ms tick at 25–27 ticks a second left
+the queue unfed. Queue depth over time is not recorded in an export run (the bench's `sim` reader is the Play
+backend's); unverified directly, shown by the derive rate coming back (below).
+
+**The fix** (`sim-state.ts`, `runtime.ts` `diagnosticsHead`, `types.ts` `RuntimeDiagnosticsHead`, `runtime-faults.ts`
+`errorCount`): a frame reads only the head (state, step, sim time, frame count, error count) and builds the full
+diagnostics on the frames that send them (asked for, a change of state or error count, every 60 frames), the same
+frames as before. `buildDiagnostics` folded into `getDiagnostics` (the runtime class is at its member ratchet). No
+format, spec or tier change. The spans stay (each 0.05–0.15 ms a frame; the stats spans now only on the 1-in-60 frames).
+
+**Measured** 2026-11-17 01:38–01:53 UTC, Iris Xe, WebGPU, 1280 × 720, low, the 30 Hz cap, each run alone
+(`thirdlight-gate` inactive), the brief's 10G scope; uptime 24.4 d, load (1 min) 2.2–3.7. Exports of staging's world
+(`voxel-slice`, world `far`) made by each code's own staging backend, served with the backend stopped, flown by the
+head's bench (`coverage --dir … --quality low --speed 150`). **A** = 2ff4af22 + d2cc91a3's `page-profile.ts` + the
+spans (`A-spans.patch`), **B** = d5b8e7bb, **C** = 5503e495; A and B in scratch worktrees built with
+`node tools/build.mjs`, removed after. Order A B C, A B C store off, then B C with `&voxelLight=volume`.
+
+| Run (150 m/s) | Longest ms | > 100 | Missed /min | Ground s | Full detail s | Nothing pending s | Holes | Falls through | Sim ms a frame / unspanned after the stop (in flight) | Derive s a second, s 2–5 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A off, r1 / r2 | 60.9 / 52.0 | 0 | 10.1 / 11.0 | 0.03 | 4.00 / 4.37 | **7.47 / 7.37** | 0 / 1 of 1,969 | 0 of 34 | 16.3 / 0.18 (0), 15.5 / 0.20 (0) | 0.81–1.34, 0.79–1.42 |
+| B off, r1 / r2 | 47.9 / 48.5 | 0 | 10.1 / 7.3 | 0.03 | 5.58 / 7.17 | 11.39 / 10.51 | 0 | 0 of 34 | 29.9 / 13.65 (8.47), 25.7 / 14.71 (10.63) | 0.48–0.84, 0.60–0.85 |
+| C off, r1 / r2 | 53.0 / 48.1 | 0 | 17.4 / 10.1 | 0.03 | 3.54 / 3.44 | **7.34 / 6.98** | 0 | 0 of 34 | 11.6 / 0.17 (0), 11.0 / 0.16 (0) | 0.82–1.65, 0.87–1.70 |
+| B volume | 58.7 | 0 | 12.8 | 0.07 | 6.18 | 11.33 | 0 | 0 of 34 | 27.6 / 14.56 (9.34) | 0.59–0.97 |
+| C volume | 57.9 | 0 | 16.5 | 0.03 | 3.58 | **7.55** | 0 | 0 of 34 | 12.0 / 0.50 (0) | 0.80–1.61 |
+
+**Against the goals.** Store off, C settles nothing pending in 6.98–7.34 s against A's 7.37–7.47 and B's
+10.51–11.39, full detail in 3.4–3.5 s (A 4.0–4.4): met, D701 fixed. The simulation's tick after the stop is 11.0–11.6
+ms (A 15.5–16.3, B 25.7–29.9), its unspanned time 0.16–0.17 ms, and the workers derive 0.8–1.7 s a second, A's rate
+or more. With the volume, C 7.55 s against B 11.33: not worse. C's missed frames (17.4 in one round, 10.1 in the
+other; volume 16.5) lie above A's 10.1–11.0 in one round each: one round, D654's kind (late frames with no span over
+the interval); not resolved. A frame that sends the full diagnostics (1 in 60) still pays for them in its tick
+(at most 7.9–13.6 ms of streamer stats and 5.6–7.6 of far-field stats): one simulation tick every 2 s, not a page
+frame; making the stats themselves cheaper is not done here.
+
+**Tested.** `packages/game-host/src/sim-state.test.ts` (new case, a real runtime from `instantiateRuntime` with its
+full diagnostics builds counted): 180 frames, each frame's step, sim time, frame count and state equal to the
+runtime's; the full set rides on frames 1, 61 and 121 and is built exactly those 3 times; asked for, and on a stop
+(the state changes), the next frame sends them, built once each; the frame after sends none. **Broken** (once,
+`broken-every-frame-vitest.log`): the encoder reading the full diagnostics every frame: 180 builds, not 3, fails.
+
+**Gate.** `gate-fast-20261117-015410` (5503e495, 13 min): RED, 1 of 62: `frame-rate-cap.e2e.ts:70` uncapped 89.4 fps
+against > 90 under the gate's load (peak 13.3; D659's watch); `gate-rerun-20261117-020753` (2 min): GREEN. The Play
+test (`voxel-world.e2e.ts:1369`) 2.4 min (46e.10b: 2.3–2.5), voxel area 282 s (267–278).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -2426,6 +2500,10 @@ baselines.
 - 2026-11-17 (46e.10b, default chosen, owner to confirm): the stitch keeps its slice after a stop; one unit a step
   while level-0 derives waited was measured (no change to the derive rate or the settle) and reverted. What still
   holds the settle behind the base is time in the simulation's ticks that no span covers (D701, narrowed).
+- 2026-11-17 (46e.10c, default chosen, owner to confirm): a simulation frame reads the runtime's diagnostics head
+  (state, step, time, frame count, errors) and builds the full diagnostics, every voxel world's stats among them,
+  only on the frames that send them (asked for, a change, every 60 frames, as before); the stats' spans stay in the
+  profile. Making the stats themselves cheaper was left (a 1-in-60 tick) (§8c 46e.10c).
 
 ## 10. Open questions for the owner (asked with the plan)
 
