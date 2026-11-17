@@ -696,6 +696,11 @@ export class VoxelStreamer {
     return this.derives?.chunkReady(cx, cy, cz) ?? this.isResident(cx, cy, cz);
   }
 
+  /** Whether level-0 streaming derives (not an edit's) wait to be sent or to come back. */
+  get deriving(): boolean {
+    return this.derives?.streaming() ?? false;
+  }
+
   /** Whether a chunk's content is in the store (loaded, uniform or known air). */
   isResident(cx: number, cy: number, cz: number): boolean {
     if (!chunkInWorld(this.grid, cx, cy, cz)) return false;

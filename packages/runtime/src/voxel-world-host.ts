@@ -556,9 +556,11 @@ export class VoxelWorldHost {
     s.update();
     if (this.regions?.pending === true) {
       // The derive slice: stitching follows the chunks the derives let through, a share of the same streaming work.
+      // While level-0 derives wait (a world catching up after a stop) they come first: the stitch takes one unit of
+      // work a step, its regions answering incomplete meanwhile, and its slice again once they are through.
       threadProfiler.begin(REGIONS_SPAN);
       try {
-        this.regions.update(frameSliceMs('voxelDerive'));
+        this.regions.update(s.deriving ? 0 : frameSliceMs('voxelDerive'));
       } finally {
         threadProfiler.end(REGIONS_SPAN);
       }
