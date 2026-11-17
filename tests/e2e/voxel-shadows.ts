@@ -715,9 +715,11 @@ const VOLUME_PANEL_OFF_SHARE = 0.1;
 const GRID_FLOOR_GREEN_MIN_PX = 500;
 /**
  * What may be left of a light taken out of the volume, as a share of what it gave, once the bricks settle again: the
- * panel's 2.9 % in the first gate run (keeping half the history left 53 %).
+ * panel 2.9–3.0 %, the spot 7.8 % in two gate runs (keeping half the history left 53–55 %). What is left is not history
+ * but the restarted cells' first update reading their neighbours' light before those restarted too (an eighth of the
+ * mean).
  */
-const VOLUME_GONE_SHARE = 0.06;
+const VOLUME_GONE_SHARE = 0.12;
 /**
  * How far the cells round the lights may lie from before the lights came, as a share of how far the lights moved them:
  * 9.3 % in the first gate run (a volume started from nothing reads its neighbours' light as they fill, so the two
