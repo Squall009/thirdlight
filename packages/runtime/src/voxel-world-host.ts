@@ -115,6 +115,8 @@ import {
 const RAYCAST_SPAN = threadProfiler.span('voxel rays', 'scripts');
 /** Stitching the chunks' open regions into the world's (open-region-stitch.ts), as streaming work of this thread. */
 const REGIONS_SPAN = threadProfiler.span('open regions stitched', 'voxelStream');
+/** Keeping the far nodes' bricks for the walk where the world runs (copied as their draws leave for the page). */
+const FAR_WALK_SPAN = threadProfiler.span('far walk nodes kept', 'voxelStream');
 
 /** A world's chunk source and the workers its jobs run on, as the host (Play, an export, a test) provides them. */
 export interface VoxelWorldConnection {
@@ -391,7 +393,15 @@ export class VoxelWorldHost {
     this.channel = channel;
     // Rays past the rings march the far nodes drawn: their bricks are copied as they go out (the batches hand theirs over).
     const farWalk = streamer.far !== null ? new FarWalkNodes(conn.grid.edge, true) : null;
-    if (farWalk !== null) streamer.far!.on((e) => farWalk.apply(e));
+    if (farWalk !== null)
+      streamer.far!.on((e) => {
+        threadProfiler.begin(FAR_WALK_SPAN);
+        try {
+          farWalk.apply(e);
+        } finally {
+          threadProfiler.end(FAR_WALK_SPAN);
+        }
+      });
     this.farWalk = farWalk;
     this.walkSource = streamerWalkSource(streamer, farWalk);
     this.unresidentWalk?.();
