@@ -32,6 +32,10 @@ import { stepDigest } from './step-digest';
 import { TickInputSource } from './tick-input';
 import { presentVoxelWorlds, type VoxelPresentation } from './voxel-play';
 
+/** The tick's work outside the runtime's steps: the frame's state for the page, and the scene requests handed out. */
+const STATE_SPAN = threadProfiler.span('frame state encoded', 'other');
+const SCENE_REQUESTS_SPAN = threadProfiler.span('scene requests', 'other');
+
 /** The longest a tick may be slowed by a debugging delay. */
 const MAX_TICK_DELAY_MS = 1000;
 
@@ -150,7 +154,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     }
     const out = digests;
     digests = [];
+    threadProfiler.begin(STATE_SPAN);
     const { state, transfer } = encoder.encode(runtime, seq, { digests: out, ...(tickError !== undefined ? { tickError } : {}), memoryBytes: memory });
+    threadProfiler.end(STATE_SPAN);
     // The tick's profiler frame (and the job workers' answers since the last) rides on the frame the page waits for.
     threadProfiler.endFrame();
     const profile = threadProfiler.pack();
@@ -368,7 +374,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
           const r = rt.tick(m.now);
           if (!r.ok && r.error.code !== 'runtime_not_running') tickError = { code: r.error.code, message: r.error.message };
         }
+        threadProfiler.begin(SCENE_REQUESTS_SPAN);
         for (const req of rt.takeSceneRequests?.() ?? []) post({ t: 'scene.request', sceneId: req.sceneId });
+        threadProfiler.end(SCENE_REQUESTS_SPAN);
         // A slowed simulation (debugging, tests): the worker is busy this long before it answers.
         if (m.delayMs !== undefined && m.delayMs > 0) busyFor(Math.min(m.delayMs, MAX_TICK_DELAY_MS));
         sendFrame(m.seq, tickError);

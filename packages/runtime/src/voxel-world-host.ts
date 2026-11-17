@@ -117,6 +117,8 @@ const RAYCAST_SPAN = threadProfiler.span('voxel rays', 'scripts');
 const REGIONS_SPAN = threadProfiler.span('open regions stitched', 'voxelStream');
 /** Keeping the far nodes' bricks for the walk where the world runs (copied as their draws leave for the page). */
 const FAR_WALK_SPAN = threadProfiler.span('far walk nodes kept', 'voxelStream');
+/** A world's stats for the diagnostics: the streamer's, the open regions' and the far field's counts. */
+const STATS_SPAN = { stream: threadProfiler.span('voxel stats: streamer', 'other'), regions: threadProfiler.span('voxel stats: open regions', 'other'), far: threadProfiler.span('voxel stats: far field', 'other'), rest: threadProfiler.span('voxel stats: the rest', 'other') };
 
 /** A world's chunk source and the workers its jobs run on, as the host (Play, an export, a test) provides them. */
 export interface VoxelWorldConnection {
@@ -677,10 +679,19 @@ export class VoxelWorldHost {
 
   /** What the host holds (diagnostics). */
   stats(): VoxelHostStats {
+    const P = threadProfiler;
+    P.begin(STATS_SPAN.stream);
     const m = this.streamer?.metrics();
+    P.end(STATS_SPAN.stream);
     const pool = this.conn?.pool;
+    P.begin(STATS_SPAN.far);
     const far = this.streamer?.far?.metrics();
-    return {
+    P.end(STATS_SPAN.far);
+    P.begin(STATS_SPAN.regions);
+    const regions = this.regions !== null ? { ...this.regions.stats(), bytes: this.regions.bytes, deriveUs: m?.regionsUs ?? null } : null;
+    P.end(STATS_SPAN.regions);
+    P.begin(STATS_SPAN.rest);
+    const out: VoxelHostStats = {
       world: this.name,
       open: this.streamer !== null,
       resident: m?.resident ?? 0,
@@ -693,9 +704,11 @@ export class VoxelWorldHost {
       ...(m !== undefined ? { coverage: m.coverage } : {}),
       ...(this.streamer !== null ? { readRing: { setM: this.streamer.readReach.sceneRing.loadRadius * VOXEL_SIZE_M, nowM: this.streamer.ring.loadRadius * VOXEL_SIZE_M, reachM: this.streamer.readReach.cells === null ? null : this.streamer.readReach.cells * VOXEL_SIZE_M } } : {}),
       ...(m !== undefined ? { stream: { reading: m.reading, decoding: m.decoding, deriving: m.deriving, damaged: m.damaged, derivedBytes: m.bytes.derived, counters: m.counters, lod: this.streamer?.mips?.lod.counters ?? null } } : {}),
-      ...(this.regions !== null ? { regions: { ...this.regions.stats(), bytes: this.regions.bytes, deriveUs: m?.regionsUs ?? null } } : {}),
+      ...(regions !== null ? { regions } : {}),
       ...(far !== undefined ? { far: { selected: far.nodes, drawn: far.drawn, pending: far.pending, jobs: far.jobs, selectMs: far.selectMs, meshUs: far.meshUs, queueMs: far.queueMs, readMs: far.readMs, pumpMs: far.pumpMs, commitMs: far.commitMs, firsts: far.firsts, counters: far.counters, gpu: far.gpu, standIns: far.standIns, seen: far.seen, fine: far.fine } } : {}),
     };
+    P.end(STATS_SPAN.rest);
+    return out;
   }
 
   /** The streamer (null until the world is open): what the presentation joins draws from. */

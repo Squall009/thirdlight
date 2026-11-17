@@ -22,12 +22,14 @@
 import { AUDIO_MAX_QUEUED_COMMANDS, clampAlpha, DEFAULT_FIXED_STEP_HZ, EFFECT_MAX_QUEUED_REQUESTS, interpolateTransformInto, materialChangeKey, type TransformState } from '@thirdlight/runtime';
 import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
 import { CAMERA_POSE_FLOATS, STEP_PAIR_STRIDE, TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
-import { deepFreeze } from '@thirdlight/shared';
+import { deepFreeze, threadProfiler } from '@thirdlight/shared';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
 const FULL_SHARE = 0.25;
 /** Diagnostics ride along at least this often (frames) even when nothing notable changed. */
 const DIAG_EVERY = 60;
+/** The runtime's diagnostics read for a frame (whether or not they ride along). */
+const DIAGNOSTICS_SPAN = threadProfiler.span('runtime diagnostics read', 'other');
 
 type MutableFrame = { -readonly [K in keyof FrameState]: FrameState[K] };
 
@@ -139,7 +141,9 @@ export class FrameEncoder {
 
   encode(rt: Runtime, seq: number, extra: { digests?: string[]; tickError?: { code: string; message: string }; memoryBytes?: number | null }): { state: FrameState; transfer: ArrayBuffer[] } {
     const transfer: ArrayBuffer[] = [];
+    threadProfiler.begin(DIAGNOSTICS_SPAN);
     const d = rt.getDiagnostics();
+    threadProfiler.end(DIAGNOSTICS_SPAN);
     const diag = d.ok ? d.diagnostics : null;
     const out: MutableFrame = {
       seq,
