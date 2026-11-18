@@ -73,20 +73,30 @@ page in the same commit.
   keeps light in the open cells beside surfaces (`voxel-light-volume.ts`): six values a cell (an ambient cube), 2 m
   bricks in a pool texture round the camera, updated in compute by walk rays (the sky past 24 m; at a surface its
   colour (the look's tint times its albedo texture's mean for the side seen, measured once on the GPU when the arrays arrive) times the sun and lamps seen by walks, the lamps from a list per kept brick built in compute from the clustered lights' record (the hit's level-0 brick, else its finest coarse one, else the whole table) and lit as the per-pixel light lights them: points by three's falloff, spots within their cone (no cookie), area lights (rect and line) by their diffuse form factor on their facing side, walked toward a point of them each ray picks; the ambient and hemisphere lights are in its sky term; glowing materials' glow (each open cell keeps the mean glow of the solid faces it borders, a material's glow × its mean colour; and each kept brick's glowing faces are emitters in the lamp table that the cells of the bricks they reach aim at, each glow counted once); and the volume's own light there), and three coarse levels of 1, 2 and
-  4 m cells for open air (a clipmap to ±24, ±48 and ±96 m), all in one pool made once (29.8 MB); a change of light
-  or an edit restarts the bricks a ray can reach it from (half history while changes continue), the update paced to
+  4 m cells for open air (a clipmap to ±24, ±48 and ±96 m), all in one pool made once (as many slots as the tier's
+  `lightVolume` memory row holds); an edit, a lamp's change or a jump of the sun or sky (a look switched) restarts the
+  bricks a ray can reach it from (half history while changes continue; past a changed lamp's reach, which saw only
+  its bounce, to fewer updates), while a sun or sky that moves (a day: no faster than 10° a second) is **followed**:
+  nothing restarts, every kept brick is refreshed in turn (near the eye and in front more often) with its estimate
+  blended in by at least 1 / the tier's follow window, so the light lags the sun by a few refreshes without
+  shimmer, and once it stops the refining converges from there; the update paced to
   the live light's share of the GPU frame (`gpuPassBudgetMs`), batches' work in its frame slice; while nothing is
   stale it keeps refining settled bricks (the view in front first) within its idle share (`gpuPassIdleBudgetMs`) until
-  each has had 64 updates, a face's light the mean of about the last quarter of them, and each write filtered with
-  the same face of the cells beside it along the surface (a share that fades as the brick's updates grow); read per pixel by
+  each has had the tier's history of updates, a face's light the mean of about the last quarter of them, and each write filtered with
+  the same face of the cells beside it along the surface (a share that fades as the brick's updates grow). Its rays,
+  reach, settle and history counts, follow window, lamp list size and level-0 window are the lighting tier's
+  `voxelLightVolume` settings (project-model `VoxelLightVolumeSettings`); a brick's lamp list holds the lamps that can
+  light it (a spot's cone, an area light's front) less those negligible against the rest; read per pixel by
   every lit draw (voxel surfaces, kit pieces, props, moving objects; the far shade opts out) in place of the flat
-  ambient term. The sun's and lamps' direct light stay per pixel. Measured: plan-46e §8a 46e.6b, §8b.
+  ambient term. The sun's and lamps' direct light stay per pixel. Measured: plan-46e §8a 46e.6b, §8b, §8d (46e.14).
 
 ## 4. Streaming
 
 - A load ring around each focus (192 m by default; it ends at the detail reach on a world baked to its drawn
   level), a memory budget per tier (768 MiB at low), far GPU budget (384 MiB at low); both are entries of the one
-  memory budget table (`MEMORY_BUDGET_BY_TIER`, §6 row 7).
+  memory budget table (`MEMORY_BUDGET_BY_TIER`, §6 row 7), as are the default path's own: the open regions'
+  stitch (`regionStitch`, page), the sun field's GPU side (`sunField`), the walk's GPU blocks (`voxelWalk`) and the
+  light volume (`lightVolume`).
 - **At speed:** no level 0 is built, stale queued work is dropped, the far field carries the view; level 0
   returns from the camera outward when the focus stops.
 - **Collision** is on its own path round moving bodies; a **coarse floor** from the 2 m data stops anything
