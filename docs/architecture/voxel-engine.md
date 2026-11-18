@@ -110,6 +110,13 @@ page in the same commit.
   `tools/voxel-bench/lighting-cameras.ts`) take five fixed pictures of the 8 km world's town (street at noon, a room
   with a window, a dug cave, night with lamps, the far view) once streaming settles, with the profile at each and
   the edit-to-screen time.
+  The **many-lamps scene** (`tools/voxel-bench/many-lamps.ts`, `--lamps 32|128|512` in `light-shots`, `headroom` and
+  `coverage`) puts lamps of every type in the town from its own layout (street points, spots under the eaves, door
+  panels, fence lines, room lamps, and glowing patches painted at run time), nearest the scene's middle first, as
+  bench data taken out after the run; with it `light-shots` also takes three night cameras (`lamps-street`,
+  `lamps-room`, `lamps-high`) and times the lamp-lit room's edits. `light-shots --day slow|fast` moves the sun as a
+  game's script does (`ctx.environment.blend` over day looks, `day-cycle.ts`) and reads the light following it.
+  `?surfaceRead=level0` makes the light volume's read take level 0 alone (a comparison of the read's parts).
 - The **frame profile** (`window.__tlProfiler.read()` on a game page) gives each thread's CPU a frame (page,
   simulation worker, job workers) by budget category against the tier's budget, and the last long frames. It is
   shown in the editor's **Profiler** tab while Play runs, in the stats overlay (Shift+F3, Play and exports), saved

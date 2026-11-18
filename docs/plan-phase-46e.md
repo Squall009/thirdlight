@@ -245,7 +245,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.11 | Proposed 2026-11-16 (24296e84, acc46e-11), **owner's note 2026-11-17 (relayed): approved with changes** — reuse `params.emissive` × `emissiveIntensity`; no mask: the surface draws glow × the colour texture, the volume uses glow × the material's mean colour; a mask only in a spare channel of a map already read, its entry to the owner first; no far glow. (d) builds the no-mask part. |
 | 46e.12 | (a) done 2026-11-17 (b73ee726…2b80a9c2): lamp list per kept brick built in compute, 128 extra lamps 4.1–6.1 → 0.21–0.24 ms a brick. (b), (c) done 2026-11-17 (3d198037…38220994): spots by cone, rect and line lights by the LTC form factor (one definition, = per-pixel to 1e-6), walk to a point per ray; one spot + one area 0.029 ms a brick (base 0.024–0.028). (d) waits for the owner |
 | 46e.13 | (a) done (f2bc0110…6280f957): a change restarts what it reaches (D715, D695), batch work in the slice (D708), share 6.0 ms (D690 open). (b) done 2026-11-17 (99f2526a, 9e74e084): bounces converge, refining while idle (4.2–5.3 ms GPU), a write-time filter, texture-mean colours; room blotch 0.67 → 0.27, error vs a CPU reference 0.33 → 0.16; room dark (§10 Q) |
-| 46e.14 | not started |
+| 46e.14 | (a) done 2026-11-18 (9e6459ab…ec1443da): many-lamps scene 32/128/512 (`--lamps`), 3 cameras, moving sun (`--day`); orbit room off 136–192 / volume 28–88 copies; read +2.8–5.5 ms `near` (+8.5–9.6 high view), level 0 most; lists over to 9.3 k bricks; moving sun never settles (D720); hut settle = 13a's restart reach (§8d). (b) tuning next |
 | 46e.15 | not started |
 | 46e.16 | not started |
 | 46e.17 | not started |
@@ -2891,6 +2891,250 @@ not looked at. Medium and high not measured (the Play test runs at high). The se
 with lamps); the glowing furnace refines to 0.966 (the update's own convergence, as the lamps' 1.02); the night grass
 beside a strip lit faintly: strengths are the owner's, not a knob.
 
+## 8d. 46e.14 — the untuned baseline
+
+The first slice of 46e.14 (a): the many-lamps scene and the untuned baseline on it and on the town. Nothing was tuned.
+Commits 9e6459ab (the scene, its cameras, the moving sun, the read of level 0 alone), e927e27a (glow counts with each
+shot), ec1443da (the scene's lamp switched off by its object). Work folder `~/.cache/thirdlight-phase46e/work/46e.14a/`
+(`lib.sh`, `measure.sh`, `summ.py`, `m/` every raw run with its `*.log` and `*.uptime`, `smoke/` the first runs,
+`progress.txt`).
+
+**What was built (bench only, and one page switch).**
+
+- **The many-lamps scene** (`tools/voxel-bench/many-lamps.ts`, one definition): lamps of every type placed from the
+  town's own layout (`town.ts` now exports `lotOf` and its lot constants; only the world grid's houses, as the far world
+  holds them): street lamps (points, 3 m up, every 8 m along each of the 11 streets, fronts' and backs' side by turns),
+  spots under the eaves (one a house, 0.75 m out, aimed down at the front, 30°, soft edge 0.3), rect panels (0.6 × 0.3 m
+  over each door, a quarter metre off the wall, facing the street), line lights (4 m over a fenced lot's front fence,
+  shining down), room lamps (a point mid-room on a house's ground floor, 2.25 m up) and emissive patches painted at run
+  time by the camera's behaviour where the world is loaded (`ctx.voxels.paint` with the `--glow` bench materials: lava
+  strips 6 × 0.5 m in the ground by a street, crystal panels 1 × 1 m on a front, crystal blocks a cell across and two up
+  at a front's corner). Every kind's places are ordered by distance from (0, −6) (the street in front of the room
+  camera's house) and a size takes the nearest of each kind, so 32 ⊂ 128 ⊂ 512 and the small scene is round the
+  cameras. The mix (default chosen, owner to confirm, §9):
+
+  | size | street | spot | rect | line | room | glow strips / panels / blocks | casting shadows |
+  |---|---|---|---|---|---|---|---|
+  | 32 | 12 | 6 | 4 | 2 | 4 | 2 / 1 / 1 | 13 of 28 lamps |
+  | 128 | 48 | 24 | 16 | 8 | 16 | 8 / 4 / 4 | 52 of 112 |
+  | 512 | 192 | 96 | 64 | 32 | 64 | 32 / 16 / 16 | 208 of 448 |
+
+  An emissive light is counted as one painted patch; the volume itself counts glowing faces as emitters (a rectangle a
+  brick and facing) in its lamp table (`lamps` in its diagnostics, below). Shadows: every spot and room lamp and every
+  fourth street lamp cast (the lamps a player stands close to); panels, lines and glow do not (an area light's shadow is
+  five atlas faces). The point lights carry the night look's 60 cd as authored, so a run without a look (headroom,
+  coverage) has them lit; the night look sets every point light anyway, noon puts them out (spots, panels and lines stay
+  on at noon: a look sets point lights only).
+- **One option** `--lamps 32|128|512` in `light-shots`, `headroom` and `coverage`: the lamps are created before Play
+  and deleted after (`placeManyLamps`, also clearing any left by a stopped run), the glow materials made and deleted;
+  headroom's orbit behaviour paints the patches (its own id per size), coverage paints none (a flight would measure the
+  paint as edits).
+- **Three cameras** in `lighting-cameras.ts`, taken after the five with the option: `lamps-street` (the street in
+  front of the room camera's house at night, eye (−36, 1.7, −6.5) looking +x), `lamps-room` (the room camera's pose at
+  night, its room lamp 3 m ahead), `lamps-high` (45 m up south-east of the middle, looking down over the town at
+  night). With `--cache-edits` the room's three edits replace the noon room's window: a window dug in the lamp-lit room,
+  a glowing block set on its floor, its lamp switched off (`ctx.entity(id).set('object', { active: false })`).
+- **The moving sun** (`tools/voxel-bench/day-cycle.ts`, `light-shots --day slow|fast --day-at LIST --day-for S
+  --day-reference FILE`): eleven `bench-day-k` presets written with the bench's looks (noon's sky and ambient, the key
+  light every 15° of the hours' angle along an equinox day at 40° latitude, the sun 11° up at ±75° and 50° at noon);
+  the camera's behaviour holds `ctx.environment.blend(day-k, day-k+1, t)` every step from the steps since the start, as a
+  game script drives a day, turning back at the arc's ends. Slow = a 20-minute day (0.3° a second), fast = a 2-minute
+  day (3° a second). No engine change: the environment's blend already moves the key light (its direction is the
+  normalised blend of the presets'). At each camera: settled at the start, then for 90 s a reading a second (where the
+  sun is, the volume's stale bricks, the sun field's marching tiles, the cached sun map's draws), the profile every 10 s,
+  a picture pair 1 s apart every 10 s, the volume's cells against the CPU reference for the sun where it is every 30 s
+  (`day-ref.json`: the update's own target, 256 rays, 6 bounces, its reaches, cells' colours with the texture means,
+  a 1 m grid ±4 m round the eye), then `measureGpu` with the sun still moving, then the day stopped and the time to
+  settle.
+- **The read split** (`?surfaceRead=level0`, product, two lines and a vitest): the surfaces read level 0 alone
+  (`volumeReadLevelCount`, `voxel-light-volume-layout.ts`; the read loop takes its level count), so `near` with all
+  levels against level 0 alone is the coarse levels' blend, and level 0 against `?surfaceRead=0` (lit, unread) is the
+  eight cells' read. Passed to Play by the existing `surfaceRead` flag.
+- **Readings added**: each shot keeps the clustered lights' and the shadow atlas's counts the page writes on its
+  canvas (`data-tl-clusters`: lights, packed, list entries, overflow, gather / build / upload ms;
+  `data-tl-shadow-atlas`: side, lights with a tile, waiting, drawn), the glow patches painted, and with
+  `--refine-wait S` the time from Play to every brick refined; headroom keeps the same and the volume's diagnostics a
+  round.
+- **Tests**: vitest `tools/voxel-bench/many-lamps.test.ts` (5): the mix at each size, the lights adding up to the size
+  and the shadowed count; the same scene twice and each size holding the smaller; every lamp of 512 inside the town and
+  its point and a 0.2 m box round it in open air in the town's own cells (`town.ts`'s fill, as the far world writes
+  them), every glow patch over cells it paints (strips in the ground, panels and blocks in a wall); the first room lamp
+  in the room camera's house and the three cameras in open air; the camera behaviour with the scene's and the day's
+  code compiling (esbuild), the day presets among the looks, the sun 50° up at noon, a 20-minute day moving 30° in
+  100 s and turning back at the arc's end. Broken once (the door panels 0.1 m off the wall, the first draft): the
+  open-air case failed (`ML panel 1 at 0, 2.75, −4.1 (−0.2, −0.2, +0.2)` inside the front wall). `voxel-light-volume-
+  layout.test.ts` (+1): the read levels by the flag.
+
+**Measured** 2026-11-18 02:45–11:14 UTC at e927e27a / ec1443da (the product built at 9e6459ab; the later two commits
+are bench-only), Iris Xe, WebGPU, 1280 × 720, low, the 30 Hz cap, each run alone (`thirdlight-gate` inactive, no
+build, no other agent), the brief's 10G scope; uptime 25.4 d, load (1 min) 1.2–8.8 (the runs' own browser; the
+`*.uptime` beside each). Staging's 8 km world (`voxel-slice`, world `far`). Order: A pictures, edits and refine (one
+round, town / 32 / 128 / 512, off then volume); B GPU at the cameras (2 rounds, interleaved off / volume by scene);
+D the orbit (2 runs a configuration interleaved, two rounds a run: the second round is the reading, the first is
+D711's); C the read split (128, 2 rounds of read / unread / level 0); E the moving sun; F medium and high; H the
+standard run; G travel; A2 the room's edits again (the lamp switched off: A's runs at 32 and 128 switched it by its
+intensity, which the night look overrides: D721). Values: both rounds, or the range; "below" = below the reading's
+resolution. Cameras: the town's five (with or without the scene's lamps), the scene's three (`lamps-street`,
+`lamps-room`, `lamps-high`).
+
+| Row | Town (5 lamps; orbit none) | 32 | 128 | 512 | Raw (`m/`) |
+|---|---|---|---|---|---|
+| **1. The orbit** (low, the cap; second rounds of 2 runs) | | | | | `D-<scene>-<store>-r{1,2}.json` |
+| room at the cap, copies (≈ 0.13 ms each), off / volume | 192, 176 / **30, 88** | 176, 152 / **68, 64** | 152, 136 / **64, 36** | 176, 152 / **28, 30** | `edge.held` |
+| missed at no load (of 89) | 0–2 / 0 | 0 / 0 | 0–1 / 0–1 | 0 / 0 | |
+| GPU `near` off / volume (ms, all 4 rounds) | 2.1–2.5 / 4.4–5.3 | 3.1–3.5 / 8.0–10.4 | 3.6–4.5 / 8.0–9.1 | 4.3–4.7 / 6.3–10.0 | `gpu` |
+| GPU `lighting` (volume, of 6.67; its share 6.0) | 6.9–8.2 | 7.7–9.4 | 7.1–8.0 | 8.5–11.6 | |
+| GPU `far` off; `shadows` off | 3.1–3.6; 0.6–0.9 | 3.2–3.4; below | 3.0–3.7; below | 3.3–3.9; below | (volume: `far` below or 2.6–5.6) |
+| page ms a frame off / volume | 4.6–6.3 / 5.6–7.8 | 4.7–6.3 / 6.0–8.7 | 4.8–7.0 / 6.5–8.2 | 5.8–7.5 / 7.4–9.2 | `profile` |
+| page `lighting` mean (worst) off / volume, of 2.0 | 0.06–0.10 (2.0) / 0.94–1.47 (5.4) | 0.19–0.34 (5.2) / 1.11–2.05 (5.8) | 0.36–0.66 (7.0) / 1.28–2.07 (7.4) | 0.87–1.07 (5.6) / **2.06–2.88 (12.5)** | |
+| clustered lights' CPU build (ms a frame; lights handed in) | 0.005 (0) | 0.07–0.13 (28) | 0.12–0.22 (112) | 0.32–0.41 (448) | `lights.clusters` |
+| shadow atlas (2048²): shadowed lamps handed in, with a tile | — | 13, 6–8 | 52, 8–11 | 208, 8–12 | `lights.atlas` |
+| page heap / GPU process MiB (low's 1,536 / 2,560) | 585–593 / 932 off; 624–628 / 964–1,054 vol | 603–679 / 969–1,069 | 631–703 / 968–1,049 | 691–713 / 1,006–1,075 | `memory` |
+| lamp lists (volume): bricks over / entries dropped | 0 | 1,066–1,074 / 3.0–3.1 k | 3,505–3,555 / 43.5–44.1 k | 8,641–9,088 / 185–200 k | `volume.lampLists` |
+| **2. GPU settled at the cameras** (low; 2 rounds; refining unless refined) | street / room / night | street / room / high | street / room / high | street / room / high | `B-<scene>-<store>-r{1,2}/` |
+| `near` off (D660: close cameras unreliable) | 0.97, 0.93 / below / 2.12, 2.13 | 1.56, below / 0.44, below / 5.47, 5.46 | 1.99, 2.28 / 0.32, 0.62 / 6.79, 6.59 | 2.26, 2.34 / 0.68, 0.52 / 9.27, 9.36 | |
+| `near` volume | 3.78, below / 2.49, 2.54 / 6.50, 5.79 | 7.97, 6.07 / 6.04, 5.11 / 14.73, 13.72 | 6.68, 5.92 / 5.20, 4.99 / 14.46, 15.89 | 6.52, 7.23 / 6.18, 4.83 / **18.05, 19.70** | |
+| `near` volume over off (the read and its pool being written, D690) | +2.8 / ≥ +2.5 / +4.0 | +5.5 / +5.1 / +8.8 | +4.2 / +4.6 / +8.5 | +4.6 / +4.9 / +9.6 | |
+| `lighting` settled (refining while idle) | 4.84, below / 5.08, 5.91 / 4.38, 4.47 | 5.55, 6.86 / 5.83, 5.36 / 4.67, 4.39 | 4.36, 4.34 / 5.39, 5.57 / 5.03, 6.00 | 4.72, 5.44 / 4.77, 5.31 / 4.89, 3.85 | |
+| `lighting` stale (every brick, `--gpu-stale`) | 8.16, 7.86 / 7.68, 8.61 / 8.41, 8.07 | below, 7.90 / below, 8.90 / 8.42, 8.03 | 7.92, 8.30 / 10.81, 8.74 / 7.11, 7.80 | 7.29, 7.00 / 9.17, 8.94 / 9.42, 11.23 | `gpuStale` |
+| `shadows` off / volume | 1.42, 1.72 / 1.18, 1.21 / 2.20, 2.27 off; below–1.83 vol | below everywhere (the night look: no key light; the atlas drawn on change) | below | below | |
+| page ms; `voxel light volume` span while stale | 4.6–5.4; 0.46–0.69 | 4.8–5.3 (19.0, 25.8 once each, r1: not traced); 0.34–0.61 | 4.7–5.8; 0.37–0.59 | 5.4–6.4; 0.43–0.57 | |
+| ms a brick (the pass's own stamps) | 0.024–0.057 | 0.017–0.098 | 0.016–0.22 | 0.067–0.28 | |
+| **3. Page at the cameras** (A, profile at the shot) | | | | | `A-<scene>-<store>/` |
+| page ms; `lighting` mean (worst) off | 4.6–7.3; 0.18–0.30 (2.5) | 4.3–7.6; 0.23–0.52 (3.9) | 4.5–7.8; 0.36–0.83 (7.3) | 4.6–7.2; 0.84–1.17 (3.0) | |
+| the same, volume | 3.8–6.1; 0.18–0.52 (9.0) | 3.6–6.7; 0.29–0.84 (8.3) | 3.5–5.2; 0.40–0.96 (19.5) | 3.9–6.2; 0.92–1.46 (4.0) | |
+| clustered lights handed in / packed (lamps-street); build ms | 5 / 5; 0.04–0.11 | 33 / —; 0.07–0.34 | 117 / 93–99; 0.11–0.48 | 453 / —; 0.30–0.63 | |
+| **4. Memory** (the volume's own, A) | | | | | `storeState` |
+| GPU bytes (pool, colours, glow words, index, lamp lists 1.6–1.9 MB, lamp table) of the 160 MiB row | 35.5–35.8 MB | 35.6–35.8 | 35.7–35.8 | 35.7–35.9 | |
+| page bytes | 8.0–12.0 MB | 8.0–12.0 | 8.0–12.0 | 8.0–12.1 | |
+| lamps in the volume's table (lamps and emitters reaching the windows; most at a camera) | 5 | 45 | 165 | 615 | |
+| lamp lists at the cameras: most reaching one brick; bricks over; entries dropped | 3; 0; 0 | 17–30; 1–1,134; 1–3,863 | 25–68; 17–3,590; 85–46,225 | 41–96; 1,306–9,325; 9,090–205,991 | |
+| **5. Edit → light** (volume; first light / settled, ms; A, A2) | window 97 / 3,658; lamp wall 61 / 1,114; dug 77 / 1,106 | lamp-lit room: window 82 / 4,972, 102 / 5,250; glowing block 134 / 5,485, 150 / 8,117; lamp off 115 / 6,268; lamp wall 58 / 2,220 | window 82 / 6,743, 132 / 8,694; block 105 / 7,158, 149 / 7,236; lamp off 166 / 9,396; lamp wall 44 / 4,277 | window 80 / 6,642; block 151 / 7,089; lamp off 164 / 9,409; lamp wall 73 / 4,776 | `cacheEdits` |
+| Play start → the first camera settled, off / volume (s) | 13.9, 14.3 / 15.2, 16.6 | 15.1, 15.5 / 16.0, 16.2 | 14.9, 15.3 / 20.9, 21.3 | 14.9, 16.1 / 29.5, 29.7 | B `sincePlayS` |
+| Play start → fully refined (every brick at 64 updates; the street camera) | 158.9 s | 180.9 s | 237.1 s | not by 309 s (the wait's end) | A `refined` |
+| **6. Travel 150 m/s** (an export each; 2 rounds; longest ms, > 100, missed a minute, full detail s, nothing pending s, falls through, hole frames) | off 56.5, 47.1; 0; 14.6, 16.5; 3.32, 3.59; 6.75, 7.18; 0; 0 — volume 52.5, 60.2; 0; 14.6, 15.5; 4.14, 3.71; 8.09, 7.43; 0; 0 | — | off 46.4, 54.7; 0; 10.1, 11.0; 3.42, 3.46; 7.11, 7.13; 0; 0, 1 — volume 48.2, 53.3; 0; 16.5, 16.5; 3.95, 4.10; 8.25, 7.96; 0; 0, 1 | — | `G-*` |
+| **7. Pictures** (cell blotch ±4 m round the eye, 10 s → 60 s after arriving; picture mean) | street 0.205 → 0.110; room 0.271 → 0.271; cave 0.268 → 0.179; night 0.174 → 0.167 | lamps-street 0.171 → 0.110 (23.5); lamps-room 0.167 → 0.157 (131); night 0.209 → 0.165 | lamps-street 0.215 → 0.151 (62.3); lamps-room 0.206 → 0.175 (127); night 0.342 → 0.328 | lamps-street 0.237 → 0.183 (62.6); lamps-room 0.260 → 0.179 (127); night 0.256 → 0.197 (80.0) | A `arrival` |
+| **8. Medium / high** (the orbit, volume, one run; **unverified on target hardware**) | medium: missed 2 / 179, near 5.45, far 4.08, lighting 2.97 (43 / 33 / 24 %); high: missed 45 / 91, near 15.6, far 7.7, shadows 1.15, lighting 3.38 | — | medium: missed 55 / 132, near 11.1, far 6.2, lighting 4.51 (51 / 28 / 21 %); high: missed 34 / 74, near 29.9, far 10.0, lighting 4.6 | — | `F-*` |
+
+**The per-pixel read (D705).** The switch first proven off: `&surfaceRead=0` with the volume settled (8,977–9,910
+kept bricks, `storeState`) draws the store-off picture (128 scene against `A-128-off`: room 0.09 / 0.36 %, street
+0.03 / 2.07 %, lamp-lit room 0.27 / 0.96 %; two unread runs 0.2–2.0 % apart) while the read differs in 13.4 % (street),
+56 % (lamp-lit room) and 99.9 % (the noon room) (`cmp-C.txt`). At the 128 street `near` unread 1.85 / 2.83 ms (= store
+off's 1.99 / 2.28), read 7.92 / 7.29, level 0 alone 6.87 / below: the read is +4.4–6.1 ms there, of which level 0's
+eight cells are the most (+4–5) and the coarse levels' blend under ~1 ms (one round resolved: **not resolved**). At the
+rooms and on the orbit the three did not resolve (resolution 0.7–5 ms; `C-128-*`, `C-orbit-128-*`). At the cameras the
+volume's `near` is the read plus what its pool being written costs (refining is running at the settled reading:
+46e.13a measured `near` 1.74 → 3.05 ms with the update on), so "volume over off" in row 2 is an upper bound on the read
+alone. Largest where near surfaces fill the screen: the high view +8.5–9.6 ms at every size (off 5.5–9.3 ms: the
+clustered lights' cost grows with the lamps, 5.5 → 9.3).
+
+**The moving sun** (`E-<scene>-<speed>-<store>/`, `light-shots --day`, two cameras each; `tabE.txt`):
+
+| | town slow (20-min day) | town fast (2-min day) | 128 slow | 128 fast |
+|---|---|---|---|---|
+| store off: the cached sun map's draws a second; the sun field's marching tiles | 5.6; 30 | 29.5 (every frame); 30 | 5.6; 30 | 29.6; 30 |
+| store off: GPU `shadows` (static sun: 0.6–0.9 orbit, 1.2–1.7 street) | street 2.36, room 2.00 | 3.03, 3.26 | 1.47, 0.62 | 2.81, 1.50 |
+| store off: page `lighting` mean | 0.36–0.41 | 0.35–0.40 | 1.13–1.57 | 1.10–1.63 |
+| volume: readings settled (of 69) | 1 (the first) | 1 | 1 | 1 |
+| volume: GPU `lighting` while moving | 7.33 street, 7.75 room | 6.56, 6.73 | 6.08, 7.26 | 7.79, 6.54 |
+| volume: page `lighting` mean (worst) | 1.27–1.39 (2.6) | 1.66–1.72 (2.7) | 2.30–2.65 (6.1) | 2.19–2.58 (6.0) |
+| volume: cells against the reference for the sun where it is (street; room): settled at the start → while moving → stopped and settled | 0.13 → 0.16–0.26 → 0.10; 0.26 → 0.27–0.28 → 0.21 | 0.10 → 0.16–0.22 → 0.07; 0.28 → 0.21–0.35 → 0.29 | 0.16 → 0.10–0.21 → 0.04; 0.24 → 0.33–0.53 → 0.20 | 0.16 → 0.16–0.31 → 0.05; 0.28 → 0.30–0.36 → 0.31 |
+| pixels changed in 1 s (> 16 a channel) street; room — off | 0–0.14 %; 0 | 0–10.0 %; 0–1.6 % | 0–0.13 %; 0 | 0–10.5 %; 0–1.6 % |
+| the same, volume | 0.06–0.52 %; **2.7–7.6 %** | 0.3–11.5 %; 1.9–9.9 % | 0.03–0.91 %; 0.03–3.6 % | 0.1–10.6 %; 0.3–2.6 % |
+| day stopped → settled (s) | 12.4; 14.2 | 22.3; 17.7 | 27.1; 32.1 | 29.1; 26.8 |
+
+What a sun that never stops does: the volume restarts what the sun reaches on every 0.01° / 1 % change, and with
+46e.13a's rule ("while changes keep coming, bricks keep half their history and restart once they stop") a sun that
+never stops keeps every kept brick stale: 0 of the 69 readings after the start were settled at either speed, the update
+runs at its full share (GPU `lighting` 6.1–7.8 ms; 13b's refining never starts) and the page pays 0.9–1.3 ms more
+`lighting` than off. It **does not converge but follows**: its cells stay 0.10–0.53 of their light from the reference
+for the sun's current place (0.04–0.31 once stopped and settled), about as far as at the start at the street and up to
+twice as far in the room (the room's light is the sun patch, which moves). The room **shimmers**: at a 20-minute day
+2.7–7.6 % of its pixels change in a second against 0 with the store off (mean luminance 1.6–3.3 against 0.04–0.6);
+looked at (`E-town-slow-vol/day-slow-room-window-0s.png`, `-51s.png`): metre-scale bright and dark blotches on the
+floor and walls that move from picture to picture, more than at the settled start. At the 2-minute day the sun's own
+shadows move faster than the volume's noise (off and volume alike 0–11 % a second at the street). With the store off
+the sun's cost is the cached map drawn again (5.6 a second slow, every frame fast) and its GPU `shadows` 1.5–3.3 ms
+against 0.6–1.7 static, plus the sun field's ~30 tiles a frame (D675's march). New row D720.
+
+**Pictures** (looked at; `m/A-<scene>-vol/<camera>.png`, `-arrive-10s.png`, `-60s.png`, `edit-lamps-*-{before,first,after}.png`):
+- `lamps-street` (32 / 128 / 512): the street lit by its lamps both sides, warm pools on the grass, the spots' patches
+  on the fronts, the lava strips orange in the ground, the crystal blocks cyan at the house corners. The grass shows
+  soft metre-scale brighter and darker patches (the bounce's noise, D692) at 10 s that calm by 60 s (cell blotch 0.17–
+  0.24 → 0.11–0.18); the white gables carry cloud-like darker patches a metre or two across at 128 and 512. Plausible
+  bounce (the fronts facing lit grass lighter at their foot), not even.
+- `lamps-room`: the room lamp lights the room nearly evenly (walls, ceiling planks, stairs; mean 127–131); at 10 s soft
+  patches on the walls by the windows, at 60 s fainter. Switched off (`edit-lamps-lamp-off-after.png`, 512): the room
+  dark, the glowing block on the floor lighting the floor round it cyan, light from the lit street through the dug
+  window; settled 6.3–9.4 s.
+- `lamps-high`: pools of lamp light along the streets and round the houses, fronts lit, roofs dark; a cyan glow pool
+  where the crystal panels and blocks are; at 32 the picture is mostly black (a few lamps; the bench refuses the shot
+  as showing no voxels: 3.4–3.7 % of pixels change with the voxels hidden; its readings stand).
+- `night-lamps` with the scene's lamps: the street brighter (mean 26 / 60 / 80 against 22), the plaster gable with
+  faint round darker patches.
+- No overflowed brick shows as a dark square at these cameras (the dropped entries are the weakest lamps a brick
+  reaches; its other 16 still light it); a dark rectangle on the grass at the left of the first `lamps-high` picture
+  (`smoke/s1`, the run D713 hit) is a house's shadow.
+- The town's standard pictures after every run (`H-standard-off`) against the first (`A-town-off`): street 0.071 %,
+  room, cave, night 0.000, far 0.003 % (`cmp-H.txt`): staging's world as found; its world files' digest the same before
+  and after (`staging-before.txt`, `staging-after.txt`), the scene's five objects only, exports empty. The project keeps
+  the eleven day looks beside the bench's noon and night (bench data, as those two).
+
+**The hut settle, traced** (bounded: one reading a commit, from the Play test's own log line `light volume light
+types: … settled N ms` in each fast gate's `e2e.log`, `~/.cache/thirdlight-logs/`; the Play test runs at high, under
+the gate's load, so the times are a gate's, not a bench's; the panel's settle after it is taken out beside it):
+
+| Gate (commit) | what it added | spot + panel placed → settled | both taken out → settled |
+|---|---|---|---|
+| gate-fast-20261117-153003 / 164728 / 171152 (3d198037, 162ef563, 38220994) | 46e.12b, c | 528 / 786 / 538 ms | 538 / 538 / 537 ms |
+| gate-fast-20261117-175914 (f2bc0110 + 21df622b + 3fad4de6) | 13a's pacing at the live share **and** its restart of what a change reaches (the lamps' reach and the rays' 24 m past it) | **10,459** | 8,628 |
+| gate-rerun-20261117-183846 (193b7868) | the restart marking the lamps' reach only (pacing kept) | **2,402** | 2,170 |
+| gate-rerun-20261117-184459 (8a3717c0) | the rays' reach past the lamps marked again | **10,644** | 8,804 |
+| 185019 / 195335 (6280f957, 2d360dd0) | 13a's tests | 10,378 / 10,302 | 9,040 / 8,977 |
+| 212015 / 221613 (99f2526a, 9e74e084) | 13b's refine, filter, convergence | 11,132 / 10,784 | 9,221 / 9,708 |
+| 012147 (95e5309d) | 12d's emitters | 11,248 | 9,171 |
+
+The cause is 13a's restart rule: a lamp change restarts every brick its reach and the rays' 24 m reach past it hold,
+each from nothing to its 8 settle updates, at the high tier's share (16.7 ms frames). With the lamps' reach alone it
+was 2.4 s (of which the pacing's share and a smaller restart: not split further); the rays' reach past it adds ~8 s. 13b
+(refine) and 12d (emitters) did not move it (10.3–11.2 s). Not a bug: the rule is what took a removed light's bounce
+from 53 % left to 3 % (13a). What a lamp change restarts, and how far, is a tuning knob (below).
+
+**Not resolved / not read.** The read's split between level 0 and the coarse levels except at one camera (one round);
+the read on the orbit; the volume's `far` on the orbit (below or 2.6–5.6 ms, its refining swinging the windows); the
+lamps' own `shadows` row (below at every lamp camera: the atlas draws a static lamp's tiles once, the night look has no
+key light); the 32 scene's two stale readings at the street and room (below; and the page at 19.0 / 25.8 ms in that one
+run: not traced); medium and high are one run each. The orbit's first rounds (D711) are kept beside the readings in the
+raw files.
+
+**What the tuning has to decide** (the numbers it starts from; nothing tuned here):
+1. **The per-pixel read** (D705): +2.8–4.0 ms `near` at the town's cameras, +4.2–5.5 at the many-lamps street and
+   room, +8.5–9.6 at the high view; level 0's eight cells most of it (+4–5 of +4.4–6.1 at the 128 street), the coarse
+   blend under ~1 ms (not resolved). It is the largest single cost of the volume at every size.
+2. **The update's share** (D690): stale 7.0–11.2 ms GPU against its 6.0 share at every size; refining while idle
+   3.9–6.9 ms (its planned 3.0); on the moving orbit 6.9–11.6 ms. Page `lighting` on the orbit 0.9–1.5 (town) to
+   2.1–2.9 ms (512) against 2.0.
+3. **The lamp lists** (D714, D718): 16 entries; at 128 up to 3,590 bricks over and 46 k entries dropped, at 512 up to
+   9,325 of 9,901 lit bricks over and 206 k dropped, the most reaching one brick 68 (128) and 96 (512); 1.6–1.9 MB.
+4. **The ray reach** (D716): 24 m (48 m toward the sun); not re-measured here (46e.13b: +49 % on the room's dark cells).
+5. **The refine cap and its rate**: Play → every brick refined 159 s (town), 181 s (32), 237 s (128), past 309 s (512);
+   its GPU 3.9–6.9 ms at the cameras while it runs.
+6. **The window per tier** (D702): one size on every tier (level 0 ±48 m), 8,977–9,910 kept bricks, 35.5–35.9 MB GPU
+   at every lamp count (the lists are per slot, not per lamp).
+7. **The moving sun** (D720): never settles while the sun moves; GPU `lighting` 6.1–7.8 ms, page +0.9–1.3 ms, cells
+   0.10–0.53 off the reference, the room shimmering 2.7–7.6 % of pixels a second at a game's day; store off: the
+   cached map's redraws make `shadows` 1.5–3.3 ms.
+8. **A lamp change's restart reach** (the hut settle): 0.5 s → 10.5 s in the Play test when 13a began restarting the
+   rays' 24 m past a changed lamp (2.4 s with the lamps' reach alone); in the bench the lamp-lit room's edits settle in
+   5.0–9.4 s at 32–512 lamps against 1.1–3.7 s in the town.
+9. **What the low tier can afford at 720p30** (the orbit's room at the cap, second rounds): store off 176–192 (town),
+   152–176 (32), 136–152 (128), 152–176 (512) copies ≈ 19–24 ms spare; with the volume 30–88 (town), 64–68 (32),
+   36–64 (128), 28–30 (512) ≈ 3.6–11 ms spare. Every configuration held 30 Hz at no load (0–2 missed of 89); the volume
+   takes 12–18 ms of the room; the lamps' own cost (clustered lights, store off) +1.0–2.2 ms `near` on the orbit
+   (town 2.1–2.5 → 3.1–4.7) and +0.2–1.0 ms page `lighting`.
+   Travel at 150 m/s: no frame over 100 ms in any run; missed 10–17 a minute either store, nothing pending 0.3–1.3 s
+   later after the stop with the volume.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -3313,6 +3557,24 @@ beside a strip lit faintly: strengths are the owner's, not a knob.
 - 2026-11-18 (46e.12d, default chosen, owner to confirm): `light-shots --glow`'s scene: an orange lava (an instance of
   the town's rock, strength 4) and a cyan crystal (of its plaster, strength 1.5 so its texture shows), voxel ids 4001
   and 4002, painted at run time by `ctx.voxels` (never in the world's files; the records deleted after).
+- 2026-11-18 (46e.14a, default chosen, owner to confirm): **the many-lamps scene's mix** (§8d): 32 / 128 / 512 lights
+  of which points 50 % (street lamps every 8 m along the streets 3 m up, room lamps mid-room 2.25 m up), spots under
+  the eaves 18.75 %, rect panels over the doors 12.5 %, line lights over front fences 6.25 %, emissive patches 12.5 %
+  (lava strips in the ground, crystal panels and corner blocks, painted at run time); each kind nearest first from
+  (0, −6), so the sizes nest round the cameras. Shadows on every spot, every room lamp and every fourth street lamp
+  (46 % of the lamps), none on panels, lines or glow. Bench strengths: points 60 cd (the night look's), spots 150 cd,
+  panels and lines 40 cd.
+- 2026-11-18 (46e.14a, default chosen, owner to confirm): **the day lengths** of the moving sun: a game's 20-minute day
+  (0.3° a second) and a fast 2-minute day (3° a second), an equinox arc at 40° latitude between ±75° hours' angle
+  (the sun 11° up at its ends, 50° at noon), driven by `ctx.environment.blend` over eleven bench looks 15° apart.
+- 2026-11-18 (46e.14a, default chosen, owner to confirm): **the many-lamps cameras**: `lamps-street` (the street in
+  front of the room camera's house at night), `lamps-room` (the room camera's pose at night, its lamp 3 m ahead),
+  `lamps-high` (45 m up over the town at night); taken after the five with `--lamps`. The orbit and the flight run the
+  scene with the base look (points lit as authored), the cameras at night.
+- 2026-11-18 (46e.14a): the orbit runs here took **two rounds a run** (`--rounds 2`) and read the second: with one round a run 9 of 16
+  stopped low on the run's first round (D711).
+- 2026-11-18 (46e.14a): a lamp is switched off in the bench by its object (`set('object', { active: false })`), not
+  its intensity: the night look's point entry wins over a script's written intensity (D721).
 
 ## 10. Open questions for the owner (asked with the plan)
 
