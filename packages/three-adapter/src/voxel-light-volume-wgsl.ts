@@ -8,9 +8,11 @@
  * - a ray that meets nothing within the reach sees the sky (the radiance the
  *   live probes see: the scene's environment and the ambient and hemisphere
  *   lights the volume holds, as first-order SH);
- * - a ray that meets a surface sees its bounce: the colour of the cells
- *   there (`albedo`, the materials' colours a brick's cells border) times
- *   the light on it: the sun if a walk toward the sun from there meets
+ * - a ray that meets a surface sees what it gives off and its bounce: the
+ *   glow of the open cell in front of it (`glow`, the mean of the glows of
+ *   the materials it borders; read only while some cell glows) plus the
+ *   colour of the cells there (`albedo`, the materials' colours a brick's
+ *   cells border) times the light on it: the sun if a walk toward the sun from there meets
  *   nothing within its reach, each lamp in range on the list of the brick
  *   holding the open cell in front of the face whose walk to it meets
  *   nothing, and the volume's own light in that cell (so bounces build over
@@ -100,6 +102,7 @@ struct Params {
 @group(0) @binding(7) var albedo_tex: texture_2d<u32>;
 @group(0) @binding(8) var<storage, read> lamp_lists: array<u32>;
 @group(0) @binding(9) var<storage, read> lamp_slots: array<u32>;
+@group(0) @binding(10) var glow_tex: texture_2d<u32>;
 ${voxelWalkWgsl({ group: 0, table: 3, pages: 4 })}
 ${volumeWordsWgsl()}
 ${areas ? volumeLampTermsWgsl() : volumeSpotConeWgsl()}
@@ -189,6 +192,14 @@ fn volume_albedo(c: vec3<i32>) -> vec3<f32> {
   let w = textureLoad(albedo_tex, vec2<i32>(i32(i % ${VOLUME_ALBEDO_WIDTH}u), i32(i / ${VOLUME_ALBEDO_WIDTH}u)), 0).x;
   if (w == 0u) { return vec3<f32>(params.misc.z); }
   return unpack4x8unorm(w).rgb;
+}
+
+/** The radiance the solid cells open cell c borders give off (0 where none glows, or no brick holds it). */
+fn volume_glow(c: vec3<i32>) -> vec3<f32> {
+  let s = volume_slot(c);
+  if (s == 0u) { return vec3<f32>(0.0); }
+  let i = (s - 1u) * ${VOLUME_BRICK_VOLUME}u + volume_local(c);
+  return volume_decode(textureLoad(glow_tex, vec2<i32>(i32(i % ${VOLUME_ALBEDO_WIDTH}u), i32(i / ${VOLUME_ALBEDO_WIDTH}u)), 0).x);
 }
 
 fn sky_radiance(d: vec3<f32>) -> vec3<f32> {
@@ -300,7 +311,9 @@ fn ray_radiance(p: vec3<f32>, d: vec3<f32>, xi: vec2<f32>) -> vec3<f32> {
   let hp = p + d * h.t;
   let face = a * 2u + select(0u, 1u, n[a] < 0.0);
   let e = direct_light(hp, n, air, xi) + volume_light(air, face);
-  return volume_albedo(air) * e / PI;
+  var glow = vec3<f32>(0.0);
+  if (params.levels.y != 0u) { glow = volume_glow(air); }
+  return glow + volume_albedo(air) * e / PI;
 }
 
 fn hash3(c: vec3<i32>, f: u32) -> u32 {

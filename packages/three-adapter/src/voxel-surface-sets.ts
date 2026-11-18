@@ -65,6 +65,9 @@ export interface TextureSetPoint {
 /** Where a material's set is read at a point: its layer for the face, the projection's UVs and weights. */
 interface SetProjection {
   readonly l: N;
+  /** Its table texels of tiles and layers (their a: the r and b of its glow). */
+  readonly tiles: N;
+  readonly ls: N;
   readonly built: N;
   readonly onBuilt: N;
   readonly has: N;
@@ -131,6 +134,8 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: S
     const one = vec3(select(isX, float(1), float(0)), select(isY, float(1), float(0)), select(isX.or(isY), float(0), float(1)));
     return {
       l,
+      tiles,
+      ls,
       built,
       onBuilt,
       has,
@@ -153,6 +158,8 @@ function setProjection(src: TextureSetSource, m: N, at: TextureSetPoint, mode: S
   return {
     axis: null,
     l,
+    tiles,
+    ls,
     built,
     onBuilt,
     has,
@@ -182,13 +189,15 @@ const NEUTRAL_ORM = (): N => vec3(NEUTRAL_TEXELS.orm[0] / 255, NEUTRAL_TEXELS.or
  * `lod`: the reads' mip level from the tile (absent: the implicit one, or the projection's derivatives); `maps`: which
  * maps are read.
  */
-export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend', lod?: TileLevel, maps: SetMaps = 'full'): { albedo: N; normal: N; orm: N; height: N } {
+export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend', lod?: TileLevel, maps: SetMaps = 'full'): { albedo: N; normal: N; orm: N; height: N; glowRB: N } {
   const { n } = at;
-  const { l, built, onBuilt, has, gt, read, weighted, axis } = setProjection(src, m, at, mode, lod);
+  const { l, tiles, ls, built, onBuilt, has, gt, read, weighted, axis } = setProjection(src, m, at, mode, lod);
   const a = read(src.maps.albedo);
   const textured = select(has, weighted(a).rgb.mul(l.rgb), l.rgb);
   const height = select(has, weighted(a).a, float(1));
-  if (maps === 'albedo') return { albedo: textured, normal: n, orm: NEUTRAL_ORM(), height };
+  // The glow's r and b ride the a of the tiles and layers texels read here (its g the relief texel's: the caller's).
+  const glowRB = vec2(tiles.w, ls.w);
+  if (maps === 'albedo') return { albedo: textured, normal: n, orm: NEUTRAL_ORM(), height, glowRB };
   // On one axis the read is turned by that axis's frame alone (its weight 1).
   const bn = axis ?? at.bn;
   const t = read(src.maps.normal).map((x) => x.xyz.mul(2).sub(1)) as [N, N, N];
@@ -206,6 +215,7 @@ export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, m
     normal: select(has, mix(onAxes, onGrid, onBuilt).normalize(), n),
     orm: select(has, weighted(o).xyz, NEUTRAL_ORM()),
     height,
+    glowRB,
   };
 }
 

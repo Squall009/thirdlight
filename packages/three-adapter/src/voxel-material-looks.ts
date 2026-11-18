@@ -10,7 +10,9 @@
  * and the terrain projection, so one repeat is what the record names however
  * a cell is projected), its height depth (`voxel.heightDepth`: how its
  * heights blend, fill with water and displace) and its blend distance
- * (`voxel.blendMetres`; absent: the world's). What a record does not say stays the
+ * (`voxel.blendMetres`; absent: the world's) and its glow (`params.emissive` × `params.emissiveIntensity`, in linear
+ * light: the radiance its surfaces give off, drawn times their colour and given off into the light volume times its
+ * mean colour). What a record does not say stays the
  * base look's (by default the per-id stand-in, `voxelStandInLook`), as do
  * ids no record has. A record's surface texture sets draw from the texture
  * arrays (`voxelRecordTextures`: the arrays to assemble and each id's
@@ -22,6 +24,7 @@
  */
 import { isVoxelMaterial, resolveMaterialInstances, VOXEL_SURFACES, voxelSurfaceSet, voxelSurfaceTextures, type MaterialDef, type VoxelSurfaceTextures } from '@thirdlight/project-model';
 import { VOXEL_SIZE_M } from '@thirdlight/voxel';
+import { Color } from 'three';
 import { voxelStandInLook } from './voxel-chunk-view';
 import { PHASE_CELLS, type VoxelMaterialLook } from './voxel-surface';
 
@@ -55,19 +58,34 @@ export function voxelRecordLooks(materials: readonly VoxelLookRecord[], base: (m
     const tile = m.voxel!.tileMetres;
     const depth = m.voxel!.heightDepth;
     const blend = m.voxel!.blendMetres;
+    const glow = recordGlow(m.params);
     return {
       ...look,
       ...(colour !== undefined ? { colour: parseInt(colour, 16) } : {}),
       ...(tile !== undefined ? { constructionTileMetres: phaseTileMetres(tile), terrainTileMetres: phaseTileMetres(tile) } : {}),
       ...(depth !== undefined ? { heightDepthMetres: depth } : {}),
       ...(blend !== undefined ? { blendMetres: blend } : {}),
+      ...(glow !== null ? { glow } : {}),
     };
   };
 }
 
+/**
+ * A record's glow as the voxel path reads it: its glow colour (`params.emissive`, sRGB) in linear light times its glow
+ * strength (`params.emissiveIntensity`); null when either leaves it dark (no strength, or black).
+ */
+export function recordGlow(params: VoxelLookRecord['params']): [number, number, number] | null {
+  const hex = typeof params['emissive'] === 'string' ? HEX.exec(params['emissive'])?.[1] : undefined;
+  const strength = params['emissiveIntensity'];
+  if (hex === undefined || typeof strength !== 'number' || !(strength > 0)) return null;
+  const c = new Color().setHex(parseInt(hex, 16));
+  if (c.r + c.g + c.b <= 0) return null;
+  return [c.r * strength, c.g * strength, c.b * strength];
+}
+
 /** A key that changes exactly when the looks {@link voxelRecordLooks} makes of `materials` may (what of the records it reads). */
 export function voxelLooksKey(materials: readonly VoxelLookRecord[]): string {
-  return JSON.stringify(materials.map((m) => [m.materialId, m.instanceOf ?? null, m.shader, m.params['color'] ?? null, m.voxel ?? null, m.graph !== undefined]));
+  return JSON.stringify(materials.map((m) => [m.materialId, m.instanceOf ?? null, m.shader, m.params['color'] ?? null, m.params['emissive'] ?? null, m.params['emissiveIntensity'] ?? null, m.voxel ?? null, m.graph !== undefined]));
 }
 
 /** The texture arrays the records' surface sets make and each voxel id's layers (instances resolved here; null: no record has a set with an albedo). */

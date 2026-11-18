@@ -42,6 +42,8 @@ export interface VolumeLightWorld {
   readonly lampCount: number;
   /** The colour (linear) bounced by the solid cell across face `face` (0 … 5) of open cell `air`. */
   albedo(air: readonly number[], face: number): readonly number[];
+  /** The radiance (linear) the surface across face `face` of open cell `air` gives off (absent: nothing glows). */
+  glow?(air: readonly number[], face: number): readonly number[];
   /** Far nodes walked where no level knows a place (the reference); the GPU's walk stops at the mips. */
   readonly far?: boolean;
 }
@@ -167,8 +169,8 @@ export type VolumeHeldLight = (air: readonly number[], face: number) => readonly
 export type VolumeRayEnd = 'sky' | 'hit' | 'lost';
 
 /**
- * The radiance a ray of the update sees (its WGSL `ray_radiance`): the sky past `reach`, else the bounce of the face
- * it meets: its colour × (direct light + the volume's own light there) / π.
+ * The radiance a ray of the update sees (its WGSL `ray_radiance`): the sky past `reach`, else what the face it meets
+ * gives off and its bounce: its glow + its colour × (direct light + the volume's own light there) / π.
  */
 export function volumeRayRadiance(w: VolumeLightWorld, p: readonly number[], d: readonly number[], reach: number, held: VolumeHeldLight, xi: readonly [number, number], sunReach: number, ends?: Record<VolumeRayEnd, number>): V3 {
   const h = walkHit(w, p, d, reach);
@@ -185,7 +187,8 @@ export function volumeRayRadiance(w: VolumeLightWorld, p: readonly number[], d: 
   const e = volumeDirectLight(w, hp, h.n, xi, sunReach);
   const v = held(h.air, h.face);
   const a = w.albedo(h.air, h.face);
-  return [0, 1, 2].map((k) => (a[k]! * (e[k]! + (v?.[k] ?? 0))) / Math.PI) as V3;
+  const g = w.glow?.(h.air, h.face) ?? null;
+  return [0, 1, 2].map((k) => (g?.[k] ?? 0) + (a[k]! * (e[k]! + (v?.[k] ?? 0))) / Math.PI) as V3;
 }
 
 /** What the reference counts as it traces (rays, where they ended, hits lit by the sun). */
@@ -212,8 +215,8 @@ export interface VolumeReferenceOptions {
 
 /**
  * The radiance a path from `p` along `d` brings (path tracing): the sky where nothing stops it within the reach, else
- * the face's colour × (its direct light + π × the radiance one cosine-weighted ray from it brings, while bounces are
- * left) / π.
+ * what the face gives off + its colour × (its direct light + π × the radiance one cosine-weighted ray from it brings,
+ * while bounces are left) / π.
  */
 function tracePath(w: VolumeLightWorld, p: readonly number[], d: readonly number[], bounces: number, o: Required<VolumeReferenceOptions>, rnd: () => number, counts: VolumeReferenceCounts | null): V3 {
   const h = walkHit(w, p, d, o.reach);
@@ -242,7 +245,8 @@ function tracePath(w: VolumeLightWorld, p: readonly number[], d: readonly number
     for (let k = 0; k < 3; k++) e[k] = e[k]! + Math.PI * li[k]!;
   }
   const a = w.albedo(h.air, h.face);
-  return [0, 1, 2].map((k) => (a[k]! * e[k]!) / Math.PI) as V3;
+  const g = w.glow?.(h.air, h.face) ?? null;
+  return [0, 1, 2].map((k) => (g?.[k] ?? 0) + (a[k]! * e[k]!) / Math.PI) as V3;
 }
 
 /**

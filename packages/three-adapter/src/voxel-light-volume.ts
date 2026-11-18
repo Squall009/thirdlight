@@ -57,7 +57,13 @@
  *   mean colour of the solid cells across their faces (voxel-light-volume-
  *   colours.ts: a look's tint times its albedo texture's mean for the side
  *   seen, measured once on the GPU as the surfaces get their arrays; a white
- *   look before that bounces the grey the live probes bounce).
+ *   look before that bounces the grey the live probes bounce), and beside
+ *   them the glow of the cells across their faces (a material's record's glow
+ *   × its mean colour; a glow texture written only where some cell glows): a
+ *   ray that meets a surface sees its glow added to its bounce. A record edit
+ *   that changes what a material bounces or gives off ({@link
+ *   VoxelLightVolume.looksChanged}) rewrites the cells beside it and marks
+ *   what their light reaches.
  * - **The read** ({@link VoxelVolumeLight}'s node, built after every light
  *   the volume does not hold): every lit draw's pixel (voxel surfaces, kit
  *   pieces, props, moving objects; not a material that says otherwise) reads
@@ -82,7 +88,8 @@ import { gpuTextureOf, uploadTextureRegion, type RegionTextureRenderer } from '.
 import { KEPT_IRRADIANCE, isProbeHeld, markProbeHeld } from './probe-lighting';
 import { SkyProbe } from './surface-probe-sky';
 import { BOUNCE_ALBEDO, SH_E0, SH_E1 } from './surface-probes';
-import { VolumeBounceSource, VolumeColourCache, volumeBrickColours, volumeCellColour, volumeColourRgb, type VolumeBounceMeans } from './voxel-light-volume-colours';
+import { VolumeBounceSource, VolumeColourCache, volumeCellColour, volumeCellGlow, volumeColourRgb, type VolumeBounceMeans } from './voxel-light-volume-colours';
+import { VolumeLookWatch } from './voxel-light-volume-looks';
 import { volumeReferenceFace, volumeRoomCells, type VolumeCheckCell, type VolumeLightWorld, type VolumeReferenceCounts } from './voxel-light-volume-reference';
 import { texelTexture } from './texel-texture-node';
 import type { VoxelMaterialLook } from './voxel-surface';
@@ -119,8 +126,8 @@ const CHANGES_CONTINUE_FRAMES = 2 * LAMP_LOOK_FRAMES;
  * chunks drawn before it reading nothing. Bricks past it wait for a slot to free, nearest first.
  */
 const POOL_SLOTS = 16384;
-/** Bytes a slot takes on the GPU (its faces, its colours and its lamp list). */
-const SLOT_BYTES = (VOLUME_BRICK_TEXELS + VOLUME_BRICK_VOLUME + VOLUME_LAMP_LIST_WORDS) * 4;
+/** Bytes a slot takes on the GPU (its faces, its colours, its glows and its lamp list). */
+const SLOT_BYTES = (VOLUME_BRICK_TEXELS + 2 * VOLUME_BRICK_VOLUME + VOLUME_LAMP_LIST_WORDS) * 4;
 /** The largest 2D texture side the pool may take (WebGPU's default limit). */
 const MAX_TEXTURE_ROWS = 8192;
 
@@ -258,6 +265,8 @@ export class VoxelLightVolume {
   private readonly gridChanges = new VolumePendingChanges<Uint16Array | number | undefined>();
   private readonly walkChanges = new VolumePendingChanges<WalkBlockView | null>();
   private readonly albedoDirty = new Set<Brick>();
+  /** The colours and glows written, and record edits held against what each voxel id gave before. */
+  private readonly looks = new VolumeLookWatch();
   private readonly sky = new SkyProbe();
   /** The albedo textures' mean colours by voxel id (none until measured). */
   private readonly bounce = new VolumeBounceSource();
@@ -291,6 +300,8 @@ export class VoxelLightVolume {
   constructor(private readonly deps: VoxelLightVolumeDeps) {
     this.gpu = new VolumeGpu(deps.device, deps.renderer, this.slotBudget());
     this.light = new VoxelVolumeLight(this.gpu, deps.read !== false);
+    // What the looks give the volume now: a later record edit is held against it.
+    this.looksChanged();
     // The held lights are marked before the light joins: the programs its joining builds again take them as held.
     if (this.light.read) this.holdAmbient(true);
     deps.scene.add(this.light);
@@ -470,13 +481,27 @@ export class VoxelLightVolume {
     // What batches changed first (it may queue blocks to look at), then the looks.
     if (this.walkChanges.size > 0) this.walkChanged(walk.table, more);
     if (this.gridChanges.size > 0) this.gridChanges.drain(more, (key, was) => this.gridChanged(key, was));
+    if (this.looks.waiting > 0) {
+      // The bricks beside a material a record edit changed: written again, and what their light reaches marked.
+      this.looks.drain(more, this.chunkCells, (lo, hi) => {
+        for (let x = lo[0]!; x <= hi[0]!; x++) for (let y = lo[1]!; y <= hi[1]!; y++) for (let z = lo[2]!; z <= hi[2]!; z++) {
+          const b = this.bricks.get(volumeBrickKey(x, y, z, 0));
+          if (b !== undefined && b.slot >= 0) this.albedoDirty.add(b);
+        }
+        this.markBoxes([[lo, hi]]);
+      });
+    }
     this.look(more);
     if (this.light.read) this.holdAmbient();
     this.lights();
     this.history.frame(this.frames);
-    this.colours();
+    if (this.albedoDirty.size > 0) {
+      this.looks.write(this.albedoDirty, this.chunkCells, this.deps.look, this.bounce.means, this.gpu);
+      this.gpu.glowing = this.looks.glowing;
+      this.albedoDirty.clear();
+    }
     this.index.publish();
-    this.flushIndex();
+    this.index.flush((words, rows) => this.gpu.writeIndex(words, rows));
     if (!this.hidden) this.buildLampLists();
     if (!this.hidden && (this.stale.size > 0 || !this.refiner.refined)) this.update(walk, eye);
     if (this.stale.size === 0 && this.lookWaiting() === 0 && this.stats.settledAt === null) this.stats.settledAt = performance.now();
@@ -487,7 +512,7 @@ export class VoxelLightVolume {
 
   /** Level-0 blocks and coarse bricks waiting to be looked at, changes from batches waiting for the volume's slice, and bricks waiting to start again once changes stop. */
   private lookWaiting(): number {
-    return this.toLook.size + this.toLookCoarse.size + this.walkChanges.size + this.gridChanges.size + this.history.waiting;
+    return this.toLook.size + this.toLookCoarse.size + this.walkChanges.size + this.gridChanges.size + this.looks.waiting + this.history.waiting;
   }
 
   /** A level's window onto the eye: a move drops the bricks that leave and queues what enters (level 0 by blocks). */
@@ -741,17 +766,15 @@ export class VoxelLightVolume {
     this.markBoxes(changed.map((sp) => [[0, 1, 2].map((a) => Math.floor((sp[a]! - sp[3]!) / brickM(0))), [0, 1, 2].map((a) => Math.floor((sp[a]! + sp[3]!) / brickM(0)))] as const), true);
   }
 
-  /** The kept bricks' colours made and uploaded (those that took a slot or whose grids changed). */
-  private colours(): void {
-    if (this.albedoDirty.size === 0) return;
-    const colours = new VolumeColourCache(this.deps.look, this.bounce.means);
-    const words = new Uint32Array(VOLUME_BRICK_VOLUME);
-    for (const b of this.albedoDirty) {
-      if (b.slot < 0) continue;
-      volumeBrickColours(b.bx, b.by, b.bz, this.chunkCells, colours, words);
-      this.gpu.writeAlbedo(b.slot, words);
-    }
-    this.albedoDirty.clear();
+  /**
+   * The looks changed (a material record edit): each voxel id whose bounce colours or glow the volume reads changed is
+   * looked for in the chunks' grids in the volume's slice, the cells beside it written again and what their light
+   * reaches marked. The ms it took on this thread.
+   */
+  looksChanged(): number {
+    const t0 = performance.now();
+    this.looks.changed(this.deps.look, this.bounce.means, this.chunkCells.keys());
+    return performance.now() - t0;
   }
 
   /**
@@ -762,13 +785,12 @@ export class VoxelLightVolume {
   setBounceTextures(albedo: THREE.Texture | null, layers: ReadonlyMap<number, readonly [number, number, number]> | null): void {
     this.bounce.measure(this.deps.device, albedo === null ? null : gpuTextureOf(this.deps.renderer, albedo), albedo?.colorSpace === THREE.SRGBColorSpace, layers, () => {
       if (this.disposed) return;
+      // Every brick is written again below: the looks as they read now are the ones held from here.
+      this.looks.forget();
+      this.looksChanged();
       for (const b of this.bricks.values()) if (b.level === 0 && b.slot >= 0) this.albedoDirty.add(b);
       if (this.bricks.size > 0) this.markAll(false);
     });
-  }
-
-  private flushIndex(): void {
-    this.index.flush((words, rows) => this.gpu.writeIndex(words, rows));
   }
 
   /**
@@ -877,6 +899,9 @@ export class VoxelLightVolume {
       // The sky's light on a surface facing up and down with nothing over it (the SH's irradiance), to check open cells by.
       skyUp: [0, 1, 2].map((k) => this.sky.coefficients[k]! * SH_E0 + this.sky.coefficients[3 + k]! * SH_E1),
       skyDown: [0, 1, 2].map((k) => this.sky.coefficients[k]! * SH_E0 - this.sky.coefficients[3 + k]! * SH_E1),
+      looksChanged: this.looks.edits,
+      looksChangedIds: this.looks.lastIds,
+      glowing: this.looks.glowing,
       ...this.stats,
     };
   }
@@ -983,7 +1008,18 @@ export class VoxelLightVolume {
           const e = entry(s[0]!, s[1]!, s[2]!);
           return volumeColourRgb(e === 0 ? 0 : colours.word(e, axis !== 1 ? 0 : sgn > 0 ? 1 : 2));
         };
-        const world: VolumeLightWorld = { src, sky: this.sky.coefficients, sun: this.gpu.sun, lamps: this.lamps.data, lampCount: this.lamps.count, albedo };
+        const glow = (air: readonly number[], face: number): readonly number[] => {
+          const [x, y, z] = air as [number, number, number];
+          if (v.albedo === 'cells') {
+            const g = this.chunkCells.get(`${x >> 5},${y >> 5},${z >> 5}`);
+            return volumeDecode(g === undefined || typeof g === 'number' ? 0 : volumeCellGlow(g, [x >> 5, y >> 5, z >> 5], x, y, z, colours));
+          }
+          const s = [x, y, z];
+          s[face >> 1]! -= (face & 1) === 1 ? -1 : 1;
+          const e = entry(s[0]!, s[1]!, s[2]!);
+          return e === 0 ? [0, 0, 0] : (colours.glow(e) ?? [0, 0, 0]);
+        };
+        const world: VolumeLightWorld = { src, sky: this.sky.coefficients, sun: this.gpu.sun, lamps: this.lamps.data, lampCount: this.lamps.count, albedo, glow };
         const counts: VolumeReferenceCounts = { rays: 0, sky: 0, lost: 0, hits: 0, past: 0, sunLit: 0 };
         const t0 = performance.now();
         const rgb = volumeReferenceFace(world, c.cell, c.face, { rays: v.rays, bounces: v.bounces, updateReach: VOLUME_RAY_REACH_M, ...(v.reach !== undefined ? { reach: v.reach } : {}), ...(v.sunReach !== undefined ? { sunReach: v.sunReach } : {}) }, counts);
@@ -1080,6 +1116,10 @@ function keyLight(scene: THREE.Scene): THREE.DirectionalLight | null {
 class VolumeGpu {
   readonly pool: THREE.StorageTexture;
   readonly albedo: THREE.StorageTexture;
+  /** The cells' glow words (as the colours: a word a cell, 0 none), read by the update only while {@link glowing}. */
+  readonly glow: THREE.StorageTexture;
+  /** Some kept cell glows: the update's rays read the glow words (none does: they are not read). */
+  glowing = false;
   readonly indexTex: THREE.StorageTexture;
   readonly capacity: number;
   /** Toward the sun (xyz), on (w); its colour × intensity. */
@@ -1109,6 +1149,7 @@ class VolumeGpu {
     this.lamps = new VolumeLampLists(device, this.capacity);
     this.pool = uintTexture(VOLUME_POOL_WIDTH, Math.ceil(this.capacity / VOLUME_BRICKS_PER_ROW), 'voxel light volume');
     this.albedo = uintTexture(VOLUME_ALBEDO_WIDTH, Math.ceil(this.capacity / VOLUME_BRICKS_PER_ROW), 'voxel light volume colours');
+    this.glow = uintTexture(VOLUME_ALBEDO_WIDTH, Math.ceil(this.capacity / VOLUME_BRICKS_PER_ROW), 'voxel light volume glows');
     this.indexTex = uintTexture(VOLUME_INDEX_WIDTH, VOLUME_INDEX_ROWS, 'voxel light volume index');
     this.pipelineFor(false);
     this.params = device.createBuffer({ size: VOLUME_PARAM_FLOATS * 4, usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST, label: 'voxel light volume params' });
@@ -1117,6 +1158,7 @@ class VolumeGpu {
     this.stamps = timed ? device.createBuffer({ size: 16, usage: GPU_BUFFER_USAGE.QUERY_RESOLVE | GPU_BUFFER_USAGE.COPY_SRC, label: 'voxel light volume timestamps' }) : null;
     gpuTextureOf(renderer, this.pool);
     gpuTextureOf(renderer, this.albedo);
+    gpuTextureOf(renderer, this.glow);
     gpuTextureOf(renderer, this.indexTex);
   }
 
@@ -1136,7 +1178,7 @@ class VolumeGpu {
     return made;
   }
 
-  /** GPU bytes: the pool, the colours, the index, the pass's buffers and the lamps' (the lists counted in the slots). */
+  /** GPU bytes: the pool, the colours, the glows, the index, the pass's buffers and the lamps' (the lists counted in the slots). */
   get bytes(): number {
     return this.capacity * SLOT_BYTES + INDEX_TEXELS * 4 + (this.list?.size ?? 0) + VOLUME_PARAM_FLOATS * 4 + this.lamps.bytes - this.lamps.lists.size;
   }
@@ -1155,6 +1197,10 @@ class VolumeGpu {
 
   writeAlbedo(slot: number, words: Uint32Array): void {
     uploadTextureRegion(this.renderer, this.albedo, words, { x: (slot % VOLUME_BRICKS_PER_ROW) * VOLUME_BRICK_VOLUME, y: Math.floor(slot / VOLUME_BRICKS_PER_ROW), z: 0, width: VOLUME_BRICK_VOLUME, height: 1, depth: 1 }, 4);
+  }
+
+  writeGlow(slot: number, words: Uint32Array): void {
+    uploadTextureRegion(this.renderer, this.glow, words, { x: (slot % VOLUME_BRICKS_PER_ROW) * VOLUME_BRICK_VOLUME, y: Math.floor(slot / VOLUME_BRICKS_PER_ROW), z: 0, width: VOLUME_BRICK_VOLUME, height: 1, depth: 1 }, 4);
   }
 
   writeIndex(index: Uint32Array, rows: Iterable<number>): void {
@@ -1178,15 +1224,16 @@ class VolumeGpu {
     p.set([this.sun[0]!, this.sun[1]!, this.sun[2]!, this.sun[3]!, this.sun[4]!, this.sun[5]!, this.sun[6]!, VOLUME_SUN_REACH_M], 8);
     for (let b = 0; b < 4; b++) p.set([this.skyCoefficients[b * 3]!, this.skyCoefficients[b * 3 + 1]!, this.skyCoefficients[b * 3 + 2]!, 0], 16 + b * 4);
     p.set([VOLUME_RAY_REACH_M, lamps.lampCount, BOUNCE_ALBEDO, frame], 32);
-    pu.set([wb.maxLevel, VOLUME_POOL_WIDTH, VOLUME_INDEX_WIDTH, VOLUME_ALBEDO_WIDTH], 36);
+    pu.set([wb.maxLevel, this.glowing ? 1 : 0, VOLUME_INDEX_WIDTH, VOLUME_ALBEDO_WIDTH], 36);
     for (let l = 1; l < VOLUME_LEVELS; l++) pi.set([...this.origins[l]!, 0], VOLUME_PARAM_COARSE + (l - 1) * 4);
     d.queue.writeBuffer(this.params, 0, p);
     const pool = gpuTextureOf(this.renderer, this.pool) as { createView(): unknown } | null;
     const albedo = gpuTextureOf(this.renderer, this.albedo) as { createView(): unknown } | null;
+    const glow = gpuTextureOf(this.renderer, this.glow) as { createView(): unknown } | null;
     const index = gpuTextureOf(this.renderer, this.indexTex) as { createView(): unknown } | null;
-    if (pool === null || albedo === null || index === null) return false;
+    if (pool === null || albedo === null || glow === null || index === null) return false;
     const pipeline = this.pipelineFor(lamps.hasAreas);
-    const key = [wb.table, wb.pages, pool, albedo, index, this.list, lamps.lampBuffer, pipeline];
+    const key = [wb.table, wb.pages, pool, albedo, glow, index, this.list, lamps.lampBuffer, pipeline];
     if (this.bind === null || this.bind.key.some((k, i) => k !== key[i])) {
       this.bind = {
         key,
@@ -1203,6 +1250,7 @@ class VolumeGpu {
             { binding: 7, resource: albedo.createView() },
             { binding: 8, resource: { buffer: lamps.lists } },
             { binding: 9, resource: { buffer: lamps.slots } },
+            { binding: 10, resource: glow.createView() },
           ],
         }),
       };
@@ -1267,6 +1315,7 @@ class VolumeGpu {
     (this.query as { destroy?(): void } | null)?.destroy?.();
     this.pool.dispose();
     this.albedo.dispose();
+    this.glow.dispose();
     this.indexTex.dispose();
   }
 }

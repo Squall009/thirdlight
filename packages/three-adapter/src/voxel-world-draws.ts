@@ -351,6 +351,8 @@ export class VoxelWorldDraws {
     this.looksKey = key;
     this.looks = voxelRecordLooks(materials);
     for (const w of this.worlds.values()) w.surface.setLooks(this.looks);
+    // The light volume's cells beside a material whose bounce colour or glow changed are written again.
+    this.volume?.looksChanged();
     this.loadTextures(materials);
     this.opts.applied?.();
     return true;

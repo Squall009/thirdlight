@@ -122,6 +122,23 @@ export const BENCH_LIGHT_TYPES: ReadonlyArray<{ readonly name: string; readonly 
   { name: 'Bench panel', position: [38, 3, -31.3], rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], light: { type: 'area', shape: 'rect', width: 2, height: 1, color: '#ffd9a8', intensity: 150, range: 10, castShadow: false } },
 ] as const);
 
+/**
+ * `--glow`: two glowing materials (bench data, made before Play and deleted after): an orange lava, an instance of the
+ * town's rock (its texture set, glowing, strength 4), and a cyan crystal (strength 1.5, so its texture shows), an instance of its plaster, each with a voxel id the
+ * world does not use. Painted at run time by the camera's behaviour ({@link GLOW_COMMANDS}: `ctx.voxels`, never
+ * written to the world's files): at the night camera a lava strip 6 × 0.5 m in the ground 1–7 m ahead, a crystal block on the
+ * fence's top rail right of the street and a 2 × 2 m crystal panel on the house front right of it; in the room
+ * camera's room a lava strip along the floor at the foot of its window wall.
+ */
+export const BENCH_GLOW_MATERIALS = Object.freeze([
+  Object.freeze({ materialId: 'bench-lava', name: 'Bench lava', shader: 'standard', instanceOf: 'voxel-rock', params: { color: '#ffffff', emissive: '#ff5a14', emissiveIntensity: 4 }, textures: {}, voxel: { id: 4001, use: 'terrain' } }),
+  Object.freeze({ materialId: 'bench-crystal', name: 'Bench crystal', shader: 'standard', instanceOf: 'voxel-plaster', params: { color: '#ffffff', emissive: '#3fe0ff', emissiveIntensity: 1.5 }, textures: {}, voxel: { id: 4002, use: 'construction' } }),
+]);
+/** Where the glow scene's cells are read for their blotch (`cellBlotch` ±4 m round it): by the fence's block and the night strip, by the room's strip. */
+export const GLOW_PROBES: Readonly<Record<string, readonly [number, number, number]>> = Object.freeze({ 'night-lamps': [40, 1, -29.5], 'room-window': [-3.5, 1.5, 1] });
+/** The behaviour's glow commands: everything painted; the night strip painted back to the ground's own and painted again. */
+export const GLOW_COMMANDS = Object.freeze({ night: 'glow_night', room: 'glow_room', stripOff: 'glow_strip_off', stripOn: 'glow_strip_on' });
+
 /** The house the room camera stands in: lot (6, 6), two storeys, x −5…5 m, z −4…6 m, windows in its west wall at 1–2 m. */
 export const ROOM_HOUSE = Object.freeze({ min: Object.freeze([-5, 0.5, -4] as const), max: Object.freeze([5, 3, 6] as const) });
 
@@ -212,10 +229,12 @@ const SHOTS = ${JSON.stringify(cameras.map((c) => ({ command: c.command, eye: c.
 const DIGS = ${JSON.stringify(EDIT_DIGS)};
 const LAMP = ${JSON.stringify(BENCH_LAMPS[2]!.position)};
 const LAMP_WALL = ${JSON.stringify(LAMP_WALL)};
+const LAVA = ${BENCH_GLOW_MATERIALS[0]!.voxel.id};
+const CRYSTAL = ${BENCH_GLOW_MATERIALS[1]!.voxel.id};
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
 export default {
   prepare() { return {}; },
-  instantiate() { return { at: 0, wallDug: -1, wasEnclosed: 0 }; },
+  instantiate() { return { at: 0, wallDug: -1, wasEnclosed: 0, strip: null, stripWas: 0 }; },
   step(s: any, ctx: any) {
     if (ctx.phase === 'intent') {
       SHOTS.forEach((shot: any, i: number) => { for (const _ of ctx.debug.command(shot.command)) { s.at = i; ctx.environment?.set(shot.preset); } });
@@ -243,6 +262,39 @@ export default {
         ctx.game.add(ok ? 'lamp_walls' : rec === null ? 'lamp_wall_nohit' : 'lamp_wall_refused', 1);
       }
       for (const _ of ctx.debug.command('${LAMP_WALL_COMMANDS.dig}')) ctx.game.add(v?.dig(LAMP_WALL).ok ? 'lamp_unwalls' : 'lamp_wall_refused', 1);
+      // The glow scene (--glow): found by rays, painted with the bench's glowing materials; each part counted.
+      for (const _ of ctx.debug.command('${GLOW_COMMANDS.night}')) {
+        const g = v?.raycast([40, 6, -28.25], [0, -1, 0], 12) ?? null;
+        if (g !== null && g.voxel !== null) {
+          const gy = g.point[1];
+          s.strip = { min: [37, gy - 0.5, -28.5], max: [43, gy, -28] };
+          s.stripWas = g.voxel.material;
+          if (v.paint(s.strip, { material: LAVA }).ok) ctx.game.add('glow_strip', 1);
+          for (const z of [-28.75, -29.25, -29.75, -30.25, -30.75, -31.25]) {
+            const h = v.raycast([40.25, gy + 3, z], [0, -1, 0], 6);
+            if (h === null || h.voxel === null || h.point[1] < gy + 0.6) continue;
+            if (v.set({ at: [h.at[0], h.at[1] + 0.5, h.at[2]] }, { material: CRYSTAL, role: h.voxel.role }).ok) ctx.game.add('glow_block', 1);
+            break;
+          }
+          for (const x of [36, 30, 24]) {
+            const p = v.raycast([x, gy + 2, -28], [0, 0, -1], 10);
+            if (p === null || p.voxel === null || p.normal[2] !== 1) continue;
+            if (v.paint({ min: [x - 1, gy + 1, p.at[2] - 0.25], max: [x + 1, gy + 3, p.at[2] + 0.25] }, { material: CRYSTAL }).ok) ctx.game.add('glow_panel', 1);
+            break;
+          }
+        }
+        ctx.game.add('glow_night', 1);
+      }
+      for (const _ of ctx.debug.command('${GLOW_COMMANDS.room}')) {
+        const room = SHOTS[1].eye;
+        const floor = v?.raycast(room, [0, -1, 0], 4) ?? null;
+        // The wall at the floor's height (the eye's height looks out of a window).
+        const wall = floor === null ? null : v.raycast([room[0], floor.point[1] + 0.25, room[2]], [-1, 0, 0], 12);
+        if (wall !== null && floor !== null && v.paint({ min: [wall.at[0] + 0.25, floor.point[1] - 0.5, room[2] - 3], max: [wall.at[0] + 0.75, floor.point[1], room[2] + 3] }, { material: LAVA }).ok) ctx.game.add('glow_room_strip', 1);
+        ctx.game.add('glow_room', 1);
+      }
+      for (const _ of ctx.debug.command('${GLOW_COMMANDS.stripOff}')) ctx.game.add(s.strip !== null && v.paint(s.strip, { material: s.stripWas }).ok ? 'glow_strip_offs' : 'glow_refused', 1);
+      for (const _ of ctx.debug.command('${GLOW_COMMANDS.stripOn}')) ctx.game.add(s.strip !== null && v.paint(s.strip, { material: LAVA }).ok ? 'glow_strip_ons' : 'glow_refused', 1);
       for (const d of DIGS) for (const _ of ctx.debug.command(d.command)) {
         const r = ctx.voxels?.dig({ center: d.center, radius: ${EDIT_DIG_RADIUS_M} });
         ctx.game.add('light_digs', 1);
@@ -293,6 +345,8 @@ export interface LightShotsOptions {
   readonly extraLamps: number;
   /** `--light-types`: the spot and the area light of {@link BENCH_LIGHT_TYPES} placed too. */
   readonly lightTypes: boolean;
+  /** `--glow`: the glowing materials of {@link BENCH_GLOW_MATERIALS} made and painted ({@link GLOW_COMMANDS}) once Play runs. */
+  readonly glow: boolean;
   readonly freshCells: boolean;
   /** `--arrival-at LIST`: with `--arrival-shots`, the seconds after each move its pictures are taken at (default 2, 10). */
   readonly arrivalAt: readonly number[];
@@ -354,6 +408,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     })(arg('texture-units')),
     extraLamps: num('extra-lamps', 0, 0, 4096),
     lightTypes: argv.includes('--light-types'),
+    glow: argv.includes('--glow'),
     freshCells: argv.includes('--fresh-cells'),
     arrivalAt: (arg('arrival-at') ?? '2,10').split(',').map((x) => {
       const n = Number(x);

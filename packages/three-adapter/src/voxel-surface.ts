@@ -433,6 +433,11 @@ export interface VoxelMaterialLook {
   readonly blendMetres?: number;
   /** Under `patterns`, its layer of the relief test heights (absent: flat): the debug program has no texture sets. */
   readonly testHeightLayer?: number;
+  /**
+   * The radiance its surfaces give off before their colour (linear rgb: the record's glow colour × strength; absent:
+   * none): drawn times the pixel's colour, given off into the light volume times the material's mean colour.
+   */
+  readonly glow?: readonly [number, number, number];
 }
 
 /** The test patterns: flat, grain, planks, cobbles (luminance about 0.5, in every channel). */
@@ -531,13 +536,16 @@ function bandTexture(): THREE.DataTexture {
  * engine's; voxel-crack-texture.ts); a third its relief (height layer in r,
  * −1 none; depth in metres in g) and its own blend metres in b (−1: the
  * surface's); a fourth its texture layers (wall, floor,
- * ceiling in r, g, b; −1 none).
+ * ceiling in r, g, b; −1 none). Its glow (linear radiance, the record's
+ * colour × strength; 0 none) is the a of the second, third and fourth
+ * blocks (r, g, b): texels a pixel reads for its materials already.
  */
 function tableTexture(): THREE.DataTexture {
   const rows = 4 * TABLE_ROWS;
   const data = new Float32Array(TABLE_WIDTH * rows * 4);
-  // No material has a texture layer until the arrays are set.
+  // No material has a texture layer until the arrays are set, and none glows (the layer block's a).
   data.fill(-1, LAYER_BLOCK * 4);
+  for (let m = 0; m < TABLE_ROWS * TABLE_WIDTH; m++) data[(LAYER_BLOCK + m) * 4 + 3] = 0;
   const tex = new THREE.DataTexture(data, TABLE_WIDTH, rows, THREE.RGBAFormat, THREE.FloatType);
   tex.minFilter = THREE.NearestFilter;
   tex.magFilter = THREE.NearestFilter;
@@ -642,7 +650,7 @@ export interface VoxelSurface {
   readonly tableUploads: number;
   readonly tableMs: number;
   /** What the table holds for a material (diagnostics): linear colour, pattern, tiles in metres, crack layer, relief layer (−1 none) and depth. */
-  tableEntry(material: number): { colour: [number, number, number]; pattern: number; constructionTileMetres: number; terrainTileMetres: number; crackLayer: number; reliefLayer: number; reliefDepthM: number; blendM: number; layers: [number, number, number] };
+  tableEntry(material: number): { colour: [number, number, number]; pattern: number; constructionTileMetres: number; terrainTileMetres: number; crackLayer: number; reliefLayer: number; reliefDepthM: number; blendM: number; layers: [number, number, number]; glow: [number, number, number] };
   /**
    * The deepest relief of any material (metres; 0 without heights): how far a displaced vertex can move, what culling
    * bounds grow by. A geometry keeps the bound it was placed with until it is placed again.
@@ -911,7 +919,11 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       if (layer !== undefined && (!Number.isInteger(layer) || layer < 0 || layer >= opts.heights!.layers.length)) throw new RangeError(`voxel material ${m}: relief layer ${layer}`);
       const blend = l.blendMetres;
       if (blend !== undefined && !(blend >= 0 && Number.isFinite(blend))) throw new RangeError(`voxel material ${m}: a blend of ${blend} m`);
-      tdata.set([layer ?? -1, depth, blend ?? -1, 0], (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4);
+      const glow = l.glow ?? [0, 0, 0];
+      if (!glow.every((v) => v >= 0 && Number.isFinite(v))) throw new RangeError(`voxel material ${m}: a glow of ${glow.join(', ')}`);
+      tdata.set([layer ?? -1, depth, blend ?? -1, glow[1]], (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4);
+      tdata[t + 3] = glow[0];
+      tdata[(LAYER_BLOCK + m) * 4 + 3] = glow[2];
       // Under the patterns only a material with a test layer has a height; with texture sets any may.
       if (textured || layer !== undefined) deepest = Math.max(deepest, depth);
     }
@@ -1026,12 +1038,16 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const roughKeepOut = property('float', 'tlVoxelWetRoughness');
       const waterOut = property('float', 'tlVoxelWater');
       const flattenOut = property('float', 'tlVoxelWetFlatten');
+      const glowOut = property('vec3', 'tlVoxelGlow');
       const shade = Fn(() => {
         const n = normalLocal.normalize();
         const b = blendAt(positionLocal, n);
         const { mA, mB, share, wetness, seen, p, gu, gv, bn } = b;
-        const dA = depthOf(mA).toVar();
-        const dB = depthOf(mB).toVar();
+        // The relief texels (b's height depth in y; its glow's g in w).
+        const rA = look(mod(mA, matMask), 2).toVar();
+        const rB = look(mod(mB, matMask), 2).toVar();
+        const dA = rA.y;
+        const dB = rB.y;
         const albedo = (m: N): N => {
           const id = mod(m, matMask);
           const l = look(id, 0).toVar();
@@ -1061,6 +1077,11 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
           height = hb.height;
           reliefOut.assign(select(seen, hb.recess, float(0)));
           blended = mix(s1.albedo, s2.albedo, hs);
+          // The glow: each material's (linear radiance, from the table texels its pixel reads already) times its own colour
+          // (its texture × tint), blended as the colour is.
+          const glowA = vec3(s1.glowRB.x, rA.w, s1.glowRB.y);
+          const glowB = vec3(s2.glowRB.x, rB.w, s2.glowRB.y);
+          glowOut.assign(select(seen, mix(glowA.mul(s1.albedo), glowB.mul(s2.albedo), hs), vec3(0)));
           normalOut.assign(select(seen, mix(s1.normal, s2.normal, hs).normalize(), n));
           ormOut.assign(select(seen, mix(s1.orm, s2.orm, hs), vec3(1, 0.8, 0)));
         } else {
@@ -1094,6 +1115,9 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
         return vec4(colour, 1);
       });
       material.colorNode = shade();
+      // The texture sets' glow, added after the light (three builds the emissive after the colour, so it reads what the
+      // colour found); the test patterns' debug program draws none.
+      if (sets !== null) material.emissiveNode = glowOut;
       material.roughnessNode = mix((textured ? ormOut.y : float(0.85)).mul(roughKeepOut), float(WET_WATER_ROUGHNESS), waterOut);
       if (textured) {
         material.metalnessNode = ormOut.z;
@@ -1212,7 +1236,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       const t = (TABLE_ROWS * TABLE_WIDTH + m) * 4;
       const r = (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4;
       const ly = (LAYER_BLOCK + m) * 4;
-      return { colour: [tdata[a]!, tdata[a + 1]!, tdata[a + 2]!], pattern: tdata[a + 3]!, constructionTileMetres: tdata[t]!, terrainTileMetres: tdata[t + 1]!, crackLayer: tdata[t + 2]!, reliefLayer: tdata[r]!, reliefDepthM: tdata[r + 1]!, blendM: tdata[r + 2]!, layers: [tdata[ly]!, tdata[ly + 1]!, tdata[ly + 2]!] };
+      return { colour: [tdata[a]!, tdata[a + 1]!, tdata[a + 2]!], pattern: tdata[a + 3]!, constructionTileMetres: tdata[t]!, terrainTileMetres: tdata[t + 1]!, crackLayer: tdata[t + 2]!, reliefLayer: tdata[r]!, reliefDepthM: tdata[r + 1]!, blendM: tdata[r + 2]!, layers: [tdata[ly]!, tdata[ly + 1]!, tdata[ly + 2]!], glow: [tdata[t + 3]!, tdata[r + 3]!, tdata[ly + 3]!] };
     },
     get textured() {
       return textured;

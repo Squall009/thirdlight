@@ -44,6 +44,12 @@
  *                 shadows): the light volume's cost with many lamps
  *   --light-types a spot aimed down at a house front and a rect area light on another front at the night camera
  *                 (bench data, taken out after; no shadow maps): the light volume's bounce of the other light types
+ *   --glow        the glowing materials (bench data: an orange lava and a cyan crystal, instances of the town's rock and
+ *                 plaster with voxel ids the world does not use, deleted after) painted at run time once Play runs: a
+ *                 strip in the ground, a block on a fence and a panel on a house front at the night camera, a strip
+ *                 along the room camera's floor (`ctx.voxels`, never written to the world); with --cache-edits, the
+ *                 night strip painted back and again and the lava's glow strength changed (a record edit, through the
+ *                 page's hook), each timed as the other edits
  *   --fresh-cells at each camera after its cells are read, every brick started again from nothing and settled, and the
  *                 same cells read again: how far the light the camera arrived to lies from a volume made with the
  *                 lights as they are (`freshApart`: summed face differences over the summed light; what a change of
@@ -71,7 +77,7 @@ import { commandEnvelope } from '../../tests/support/commands';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
+import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MATERIALS, GLOW_COMMANDS, GLOW_PROBES, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { openPlay, type PlayGame } from './travel-page';
 import { settleAfter, type CountSample } from './travel';
@@ -268,6 +274,7 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
     const turn = 'rotation' in lamp && lamp.rotation !== undefined ? { rotation: [...lamp.rotation] } : {};
     await b.command('createEntity', { sceneId: 'scene-main', kind: 'group', name: lamp.name, transform: { position: [...lamp.position], ...turn }, components: { light: { ...lamp.light } } });
   }
+  if (O.glow) for (const m of BENCH_GLOW_MATERIALS) await b.command('setMaterial', { material: m });
   const before = cameraBehaviour(PROJECT_DIR);
   await publishCameraBehaviour(b, PROJECT_DIR, BEHAVIOR, lightShotsSource());
   // The camera's own exposure (as a game runs it), set back after.
@@ -280,6 +287,7 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
       const e = sceneEntities().find((x) => x.name === lamp.name);
       if (e !== undefined) await b.command('deleteEntity', { entityId: e.id }).catch((err: unknown) => console.error(`lamp not taken out: ${String(err)}`));
     }
+    if (O.glow) for (const m of BENCH_GLOW_MATERIALS) await b.command('deleteMaterial', { materialId: m.materialId }).catch((err: unknown) => console.error(`${m.materialId} not deleted: ${String(err)}`));
     const cam = sceneEntities().find((e) => e.name === 'Perf far camera');
     if (before !== null && before !== BEHAVIOR && cam !== undefined) await b.command('setBehaviorProperties', { entityId: cam.id, behaviorId: before, values: {} }).catch(() => undefined);
   };
@@ -321,7 +329,7 @@ function lightingSpans(r: ProfileReport | null): Record<string, { mean: number; 
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   const b = benchApi({ origin: O.origin, token: TOKEN, project: O.project, clientId: 'voxel-bench-light-shots' });
-  const out: Record<string, unknown> = { bench: 'light-shots', extraLamps: O.extraLamps, lightTypes: O.lightTypes, autoExposure: O.autoExposure, arrivalAt: O.arrivalAt, quality: O.quality, renderer: 'webgpu', viewport: O.viewport, tierScale: TIER_SCALE, cap: LEVEL?.frameRateCap ?? null, query: O.query, world: O.world, start: host(), shots: [] as unknown[], problems: [] as string[] };
+  const out: Record<string, unknown> = { bench: 'light-shots', extraLamps: O.extraLamps, lightTypes: O.lightTypes, glow: O.glow, autoExposure: O.autoExposure, arrivalAt: O.arrivalAt, quality: O.quality, renderer: 'webgpu', viewport: O.viewport, tierScale: TIER_SCALE, cap: LEVEL?.frameRateCap ?? null, query: O.query, world: O.world, start: host(), shots: [] as unknown[], problems: [] as string[] };
   const problems = out['problems'] as string[];
   const restore = await prepare(b);
   const browser = await launchGpuBrowser({ vsync: true });
@@ -346,6 +354,24 @@ async function main(): Promise<void> {
     }
     // While the town streams in (the first camera's view, before anything settles): the regions' spans a frame.
     await game.debug(LIGHTING_CAMERAS[0]!.command);
+    if (O.glow) {
+      // The glow scene painted where the world is there to paint (its rays need level-0 chunks): at the night camera,
+      // then in the room camera's room, each once streaming there has settled.
+      const parts: Record<string, number> = {};
+      for (const [shot, command] of [[LIGHTING_CAMERAS[3]!, GLOW_COMMANDS.night], [LIGHTING_CAMERAS[1]!, GLOW_COMMANDS.room]] as const) {
+        await game.debug(shot.command);
+        await settle(game);
+        await game.debug(command);
+        for (let i = 0; i < 40 && (parts[command] ?? 0) === 0; i++) {
+          await page.waitForTimeout(250);
+          const c = (await game.observe().catch(() => null))?.counters ?? {};
+          for (const k of ['glow_night', 'glow_strip', 'glow_block', 'glow_panel', 'glow_room', 'glow_room_strip']) parts[k] = c[k] ?? 0;
+        }
+      }
+      out['glowParts'] = parts;
+      console.log(`glow: ${JSON.stringify(parts)}`);
+      if (Object.values(parts).some((n) => n === 0)) problems.push(`glow: a part was not painted (${JSON.stringify(parts)})`);
+    }
     await page.waitForTimeout(4000);
     out['loadingSpans'] = regionSpans((await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null)) as ProfileReport | null);
     console.log(`loading: ${JSON.stringify(out['loadingSpans'])}`);
@@ -360,7 +386,10 @@ async function main(): Promise<void> {
           const f = join(OUT, `${cam.name}-arrive-${at}s.png`);
           const pic = decodePng(await game.screenshot(f));
           const cellsNow = await game.frame.evaluate(volumeCellsPlaced, [...cam.eye]).catch(() => null);
-          arrival.push({ at, file: f, mean: meanBrightness(pic), blotch: pictureBlotch(pic), cellBlotch: cellsNow === null ? null : cellBlotch(cellsNow), progress: await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null).catch(() => null) });
+          // With the glow: the cells round the glowing parts too (by the fence's block and the night strip; the room's strip).
+          const probe = O.glow ? GLOW_PROBES[cam.name] : undefined;
+          const glowCells = probe === undefined ? null : await game.frame.evaluate(volumeCellsPlaced, [...probe]).catch(() => null);
+          arrival.push({ at, file: f, mean: meanBrightness(pic), blotch: pictureBlotch(pic), cellBlotch: cellsNow === null ? null : cellBlotch(cellsNow), ...(glowCells !== null ? { glowBlotch: cellBlotch(glowCells) } : {}), progress: await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null).catch(() => null) });
         }
       }
       const s = await settle(game);
@@ -377,7 +406,9 @@ async function main(): Promise<void> {
       await page.waitForTimeout(1000);
       const secondShare = changedShare(shown, decodePng(await game.screenshot(join(OUT, `${cam.name}-1s.png`))));
       const placed = store === 'volume' ? await game.frame.evaluate(volumeCellsPlaced, [...cam.eye]).catch(() => null) : null;
-      const blotch = { picture: pictureBlotch(shown), cells: placed === null ? null : cellBlotch(placed), mean: meanBrightness(shown) };
+      const probe = O.glow && store === 'volume' ? GLOW_PROBES[cam.name] : undefined;
+      const glowPlaced = probe === undefined ? null : await game.frame.evaluate(volumeCellsPlaced, [...probe]).catch(() => null);
+      const blotch = { picture: pictureBlotch(shown), cells: placed === null ? null : cellBlotch(placed), mean: meanBrightness(shown), ...(glowPlaced !== null ? { glow: cellBlotch(glowPlaced) } : {}) };
       console.log(`${cam.name}: blotch ${JSON.stringify(blotch)}`);
       let reference: unknown = null;
       if (O.reference !== null && store === 'volume') {
@@ -549,7 +580,16 @@ async function main(): Promise<void> {
       const room = LIGHTING_CAMERAS.find((c) => c.name === 'room-window')!;
       const night = LIGHTING_CAMERAS.find((c) => c.name === LAMP_WALL_COMMANDS.camera)!;
       const runs: Record<string, unknown>[] = [];
-      for (const [cam, command, tag] of [[room, 'region_dig', 'window'], [night, LAMP_WALL_COMMANDS.build, 'lamp-wall'], [night, LAMP_WALL_COMMANDS.dig, 'lamp-unwall']] as const) {
+      // With the glow: the night strip painted back to the ground's own and again, then the lava's glow strength doubled
+      // (a record edit through the page's hook, as one reaches the editor's views).
+      const lavaTwice = async (): Promise<void> => {
+        await game.frame.evaluate((id) => {
+          const l = (window as unknown as { __tlVoxelPlay: { light: { materials(): Array<{ materialId: string; params: Record<string, unknown> }>; setMaterials(r: unknown[]): unknown } } }).__tlVoxelPlay.light;
+          l.setMaterials(l.materials().map((m) => (m.materialId === id ? { ...m, params: { ...m.params, emissiveIntensity: Number(m.params['emissiveIntensity']) * 2 } } : m)));
+        }, BENCH_GLOW_MATERIALS[0]!.materialId);
+      };
+      const glowRuns = O.glow ? ([[night, GLOW_COMMANDS.stripOff, 'glow-strip-off'], [night, GLOW_COMMANDS.stripOn, 'glow-strip-on'], [night, lavaTwice, 'glow-record']] as const) : [];
+      for (const [cam, command, tag] of [[room, 'region_dig', 'window'], [night, LAMP_WALL_COMMANDS.build, 'lamp-wall'], [night, LAMP_WALL_COMMANDS.dig, 'lamp-unwall'], ...glowRuns] as const) {
         await game.debug(cam.command);
         await settle(game);
         await storeLit(game, (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.store() ?? 'off')) as string);
@@ -568,7 +608,8 @@ async function main(): Promise<void> {
           tick();
         });
         const t0 = (await game.frame.evaluate(() => performance.now())) as number;
-        await game.debug(command);
+        if (typeof command === 'string') await game.debug(command);
+        else await command();
         // Until the store has settled again after the change reached it (or 90 s).
         let timing = cacheEditTiming([], t0);
         // A picture as soon as the first changed light is seen (polled: up to a poll and a screenshot after it).
@@ -588,7 +629,7 @@ async function main(): Promise<void> {
         await page.waitForTimeout(CONVERGE_MS);
         const after = decodePng(await game.screenshot(join(OUT, `edit-${tag}-after.png`)));
         const counters = (await game.observe().catch(() => null))?.counters ?? {};
-        runs.push({ tag, camera: cam.name, command, ...timing, firstShotMs, changedShare: Number(changedShare(before, after).toFixed(4)), counters: Object.fromEntries(['lamp_walls', 'lamp_unwalls', 'lamp_wall_refused', 'lamp_wall_nohit', 'region_dug', 'region_dig_refused'].map((k) => [k, counters[k] ?? 0])) });
+        runs.push({ tag, camera: cam.name, command: typeof command === 'string' ? command : 'setMaterials', ...timing, firstShotMs, changedShare: Number(changedShare(before, after).toFixed(4)), counters: Object.fromEntries(['lamp_walls', 'lamp_unwalls', 'lamp_wall_refused', 'lamp_wall_nohit', 'region_dug', 'region_dig_refused'].map((k) => [k, counters[k] ?? 0])) });
         console.log(`cache edit ${tag}: ${JSON.stringify(runs[runs.length - 1])}`);
         if (timing.settledMs === null) problems.push(`cache edit ${tag}: the light did not settle within 90 s of the command`);
       }
