@@ -8,7 +8,8 @@
 import { MATERIAL_BITS } from '@thirdlight/voxel';
 
 import { VolumeColourCache, volumeBrickColours, volumeBrickGlows, volumeLookKey, volumeMaterialBricks, type VolumeBounceMeans, type VolumeChunkGrid } from './voxel-light-volume-colours';
-import { VOLUME_BRICK_VOLUME } from './voxel-light-volume-layout';
+import { volumeBrickEmitters } from './voxel-light-volume-emitters';
+import { VOLUME_BRICK_VOLUME, volumeBrickKey } from './voxel-light-volume-layout';
 import type { VoxelMaterialLook } from './voxel-surface';
 
 /** A kept brick as the looks write it. */
@@ -32,6 +33,11 @@ export class VolumeLookWatch {
   private readonly pending = new Map<string, Set<number>>();
   /** Slots whose glow words are not all 0. */
   private readonly glowSlots = new Set<number>();
+  /** Each glowing brick's emitters (by brick key), and whether they changed since {@link takeEmitters}. */
+  private readonly emitters = new Map<number, Float32Array>();
+  private emittersChanged = false;
+  /** The voxel ids whose material glows (as of the last {@link changed}). */
+  glowIds: ReadonlySet<number> = new Set();
   /** Record edits that changed what the volume reads, and the ids the last one changed. */
   edits = 0;
   lastIds = 0;
@@ -53,7 +59,13 @@ export class VolumeLookWatch {
   changed(look: (material: number) => VoxelMaterialLook, means: VolumeBounceMeans | null, grids: Iterable<string>): number {
     const ids = 2 ** MATERIAL_BITS;
     const keys = new Array<string>(ids);
-    for (let m = 1; m < ids; m++) keys[m] = volumeLookKey(look(m), means?.get(m) ?? null);
+    const glowIds = new Set<number>();
+    for (let m = 1; m < ids; m++) {
+      const l = look(m);
+      keys[m] = volumeLookKey(l, means?.get(m) ?? null);
+      if (l.glow !== undefined && l.glow[0] + l.glow[1] + l.glow[2] > 0) glowIds.add(m);
+    }
+    this.glowIds = glowIds;
     const was = this.keys;
     this.keys = keys;
     if (was === null) return 0;
@@ -93,18 +105,55 @@ export class VolumeLookWatch {
     }
   }
 
-  /** The bricks' colours and glows made and written (a brick that glows nowhere writes no glow unless its slot held one). */
-  write(bricks: Iterable<VolumeLookBrick>, grids: ReadonlyMap<string, VolumeChunkGrid>, look: (material: number) => VoxelMaterialLook, means: VolumeBounceMeans | null, gpu: VolumeLookWriter): void {
+  /** A brick left: its emitters go. */
+  dropped(b: VolumeLookBrick): void {
+    if (this.emitters.delete(volumeBrickKey(b.bx, b.by, b.bz, 0))) this.emittersChanged = true;
+  }
+
+  /** Every glowing brick's emitters, concatenated (`VOLUME_LAMP_FLOATS` words each), as of the last {@link takeEmitters}. */
+  emitterTable = new Float32Array(0);
+
+  /** Whether the emitters changed since the last call ({@link emitterTable} made again then). */
+  takeEmitters(): boolean {
+    if (!this.emittersChanged) return false;
+    this.emittersChanged = false;
+    let n = 0;
+    for (const e of this.emitters.values()) n += e.length;
+    const out = new Float32Array(n);
+    let o = 0;
+    for (const e of this.emitters.values()) {
+      out.set(e, o);
+      o += e.length;
+    }
+    this.emitterTable = out;
+    return true;
+  }
+
+  /**
+   * The bricks' colours and glows made and written (a brick that glows nowhere writes no glow unless its slot held one),
+   * and their emitters made (`reach`: an emitter's, metres).
+   */
+  write(bricks: Iterable<VolumeLookBrick>, grids: ReadonlyMap<string, VolumeChunkGrid>, look: (material: number) => VoxelMaterialLook, means: VolumeBounceMeans | null, gpu: VolumeLookWriter, reach: number): void {
     const colours = new VolumeColourCache(look, means);
     const words = new Uint32Array(VOLUME_BRICK_VOLUME);
     for (const b of bricks) {
       if (b.slot < 0) continue;
       volumeBrickColours(b.bx, b.by, b.bz, grids, colours, words);
       gpu.writeAlbedo(b.slot, words);
+      const key = volumeBrickKey(b.bx, b.by, b.bz, 0);
       if (volumeBrickGlows(b.bx, b.by, b.bz, grids, colours, words)) {
         gpu.writeGlow(b.slot, words);
         this.glowSlots.add(b.slot);
-      } else if (this.glowSlots.delete(b.slot)) gpu.writeGlow(b.slot, words);
+        const e = volumeBrickEmitters(b.bx, b.by, b.bz, grids, colours, reach);
+        const had = this.emitters.get(key);
+        if (had === undefined || had.length !== e.length || had.some((v, i) => v !== e[i])) {
+          this.emitters.set(key, e);
+          this.emittersChanged = true;
+        }
+      } else {
+        if (this.glowSlots.delete(b.slot)) gpu.writeGlow(b.slot, words);
+        if (this.emitters.delete(key)) this.emittersChanged = true;
+      }
     }
   }
 }

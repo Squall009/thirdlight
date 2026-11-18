@@ -26,6 +26,12 @@
  *   two-sided, its walk toward a point on it that the ray's own sequence
  *   picks, so its shadow softens over a face's updates.
  *
+ * Glowing faces are also emitters in the lamp table (voxel-light-volume-
+ * emitters.ts; in the pipeline with the area lights' code): a cell adds
+ * each one its brick lists (π L × the form factor to its face, behind a walk
+ * to a point of it), and its rays leave out the glow of an open cell whose
+ * brick is so listed, so each glow is counted once; a hit is not lit by them.
+ *
  * The estimate (π × the rays' mean radiance) is blended into the face's old
  * light with the brick's weight (`volumeBlendWeight`: about the mean of the
  * last quarter of its updates), so a brick settles over its first few
@@ -46,10 +52,11 @@
  * level-0 cells at their hits.
  */
 import { WALK_GPU_MAX_STEPS, voxelWalkWgsl } from './voxel-walk-wgsl';
-import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
+import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_GLOW_EMITTER, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
 import { SH_Y0, SH_Y1 } from './surface-probes';
 import { CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED } from './cluster-build';
 import { volumeLampTermsWgsl, volumeSpotConeWgsl } from './voxel-light-volume-terms';
+import { VOLUME_GLOW_FORM_FACTOR_WGSL } from './voxel-light-volume-emitters';
 
 /** Threads a workgroup: one a cell of a brick. */
 export const VOLUME_WORKGROUP = VOLUME_BRICK_VOLUME;
@@ -59,6 +66,48 @@ export const VOLUME_LIST_WORDS = 8;
 export const VOLUME_PARAM_FLOATS = 52;
 /** Where in them the coarse levels' window corners start (a vec4 of i32 each, levels 1 … 3). */
 export const VOLUME_PARAM_COARSE = 40;
+
+/**
+ * The glowing faces' emitters (in the pipeline with the area lights' code): whether the list at \`own\` holds an
+ * emitter of the brick holding open cell c (its glow is then the emitter's to count, not a ray's), and the light a
+ * cell's face at p facing n takes from the emitters on that list, each behind a walk to a point of it xi picks.
+ */
+const GLOW_EMITTERS_WGSL = /* wgsl */ `${VOLUME_GLOW_FORM_FACTOR_WGSL}
+fn glow_key(c: vec3<i32>) -> f32 {
+  let b = vec3<u32>(bitcast<vec3<u32>>(c >> vec3<u32>(2u)) & vec3<u32>(255u));
+  return f32(b.x | (b.y << 8u) | (b.z << 16u));
+}
+
+fn glow_listed(own: u32, c: vec3<i32>) -> bool {
+  let key = glow_key(c);
+  let n = lamp_lists[own];
+  for (var k = 0u; k < n; k++) {
+    let li = lamp_lists[own + 2u + k];
+    if ((u32(lamps[${VOLUME_LAMP_VEC4S}u * li + 2u].w) & ${VOLUME_GLOW_EMITTER}u) != 0u && lamps[${VOLUME_LAMP_VEC4S}u * li + 3u].w == key) { return true; }
+  }
+  return false;
+}
+
+fn glow_direct(p: vec3<f32>, n: vec3<f32>, own: u32, xi: vec2<f32>) -> vec3<f32> {
+  var e = vec3<f32>(0.0);
+  let count = lamp_lists[own];
+  for (var k = 0u; k < count; k++) {
+    let li = lamp_lists[own + 2u + k];
+    let c = lamps[${VOLUME_LAMP_VEC4S}u * li + 2u];
+    if ((u32(c.w) & ${VOLUME_GLOW_EMITTER}u) == 0u) { continue; }
+    let a = lamps[${VOLUME_LAMP_VEC4S}u * li];
+    let su = lamps[${VOLUME_LAMP_VEC4S}u * li + 3u].xyz;
+    let sv = lamps[${VOLUME_LAMP_VEC4S}u * li + 4u].xyz;
+    let f = glow_form_factor(p, n, a.xyz, su, sv) / max(4.0 * length(su) * length(sv), 1e-8);
+    if (f <= 0.0) { continue; }
+    let s = a.xyz + su * (2.0 * xi.x - 1.0) + sv * (2.0 * xi.y - 1.0) - p;
+    let ds = length(s);
+    if (ds > 1e-3 && !volume_clear(p, s / ds, max(ds - 0.3, 0.0))) { continue; }
+    e = e + lamps[${VOLUME_LAMP_VEC4S}u * li + 1u].xyz * (PI * f);
+  }
+  return e;
+}
+`;
 
 /**
  * An area light at a hit in `direct_light`'s loop (its lamp's words a, b, c and field read): its diffuse light, and the
@@ -82,7 +131,7 @@ const AREA_LIGHT_WGSL = /* wgsl */ `
  * holds none runs no bigger a loop than before (the code costs every invocation registers and size, as the clustered
  * loop's area kinds do every lit pixel: built only while one is there).
  */
-export function volumeUpdateWgsl(areas: boolean): string {
+export function volumeUpdateWgsl(areas: boolean, glow = false): string {
   return /* wgsl */ `
 struct Params {
   origin: vec4<i32>,
@@ -264,6 +313,8 @@ fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>, xi: vec2<f32>) -> ve
     let d = length(to);
     if (d >= a.w) { continue; }
     let field = u32(c.w);
+${glow ? `    // A glow's emitter lights cells, not hits (a hit takes a glow's light from the volume's own in its cell).
+    if ((field & ${VOLUME_GLOW_EMITTER}u) != 0u) { continue; }` : ''}
     // Each kind gives the light at the hit and the walk toward it; one walk for every kind (a second call site of the
     // walk in the loop is a second copy of its code: registers and size the whole pass pays).
     var way: vec3<f32>;
@@ -293,8 +344,12 @@ ${areas ? AREA_LIGHT_WGSL : '    {'}
   return e;
 }
 
-/** The radiance a ray from p along d sees: the sky past the reach, else the bounce of the surface it meets (xi: direct_light's). */
-fn ray_radiance(p: vec3<f32>, d: vec3<f32>, xi: vec2<f32>) -> vec3<f32> {
+${glow ? GLOW_EMITTERS_WGSL : ''}
+/**
+ * The radiance a ray from p along d sees: the sky past the reach, else what the surface it meets gives off and its
+ * bounce (xi: direct_light's; own: the updated cell's list, whose emitters' glow it leaves out).
+ */
+fn ray_radiance(p: vec3<f32>, d: vec3<f32>, xi: vec2<f32>, own: u32) -> vec3<f32> {
   var cell: vec3<i32>;
   var frac: vec3<f32>;
   var inv: vec3<f32>;
@@ -312,7 +367,10 @@ fn ray_radiance(p: vec3<f32>, d: vec3<f32>, xi: vec2<f32>) -> vec3<f32> {
   let face = a * 2u + select(0u, 1u, n[a] < 0.0);
   let e = direct_light(hp, n, air, xi) + volume_light(air, face);
   var glow = vec3<f32>(0.0);
-  if (params.levels.y != 0u) { glow = volume_glow(air); }
+  if (params.levels.y != 0u) {
+    glow = volume_glow(air);
+${glow ? '    if (any(glow > vec3<f32>(0.0)) && glow_listed(own, air)) { glow = vec3<f32>(0.0); }' : ''}
+  }
   return glow + volume_albedo(air) * e / PI;
 }
 
@@ -345,6 +403,8 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
   let t2 = (axis + 2u) % 3u;
   let origin = (vec3<f32>(c) + 0.5) * (CELL_M * f32(1 << level));
   let rays = u32(params.dims.w);
+  // This brick's own lamp list (its slot's).
+  let own = u32(b.w) * ${VOLUME_LAMP_LIST_WORDS}u;
   let h = hash3(c, face + 8u * level);
   let j = vec2<f32>(f32(h & 0xffffu), f32(h >> 16u)) / 65536.0;
   var sum = vec3<f32>(0.0);
@@ -358,9 +418,15 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
     d[t1] = rr * cos(th);
     d[t2] = rr * sin(th);
     // The ray's area-light point: the same sequence turned and offset, so it covers a light over a face's updates.
-    sum = sum + ray_radiance(origin, normalize(d), fract(u.yx + vec2<f32>(0.3819660113, 0.6180339887)));
+    sum = sum + ray_radiance(origin, normalize(d), fract(u.yx + vec2<f32>(0.3819660113, 0.6180339887)), own);
   }
-  let est = sum * (PI / f32(max(rays, 1u)));
+  var est = sum * (PI / f32(max(rays, 1u)));
+${glow ? `  if (params.levels.y != 0u) {
+    var face_n = vec3<f32>(0.0);
+    face_n[axis] = sgn;
+    // One point of each emitter an update, the face's own sequence moving it over the emitter's rectangle.
+    est = est + glow_direct(origin, face_n, own, fract(j.yx + f32(u32(info.y)) * vec2<f32>(0.7548776662, 0.5698402910)));
+  }` : ''}
   let old = textureLoad(pool, at).x;
   let blend = bitcast<f32>(info.x);
   // A brick's first update replaces what its slot held (a slot's last brick's light, or its own before a restart).

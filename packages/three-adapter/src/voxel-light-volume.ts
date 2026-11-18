@@ -88,7 +88,7 @@ import { gpuTextureOf, uploadTextureRegion, type RegionTextureRenderer } from '.
 import { KEPT_IRRADIANCE, isProbeHeld, markProbeHeld } from './probe-lighting';
 import { SkyProbe } from './surface-probe-sky';
 import { BOUNCE_ALBEDO, SH_E0, SH_E1 } from './surface-probes';
-import { VolumeBounceSource, VolumeColourCache, volumeCellColour, volumeCellGlow, volumeColourRgb, type VolumeBounceMeans } from './voxel-light-volume-colours';
+import { VolumeBounceSource, VolumeColourCache, volumeCellColour, volumeCellGlow, volumeColourRgb, volumeMaterialBricks, type VolumeBounceMeans } from './voxel-light-volume-colours';
 import { VolumeLookWatch } from './voxel-light-volume-looks';
 import { volumeReferenceFace, volumeRoomCells, type VolumeCheckCell, type VolumeLightWorld, type VolumeReferenceCounts } from './voxel-light-volume-reference';
 import { texelTexture } from './texel-texture-node';
@@ -96,8 +96,8 @@ import type { VoxelMaterialLook } from './voxel-surface';
 import type { VoxelWalkGpu } from './voxel-walk-gpu';
 import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer, type GpuEncoder, type GpuTexture } from './tracer-gpu';
 import type { ClusterLights } from './cluster-build';
-import { NO_VOLUME_LAMPS, VolumeLampLists, volumeLampSet, type VolumeLampListCounts, type VolumeLampListJob, type VolumeLampSet } from './voxel-light-volume-lamps';
-import { ambientCubeSteps, VOLUME_ALBEDO_WIDTH, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_BRICKS_PER_ROW, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_HISTORY_UPDATES, volumeBlendWeight, volumeFilterShare, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_READ_OFFSET_CELLS, VOLUME_WINDOW_BRICKS, VOLUME_WORD, volumeBlockBrick, volumeBlockBricks, volumeBrickKey, volumeBrickLamps, volumeCellM, volumeChangedBricks, volumeDecode, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumePoolTexel, VOLUME_READ_KEY, volumeMarkBoxes, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { NO_VOLUME_LAMPS, VolumeLampLists, volumeLampSet, volumeLampSetWithGlow, type VolumeLampListCounts, type VolumeLampListJob, type VolumeLampSet } from './voxel-light-volume-lamps';
+import { ambientCubeSteps, VOLUME_ALBEDO_WIDTH, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_BRICKS_PER_ROW, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_GLOW_EMITTER, VOLUME_HISTORY_UPDATES, volumeBlendWeight, volumeFilterShare, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_READ_OFFSET_CELLS, VOLUME_WINDOW_BRICKS, VOLUME_WORD, volumeBlockBrick, volumeBlockBricks, volumeBrickKey, volumeBrickLamps, volumeCellM, volumeChangedBricks, volumeDecode, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumePoolTexel, VOLUME_READ_KEY, volumeMarkBoxes, type VolumeBlockBricks } from './voxel-light-volume-layout';
 import { VolumePacing } from './voxel-light-volume-pacing';
 import { VolumeIndexRows, VolumeRefiner, volumeNearestFirst } from './voxel-light-volume-refine';
 import { VolumeHistory, VolumePendingChanges } from './voxel-light-volume-changes';
@@ -357,6 +357,11 @@ export class VoxelLightVolume {
     if (was !== undefined && next !== undefined) {
       const box = changedCells(was, next);
       if (box !== null) this.markBoxes([[box[0].map((v, a) => Math.floor((v + [cx, cy, cz][a]! * 32) / 4)), box[1].map((v, a) => Math.floor((v + [cx, cy, cz][a]! * 32) / 4))]]);
+    } else if (next !== undefined && this.looks.glowIds.size > 0) {
+      // A grid not seen before (a chunk drawn before the volume came, repainted; or one arriving): what its glowing
+      // cells light is marked, as nothing tells what changed.
+      const glow = volumeMaterialBricks(next, [cx, cy, cz], this.looks.glowIds);
+      if (glow !== null) this.markBoxes([glow]);
     }
     const B = VOLUME_BLOCK_BRICKS;
     for (let x = 0; x < B; x++) for (let y = 0; y < B; y++) for (let z = 0; z < B; z++) {
@@ -496,7 +501,7 @@ export class VoxelLightVolume {
     this.lights();
     this.history.frame(this.frames);
     if (this.albedoDirty.size > 0) {
-      this.looks.write(this.albedoDirty, this.chunkCells, this.deps.look, this.bounce.means, this.gpu);
+      this.looks.write(this.albedoDirty, this.chunkCells, this.deps.look, this.bounce.means, this.gpu, VOLUME_RAY_REACH_M);
       this.gpu.glowing = this.looks.glowing;
       this.albedoDirty.clear();
     }
@@ -572,6 +577,7 @@ export class VoxelLightVolume {
     this.stale.delete(b);
     this.history.forget(b);
     this.albedoDirty.delete(b);
+    if (b.level === 0) this.looks.dropped(b);
     this.waitingSlots.delete(b);
     this.index.forget(b);
     if (b.slot >= 0) {
@@ -751,15 +757,19 @@ export class VoxelLightVolume {
       w[3] = lit;
       if (this.bricks.size > 0) this.markAll(false);
     }
-    if (this.frames % LAMP_LOOK_FRAMES !== 1) return;
-    const next = volumeLampSet(this.deps.lamps?.() ?? null, windowBox(this.origins));
+    // The glowing faces' emitters go in the table as soon as they change; the lamps are looked at every few frames.
+    const glowChanged = this.looks.takeEmitters();
+    if (this.frames % LAMP_LOOK_FRAMES !== 1 && !glowChanged) return;
+    const next = volumeLampSetWithGlow(volumeLampSet(this.deps.lamps?.() ?? null, windowBox(this.origins)), this.looks.emitterTable);
     if (next.key === this.lamps.key) return;
     // What a ray can reach the changed lamps' light from is stale (their reach, and the rays' past it: a cell outside a
     // lamp's reach bounces its light from a hit inside; with the reach alone the shut hut's spot left 16 % of its bounce
     // on the far wall's cells), and every brick's list is built again.
     const was = new Map(this.lamps.spheres.map((sp, i) => [this.lamps.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join(), sp] as const));
     const now = new Set(next.spheres.map((_, i) => next.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join()));
-    const changed = [...[...was].filter(([k]) => !now.has(k)).map(([, sp]) => sp), ...next.spheres.filter((_, i) => !was.has(next.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join()))];
+    // An emitter of glowing faces changes with an edit or a record's, which marks what its cells reach already.
+    const glowing = (k: string): boolean => ((Number(k.split(',')[11]) & VOLUME_GLOW_EMITTER) !== 0);
+    const changed = [...[...was].filter(([k]) => !now.has(k) && !glowing(k)).map(([, sp]) => sp), ...next.spheres.filter((_, i) => !was.has(next.data.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS).join()) && (next.data[i * VOLUME_LAMP_FLOATS + 11]! & VOLUME_GLOW_EMITTER) === 0)];
     this.lamps = next;
     this.gpu.lamps.setLamps(next);
     this.lampsChanged = true;
@@ -1129,8 +1139,8 @@ class VolumeGpu {
   readonly lamps: VolumeLampLists;
   /** Each level's window corner brick (the update finds bricks' slots and lamp lists through them). */
   private readonly origins = VOLUME_LEVEL_WINDOWS.map(() => [0, 0, 0]);
-  /** The update's pipelines, without and with the area lights' code (each made when first needed). */
-  private readonly pipelines: [{ getBindGroupLayout(i: number): unknown } | null, { getBindGroupLayout(i: number): unknown } | null] = [null, null];
+  /** The update's pipelines, without and with the area lights' code, each without and with the emitters' (made when first needed). */
+  private readonly pipelines: Array<{ getBindGroupLayout(i: number): unknown } | null> = [null, null, null, null];
   private readonly params: GpuBuffer;
   private list: GpuBuffer | null = null;
   private bind: { group: unknown; key: readonly unknown[] } | null = null;
@@ -1151,7 +1161,7 @@ class VolumeGpu {
     this.albedo = uintTexture(VOLUME_ALBEDO_WIDTH, Math.ceil(this.capacity / VOLUME_BRICKS_PER_ROW), 'voxel light volume colours');
     this.glow = uintTexture(VOLUME_ALBEDO_WIDTH, Math.ceil(this.capacity / VOLUME_BRICKS_PER_ROW), 'voxel light volume glows');
     this.indexTex = uintTexture(VOLUME_INDEX_WIDTH, VOLUME_INDEX_ROWS, 'voxel light volume index');
-    this.pipelineFor(false);
+    this.pipelineFor(false, false);
     this.params = device.createBuffer({ size: VOLUME_PARAM_FLOATS * 4, usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST, label: 'voxel light volume params' });
     const timed = device.features?.has('timestamp-query') === true && device.createQuerySet !== undefined;
     this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: 2 }) : null;
@@ -1162,14 +1172,14 @@ class VolumeGpu {
     gpuTextureOf(renderer, this.indexTex);
   }
 
-  /** The update's pipeline with (`areas`) or without the area lights' code. */
-  private pipelineFor(areas: boolean): { getBindGroupLayout(i: number): unknown } {
-    const k = areas ? 1 : 0;
+  /** The update's pipeline with (`areas`) or without the area lights' code, with (`glow`) or without the emitters'. */
+  private pipelineFor(areas: boolean, glow: boolean): { getBindGroupLayout(i: number): unknown } {
+    const k = (areas ? 1 : 0) + (glow ? 2 : 0);
     const had = this.pipelines[k];
-    if (had !== null) return had;
-    const label = areas ? 'voxel light volume (area lights)' : 'voxel light volume';
+    if (had !== null && had !== undefined) return had;
+    const label = `voxel light volume${areas ? ' (area lights)' : ''}${glow ? ' (glow emitters)' : ''}`;
     const device = this.device;
-    const module = device.createShaderModule({ code: volumeUpdateWgsl(areas), label }) as { getCompilationInfo?(): Promise<{ messages: ReadonlyArray<{ type: string; lineNum: number; message: string }> }> };
+    const module = device.createShaderModule({ code: volumeUpdateWgsl(areas, glow), label }) as { getCompilationInfo?(): Promise<{ messages: ReadonlyArray<{ type: string; lineNum: number; message: string }> }> };
     void module.getCompilationInfo?.().then((info) => {
       for (const m of info.messages) if (m.type === 'error') console.error(`${label} WGSL, line ${m.lineNum}: ${m.message}`);
     });
@@ -1232,7 +1242,7 @@ class VolumeGpu {
     const glow = gpuTextureOf(this.renderer, this.glow) as { createView(): unknown } | null;
     const index = gpuTextureOf(this.renderer, this.indexTex) as { createView(): unknown } | null;
     if (pool === null || albedo === null || glow === null || index === null) return false;
-    const pipeline = this.pipelineFor(lamps.hasAreas);
+    const pipeline = this.pipelineFor(lamps.hasAreas, lamps.hasGlow);
     const key = [wb.table, wb.pages, pool, albedo, glow, index, this.list, lamps.lampBuffer, pipeline];
     if (this.bind === null || this.bind.key.some((k, i) => k !== key[i])) {
       this.bind = {

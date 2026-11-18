@@ -564,6 +564,11 @@ export function volumeMarkBoxes<B extends VolumeMarkable>(bricks: Iterable<B>, l
  * spot within its cone and an area light by its shape from these words.
  */
 export const VOLUME_LAMP_FLOATS = 20;
+/**
+ * The kind field's bit, in the volume's own lamp table, of an emitter made of a brick's glowing faces
+ * (voxel-light-volume-emitters.ts): a cell aims at it, a ray's hit is not lit by it. Above the clustered lights' bits.
+ */
+export const VOLUME_GLOW_EMITTER = 16;
 /** vec4s a lamp takes. */
 export const VOLUME_LAMP_VEC4S = VOLUME_LAMP_FLOATS / 4;
 

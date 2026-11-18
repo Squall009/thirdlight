@@ -12,7 +12,10 @@ import { MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGrid
 import { voxelStandInLook } from './voxel-chunk-view';
 import { VolumeColourCache, volumeBrickGlows, volumeCellGlow, volumeLookGlow, volumeLookKey, volumeMaterialBox, volumeMaterialBricks } from './voxel-light-volume-colours';
 import { volumeDecode, volumeEncode, volumeMarkBoxes, type VolumeMarkable } from './voxel-light-volume-layout';
-import { VolumeUpdateModel, volumePredicateSource, volumeReferenceFace, type VolumeLightWorld } from './voxel-light-volume-reference';
+import { VolumeUpdateModel, volumeGlowDirect, volumePredicateSource, volumeReferenceFace, type VolumeLightWorld } from './voxel-light-volume-reference';
+import { volumeBrickEmitters, volumeGlowBrickKey, volumeGlowFormFactor } from './voxel-light-volume-emitters';
+import { VOLUME_GLOW_EMITTER, VOLUME_LAMP_FLOATS } from './voxel-light-volume-layout';
+import { CLUSTER_RECT } from './cluster-build';
 import { recordGlow, voxelLooksKey, voxelRecordLooks, type VoxelLookRecord } from './voxel-material-looks';
 import { createVoxelSurface } from './voxel-surface';
 import type { VoxelMaterialLook } from './voxel-surface';
@@ -263,4 +266,109 @@ describe('emissive voxel materials: the update sees the glow as light given off 
     expect(got / closed).toBeGreaterThan(0.85);
     expect(got / closed).toBeLessThan(1.15);
   }, 30_000);
+});
+
+describe("emissive voxel materials: the glowing faces' emitters a cell aims at", () => {
+  const LE = 2;
+  const glowLooks = (m: number): VoxelMaterialLook => (m === 20 ? { colour: 0xffffff, pattern: 0, glow: [LE, LE, LE] } : { colour: 0xffffff, pattern: 0 });
+
+  it('takes the exact form factor to a rectangle, clipped to the horizon, nothing from its back', () => {
+    // A 2 × 3 m rectangle 1.5 m over a point facing it, its corner on the point's normal (the closed form).
+    const p = [0, 0, 0];
+    const up = [0, 1, 0];
+    expect(volumeGlowFormFactor(p, up, [1, 1.5, 1.5], [1, 0, 0], [0, 0, 1.5])).toBeCloseTo(cornerFormFactor(2, 3, 1.5), 6);
+    // Its back: none.
+    expect(volumeGlowFormFactor(p, up, [1, 1.5, 1.5], [1, 0, 0], [0, 0, -1.5])).toBe(0);
+    // A wall rising from the point's plane and dipping 1 m below it (a strip's side seen from a cell over the floor):
+    // the part above the horizon only, the same as the rectangle cut at it.
+    const cut = volumeGlowFormFactor(p, up, [1, 0.5, 2], [1, 0, 0], [0, -1.5, 0]);
+    expect(cut).toBeCloseTo(volumeGlowFormFactor(p, up, [1, 1, 2], [1, 0, 0], [0, -1, 0]), 6);
+    expect(cut).toBeGreaterThan(0);
+  });
+
+  it("makes one rectangle a brick and facing over its glowing faces, their power over its area, lit on the open side", () => {
+    // A strip of lava 4 cells along x in a stone floor (its top at y 2 m), and a one-cell lava block on the floor beside it.
+    const entry = (x: number, y: number, z: number): number => (y <= 3 ? (y === 3 && z === 5 && x >= 4 && x <= 7 ? 20 : 23) : x === 1 && y === 4 && z === 5 ? 20 : 0);
+    const grids = new Map([['0,0,0', gridOf(entry)]]);
+    const colours = new VolumeColourCache(glowLooks, null);
+    // The strip's open cells (y 4) lie in brick (1, 1, 1): one emitter facing up, 2 × 0.5 m at y 2 m.
+    const strip = volumeBrickEmitters(1, 1, 1, grids, colours, 24);
+    expect(strip.length).toBe(VOLUME_LAMP_FLOATS);
+    expect(Array.from(strip.subarray(0, 8))).toEqual([3, 2, 2.75, 24, LE * 1, LE * 1, LE * 1, 2]);
+    expect(strip[9]).toBe(1);
+    expect(strip[11]).toBe(CLUSTER_RECT | VOLUME_GLOW_EMITTER);
+    expect(strip[15]).toBe(volumeGlowBrickKey(1, 1, 1));
+    // Lit above it, dark below its plane.
+    const w = glowWorld((x, y, z) => entry(x, y, z) !== 0, () => 0, 0);
+    expect(volumeGlowDirect(w, [3, 3, 2.75], [0, -1, 0], strip, [0.5, 0.5])[0]).toBeGreaterThan(0);
+    expect(volumeGlowDirect(w, [3, 1, 2.75], [0, 1, 0], strip, [0.5, 0.5])[0]).toBe(0);
+    // The block's open cells round it (brick 0, 1, 1): its top and four sides, five emitters, its power 0.25 m² each.
+    const block = volumeBrickEmitters(0, 1, 1, grids, colours, 24);
+    expect(block.length / VOLUME_LAMP_FLOATS).toBe(5);
+    for (let o = 0; o < block.length; o += VOLUME_LAMP_FLOATS) expect(block[o + 4]).toBeCloseTo(LE * 0.25, 9);
+    expect(volumeBrickEmitters(5, 5, 5, grids, colours, 24).length).toBe(0);
+  });
+
+  it('the white furnace with every wall an emitter: aimed at, the glow is counted once (π Le / (1 − ρ)) and is even sooner', () => {
+    const BOX = 10;
+    const RHO = 0.7;
+    const box = (x: number, y: number, z: number): boolean => !(x >= 0 && x < BOX && y >= 0 && y < BOX && z >= 0 && z < BOX);
+    const grids = new Map([['0,0,0', gridOf((x, y, z) => (box(x, y, z) ? 20 : 0))]]);
+    const colours = new VolumeColourCache(glowLooks, null);
+    const parts: Float32Array[] = [];
+    for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) parts.push(volumeBrickEmitters(x, y, z, grids, colours, 24));
+    const emitters = new Float32Array(parts.reduce((n, e) => n + e.length, 0));
+    let o = 0;
+    for (const e of parts) {
+      emitters.set(e, o);
+      o += e.length;
+    }
+    const w = glowWorld(box, () => LE, RHO);
+    const closed = (Math.PI * LE) / (1 - RHO);
+    const faces = (m: VolumeUpdateModel): number[] => [...m.cells.values()].flatMap((c) => c.faces.filter((f) => f !== null).map(grey));
+    const aimed = new VolumeUpdateModel(w, [0, 0, 0], [BOX, BOX, BOX], { rays: 4, reach: 24, sunReach: 48, filter: false, emitters });
+    const found = new VolumeUpdateModel(w, [0, 0, 0], [BOX, BOX, BOX], { rays: 4, reach: 24, sunReach: 48, filter: false });
+    for (let i = 0; i < 8; i++) {
+      aimed.step();
+      found.step();
+    }
+    const spread = (v: number[]): number => Math.sqrt(mean(v.map((x) => (x - mean(v)) ** 2))) / mean(v);
+    const first = { aimed: mean(faces(aimed)) / closed, found: mean(faces(found)) / closed, aimedSpread: spread(faces(aimed)), foundSpread: spread(faces(found)) };
+    for (let i = 8; i < 64; i++) aimed.step();
+    const refined = mean(faces(aimed)) / closed;
+    console.log(`[glow emitters furnace] at the first settle aimed ${first.aimed.toFixed(3)} (spread ${first.aimedSpread.toFixed(3)}), found by rays ${first.found.toFixed(3)} (spread ${first.foundSpread.toFixed(3)}); aimed refined to 64 updates ${refined.toFixed(3)}`);
+    expect(refined).toBeGreaterThan(0.95);
+    expect(refined).toBeLessThan(1.06);
+    // Aimed or found, the box's glow is the same light (none counted twice, none lost).
+    expect(Math.abs(first.aimed - first.found)).toBeLessThan(0.02);
+  }, 60_000);
+
+  it("a glowing 2 × 2 m patch seen from the ceiling: one update's 4 rays aimed at its emitter hold its light (π Le × the form factor), where rays alone need thousands", () => {
+    const BOX = 10;
+    const box = (x: number, y: number, z: number): boolean => !(x >= 0 && x < BOX && y >= 0 && y < BOX && z >= 0 && z < BOX);
+    const patch = (x: number, y: number, z: number): boolean => y === -1 && x >= 3 && x <= 6 && z >= 3 && z <= 6;
+    const grids = new Map([['0,0,0', gridOf((x, y, z) => (patch(x, y, z) ? 20 : box(x, y, z) ? 23 : 0))]]);
+    const colours = new VolumeColourCache(glowLooks, null);
+    const parts = [0, 1].flatMap((x) => [0, 1].map((z) => volumeBrickEmitters(x, 0, z, grids, colours, 24)));
+    const emitters = new Float32Array(parts.reduce((n, e) => n + e.length, 0));
+    parts.reduce((o, e) => (emitters.set(e, o), o + e.length), 0);
+    const w = glowWorld(box, (x, y, z) => (patch(x, y, z) ? LE : 0), 0);
+    const cell = [4, 9, 4];
+    const p = [(cell[0]! + 0.5) * 0.5, (cell[2]! + 0.5) * 0.5];
+    const h = (cell[1]! + 0.5) * 0.5;
+    const sides = [[p[0]! - 1.5, p[1]! - 1.5], [3.5 - p[0]!, p[1]! - 1.5], [p[0]! - 1.5, 3.5 - p[1]!], [3.5 - p[0]!, 3.5 - p[1]!]];
+    const closed = Math.PI * LE * sides.reduce((sum, [a, b]) => sum + cornerFormFactor(a!, b!, h), 0);
+    const one = (seed: number, e?: Float32Array): number => {
+      const m = new VolumeUpdateModel(w, [4, 9, 4], [5, 10, 5], { rays: 4, reach: 24, sunReach: 48, filter: false, seed, ...(e !== undefined ? { emitters: e } : {}) });
+      m.step();
+      return grey(m.cells.get(cell.join(','))!.faces[3]) / closed;
+    };
+    const aimed = Array.from({ length: 8 }, (_, seed) => one(seed, emitters));
+    const found = Array.from({ length: 8 }, (_, seed) => one(seed));
+    console.log(`[glow emitters patch] one update of 4 rays against π Le F: aimed ${aimed.map((v) => v.toFixed(2)).join(' ')}; rays alone ${found.map((v) => v.toFixed(2)).join(' ')}`);
+    for (const v of aimed) {
+      expect(v).toBeGreaterThan(0.85);
+      expect(v).toBeLessThan(1.15);
+    }
+  });
 });

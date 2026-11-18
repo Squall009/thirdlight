@@ -445,6 +445,8 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   await place(ids.blue, away);
   // In the shut hut: a red spot mid-room aimed at its east wall, and a blue panel under the ceiling at its south end.
   const typed = await lightTypeChecks(o, hook, settled, staleSoon);
+  // Still shut, both taken out: a glowing strip painted on the south wall, then painted back.
+  const glow = await glowChecks(o, hook, settled, staleSoon, counted, still, shut);
   const t0 = Date.now();
   await counted('unstone', 'stubDug');
   await counted('hutopen', 'hutOpened');
@@ -537,6 +539,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   console.log(`[voxel-play] light volume readers: the blue box in the shut hut ${boxIn.volume.lum.toFixed(1)} against ${boxIn.off.lum.toFixed(1)} by the flat term (${boxIn.off.n} px); the kit pieces on the stub ${kit.volume.lum.toFixed(1)} against ${kit.off.lum.toFixed(1)} (${kit.off.n} px); the box 1.7 m over the pad ${boxOpen.volume.lum.toFixed(1)} against ${boxOpen.off.lum.toFixed(1)} (${boxOpen.off.n} px)`);
   console.log(`[voxel-play] light volume lamp lists: ${lists.length} bricks round the lamp, ${listsKept.length} kept, ${listsLit.length} listing a lamp, ${listsDiffer.length} differing from the CPU's rule (${JSON.stringify(listsDiffer.slice(0, 2))}); up the wall's face ${faceLists.length} bricks, ${faceLists.filter(listsLamp).length} listing the red lamp (${JSON.stringify(lampAt)}); 1 m level ${listsCoarse.length} kept, ${listsCoarse.filter(listsLamp).length} listing it, ${listsCoarseDiffer.length} differing (${JSON.stringify(listsCoarseDiffer.slice(0, 2))}; the first lists ${JSON.stringify(faceLists[0]?.at)}); most reaching one ${Math.max(0, ...lists.map((l) => l.cpu.total))}`);
   console.log(`[voxel-play] light volume light types: the spot's red bounce on the west wall's cells: faces looking at the wall it lights ${typed.front.toFixed(3)} (${typed.frontN} faces), at the wall behind it ${typed.behind.toFixed(3)} (ratio ${typed.ratio.toFixed(3)}; settled ${typed.litMs} ms); the panel's blue bounce on the faces looking down at the floor it lights ${typed.panel.toFixed(3)} (${typed.panelN} faces; before it was placed ${typed.panelBefore.toFixed(3)}), with both taken out ${typed.panelOff.toFixed(3)} (settled ${typed.offMs} ms), the spot's then ${typed.frontOff.toFixed(3)} (before it came ${typed.frontBefore.toFixed(3)}); the cells then against before the lights came ${(typed.residue * 100).toFixed(2)} % of what the lights moved them`);
+  console.log(`[voxel-play] light volume glow: the strip's pixels ${glow.px} px greener than the shut hut's, their green ${glow.green.toFixed(1)} against the material's grey 128; the cells along the north wall facing it: rgb ${glow.north.map((v) => v.toFixed(4)).join(', ')} (before ${glow.northBefore.map((v) => v.toFixed(4)).join(', ')}); at its foot looking up ${glow.foot.map((v) => v.toFixed(4)).join(', ')}: red over green ${glow.rg.toFixed(4)} against the glow's ${GLOW_RG.toFixed(4)}, green over blue ${glow.gb.toFixed(3)} against its ${(1 / 0.2158605001138992).toFixed(3)}; settled ${glow.litMs} ms after the paint, ${glow.offMs} ms after it was painted back; the far wall's green then against before ${(glow.residue * 100).toFixed(2)} % of what the glow moved it`);
   console.log(`[voxel-play] light volume edit: the lamp's red bounce up the wall's face ${lit.red.toFixed(3)} (${lit.n} cells), the pillar built ${shaded.red.toFixed(3)} (settled ${builtMs} ms after the command), dug ${relit.red.toFixed(3)} (${dugMs} ms), its cells against before it was built ${(pillarResidue * 100).toFixed(2)} % of what the pillar moved them; the pillar and the face's cells ${across ? 'in two chunks' : 'in one chunk'}`);
   console.log(`[voxel-play] light volume refining: the open hut's cells' neighbour difference at its settle ${refine.settled.mean.toFixed(4)} (${refine.settled.pairs} pairs, bricks at ${refine.settledUpdates} updates), refined ${refine.refined.mean.toFixed(4)} (${refine.refined.pairs} pairs, bricks at ${refine.refinedUpdates} updates, ${refine.ms} ms later): ratio ${(refine.refined.mean / Math.max(refine.settled.mean, 1e-9)).toFixed(3)}`);
   expect(updated.length, 'cells round the hut were updated').toBeGreaterThan(200);
@@ -587,6 +590,92 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   expect(typed.panelOff, "the area light taken out, its bounce is gone once the bricks settle again").toBeLessThan(VOLUME_GONE_SHARE * typed.panel);
   expect(typed.frontOff - typed.frontBefore, "the spot taken out, its bounce is gone once the bricks settle again").toBeLessThan(VOLUME_GONE_SHARE * typed.front);
   expect(typed.residue, 'the lights taken out, the cells are back near what they held before the lights came').toBeLessThan(VOLUME_RESIDUE_SHARE);
+  expect(glow.px, 'the glowing strip draws brighter in the shut hut').toBeGreaterThan(GLOW_MIN_PX);
+  expect(glow.green, "the strip's pixels are brighter than its grey alone").toBeGreaterThan(GLOW_ALBEDO_GREEN);
+  expect(glow.north[1], "the far wall's cells hold the strip's glow").toBeGreaterThan(GLOW_LIT_FACTOR * Math.max(glow.northBefore[1]!, 1e-4));
+  // Red over green (the panel's fading blue lies under the strip: its blue is not the glow's alone).
+  expect(glow.rg, "the cells at the strip's foot hold the glow's colour (red over green)").toBeGreaterThan(GLOW_RG / 2);
+  expect(glow.rg, "the cells at the strip's foot hold the glow's colour (red over green)").toBeLessThan(GLOW_RG * 2);
+  expect(glow.residue, "the strip painted back, the far wall's cells are back near what they held before").toBeLessThan(VOLUME_RESIDUE_SHARE);
+}
+
+/**
+ * The glowing test material's colour (#20ff80 in linear light): red over green. Set before the first run (not from a
+ * reading): its strip draws at least 200 px greener than the shut hut, their green over its grey's 128 (the albedo
+ * alone, with no light in the hut); the far wall's cells' green at least ten times what it was before the paint.
+ */
+const GLOW_RG = 0.014443843;
+const GLOW_MIN_PX = 200;
+const GLOW_ALBEDO_GREEN = 128;
+const GLOW_LIT_FACTOR = 10;
+
+/**
+ * A glowing strip in the shut hut, the spot and the panel just taken out (the test material, 3 × 0.5 m along the south
+ * wall at 1 m): its pixels against the shut hut's picture (the same camera, no lamp in it), and read back from the GPU
+ * the cells along the north wall 7 m off (their faces looking south at it) and those on the floor at its foot (their
+ * faces looking up). The spot (red) and the panel (blue) leave a little of their light, still fading: the far wall's
+ * glow and what is left after it is painted back are read in green (which neither has), the glow's colour where it is
+ * strongest (at its foot). Painted back to plaster and settled again, the far wall's green against before.
+ */
+async function glowChecks(
+  o: FarLightSetup,
+  hook: <T>(f: string, arg?: unknown) => Promise<T>,
+  settled: (what: string) => Promise<number>,
+  staleSoon: (what: string) => Promise<void>,
+  counted: (cmd: string, name: string) => Promise<void>,
+  still: (name: string) => Promise<Png>,
+  shut: Png,
+): Promise<{ px: number; green: number; north: number[]; northBefore: number[]; foot: number[]; gb: number; rg: number; litMs: number; offMs: number; residue: number }> {
+  const { rel } = driver(o);
+  const northPts: number[][] = [];
+  for (let x = -1.5; x < 1.5; x += 0.5) for (let y = 0.5; y < 2.5; y += 0.5) northPts.push(rel(x + 0.25, y + 0.25, 9.75));
+  const footPts: number[][] = [];
+  for (let x = -1.5; x < 1.5; x += 0.5) footPts.push(rel(x + 0.25, 0.75, 2.75));
+  const read = async (): Promise<VolumeCell[]> => (await hook<VolumeCell[] | null>('volumeCells', [...northPts, ...footPts])) ?? [];
+  // A face's light (`face` 0 … 5) summed over the cells holding light.
+  const faceSum = (cells: readonly VolumeCell[], face: number): number[] => {
+    const sum = [0, 0, 0];
+    for (const c of cells) for (let k = 0; k < 3; k++) sum[k]! += c.faces[face]?.[k] ?? 0;
+    return sum;
+  };
+  const before = await read();
+  await counted('hutglow', 'hutGlow');
+  await staleSoon('the glowing strip');
+  const litMs = await settled('the glowing strip');
+  const lit = await read();
+  const pic = await still('volume-hut-glow');
+  await counted('hutunglow', 'hutUnglow');
+  await staleSoon('the strip painted back');
+  const offMs = await settled('the strip painted back');
+  const after = await read();
+  let px = 0;
+  let green = 0;
+  for (let y = 0; y < pic.height; y++) for (let x = 0; x < pic.width; x++) {
+    const p = pic.pixel(x, y);
+    const q = shut.pixel(x, y);
+    if (p[1]! - q[1]! > 40 && p[1]! > p[0]! + 40) {
+      px++;
+      green += p[1]!;
+    }
+  }
+  const n = northPts.length;
+  // Faces looking south (−z: 5) on the far wall; looking up (+y: 2) at the strip's foot.
+  const north = faceSum(lit.slice(0, n), 5);
+  const northBefore = faceSum(before.slice(0, n), 5);
+  const foot = faceSum(lit.slice(n), 2);
+  const northAfter = faceSum(after.slice(0, n), 5);
+  return {
+    px,
+    green: px === 0 ? 0 : green / px,
+    north,
+    northBefore,
+    foot,
+    gb: foot[1]! / Math.max(foot[2]!, 1e-9),
+    rg: foot[0]! / Math.max(foot[1]!, 1e-9),
+    litMs,
+    offMs,
+    residue: Math.abs(northAfter[1]! - northBefore[1]!) / Math.max(north[1]! - northBefore[1]!, 1e-6),
+  };
 }
 
 /**

@@ -50,6 +50,8 @@ export interface VolumeLampSet {
   readonly spheres: readonly number[][];
   /** Some lamp is an area light (the update runs with the area lights' code). */
   readonly areas: boolean;
+  /** Some lamp is a glowing faces' emitter (the update runs with the emitters' code). */
+  readonly glow?: boolean;
 }
 
 export const NO_VOLUME_LAMPS: VolumeLampSet = Object.freeze({ data: new Float32Array(VOLUME_LAMP_FLOATS), count: 0, key: '', spheres: [], areas: false });
@@ -101,6 +103,26 @@ export function volumeLampSet(lights: ClusterLights | null, [lo, hi]: readonly [
   return { data: new Float32Array(found), count: spheres.length, key: keys.join(';'), spheres, areas };
 }
 
+/**
+ * A lamp table with the glowing faces' emitters after its lamps (voxel-light-volume-emitters.ts; `VOLUME_LAMP_FLOATS`
+ * words each): listed and keyed as any lamp (the update runs with the emitters' code).
+ */
+export function volumeLampSetWithGlow(lamps: VolumeLampSet, glow: Float32Array): VolumeLampSet {
+  const n = glow.length / VOLUME_LAMP_FLOATS;
+  if (n === 0) return lamps;
+  const data = new Float32Array((lamps.count + n) * VOLUME_LAMP_FLOATS);
+  data.set(lamps.data.subarray(0, lamps.count * VOLUME_LAMP_FLOATS));
+  data.set(glow, lamps.count * VOLUME_LAMP_FLOATS);
+  const spheres = [...lamps.spheres];
+  const keys: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const r = glow.subarray(i * VOLUME_LAMP_FLOATS, (i + 1) * VOLUME_LAMP_FLOATS);
+    spheres.push([r[0]!, r[1]!, r[2]!, r[3]!]);
+    keys.push(Array.from(r, (v) => v.toFixed(3)).join(','));
+  }
+  return { data, count: lamps.count + n, key: `${lamps.key}|${keys.join(';')}`, spheres, areas: lamps.areas, glow: true };
+}
+
 /** A list job: a brick (of `level`) and the slot its list goes to; or a slot cleared (`brick` null). */
 export interface VolumeLampListJob {
   readonly slot: number;
@@ -132,6 +154,8 @@ export class VolumeLampLists {
   lampCount = 0;
   /** Some lamp of the table is an area light. */
   hasAreas = false;
+  /** Some lamp of the table is a glowing faces' emitter. */
+  hasGlow = false;
   private jobs: GpuBuffer | null = null;
   private readonly params: GpuBuffer;
   private readonly counts: GpuBuffer;
@@ -184,6 +208,7 @@ export class VolumeLampLists {
     this.device.queue.writeBuffer(this.lampBuffer, 0, set.data);
     this.lampCount = set.count;
     this.hasAreas = set.areas;
+    this.hasGlow = set.glow === true;
   }
 
   /** Rows of the lists' window index uploaded (`index`: the whole index, as the pool's, a row of `VOLUME_INDEX_WIDTH`). */

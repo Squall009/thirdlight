@@ -25,7 +25,8 @@ import { OCCUPANCY, walkRay, walkVoxels, type WalkBlockView, type WalkSource } f
 import { CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED } from './cluster-build';
 import { SH_Y0, SH_Y1 } from './surface-probes';
 import { areaLightSteps, spotConeSteps } from './voxel-light-volume-terms';
-import { VOLUME_FACES, VOLUME_LAMP_FLOATS, volumeBlendWeight, volumeCellHolds, volumeFilterShare } from './voxel-light-volume-layout';
+import { VOLUME_FACES, VOLUME_GLOW_EMITTER, VOLUME_LAMP_FLOATS, volumeBlendWeight, volumeCellHolds, volumeFilterShare } from './voxel-light-volume-layout';
+import { volumeGlowBrickKey, volumeGlowFormFactor } from './voxel-light-volume-emitters';
 
 type V3 = [number, number, number];
 const O = CPU_SCALAR_OPS;
@@ -108,6 +109,8 @@ export function volumeDirectLight(w: VolumeLightWorld, p: readonly number[], n: 
     const reach = L[o + 3]!;
     if (d >= reach) continue;
     const field = L[o + 11]!;
+    // A glow's emitter lights cells, not hits (the update's rule).
+    if ((field & VOLUME_GLOW_EMITTER) !== 0) continue;
     let way: number[];
     let len: number;
     let lit: number;
@@ -139,6 +142,29 @@ export function volumeDirectLight(w: VolumeLightWorld, p: readonly number[], n: 
     }
     if (!clear(w, q, way, len)) continue;
     for (let k = 0; k < 3; k++) e[k] = e[k]! + L[o + 4 + k]! * lit;
+  }
+  return e;
+}
+
+/**
+ * The light a cell's face at `p` facing `n` takes from glowing faces' emitters (records of a lamp table marked
+ * `VOLUME_GLOW_EMITTER`; the update's `glow_direct`): π × each one's power over its area × its exact form factor,
+ * behind a walk to the point of it `xi` picks.
+ */
+export function volumeGlowDirect(w: VolumeLightWorld, p: readonly number[], n: readonly number[], emitters: ArrayLike<number>, xi: readonly [number, number]): V3 {
+  const e: V3 = [0, 0, 0];
+  for (let o = 0; o < emitters.length; o += VOLUME_LAMP_FLOATS) {
+    if ((emitters[o + 11]! & VOLUME_GLOW_EMITTER) === 0) continue;
+    const c: V3 = [emitters[o]!, emitters[o + 1]!, emitters[o + 2]!];
+    const u: V3 = [emitters[o + 12]!, emitters[o + 13]!, emitters[o + 14]!];
+    const v: V3 = [emitters[o + 16]!, emitters[o + 17]!, emitters[o + 18]!];
+    const area = 4 * Math.hypot(u[0], u[1], u[2]) * Math.hypot(v[0], v[1], v[2]);
+    const f = volumeGlowFormFactor(p, n, c, u, v) / Math.max(area, 1e-8);
+    if (f <= 0) continue;
+    const s = [0, 1, 2].map((a) => c[a]! + u[a]! * (2 * xi[0] - 1) + v[a]! * (2 * xi[1] - 1) - p[a]!);
+    const ds = Math.hypot(s[0]!, s[1]!, s[2]!);
+    if (ds > 1e-3 && !clear(w, p, s.map((x) => x / ds), Math.max(ds - 0.3, 0))) continue;
+    for (let k = 0; k < 3; k++) e[k] = e[k]! + emitters[o + 4 + k]! * Math.PI * f;
   }
   return e;
 }
@@ -313,12 +339,23 @@ export class VolumeUpdateModel {
   readonly cells = new Map<string, { c: V3; faces: (V3 | null)[] }>();
   updates = 0;
 
+  private readonly w: VolumeLightWorld;
+
   constructor(
-    private readonly w: VolumeLightWorld,
+    w: VolumeLightWorld,
     lo: readonly number[],
     hi: readonly number[],
-    private readonly opts: { rays: number; reach: number; sunReach: number; filter: boolean; seed?: number; blendOf?: (u: number) => number },
+    private readonly opts: { rays: number; reach: number; sunReach: number; filter: boolean; seed?: number; blendOf?: (u: number) => number; emitters?: Float32Array },
   ) {
+    // With emitters every cell lists them all: the rays leave out the glow of the open cells of their bricks.
+    const e = opts.emitters;
+    if (e !== undefined && w.glow !== undefined) {
+      const keys = new Set<number>();
+      for (let o = 0; o < e.length; o += VOLUME_LAMP_FLOATS) if ((e[o + 11]! & VOLUME_GLOW_EMITTER) !== 0) keys.add(e[o + 15]!);
+      const glow = w.glow.bind(w);
+      this.w = { ...w, glow: (air, face) => (keys.has(volumeGlowBrickKey(air[0]! >> 2, air[1]! >> 2, air[2]! >> 2)) ? [0, 0, 0] : glow(air, face)) };
+    }
+    this.w ??= w;
     for (let x = lo[0]!; x < hi[0]!; x++) for (let y = lo[1]!; y < hi[1]!; y++) for (let z = lo[2]!; z < hi[2]!; z++) if (volumeCellHolds(w.src, x, y, z)) this.cells.set(key(x, y, z), { c: [x, y, z], faces: Array.from({ length: VOLUME_FACES }, () => null) });
   }
 
@@ -340,6 +377,12 @@ export class VolumeUpdateModel {
           for (let ch = 0; ch < 3; ch++) sum[ch] = sum[ch]! + c[ch]!;
         }
         const est = sum.map((x) => (Math.PI * x) / rays);
+        if (this.opts.emitters !== undefined) {
+          const n = [0, 0, 0];
+          n[f >> 1] = (f & 1) === 1 ? -1 : 1;
+          const g = volumeGlowDirect(this.w, p, n, this.opts.emitters, [rnd(), rnd()]);
+          for (let ch = 0; ch < 3; ch++) est[ch] = est[ch]! + g[ch]!;
+        }
         const nb = filter ? volumeFilterNeighbours(cell.c, f).map((n) => this.held(n, f)).filter((v): v is V3 => v !== null) : [];
         faces.push(volumeWriteFace(est, cell.faces[f] ?? null, nb, this.updates, this.opts.blendOf));
       }

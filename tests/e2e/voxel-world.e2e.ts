@@ -1040,6 +1040,10 @@ async function playProject(): Promise<[number, number, number]> {
     "    const stub = box(-1.5, 0.5, 5, -0.5, 2.5, 5.5);",
     `    for (const _ of ctx.debug.command('hutstone')) ctx.game.add(v.set(stub, { material: ${MAT.stone}, role: ${VOXEL_ROLE.wall} }).ok ? 'stubBuilt' : 'hutRefused', 1);`,
     "    for (const _ of ctx.debug.command('unstone')) ctx.game.add(v.dig(stub).ok ? 'stubDug' : 'hutRefused', 1);",
+    // A strip of the glowing test material along the shut hut's south wall (painted: shader data), and back to plaster.
+    "    const glowStrip = box(-1.5, 1, 2, 1.5, 1.5, 2.5);",
+    `    for (const _ of ctx.debug.command('hutglow')) ctx.game.add(v.paint(glowStrip, { material: ${GLOW_MAT} }).ok ? 'hutGlow' : 'hutRefused', 1);`,
+    `    for (const _ of ctx.debug.command('hutunglow')) ctx.game.add(v.paint(glowStrip, { material: ${MAT.plaster} }).ok ? 'hutUnglow' : 'hutRefused', 1);`,
     // The hut's floor slab repainted (its shape as it was): the light volume's bounce takes the floor's colour.
     `    for (const _ of ctx.debug.command('hutgreen')) ctx.game.add(v.set(box(-2, 0, 2.5, 2, 0.5, 10), { material: ${MAT.grass}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutGreen' : 'hutRefused', 1);`,
     "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
@@ -1072,6 +1076,13 @@ async function playProject(): Promise<[number, number, number]> {
   playWorld = world;
   return (standAt = at);
 }
+
+/**
+ * A glowing voxel material (a voxel id the world does not use): grey, no texture set, a green glow of strength 4, so
+ * its pixels draw greener and brighter than its grey (128) and the volume's cells by it hold green over blue as its glow.
+ */
+const GLOW_MAT = 40;
+const GLOW_MATERIAL = { materialId: 'mat-glow-voxel', name: 'Glow (voxel)', shader: 'standard', params: { color: '#808080', emissive: '#20ff80', emissiveIntensity: 4 }, textures: {}, voxel: { id: GLOW_MAT, use: 'construction' } };
 
 /** The Play world's material blend (its `voxelWorld` object's, not the engine's default): Play and the export draw with it. */
 const PLAY_BLEND_M = 0.2;
@@ -1652,6 +1663,7 @@ async function startPlay(page: Page, renderer: 'webgpu'): Promise<PlayStart> {
 
   test('Play: the voxel light volume lights the hut, its kit pieces and moving objects, bounces every light type, follows edits and lights, and refines while nothing changes', async ({ page }) => {
     test.setTimeout(240_000);
+    await playCmd('setMaterial', { material: GLOW_MATERIAL });
     const { at, psid, errors, shadowObjects, away, observe } = await startPlay(page, renderer);
     // The script's wall built and dug once first, as the shadow checks do before the other Play test reaches here: the
     // light checks build and dig it again, and digging it takes the stub's end with it (its kit pieces change shape), so
@@ -1666,6 +1678,7 @@ async function startPlay(page: Page, renderer: 'webgpu'): Promise<PlayStart> {
     await page.getByTitle('Stop the play preview').click();
     await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
     await groundRelief(false);
+    await playCmd('deleteMaterial', { materialId: GLOW_MATERIAL.materialId });
     await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp, shadowObjects.spot, shadowObjects.panel] });
   });
 }
