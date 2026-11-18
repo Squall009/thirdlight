@@ -661,6 +661,7 @@ async function main(): Promise<void> {
         ...(O.gpuStale ? { gpuStale } : {}),
         ...(refined !== null ? { refined } : {}),
         lights: await canvasLights(game),
+        ...(SCENE !== null ? { glowPatches: { painted: counters['ml_glow_painted'] ?? 0, refused: counters['ml_glow_refused'] ?? 0, of: SCENE.glow.length } } : {}),
         ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
         at: host(),
       });
