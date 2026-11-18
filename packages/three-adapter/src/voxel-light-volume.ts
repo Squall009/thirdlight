@@ -115,13 +115,13 @@ const LAMP_LOOK_FRAMES = 15;
 /** A change within this many frames of the last one continues it (two looks at the lamps: a lamp moved each look). */
 const CHANGES_CONTINUE_FRAMES = 2 * LAMP_LOOK_FRAMES;
 /**
- * Bytes of the volume's row kept for what is not slots (its index, the update's and the lamps' buffers, the lamp table:
- * under a MiB at 600 lamps). The pool is made once with as many slots as the rest of the row holds and never replaced:
+ * Bytes of the volume's row kept for what is not slots (its index and the lamp lists' index, the update's and the lamps'
+ * buffers, the lamp table: 1.0–1.1 MB at 600 lamps). The pool is made once with as many slots as the rest of the row holds and never replaced:
  * lit draws made before a replaced texture kept reading the old one (three keeps one binding per program and refreshes
  * only the first draw's group), so a pool grown by copy left the chunks drawn before it reading nothing. Bricks past
  * it wait for a slot to free, nearest first.
  */
-const BUDGET_KEPT_BYTES = 1024 * 1024;
+const BUDGET_KEPT_BYTES = 2 * 1024 * 1024;
 /** Bytes a slot takes on the GPU (its faces, its colours, its glows and its lamp list of `listEntries` lamps). */
 const slotBytes = (listEntries: number): number => (VOLUME_BRICK_TEXELS + 2 * VOLUME_BRICK_VOLUME + listEntries + 2) * 4;
 /** The largest 2D texture side the pool may take (WebGPU's default limit). */

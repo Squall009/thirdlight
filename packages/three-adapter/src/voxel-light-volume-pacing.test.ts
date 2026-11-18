@@ -42,8 +42,8 @@ const mean = (v: readonly number[]): number => v.reduce((a, b) => a + b, 0) / v.
 describe('the light volume update pacing', () => {
   const budget = gpuPassBudgetMs(FRAME_BUDGET_BY_TIER.low, 'lighting');
 
-  it('takes the live light share of the low tier lighting row, the shadow maps share left out', () => {
-    expect(budget).toBeCloseTo(6.0, 2);
+  it('takes the live light share of the low tier (3.5 ms: its measured cost and the shadow maps within the lighting row)', () => {
+    expect(budget).toBeCloseTo(3.5, 2);
   });
 
   it('settles the bricks a frame so that the modelled cost of a frame sits at the budget', () => {

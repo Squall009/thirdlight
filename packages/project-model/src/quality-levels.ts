@@ -200,13 +200,15 @@ export interface LightingTierSettings {
 
 /**
  * The light volume's update by tier (default chosen, owner to confirm; measured in the phase plan): low measured on its
- * target; medium and high scaled from it (unverified on target hardware): their GPU has the time for more rays a face
- * and a longer refinement, the same window and lists (the layout's window is the largest the index holds).
+ * target; medium and high scaled from it (unverified on target hardware): a reach of 48 m (the dark rooms' cells
+ * nearer a path tracer's: 1.28 × against 1.65 × at 24 m, at twice the bricks an edit restarts), and on high twice the
+ * rays, the sun's walk and the refinement and lists of 24 for many lamps; the same window (the layout's, the largest
+ * the index holds) and follow.
  */
 const VOXEL_LIGHT_VOLUME_BY_TIER: Readonly<Record<LightingTier, Readonly<VoxelLightVolumeSettings>>> = Object.freeze({
   low: Object.freeze({ followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
-  medium: Object.freeze({ followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
-  high: Object.freeze({ followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
+  medium: Object.freeze({ followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 48, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
+  high: Object.freeze({ followWindow: 8, outerSettle: 2, listEntries: 24, rays: 8, rayReachM: 48, sunReachM: 96, reachCoarse: false, settleUpdates: 8, historyUpdates: 128, windowBricks: 48 }),
 });
 
 /** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */
@@ -516,14 +518,14 @@ const UNCAPPED_TIER_HZ = 60;
  * share is set from the measured row, not the row less the shadows. Medium and high keep low's
  * shares of their frame (unverified on target hardware).
  */
-const GPU_PASS_SHARES: Readonly<Partial<Record<GpuPassCategory, number>>> = Object.freeze({ shadows: 0.02, lighting: 0.18 });
+const GPU_PASS_SHARES: Readonly<Partial<Record<GpuPassCategory, number>>> = Object.freeze({ shadows: 0.02, lighting: 0.105 });
 
 /**
  * The passes' shares while they only refine (default chosen, owner to confirm): the live light's, set as its live
  * share is from what the row measures, so a view standing still converges in a minute or so and keeps most of the
  * light's row free.
  */
-const GPU_IDLE_SHARES: Readonly<Partial<Record<GpuPassCategory, number>>> = Object.freeze({ lighting: 0.09 });
+const GPU_IDLE_SHARES: Readonly<Partial<Record<GpuPassCategory, number>>> = Object.freeze({ lighting: 0.0525 });
 
 const frameBudget = (tier: LightingTier, hz: number): FrameBudget => Object.freeze({ tier, hz, intervalMs: 1000 / hz, ...FRAME_SHARES, gpuPasses: GPU_PASS_SHARES, gpuIdle: GPU_IDLE_SHARES, slices: FRAME_SLICE_DEFAULTS });
 
@@ -598,7 +600,7 @@ export const PROBE_RESIDENT_BYTES = 128 * MIB;
  * fit (the window's kept bricks: 8,977–9,910 of level 0 and the coarse levels at the town's views with ±48 m,
  * measured in the phase plan), so the row is the pool's size, never a count of bricks a scene may have.
  */
-export const LIGHT_VOLUME_BUDGET_BYTES_BY_TIER: Readonly<Record<LightingTier, number>> = Object.freeze({ low: 36 * MIB, medium: 36 * MIB, high: 36 * MIB });
+export const LIGHT_VOLUME_BUDGET_BYTES_BY_TIER: Readonly<Record<LightingTier, number>> = Object.freeze({ low: 36 * MIB, medium: 36 * MIB, high: 48 * MIB });
 
 /**
  * Memory the default path of a voxel world holds beside its streaming (bytes; measured on the town inside the 8 km

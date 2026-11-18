@@ -208,19 +208,21 @@ describe('the frame budget per tier', () => {
         expect(planned).toBeLessThanOrEqual(frameBudgetMs(b, 'gpu', row as never) + 1e-9);
       }
     }
-    // The low tier's lighting row (6.67 ms) less the shadow maps' share: the live light's.
+    // The low tier's live light: 3.5 ms, which its measured 1.2–1.5 × over its own stamps keeps with the shadow maps'
+    // 0.67 ms inside the lighting row (6.67 ms).
     const low = FRAME_BUDGET_BY_TIER.low;
     expect(gpuPassBudgetMs(low, 'shadows')).toBeCloseTo(0.667, 3);
-    expect(gpuPassBudgetMs(low, 'lighting')).toBeCloseTo(frameBudgetMs(low, 'gpu', 'lighting') - gpuPassBudgetMs(low, 'shadows'), 9);
+    expect(gpuPassBudgetMs(low, 'lighting')).toBeCloseTo(3.5, 6);
+    expect(1.5 * gpuPassBudgetMs(low, 'lighting') + gpuPassBudgetMs(low, 'shadows')).toBeLessThanOrEqual(frameBudgetMs(low, 'gpu', 'lighting'));
     expect(gpuPassBudgetMs(low, 'near')).toBe(0);
   });
 
-  it("gives a pass that refines while idle less than its own share (the live light's: 3.0 ms at the low tier)", () => {
+  it("gives a pass that refines while idle less than its own share (the live light's: 1.75 ms at the low tier)", () => {
     for (const tier of LIGHTING_TIERS) {
       const b = FRAME_BUDGET_BY_TIER[tier];
       for (const p of GPU_PASS_CATEGORIES) expect(gpuPassIdleBudgetMs(b, p)).toBeLessThanOrEqual(gpuPassBudgetMs(b, p));
     }
-    expect(gpuPassIdleBudgetMs(FRAME_BUDGET_BY_TIER.low, 'lighting')).toBeCloseTo(3.0, 6);
+    expect(gpuPassIdleBudgetMs(FRAME_BUDGET_BY_TIER.low, 'lighting')).toBeCloseTo(1.75, 6);
     expect(gpuPassIdleBudgetMs(FRAME_BUDGET_BY_TIER.low, 'near')).toBe(0);
   });
 });
@@ -232,7 +234,7 @@ describe('the memory budget per tier', () => {
     expect(MEMORY_BUDGET_BY_TIER.low.entries.map((e) => e.id)).toEqual([...MEMORY_BUDGET_IDS]);
     expect(at('voxelStream')).toEqual([768, 768, 1024]);
     expect(at('regionStitch')).toEqual([8, 8, 8]);
-    expect(at('lightVolume')).toEqual([36, 36, 36]);
+    expect(at('lightVolume')).toEqual([36, 36, 48]);
     expect(at('sunField')).toEqual([64, 64, 64]);
     expect(at('voxelWalk')).toEqual([16, 16, 16]);
     expect(at('physics')).toEqual([512, 512, 512]);
@@ -276,7 +278,7 @@ describe('the memory budget per tier', () => {
     expect(low.target).toEqual({ page: LOW_MEMORY_BUDGET_MIB.pageHeap * MIB, gpu: LOW_MEMORY_BUDGET_MIB.gpu * MIB });
     expect(low.sums.page).toBeLessThanOrEqual(low.target!.page);
     expect(low.sums.gpu).toBeLessThanOrEqual(low.target!.gpu);
-    expect(MEMORY_BUDGET_BY_TIER.high.sums).toEqual({ page: (1024 + 8 + 512 + 48 + 32) * MIB, gpu: (384 + 512 + 768 + 128 + 128 + 36 + 64 + 16) * MIB });
+    expect(MEMORY_BUDGET_BY_TIER.high.sums).toEqual({ page: (1024 + 8 + 512 + 48 + 32) * MIB, gpu: (384 + 512 + 768 + 128 + 128 + 48 + 64 + 16) * MIB });
     expect([MEMORY_BUDGET_BY_TIER.medium.target, MEMORY_BUDGET_BY_TIER.high.target]).toEqual([null, null]);
   });
 });
