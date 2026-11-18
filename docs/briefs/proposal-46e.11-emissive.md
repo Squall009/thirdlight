@@ -111,3 +111,81 @@ surfaces hold the light; no lamp object in the room.
    surface shader draws it (the detail ring and the mesh rings; whether baked fine bricks show it is checked when
    built), and lights its surroundings only inside the volume's window (±48 m). Past that it is dark at night until
    a far-cache channel exists (phase 49).
+
+## The glow as built (46e.12 (d), 2026-11-18)
+
+The approved no-mask entry, in its final words, is in `docs/architecture/voxel-render-spec.md` §1 ("Owner note (46e.11,
+2026-11-17 …): emissive voxel materials"). What it says, briefly: no new field; the record's `params.emissive` ×
+`params.emissiveIntensity` (0–16) in linear light is the glow; a near voxel surface draws glow × the pixel's colour
+(texture × tint, or the flat colour), blended between neighbouring materials as the colour is; the light volume keeps a
+second word a cell (the mean glow of the solid faces the cell borders, each the material's one value glow × mean
+colour), its rays see glow + bounce, and each brick's glowing faces are emitters its neighbours' cells aim at so a
+one-block lamp is even within seconds; a record edit rewrites the cells beside the changed material; nothing glows past
+the mesh rings. Where it differs from the first published text: the mean glow is of the solid faces a cell borders (not
+of the glowing ones only), and the emitters (next-event estimation) were added after measuring the blotches.
+
+## The mask: the proposed entry (owner's note needed)
+
+**Nothing of the mask is built** (no field, no validation, no shader read of a mask channel). This is the
+investigation and the entry text for your note.
+
+**What the voxel surface reads per pixel today** (`voxel-surface.ts`, `voxel-surface-sets.ts`; every one of the four
+near draw paths, level 0 and the level 1–2 mesh rings, reads the same maps; the one-material paths read one set):
+
+| Map | Channels and their use | Free? |
+|---|---|---|
+| albedo array (`color`: ETC1S, UASTC past 12 Mpix; sRGB) | RGB colour; **A height** (texture layout v1, amended 2026-11-09) | no |
+| normal array (`normal`: UASTC, normal preset, linear) | RGB the tangent-space normal (`.xyz × 2 − 1`); **A unused, never read** | yes |
+| ORM array (`data`: UASTC + Zstandard, linear) | R occlusion, G roughness, B metalness; **A unused, never read** | yes |
+| crack array (512², engine-made) | R the crack strength | no (engine-owned, kits' cracks) |
+| material table (float, 64 × 256 texels) | per id: colour, pattern; tiles, crack layer, **glow r**; relief layer, depth, blend, **glow g**; layers, **glow b** | not a texture of the set |
+| shader grids (`rg8unorm`) | the cells' material, wetness, construction bit | no |
+
+**The candidate: the ORM array's A** (the decals' convention: `project-model` `decal-pages.ts` keeps a decal page's
+emissive mask in its ORM alpha). Checked:
+- **The pipeline keeps it.** The slot assembly copies each layer's four channels from its texture (`texture-slots.ts`
+  `packLayersOf`: channels 0–3; only the albedo's A is replaced, by a height); `data` encodes UASTC (RGBA) with
+  Zstandard and a mip chain made by the encoder (alpha filtered as the other channels, so a mask's mean is kept down the
+  levels); joins and stripes copy UASTC blocks as they are. Measured (`~/.cache/thirdlight-phase46e/work/46e.12d/
+  maskcost/`, the repo's encoder, the town's rock ORM upscaled to one 4096² layer, the import's path `encodeKtx2(…,
+  'data')`): **A = 255: 2,162,565 bytes; a crack mask in A (37 % of the texels lit, soft edges): 2,236,899 bytes
+  (+3.4 %)**; decoded, the mask comes back to a mean error of 0.0007 / 255 and the RGB's error stays under 0.002 / 255.
+- **The GPU bytes do not change.** UASTC transcodes to BC7 (`RGBA_BPTC`, 16 bytes a 4 × 4 block with or without
+  alpha) where `texture-compression-bc` is on. Probed on the Iris Xe (the bench's GPU browser, `work/46e.12d/probe/`): WebGL 2
+  exposes BPTC, S3TC, ASTC and ETC and the WebGPU adapter `texture-compression-bc`; three's KTX2Loader drops ASTC and ETC
+  on Linux (Mesa emulates them), so UASTC goes to BC7: a 4096² ORM layer is 16 MiB plus its mips with or without a
+  mask. (Only on a GPU with S3TC and no BPTC would three pick BC3 for an image with alpha over BC1 without; an ORM
+  array's fill layer already has A = 0, so such an array is BC3 today.)
+- **No extra read**: the ORM sample is already taken on all four draw paths (`textureSetAt` reads `orm` for the
+  full maps; only its `.xyz` is used), so a mask is its `.w` of the same read.
+- **The default without a mask: 1 (the whole surface glows, as built now).** An ORM image without alpha decodes A =
+  255 (mask 1). **But the absent-map constants have A = 0 today**: the neutral texel `NEUTRAL_TEXELS.orm` ([255, 204,
+  0, 0]) and the fill layer of an ORM array (`TEXTURE_ABSENT_VALUES.orm` [1, 0.8, 0, 0]). The entry therefore needs
+  the voxel ORM's absent A set to 1 (a voxel-arrays fill of its own, so the layered surfaces' and graphs' absent ORM
+  stays as it is): a set without an ORM map, and a material without a set, glow whole.
+- **The mean for the volume** is the engine's, never set by hand: measured with the bounce colour's texture means
+  (`textureLayerMeans`, one compute pass over a coarse level of every layer when the arrays arrive) by averaging the
+  ORM array's A per layer the same way (one more read back of the same size); the volume's glow of a material is then
+  glow × mean colour × mask mean, and the emitters' power the same.
+- **The normal array's A** is the second candidate (also free, also UASTC → BC7, also read on every path); the ORM's
+  A is proposed because the decals already use it and the ORM map is linear data, where a mask belongs.
+
+**The proposed entry text** (for `voxel-render-spec.md` §2; add-only, no new array, no new binding, no new field in
+the material record):
+
+> **Owner note (date of approval): a glow mask in a texture set's ORM alpha.** An add-only reading inside texture
+> layout v1 and project schema 8: the A of a voxel texture set's `orm` map is the **glow mask** (0 no glow, 1 the
+> material's full glow; linear). A designer paints it into the ORM image's alpha (cracks of a lava rock, the lit
+> panes of a window texture); an ORM image without alpha, a set without an ORM map and a material without a set glow
+> whole (the voxel ORM array's absent value gets A = 1). Drawn: a near voxel surface's glow is glow × the pixel's
+> colour × the mask (the same ORM read, its fourth channel), blended as the colour is; so bloom follows the mask.
+> Lit: the light volume uses glow × the material's mean colour × the mean of its wall set's mask, measured by the
+> engine with the texture means when the arrays arrive, never set by hand. Nothing else changes: the arrays, their
+> encoding (UASTC, linear) and their GPU format and bytes are as they are; a mask costs about 3 % of an ORM layer's
+> file bytes. Not read by the far field (no glow there in 46e-b).
+
+**A picture**: `docs/briefs/proposal-46e.11-mask-mock.png` is a **mock-up, not an engine picture** (nothing of the
+mask is built): the night street's crystal panel as built (left: painted over a brick front and a window, it draws the
+crystal's plaster texture glowing) and the same crop with a hand-drawn crack mask applied to its glow (right: the
+unmasked part shows the front as the standard night picture draws it). The engine's own pictures of the glow as built: `docs/briefs/proposal-46e.11-night.png`,
+`docs/briefs/proposal-46e.11-room.png` (replacing the hand-drawn mock for the owner's page).

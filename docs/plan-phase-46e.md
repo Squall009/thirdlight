@@ -211,7 +211,7 @@ numbers 46e.9–46e.13 of the plan's first outline are replaced by these.
 | 46e.9 | **Remove the cache's voxel port and the hybrid.** The voxel tile source and charts, the faces' hashes, the chart worker, the tracer's voxel scene kind, the probes over voxel marks, the hand-over, the `cache` and `hybrid` values of `?voxelLight` (left: `off`, `volume`) and their bench flags and tests. Phase 42's own stack is not touched (it retires in 48). The rows that only described them are closed as superseded (D679, D682–D686, D699, D700, D704, D706). The e2e Play test loses their checks. |
 | 46e.10 | **The default path's cost** (owner's answer 5; shadows and the sun field stay on at every tier): fix D667 (stitching at speed), D675 (the sun field's march at speed), D701 (the later settle after a stop); trace D672 (page render +0.9–1.8 ms with no store on) and the end-of-phase round that held only 7 copies of room at the cap. Same-hour, interleaved against the 46e base. |
 | 46e.11 | **The emissive material entry: a proposal, then a stop.** The glow is a property of the voxel's material, never stored per voxel; the volume keeps it per cell as it keeps the bounce colour. This item writes the add-only entry for the material record (`voxel-render-spec.md`) and what the volume reads of it, for the owner's approval. Nothing of it is built before the owner's note. Written first so the approval can arrive while 46e.12 is built. |
-| 46e.12 | **Every light type in the volume.** (a) A lamp list per brick, in world space, built in compute, in place of the flat loop over every lamp in the window (`voxel-light-volume-wgsl.ts` `direct_light`); the clustered lists are per camera and cannot serve bricks off screen. (b) Spot lights bounce with their cone, not as points. (c) Area lights add bounce. (d) Emissive materials light the cells beside them, after the owner's note on 46e.11. |
+| 46e.12 | (a), (b), (c) done 2026-11-17 (§8c). (d) done 2026-11-18 (297e852e, 95e5309d): glow drawn × the pixel's colour; a glow word a cell (+4.2 MB, 35.6 of 160 MiB); glowing faces as emitters cells aim at (night blotch at 10 s 0.38 → 0.24); no cost without glow (0.023 ms a brick both), 0.051 with; mask: ORM alpha proposed (+3.4 % file, BC7 bytes same), not built |
 | 46e.13 | **The observed defects, fixed on the update side.** Blotches (D692), rooms too dark, the gable patches (D695), the stale texture swap (D696), the update running over its budget (D690, a pacing bug). The look is fixed where cells are written (accumulate while idle, filter as cells are written), not in the per-pixel read, so the tuning that follows cannot undo it. |
 | 46e.14 | **A many-lamps scene, then the tuning.** First an engine-owned bench scene with many lamps of every type beside the town (every figure so far is from a town with a few lamps). Then, measured on both: the per-pixel read's cost (D705), the update's share of the frame, the low tier's setting; the volume's bare constants become tier settings or table entries as they are tuned (D702, D703, D708). The volume is switched on per tier here. |
 | 46e.15 | Props through the coverage channel (D448) and particles reading the volume: what is left of the first outline's build-out. (Placement after the tuning is the lead's default, owner to confirm: props entering the volume's rays change its cost, so if it should count in the tuning it moves before 46e.14.) |
@@ -2782,6 +2782,115 @@ interiors by half; the idle cost reads like the stale one, 1.2–1.4× its share
 exposure before rays or reach are tuned for it; the light types' "behind" check now reads 0.18–0.25 of its bound 0.33
 (converged bounces).
 
+### 46e.12d — emissive voxel materials: the glow drawn and given off (no mask); the mask investigated, its entry proposed
+
+**What was built** (297e852e, 95e5309d; docs in the commit after). Work folder `~/.cache/thirdlight-phase46e/work/46e.12d/`
+(`try2/` rays alone, `try3/`, `m/` the measured runs with `*.uptime`, `lib.sh`, `runall.sh`, `cmp.mjs`,
+`compare-pics.txt`, `maskcost/`, `probe/`, `pw/` hand runs of the Play test, `broken-*.log`, `vitest-glow.log`).
+- **Record → look → table.** `voxelRecordLooks` reads `params.emissive` × `params.emissiveIntensity` (linear;
+  `recordGlow`), inherited along an instance chain; `voxelLooksKey` includes both. The material table keeps the glow in
+  the a of the tiles, relief and layer texels (r, g, b), which the pixel reads for its two materials already
+  (`textureSetAt` returns the tiles' and layers' a; the relief texel is read once into a variable): the surface tests'
+  texel and binding counts did not move (textured program 28 loads, 13 of 16 sampled textures with the volume on).
+- **Drawn.** Every near program (four paths, level 0 and the level 1–2 mesh rings) adds glow × each material's
+  colour (texture × tint, or the flat colour) blended by the colour's share to its emissive (`emissiveNode`; three
+  builds it after the colour). **Where glow stops being drawn**: at the outer edge of the mesh rings; the far field
+  (mesh or bricks, `farColour`/`farSurface`) and the baked fine bricks draw none; the test patterns' program none.
+  WebGL 2: the same node material builds its glow too (the smoke test stays green; not looked at).
+- **In the volume.** A second word a cell (`glow` texture beside the colours, RGB9E5): the mean over the solid cells
+  across its faces of each one's material glow × mean colour (`volumeLookGlow`: tint × the wall set's texture mean,
+  the tint alone without a set). Written with the colours (`VolumeLookWatch.write`, new file
+  `voxel-light-volume-looks.ts`), only where a brick glows (a slot is cleared only if it held a glow); the update reads
+  it only while some cell glows (a flag). A ray's hit sees `glow + albedo × E / π`.
+- **Small emitters: aimed at.** Without them (`try2`, rays alone, 297e852e) the night bench's cells round the fence's
+  block and the strip were 0.46 / 0.38 / 0.37 apart from their neighbours at 2 / 10 / 60 s (no glow: 0.29 / 0.17 /
+  0.17 at 46e.13b), cyan blotches on the gable at 10 s (`scratch/night-2-10-60.png`). Built (`voxel-light-volume-
+  emitters.ts`): each kept brick's glowing faces, per facing, one rectangle (their power over their bounding
+  rectangle in their mean plane) in the volume's lamp table, flagged `VOLUME_GLOW_EMITTER`, listed by the bricks they
+  reach as any lamp (reach the rays' 24 m); a cell adds π L × the exact clipped form factor (`glow_form_factor`;
+  three's LTC form with its horizon fit read the glowing furnace 1.105, the exact 0.966) behind one walk to a point
+  its sequence moves; its rays leave out the glow of an open cell whose brick has a listed emitter; hits are not lit
+  by emitters. Its own pipeline (`volumeUpdateWgsl(areas, glow)`). Measured (`m/glow-r1`, 95e5309d): 0.31 / 0.24 /
+  0.24 at the night camera's glow probe, 0.32 / 0.21 / 0.20 round the eye; room 0.39 / 0.32 / 0.25 (its strip is
+  large: no change). `scratch/night-nee-vs-not-10s.png`: the gable's cyan blotches gone at 10 s, the rail beside the
+  block lit cyan evenly. Lists: most reaching a brick 23, 1,406 bricks over (D718).
+- **Edits.** A paint or dig rewrites the words with the colours (the grid change marks its reach, 46e.13a's rule); a
+  grid the volume had not seen (a chunk drawn before it came, repainted) marks what its glowing cells light (the Play
+  test found it: its hut's chunks predate the volume). A record edit (`VoxelWorldDraws.setMaterials` →
+  `VoxelLightVolume.looksChanged`) holds each id's bounce colours and glow against what they were and, in the
+  volume's slice, finds the open cells beside a changed id (`volumeMaterialBox`) and marks their reach. Play gets its
+  records at start; the page hook `__tlVoxelPlay.light.setMaterials` is how a check reaches it.
+- **Bench** `light-shots --glow`: two bench materials (lava, crystal: §9), painted by `ctx.voxels` at the night camera
+  (a 6 × 0.5 m lava strip in the ground, a crystal block on the fence's rail, a 2 × 2 m crystal panel on the front
+  right of it) and in the room (a lava strip at the window wall's foot), never in the world's files; the records are
+  deleted after. With `--cache-edits` the strip painted back and again and the lava's strength doubled through the hook.
+
+**Units.** vitest (`voxel-light-volume-glow.test.ts`, logged in `vitest-glow.log`): a closed box whose walls glow Le
+with ρ 0.7 holds π Le / (1 − ρ): 0.734 at the first settle, 0.966 refined to 64 updates (band 0.95–1.06), rays alone and
+aimed alike (0.734 both: counted once); a 2 × 2 m glowing patch seen from the ceiling against π Le × the corner form
+factors: the path-traced reference 0.984, the update's model with rays 0.964 (eight seeds of 4,096), aimed one update
+of 4 rays 1.00 every seed where rays alone read 0 or 4.74.
+
+**Pictures** (low, WebGPU, 1280 × 720, 30 Hz, each run alone, `*.uptime` load 1.0–4.6). Without `--glow`, base
+8f544d6f built in its own worktree with its own workspace links (`base/`, no `glow_tex` in its bundle) against the head
+95e5309d, A B A B (`compare-pics.txt`, pixels over 10 a channel): street 0.02–0.19 % (within each 0.12 / 0.22), room
+0.000–0.73 (0.67 / 0.72), cave 0.20–0.81 (0.22 / 0.43), night 0.008–0.094 (0.02 / 0.09), far 0.06–0.19 (0.10 / 0.16):
+the standard pictures equal the base's within run-to-run. With `--glow` (looked at): `m/glow-r1/night-lamps.png` —
+the lava strip draws its rock texture glowing, the fence posts beside it go red; on the grass beside it the glow is
+faint at this exposure (its radiance is the lava's glow × the rock's mean, about a tenth of a street lamp's light at
+2 m); the crystal block on the rail is cyan with little texture showing (plaster is near white); with emitters the
+rail beside it is lit cyan evenly at 10 s; the panel's cyan reaches the brick front round it. `m/glow-r1/room-window.png`
+and `-arrive-{2,10,60}s.png` — the lava strip at the wall's foot lights the room red: walls, ceiling and the stairs'
+kit pieces, soft, a few faint blotches on the walls at 10 s, smooth at 60 s. Copies for the owner's page:
+`docs/briefs/proposal-46e.11-{night,room}.png`.
+
+**Cost** (`m/cost-*`; `light-shots --only night-lamps --gpu --gpu-stale --gpu-only lighting`; exit 1 is D713):
+
+| | `lighting` stale GPU ms | settled (refining) | ms a brick | bricks a stale frame | page `voxel light volume` mean | GPU bytes |
+|---|---|---|---|---|---|---|
+| base r1, r2 | 8.17, 6.61 | 4.92, 5.05 | 0.023, 0.025 | 261, 236 | 0.54, 0.39 | 31.40 MB |
+| head r1, r2, no glow | 9.28, 7.60 | 4.70, 5.23 | 0.024, 0.023 | 252, 260 | 0.46, 0.45 | 35.59 MB |
+| head, the glow scene (20 emitters, 25 in the table) | 8.04 | 3.85 | 0.051 | 117 | 0.41 | 35.79 MB |
+
+Without glow the head equals the base (not resolved: within the spread); with the glow scene a brick costs 2.2× (the
+emitters' walks), so a stale town relights at half the rate. Memory 31.40 → 35.59 MB (+4.19, the glow words) of the
+160 MiB row. Writing the glow words is inside the page's `voxel light volume` span (no change resolved).
+**Edit → light** (`m/glow-r1` `cacheEdits`, from the command): the strip painted back — first light 57 ms, settled
+2.52 s; painted again 58 ms, 2.79 s; the lava's strength doubled (record edit) 34 ms, 3.14 s; the window dug 4.22 s,
+the lamp wall 2.14 / 1.68 s in the same run. Play test (high): glow painted → settled 5.8–7.6 s, painted back 5.8–6.1 s.
+
+**Tests.** vitest `voxel-light-volume-glow.test.ts` (new, 14): looks and instance chain; key; table texels (layers set
+after keep it); one value a material; glow words against a cell-by-cell reference over a scrap with two glowing
+materials (a cell bordering none 0); the record change's cells exact and the bricks marked exactly within reach; the
+look's key for the volume; the furnace and the patch (above); emitters' rectangles, facing and power; the exact form
+factor against the corner closed form and the horizon cut. Broken once each: the looks without glow 4 fail
+(`broken-looks-no-glow-vitest.log`); the glow summed not averaged 1 (`broken-cell-glow-sum-vitest.log`); emitters
+counted twice (rays keep their glow) 2 (`broken-emitters-counted-twice-vitest.log`); the record box taking solid
+cells 1 (`broken-material-box-solid-cells-vitest.log`). Play e2e (`voxelVolumeLightChecks` → `glowChecks`, in the shut
+hut after the light types are taken out): the strip draws 1,944–1,960 px greener than the shut hut, their green
+154–155 against its grey's 128; the north wall's cells facing it green 0.40 (before 0), red over green at the strip's
+foot 0.021–0.022 against the glow's 0.0144 (blue is not read: the panel's fading blue lies there); painted back the
+far wall's green 9.7–11.7 % of what the glow moved it (bound 20 %). Broken (`broken-glow-not-written-e2e.log`, the
+words never written): the cells' green 0, fails at "the far wall's cells hold the strip's glow". Play tests: the
+light test 2.5 min (gate, and alone `pw/glow6.log`; 2.2–2.4 at 46e.13b), the first 1.5 min.
+
+**Gates.** `gate-fast-20261118-012147` (95e5309d; areas core, voxel, rendering, materials, lighting, play …) RED 1 of
+143, `frame-rate-cap.e2e.ts:70` (D659's watch) → `gate-rerun-20261118-013953` GREEN.
+
+**Part B, the mask** (nothing built): the proposal page's "The mask: the proposed entry" — the ORM array's A (free,
+read on every path, UASTC keeps it, +3.4 % file bytes for a 4096² layer with a crack mask, BC7 on the Iris Xe so no
+GPU bytes; the absent ORM's A is 0 today, so the entry sets the voxel arrays' absent A to 1); the normal array's A the
+second candidate; the mean by the texture means' pass. `docs/briefs/proposal-46e.11-mask-mock.png` is a mock-up.
+
+**Not done / unverified.** Motion unseen (no one watched a glow switched on or off, or walked past one). WebGL 2's glow
+not looked at. Medium and high not measured (the Play test runs at high). The settles in the Play test's hut are long
+(5.8–11 s for the glow and the light types alike, against 0.5 s at 46e.12b, c): not traced. A switchable lamp block
+(two materials) not tried in a browser.
+
+**For 46e.14.** The emitters double a brick's cost where they reach (0.051 against 0.023 ms); D718 (list size shared
+with lamps); the glowing furnace refines to 0.966 (the update's own convergence, as the lamps' 1.02); the night grass
+beside a strip lit faintly: strengths are the owner's, not a knob.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -3176,6 +3285,34 @@ exposure before rays or reach are tuned for it; the light types' "behind" check 
   gable patches gone), (b) at `46e.13b/cmp-room-auto-base-head.png` and `cmp-night-types-base-head.png` (blotches
   down; the room still near black with auto-exposure: the §10 question stands). D690 stays open, narrowed: no pacing
   signal true at the cap was found; the tuning sets the store's share with that overrun known.
+- 2026-11-18 (46e.12d, default chosen, owner to confirm): a material's one glow value for the volume is glow × its
+  tint × its **wall** set's texture mean (the set terrain draws everywhere and construction on every face but floors
+  and ceilings), the tint alone without a set or before the means are measured; the bounce colour keeps its mean per
+  side seen.
+- 2026-11-18 (46e.12d, default chosen, owner to confirm): the material table holds the glow (linear, colour ×
+  strength) in the a of its tiles, relief and layer texels, which a pixel reads for its two materials already: no
+  fifth block, no new read (the surface tests' texel counts unchanged); the test patterns' debug program draws no
+  glow; the drawn glow is glow × each material's colour (texture × tint) blended as the colour is, before wetness and
+  cracks darken the colour.
+- 2026-11-18 (46e.12d, default chosen, owner to confirm): an open cell's glow word is the mean over **all** the solid
+  cells across its faces (a cell beside a glowing and a plain face takes half), as its bounce colour is; a second
+  word a cell in a texture of its own (+4.2 MB), written only for bricks where some cell glows and read by the update
+  only while one does (a flag), rather than a brick flag and a sparse store (the memory is 2.6 % of the budget row).
+- 2026-11-18 (46e.12d, default chosen, owner to confirm): small glows are aimed at (next-event estimation), chosen by
+  the blotch measurement (results): each kept brick's glowing faces, grouped by facing, are a rectangle each in the
+  volume's lamp table (their power over their bounding rectangle in their mean plane), listed by the bricks they
+  reach as any lamp (reach: the rays' 24 m; the lists' 16 entries shared with the lamps), lit at a cell by the exact
+  clipped form factor behind one walk to a point its sequence moves (one point an update); rays leave out the glow of
+  an open cell whose brick has a listed emitter. Its code is a pipeline of its own (made only while an emitter is in
+  the table). A hit is not lit by an emitter (its light at a hit is the volume's own in that cell).
+- 2026-11-18 (46e.12d, default chosen, owner to confirm): a chunk grid the volume has not seen before (one drawn
+  before the volume came, or arriving) marks what its glowing cells light, since nothing says what changed; a record
+  edit is held against what each voxel id gave the volume (its bounce colours and glow) and finds the cells beside a
+  changed id in the volume's slice. Play gets its records at start: a record edit reaches Play only through the page
+  hook `__tlVoxelPlay.light.setMaterials` (the bench and checks); the editor's views have no volume.
+- 2026-11-18 (46e.12d, default chosen, owner to confirm): `light-shots --glow`'s scene: an orange lava (an instance of
+  the town's rock, strength 4) and a cyan crystal (of its plaster, strength 1.5 so its texture shows), voxel ids 4001
+  and 4002, painted at run time by `ctx.voxels` (never in the world's files; the records deleted after).
 
 ## 10. Open questions for the owner (asked with the plan)
 

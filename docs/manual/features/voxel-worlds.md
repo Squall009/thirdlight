@@ -785,6 +785,17 @@ the same record dresses a prop and a wall, so there is one oak, not an
   into arrays): a construction tile is authored at 4096 × 4096 for its
   4 × 4 m wall, the image's top up the wall.
 
+- **Glow**: the material's **Glow colour** (`params.emissive`) and **Glow
+  strength** (`params.emissiveIntensity`, 0–16), the same two fields meshes
+  use. A voxel surface of a glowing material draws its glow times its colour
+  (so it keeps its texture), blended into its neighbours as its colour is,
+  and with the voxel light volume on (`?voxelLight=volume`, WebGPU) it lights
+  the surfaces round it softly: there is no shadow from a glow and no
+  highlight (add a lamp for a crisp pool of light). A switchable glow is two
+  materials (the lit one an instance of the unlit with its own voxel id and a
+  glow): the game changes the cell's material. Nothing glows past the mesh
+  rings (the far field). A record edit is live.
+
 Any material may also carry **`physical`** (a profile and the numbers it
 changes: `density` kg/m³, `friction`, `restitution`, `flowRate` for
 liquids) and **`gameData`** (any JSON the game reads, such as a footstep

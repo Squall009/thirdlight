@@ -56,6 +56,6 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 
 ## Format proposals waiting for the owner's note
 
-Each is a hard stop when its phase arrives: the glow mask's spare-channel entry in a material's surface sets (46e-b, 46e.11: the no-mask part is approved); a `gas` role (value 10) with shape as density and a mip rule like
+Each is a hard stop when its phase arrives: the glow mask in a texture set's ORM alpha (46e-b, 46e.11; the no-mask part is approved and built in 46e.12 (d); the proposed entry, its channel, cost and default: `briefs/proposal-46e.11-emissive.md` "The mask: the proposed entry"); a `gas` role (value 10) with shape as density and a mip rule like
 liquid's (47b); a fill stroke kind in the edit command (47b); narrowed feeds for liquid edits (47a); a liquid
 derived part per chunk (49); a medium channel (liquid and fog) on far-cache nodes (49).

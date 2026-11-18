@@ -125,6 +125,35 @@ the scene's `voxelWorld` object (the same link as its decal layers); the voxel w
 `?blend=` (default the engine's), its records' own values as the hosts. Cost: eight more table texels a pixel (13
 in all; a 4,096-texel float table, cache-resident).
 
+**Owner note (46e.11, 2026-11-17: approved with changes, relayed by the owner's other session): emissive voxel
+materials.** An add-only step inside project schema 8, not a new format and with no new field: the voxel path reads
+two fields the material record already has, `params.emissive` (a colour, default black) and `params.emissiveIntensity`
+(0–16, default 0; `MATERIAL_PARAMS`). A voxel material whose strength is over 0 and whose colour is not black
+**glows**: its glow is the colour in linear light × the strength, a radiance in the units the lights use (a white glow
+of strength 1 is as bright as a white wall lit by π units of light). Inherited along an instance chain as any
+parameter. The glow is the material's, never the voxel's: nothing is stored per voxel, in a region file or in the far
+cache; every project, build and export stays byte for byte as it was.
+- **Drawn** (no mask): the material table carries each id's glow (the a of its tiles, relief and layer texels, which a
+  pixel reads for its materials already: no new read, no new binding); a near voxel surface (level 0 and the level
+  1–2 mesh rings, every draw path) adds glow × the pixel's colour (its texture set's albedo × the tint, or its flat
+  colour without a set) to its emissive, blended between neighbouring materials as the colour is, so a glowing block
+  keeps its texture. The test patterns' debug program draws none; past the mesh rings (the far field's meshes or
+  bricks, the baked fine bricks) nothing glows.
+- **Lit**: the voxel light volume keeps, for each kept level-0 open cell, beside its bounce colour, the mean glow of
+  the solid cells across its faces, each solid cell's glow being its material's one value: glow × its mean colour (the
+  tint × its wall set's texture mean, measured once on the GPU as for the bounce colour; the tint alone without a set
+  or before the means are measured): a second 32-bit word a cell (RGB9E5, as the light), written only where some cell
+  glows, never stored on disk. A ray of the update that meets a surface sees that glow + its bounce. Each kept brick's
+  glowing faces are also emitters in the volume's own lamp table (a rectangle a facing: their power over their
+  bounding rectangle); the cells of the bricks an emitter reaches aim at it (π L × the exact form factor, behind a
+  walk), and their rays leave out the glow an emitter counts, so each glow is counted once.
+- **Edits**: shader data only (the feeds rule): a paint or a dig of a glowing material rewrites the cells' words as
+  any grid change; a record edit rewrites the table and the cells beside the materials whose glow or bounce colour
+  changed, and marks what their light reaches; no derive, mesh or grid upload.
+- A project whose voxel materials already carry a glow (ignored until now) starts to glow. No glow in the far field
+  in 46e-b. A glow mask is not part of this step (its proposed entry, `docs/briefs/proposal-46e.11-emissive.md`,
+  waits for the owner's note).
+
 ## 2. Texture sets
 
 **Owner note (46d.4a, 2026-11-08):** an add-only step inside project schema 8 and runtime manifest v5, not a new
