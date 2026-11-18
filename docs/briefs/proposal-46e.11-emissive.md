@@ -124,7 +124,7 @@ one-block lamp is even within seconds; a record edit rewrites the cells beside t
 the mesh rings. Where it differs from the first published text: the mean glow is of the solid faces a cell borders (not
 of the glowing ones only), and the emitters (next-event estimation) were added after measuring the blotches.
 
-## The mask: the proposed entry (owner's note needed)
+## The mask: the proposed entry (APPROVED by the owner 2026-11-18, relayed: "acceptable… approved and the mask part can be built")
 
 **Nothing of the mask is built** (no field, no validation, no shader read of a mask channel). This is the
 investigation and the entry text for your note.
