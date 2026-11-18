@@ -96,6 +96,7 @@ import { gpuPassHides } from './gpu-pass-hides';
 import { fineDeviceOf } from './voxel-fine-bricks';
 import { VoxelWalkGpu } from './voxel-walk-gpu';
 import { VoxelLightVolume, type VolumeDevice } from './voxel-light-volume';
+import { volumeReadLevelCount } from './voxel-light-volume-layout';
 import type { RegionTextureRenderer } from './region-texture';
 import { SURFACE_READ_URL_PARAM } from './adapter-surface-light';
 
@@ -578,7 +579,8 @@ export class VoxelWorldDraws {
       const device = renderer === null ? null : fineDeviceOf(renderer);
       if (world === undefined || renderer === null || scene === null || device === null || this.walks.get(world)!.buffers() === null) return;
       this.volumeWorld = world;
-      this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), lamps: () => this.opts.lamps?.() ?? null, read: new URLSearchParams(pageSearch()).get(SURFACE_READ_URL_PARAM) !== '0' });
+      const readFlag = new URLSearchParams(pageSearch()).get(SURFACE_READ_URL_PARAM);
+      this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), lamps: () => this.opts.lamps?.() ?? null, read: readFlag !== '0', readLevels: volumeReadLevelCount(readFlag) });
       // The grids of chunks drawn before it came are not at hand: their bricks bounce the default grey until drawn again.
       this.volumeBounce();
     }

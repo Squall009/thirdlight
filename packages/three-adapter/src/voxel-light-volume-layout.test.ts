@@ -12,7 +12,7 @@ import { applyWalkWires, OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView
 
 import { ClusterLights } from './cluster-build';
 import { volumeLampSet } from './voxel-light-volume-lamps';
-import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevelCount, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
 
 /** A cached brick lookup over a walk source's level-0 blocks (as the volume keeps them). */
 function brickLookup(tsrc: WalkSource): (bx: number, by: number, bz: number) => VolumeBlockBricks | null {
@@ -353,6 +353,15 @@ function roomCell(x: number, y: number, z: number): boolean {
   if (!inX || !inZ || y > 6) return false;
   return x === -1 || x === 16 || z === -1 || z === 16 || y === 6;
 }
+
+describe("the surfaces' read levels by the page's flag", () => {
+  it('reads every level unless the flag asks for level 0 alone', () => {
+    expect(volumeReadLevelCount(null)).toBe(VOLUME_LEVELS);
+    expect(volumeReadLevelCount('1')).toBe(VOLUME_LEVELS);
+    expect(volumeReadLevelCount('0')).toBe(VOLUME_LEVELS);
+    expect(volumeReadLevelCount('level0')).toBe(1);
+  });
+});
 
 describe('the light volume coarse levels', () => {
   it('addressing: each level its own rows of the index, a brick and its neighbours apart, keys apart across levels', () => {

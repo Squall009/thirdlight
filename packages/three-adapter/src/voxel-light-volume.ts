@@ -166,7 +166,10 @@ export interface VoxelLightVolumeDeps {
   lamps?(): ClusterLights | null;
   /** False: the volume is lit but no surface reads it (`?surfaceRead=0`, a comparison of what reading costs and changes). */
   readonly read?: boolean;
+  /** The levels the surfaces read, finest first (absent: every level; `volumeReadLevelCount` of the page's flag). */
+  readonly readLevels?: number;
 }
+
 
 interface Brick {
   /** Its level (0: the 0.5 m cells beside surfaces; 1–3 the coarse levels) and place in bricks of that level. */
@@ -299,7 +302,7 @@ export class VoxelLightVolume {
 
   constructor(private readonly deps: VoxelLightVolumeDeps) {
     this.gpu = new VolumeGpu(deps.device, deps.renderer, this.slotBudget());
-    this.light = new VoxelVolumeLight(this.gpu, deps.read !== false);
+    this.light = new VoxelVolumeLight(this.gpu, deps.read !== false, deps.readLevels ?? VOLUME_LEVELS);
     // What the looks give the volume now: a later record edit is held against it.
     this.looksChanged();
     // The held lights are marked before the light joins: the programs its joining builds again take them as held.
@@ -1353,7 +1356,7 @@ export class VoxelVolumeLight extends THREE.Light {
   /** The eye of the last frame drawn (world metres; NaN before one) and the way it looks (unit). */
   readonly eye = [NaN, NaN, NaN];
   readonly forward = [0, 0, -1];
-  constructor(readonly gpu: VolumeGpu, readonly read: boolean) {
+  constructor(readonly gpu: VolumeGpu, readonly read: boolean, readonly readLevels: number = VOLUME_LEVELS) {
     super(0xffffff, 0);
     this.name = 'voxel light volume';
   }
@@ -1395,7 +1398,7 @@ class VoxelVolumeLightNode extends (THREE.Node as unknown as new () => { updateT
     // not to: a screen-space shade whose pixel is not its geometry's (the far field's).
     if (!this.light.read || m?.userData?.[VOLUME_READ_KEY] === false || builder.renderer?.backend?.isWebGPUBackend !== true) return;
     const ctx = builder.context;
-    const r = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, positionWorld, normalWorldGeometry.normalize(), normalWorld);
+    const r = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, positionWorld, normalWorldGeometry.normalize(), normalWorld, this.light.readLevels);
     const w = r.weight;
     const replaced = ctx.irradiance.sub(KEPT_IRRADIANCE).add(ctx.iblIrradiance);
     const darker = luminance(r.light).div(max(luminance(replaced), float(1e-4))).clamp(0, 1);
@@ -1468,10 +1471,10 @@ function volumeRead(level: number, pool: N, index: N, origin: N, p: N, ng: N, n:
  * level is not read once less than {@link VOLUME_LEFT_MIN} is left, so a surface beside its 0.5 m cells reads only them).
  * Returns the light and the weight it holds (0: no level holds light here; the flat term stays).
  */
-function volumeReadLevels(pool: N, index: N, origins: readonly N[], p: N, ng: N, n: N): { light: N; weight: N } {
+function volumeReadLevels(pool: N, index: N, origins: readonly N[], p: N, ng: N, n: N, levels: number): { light: N; weight: N } {
   const acc = vec3(0).toVar('tlVolumeLight');
   const left = float(1).toVar('tlVolumeLeft');
-  for (let level = 0; level < VOLUME_LEVELS; level++) {
+  for (let level = 0; level < Math.min(levels, VOLUME_LEVELS); level++) {
     const read = (): void => {
       const r = volumeRead(level, pool, index, origins[level]!, p, ng, n);
       const a = smoothstep(float(0), float(VOLUME_FULL_WEIGHT), r.weight);

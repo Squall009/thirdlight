@@ -17,12 +17,14 @@ import { type ChunkGrid, type DenseChunk, localIndex, SHAPE_FULL, VOXEL_ROLE, ty
 import { MAT, fillGroundColumn, shapeByte, type GroundColumn, type TestGrid, type TestWorld } from './world-kit';
 
 /** Lot pitch in cells (20 m). */
-const LOT = 40;
+export const LOT = 40;
 /** Storey height in cells (3 m). */
-const STOREY = 6;
+export const STOREY = 6;
 /** Where a house's footprint starts inside its lot. */
-const HOUSE_AT_X = 6;
-const HOUSE_AT_Z = 8;
+export const HOUSE_AT_X = 6;
+export const HOUSE_AT_Z = 8;
+/** The town's seed when none is given (the far world's town is this one). */
+export const TOWN_SEED = 71;
 
 const WALL_MATERIALS = [MAT.stone, MAT.timber, MAT.plaster, MAT.brick] as const;
 
@@ -36,7 +38,7 @@ export interface House {
 }
 
 /** What a lot holds. */
-interface Lot {
+export interface Lot {
   house: House | null;
   /** Yaw of a house standing in its own grid (0: in the world grid). */
   yaw: number;
@@ -44,7 +46,8 @@ interface Lot {
   pond: boolean;
 }
 
-function lotOf(i: number, j: number, seed: number): Lot {
+/** Lot (i, j) of the town of `seed`: the same lot the world's cells hold. */
+export function lotOf(i: number, j: number, seed: number): Lot {
   const h = latticeHash(i, j, seed);
   const pick = (shift: number, n: number): number => (h >>> shift) % n;
   const kind = pick(0, 24);
@@ -140,7 +143,7 @@ function pondVoxel(x: number, y: number, z: number, out: VoxelRecord): boolean {
 
 /** The dense town: one 256 m tile of 20 m lots by default (12 × 12 lots). */
 export function townWorld(opts: { seed?: number; footprint?: number } = {}): TestWorld {
-  const seed = opts.seed ?? 71;
+  const seed = opts.seed ?? TOWN_SEED;
   const footprint = opts.footprint ?? 512;
   const lots = Math.floor(footprint / LOT);
   const lotTable: Lot[] = [];

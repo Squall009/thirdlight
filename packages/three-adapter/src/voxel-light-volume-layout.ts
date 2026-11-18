@@ -58,6 +58,15 @@ const BLOCK_BRICKS = BLOCK_CELLS / VOLUME_BRICK_CELLS;
  * is 2^level level-0 cells a side, as the voxel mips) for open air, where a reader finds no 0.5 m cell holding light.
  */
 export const VOLUME_LEVELS = 4;
+
+/**
+ * The levels the surfaces read for the page's `surfaceRead` flag: every level, or level 0 alone for `level0` (a
+ * comparison of what the coarse levels' blend costs the read; where level 0 holds no light the flat term stays).
+ */
+export function volumeReadLevelCount(flag: string | null): number {
+  return flag === 'level0' ? 1 : VOLUME_LEVELS;
+}
+
 /**
  * Each level's window of bricks (4³ of its cells) round the camera: level 0 as {@link VOLUME_WINDOW_BRICKS}; the coarse
  * levels a clipmap of 12 × 6 × 12 bricks, each reaching twice as far as the last (1 m cells over 48 × 24 × 48 m, 2 m

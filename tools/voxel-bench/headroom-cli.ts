@@ -43,6 +43,8 @@
  *   --scales LIST        render scales at no load (default low 0.833,1; medium 0.75,0.833,0.917,1; high 0.9,0.8,0.667; `none`)
  *   --query Q            more of the editor page's query (`&voxelShadows=off`: page flags Play is passed)
  *   --orbit R,W          the camera R m from the town square at W rad/s (default 12,0.15; e.g. 60,0.25 moves the eye 15 m/s)
+ *   --lamps N            the many-lamps scene of N lights (many-lamps.ts: 32, 128 or 512) placed before Play and taken out
+ *                        after, its glowing patches painted by the orbit's behaviour where the world is loaded
  *   --viewport WxH       (default 1280x720)   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/headroom/<quality>-<tag>.json)
  *
  * How to (staging running, the 8 km world in it, nothing else on the GPU):
@@ -70,6 +72,8 @@ import type { GpuMeasurement } from '@thirdlight/game-host';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { spanMeans, type SpanFrame } from './travel';
 import { FarSettle, frameCap, frameWindow, misses, searchLimit, spread, type FrameWindow, type LimitResult } from './headroom';
+import { BENCH_GLOW_MATERIALS } from './lighting-cameras';
+import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, parseLampsOption, placeManyLamps } from './many-lamps';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -121,13 +125,18 @@ async function command(op: string, args: unknown): Promise<void> {
  * measured (e.g. 60,0.25: 15 m/s).
  */
 const [ORBIT_R, ORBIT_W] = arg('orbit', '12,0.15').split(',').map(Number) as [number, number];
-const ORBIT_ID = ORBIT_R === 12 && ORBIT_W === 0.15 ? 'headroom-orbit' : `headroom-orbit-${ORBIT_R}-${String(ORBIT_W).replace('.', 'p')}`;
+const LAMPS = parseLampsOption(process.argv);
+const SCENE = LAMPS === 0 ? null : manyLampsScene(LAMPS);
+const ML = SCENE === null ? null : manyLampsBehaviour(SCENE);
+const ORBIT_ID = `${ORBIT_R === 12 && ORBIT_W === 0.15 ? 'headroom-orbit' : `headroom-orbit-${ORBIT_R}-${String(ORBIT_W).replace('.', 'p')}`}${LAMPS === 0 ? '' : `-lamps${LAMPS}`}`;
 const ORBIT = `
+${ML?.head ?? ''}
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
 export default {
   prepare() { return {}; },
   instantiate() { return { yaw: 0.4636 }; },
   step(s: any, ctx: any) {
+    ${ML === null ? '' : `if (ctx.phase === 'intent') { const v = ctx.voxels; const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n)); void put; ${ML.intent} return; }`}
     if (ctx.phase !== 'transform') return;
     s.yaw += ${ORBIT_W} / 120;
     const pitch = 0.03, d = ${ORBIT_R}, c = Math.cos(pitch);
@@ -213,11 +222,19 @@ function drmMemoryMiB(pid: number): Record<string, number> {
   return Object.fromEntries(Object.entries(kib).map(([k, v]) => [k, Math.round(v / 1024)]));
 }
 
+/** The scene's objects now (the bench's lamps are found by name). */
+function sceneEntities(): Array<{ id: string; name: string }> {
+  return JSON.parse(readFileSync(join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT, 'scenes', 'scene-main.json'), 'utf8')).scene.entities as Array<{ id: string; name: string }>;
+}
+
 async function main(): Promise<void> {
   await command('setEnvironment', { environment: { quality: QUALITY, qualityLevels: DEFAULT_QUALITY_LEVELS } });
+  // The many lamps (bench data): their glow materials and lamps in the project for the run, taken out after.
+  if (SCENE !== null) for (const m of BENCH_GLOW_MATERIALS) await command('setMaterial', { material: m });
+  const unplace = SCENE === null ? null : await placeManyLamps(SCENE, command, sceneEntities);
   await orbitCamera();
   const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });
-  const out: Record<string, unknown> = { bench: 'headroom', quality: QUALITY, renderer: 'webgpu', viewport: VIEWPORT, tierScale: TIER_SCALE, cap: CAP, window: WINDOW_S, world: WORLD, start: host(), rounds: [] as unknown[] };
+  const out: Record<string, unknown> = { bench: 'headroom', lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, quality: QUALITY, renderer: 'webgpu', viewport: VIEWPORT, tierScale: TIER_SCALE, cap: CAP, window: WINDOW_S, world: WORLD, start: host(), rounds: [] as unknown[] };
   const browser = await launchGpuBrowser({ vsync: true });
   const T0 = Date.now();
   try {
@@ -305,6 +322,9 @@ async function main(): Promise<void> {
     for (let round = 0; round < ROUNDS; round++) {
       const r: Record<string, unknown> = { round, start: host() };
       r['noLoad'] = await probe({});
+      // The clustered lights' and the shadow atlas's counts (written on the canvas) and the light volume's state (its lamp lists, bytes).
+      r['lights'] = await canvas.evaluate((c) => ({ clusters: c.getAttribute('data-tl-clusters'), atlas: c.getAttribute('data-tl-shadow-atlas') }));
+      r['volume'] = await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay?: { light?: { volume?(): unknown } } }).__tlVoxelPlay?.light?.volume?.() ?? null);
       // The frame profile over the window just recorded (the last frames each thread keeps): each thread's CPU a frame.
       const profile = await canvas.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null);
       if (profile !== null) {
@@ -358,6 +378,8 @@ async function main(): Promise<void> {
     console.error(out['error']);
   } finally {
     await browser.close().catch(() => undefined);
+    await unplace?.().catch((e: unknown) => console.error(`many lamps not taken out: ${String(e)}`));
+    if (SCENE !== null) for (const m of BENCH_GLOW_MATERIALS) await command('deleteMaterial', { materialId: m.materialId }).catch((e: unknown) => console.error(`${m.materialId} not deleted: ${String(e)}`));
   }
   out['end'] = host();
   mkdirSync(dirname(OUT), { recursive: true });

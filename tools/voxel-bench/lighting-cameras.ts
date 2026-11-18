@@ -11,11 +11,15 @@
  * Engine-owned test data for measuring, not a product feature.
  */
 
+import { dayPresets } from './day-cycle';
+
 /** The pictures' names, fixed (a later item compares files of the same name). */
 export const LIGHT_SHOT_NAMES = ['street-noon', 'room-window', 'cave', 'night-lamps', 'far-view'] as const;
 /** Checks beside the five, taken only when named (`--only`): a far lamp from two places, two cameras moved 1 m. */
 export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m'] as const;
-export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number] | (typeof LIGHT_CHECK_NAMES)[number];
+/** The many-lamps scene's cameras (`--lamps N`, many-lamps.ts): a street with many lamps at night, a lamp-lit room, a high view over the lit town. */
+export const MANY_LAMP_SHOT_NAMES = ['lamps-street', 'lamps-room', 'lamps-high'] as const;
+export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number] | (typeof LIGHT_CHECK_NAMES)[number] | (typeof MANY_LAMP_SHOT_NAMES)[number];
 
 /** The looks the cameras use: environment presets the bench writes into the project. */
 export const LIGHT_PRESET_IDS = ['bench-noon', 'bench-night'] as const;
@@ -175,6 +179,17 @@ export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   moved(LIGHTING_CAMERAS[1]!, 'room-window-2m', 'shot11', 2),
 ]);
 
+/**
+ * The many-lamps scene's cameras, at night: along the street in front of the room camera's house (its lamps on the
+ * fronts' side 2.25 m in from the lot line at z −8, on the backs' side 1.25 m out), inside that house's ground floor
+ * looking at its west wall with its room lamp 3 m ahead, and from 45 m up south-east of the town's middle down over it.
+ */
+export const MANY_LAMP_CAMERAS: readonly LightingCamera[] = Object.freeze([
+  { name: 'lamps-street', command: 'shot12', eye: [-36, 1.7, -6.5], yaw: yawOf(1, 0), pitch: 0.05, preset: 'bench-night', near: true, shows: 'a street at night lit by many lamps: street lamps both sides, spots under the eaves, panels over the doors, fence lines, glowing strips' },
+  { name: 'lamps-room', command: 'shot13', eye: [3, 1.8, 1], yaw: yawOf(-1, 0.15), pitch: 0.05, preset: 'bench-night', near: true, shows: 'the room camera’s room at night, lit by its room lamp (3 m ahead, 2.25 m up) and what comes in through its windows' },
+  { name: 'lamps-high', command: 'shot14', eye: [70, 45, 50], yaw: yawOf(-70, -56), pitch: Math.atan2(45, Math.hypot(70, 56)), preset: 'bench-night', near: true, shows: 'from 45 m up over the town at night: the lamps of many streets and houses' },
+] satisfies LightingCamera[]);
+
 /** Runtime edits for the edit-to-screen time: a 1 m ball dug in the street in front of the street camera, each its own command. */
 export const EDIT_DIGS: ReadonlyArray<{ readonly command: string; readonly center: readonly [number, number, number] }> = Object.freeze(
   [0, 1, 2].map((i) => Object.freeze({ command: `dig${i + 1}`, center: Object.freeze([-30 + 3 * i, 0, STREET_Z] as const) })),
@@ -193,7 +208,10 @@ export const LAMP_WALL_COMMANDS = Object.freeze({ build: 'lamp_wall', dig: 'lamp
 /** A clear physical sky (no clouds: they drift, so two runs' skies would differ). */
 const CLEAR_SKY = Object.freeze({ mode: 'procedural', environmentIntensity: 0.1, cloudCoverage: 0 });
 
-/** The two looks: noon (the scene's sun high from the south-west, lamps off) and night (no sun, dim blue ambient, lamps on). */
+/**
+ * The looks: noon (the scene's sun high from the south-west, lamps off) and night (no sun, dim blue ambient, lamps on),
+ * and the moving sun's day (day-cycle.ts: noon's look with the key light along a day's arc).
+ */
 export const LIGHTING_PRESETS = Object.freeze([
   {
     presetId: 'bench-noon',
@@ -216,6 +234,7 @@ export const LIGHTING_PRESETS = Object.freeze([
       { type: 'point', intensity: BENCH_LAMP_NIGHT_CD },
     ],
   },
+  ...dayPresets(CLEAR_SKY),
 ]);
 
 /**
@@ -223,8 +242,9 @@ export const LIGHTING_PRESETS = Object.freeze([
  * after holds it there; each dig command digs its ball through `ctx.voxels` (a runtime edit: never written to
  * the world's files).
  */
-export function lightShotsSource(cameras: readonly LightingCamera[] = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS]): string {
+export function lightShotsSource(cameras: readonly LightingCamera[] = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS, ...MANY_LAMP_CAMERAS], extras: ReadonlyArray<{ head: string; intent: string }> = []): string {
   return `
+${extras.map((e) => e.head).join('\n')}
 const SHOTS = ${JSON.stringify(cameras.map((c) => ({ command: c.command, eye: c.eye, yaw: c.yaw, pitch: c.pitch, preset: c.preset })))};
 const DIGS = ${JSON.stringify(EDIT_DIGS)};
 const LAMP = ${JSON.stringify(BENCH_LAMPS[2]!.position)};
@@ -245,6 +265,7 @@ export default {
       const r = v?.regionAt(eye[0], eye[1], eye[2]) ?? null;
       put('region_known', r === null ? 0 : 1); put('region_enclosed', r?.enclosed ? 1 : 0); put('region_volume', r === null ? 0 : Math.round(r.volume));
       put('region_sky', r?.sky ? 1 : 0); put('region_portals', r?.portals ?? 0); put('region_id', r?.id ?? 0);
+      ${extras.map((e) => e.intent).join('\n')}
       // A hole dug through the wall the camera looks at (found by a ray): the steps until the eye's region changes.
       for (const _ of ctx.debug.command('region_dig')) {
         const yaw = SHOTS[s.at].yaw;
@@ -354,6 +375,13 @@ export interface LightShotsOptions {
   readonly autoExposure: boolean;
   /** `--reference FILE`: at each camera, the light volume's room cells against the CPU reference's variants in FILE (JSON `{ variants }`); null: none. */
   readonly reference: string | null;
+  /** `--day slow|fast`: after the shots, the sun moving (day-cycle.ts) at the cameras of `dayAt`, for `dayForS`, with `dayReference`'s variants; null: none. */
+  readonly day: 'slow' | 'fast' | null;
+  readonly dayAt: readonly LightShotName[];
+  readonly dayForS: number;
+  readonly dayReference: string | null;
+  /** `--refine-wait S`: at the first camera, after it settles, up to S s for the light volume to have refined every brick (Play start → fully refined); 0: none. */
+  readonly refineWaitS: number;
   readonly viewport: { readonly width: number; readonly height: number };
 }
 
@@ -376,7 +404,12 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
   const quality = arg('quality') ?? 'low';
   if (quality !== 'low' && quality !== 'medium' && quality !== 'high') throw new Error(`--quality: low, medium or high, not ${quality}`);
   const only = (arg('only') ?? LIGHT_SHOT_NAMES.join(',')).split(',').filter((s) => s !== '');
-  for (const n of only) if (![...LIGHT_SHOT_NAMES, ...LIGHT_CHECK_NAMES].includes(n as LightShotName)) throw new Error(`--only: names among ${[...LIGHT_SHOT_NAMES, ...LIGHT_CHECK_NAMES].join(', ')}, not ${n}`);
+  const names: readonly string[] = [...LIGHT_SHOT_NAMES, ...LIGHT_CHECK_NAMES, ...MANY_LAMP_SHOT_NAMES];
+  for (const n of only) if (!names.includes(n)) throw new Error(`--only: names among ${names.join(', ')}, not ${n}`);
+  const day = arg('day');
+  if (day !== null && day !== 'slow' && day !== 'fast') throw new Error(`--day: slow or fast, not ${day}`);
+  const dayAt = (arg('day-at') ?? 'street-noon').split(',').filter((x) => x !== '');
+  for (const n of dayAt) if (!names.includes(n)) throw new Error(`--day-at: names among ${names.join(', ')}, not ${n}`);
   const query = arg('query') ?? '';
   if (query !== '' && !query.startsWith('&')) throw new Error(`--query: more of the page's query, starting with & (e.g. &voxelShadows=off), not ${query}`);
   const vp = arg('viewport') ?? '1280x720';
@@ -417,6 +450,11 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     }),
     autoExposure: argv.includes('--auto-exposure'),
     reference: arg('reference'),
+    day,
+    dayAt: dayAt as LightShotName[],
+    dayForS: num('day-for', 90, 10, 600),
+    dayReference: arg('day-reference'),
+    refineWaitS: num('refine-wait', 0, 0, 600),
     viewport: { width: Number(m[1]), height: Number(m[2]) },
   };
 }
