@@ -200,8 +200,9 @@ export const MANY_LAMPS_EDIT_ROOM = 'ML room 1';
 /**
  * The scene's run-time part as behaviour code (declarations for the module's top, a piece of its `intent` phase,
  * `put` and `ctx` in scope): the glowing patches painted once each where the world is loaded (a few looked at a step;
- * counters `ml_glow_painted`, `ml_glow_refused`), the edits' commands (`ml_lamp_off`: the edit room's lamp at
- * intensity 0 by `ctx.entity(id).set('light', …)`; `ml_glow_block`: a crystal cell set on that room's floor under its
+ * counters `ml_glow_painted`, `ml_glow_refused`), the edits' commands (`ml_lamp_off`: the edit room's lamp switched
+ * off as a game does it, its object made inactive by `ctx.entity(id).set('object', { active: false })` (a look that
+ * sets every point light's strength, as the night look does, wins over a script's written intensity); `ml_glow_block`: a crystal cell set on that room's floor under its
  * lamp, the floor found by a ray). With `glow` false nothing is painted (the coverage flight: a flight would measure
  * the paint as edits).
  */
@@ -226,7 +227,7 @@ const ML_ROOM = ${JSON.stringify({ name: room.name, at: room.position, crystal }
       }
       for (const _ of ctx.debug.command('${MANY_LAMPS_COMMANDS.lampOff}')) {
         const id = ctx.world.find(ML_ROOM.name);
-        const r = id === undefined ? null : ctx.entity(id)?.set('light', { intensity: 0 });
+        const r = id === undefined ? null : ctx.entity(id)?.set('object', { active: false });
         ctx.game.add(r !== null && r !== undefined && r.ok !== false ? 'ml_lamp_offs' : 'ml_edit_refused', 1);
       }
       for (const _ of ctx.debug.command('${MANY_LAMPS_COMMANDS.glowBlock}')) {
