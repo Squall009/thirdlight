@@ -3369,9 +3369,17 @@ same mean, the lamp-lit gable a little dimmer: the per-pixel lamps', within the 
   the flag lays only known values over them. `quality-levels.test.ts` (+2): every tier's settings valid, medium and
   high at least low's rays, history, window and lists; the problems named for six broken sets; the memory rows and
   sums; low's live share 3.5 ms and 1.5 × it plus the shadow maps' inside the row. `page-memory.test.ts`: the new rows.
-- The Play tests (`tests/e2e/voxel-world.e2e.ts`, gate-fast-20261118-124727, under the gate's load): 1.6 and 2.3 min (46e.14a: 1.5 / 2.5); the light test's hut: spot and panel placed → settled 5,503 ms, taken out → 3,935 ms (10.4–11.2 s / 9.0–9.7 s before), residue panel 4.7 %, spot 1.5 %, cells 8.95 % (bounds 12, 12, 20 %). No e2e file or wait added.
+- The Play tests (`tests/e2e/voxel-world.e2e.ts`, gate-fast-20261118-124727, under the gate's load): 1.6 and 2.3 min (46e.14a: 1.5 / 2.5; 2.6 min for the second at aa27c563 in a rerun beside three other tests, not timed alone); the light test's hut: spot and panel placed → settled 5,503 ms, taken out → 3,935 ms (10.4–11.2 s / 9.0–9.7 s before), residue panel 4.7 %, spot 1.5 %, cells 8.95 % (bounds 12, 12, 20 %). No e2e file or wait added.
 
-**Gates.** `gate-fast-20261118-124727` (edee5b84; every area: project-model and shared changed) RED 4 of 323: `frame-rate-cap.e2e.ts:70` (D659's watch), `scene-loads.e2e.ts:234` (`session_unavailable`: the preview not yet presented), `timeline.e2e.ts:257` and `terrain-cdlod.e2e.ts:133` (`export_output_path_invalid`: "the configured exportRoot is not a directory", an export folder the run's backend could not see); `gate-rerun-20261118-132422` GREEN (the four, the village perf check). The values' and docs' gate: FINALGATE.
+**Gates.** `gate-fast-20261118-124727` (edee5b84; every area: project-model and shared changed) RED 4 of 323: `frame-rate-cap.e2e.ts:70` (D659's watch), `scene-loads.e2e.ts:234` (`session_unavailable`: the preview not yet presented), `timeline.e2e.ts:257` and `terrain-cdlod.e2e.ts:133` (`export_output_path_invalid`: "the configured exportRoot is not a directory", an export folder the run's backend could not see); `gate-rerun-20261118-132422` GREEN (the four, the village perf check). The values' and docs' gate `gate-fast-20261118-213409` (87751989) RED at vitest: the regenerated reference moved three
+streaming limits to a new page (`tools/manual-links.test.mjs`; the guide's links fixed, 6f6b4755);
+`gate-rerun-20261118-214516` RED 4 of 323: `block-editor.e2e.ts:142` and `start.e2e.ts:62` (passed on the rerun, not
+traced), `frame-rate-cap.e2e.ts:70` (D659), and **the light volume's Play test**: at the high tier (the Play test's) a
+60 Hz frame's share at low's fraction (1.75 ms) held the update to one brick a frame (a dispatch read 4–5 ms for one
+brick on the integrated GPU: its fixed cost) and the hut never settled; medium and high keep their shares (0.18,
+0.09) and low's rays and reach (aa27c563); `gate-rerun-20261118-221602` GREEN but D659's watch (the light test 2.6 min
+beside three other tests; the hut's lights placed → settled 4,815 ms, out 3,980 ms), `gate-rerun-20261118-222009`
+GREEN (D659's test alone, the village perf check).
 
 **Not done / unverified.** Medium and high: their values are scaled from low, **unverified on target hardware**;
 shares only were not re-run at them (the 46e.14a reading stands). Motion is unseen beyond stills a second apart: no
