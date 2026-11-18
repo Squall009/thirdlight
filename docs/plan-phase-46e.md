@@ -3289,7 +3289,7 @@ unlimited-reach reference of 512 rays and 6 bounces, `reach-ref.json`), `Q2-128-
 
 The coarse levels past the reach take the dark cells to the truth but lose a quarter of everything else (a coarse cell
 by the ground holds its bounce, not the sky beyond): off. 48 m is the nearer (not resolved in cost by one run), but it
-doubles the reach every edit restarts (unmeasured here): low keeps 24 m, medium and high take 48 m.
+doubles the reach every edit restarts (unmeasured here): 24 m kept at every tier.
 
 | 128, the room and the street | blotch at 10 s, 60 s (room; street) | Play → every brick refined |
 |---|---|---|
@@ -3828,17 +3828,18 @@ night cameras' brightness from run to run (D723). The per-pixel read (D705) and 
   lamp's reach a brick restarts to 2 updates (the lamp-lit room's lamp off settles in 2.7 s against 9.5–9.7; 4 read
   4.0 s), within its reach to the settle count 8.
 - 2026-11-18 (46e.14b, default chosen, owner to confirm): **the live light's share** 3.5 ms at 30 Hz (0.105 of the
-  frame) and **its idle share** 1.75 ms (0.0525), at every tier as shares of its frame: set from the measured row on
-  the orbit (its own stamps read 1.1–1.7× short), not the row less the shadow maps.
+  frame) and **its idle share** 1.75 ms (0.0525) at low: set from the measured row on the orbit (its own stamps read
+  1.1–1.7× short), not the row less the shadow maps; medium and high keep 0.18 and 0.09 of their 60 Hz frame
+  (unverified: at low's share a high frame's 1.75 ms held the update to one brick a frame in the Play test, below).
 - 2026-11-18 (46e.14b, default chosen, owner to confirm): **lamp lists** hold the lamps that can light a brick (a
   spot's cone, an area light's front), less the weakest while under 2 % of its lamp light; **16 entries** at low and
   medium, 24 at high (unverified).
-- 2026-11-18 (46e.14b, default chosen, owner to confirm): **the reach** 24 m (sun 48 m) at low, 48 m at medium, 48 m
-  (sun 96 m) at high (unverified): 48 m brings the dark rooms nearer the truth (1.28 × against 1.65 ×) at twice the
-  bricks an edit restarts; the coarse levels past the reach are off (they lose a quarter of the light elsewhere).
-- 2026-11-18 (46e.14b, default chosen, owner to confirm): **rays, settle and history**: 4 rays a face, 8 updates to
-  settle, 64 refined at low and medium; high 8 rays and 128 (unverified). 32 refined in half the time and ended
-  blotchier.
+- 2026-11-18 (46e.14b, default chosen, owner to confirm): **the reach** 24 m (sun 48 m) at every tier: 48 m brings
+  the dark rooms nearer the truth (1.28 × against 1.65 ×) at twice the bricks an edit restarts, not measured where it
+  would run; the coarse levels past the reach are off (they lose a quarter of the light elsewhere).
+- 2026-11-18 (46e.14b, default chosen, owner to confirm): **rays, settle and history**: 4 rays a face and 8 updates to
+  settle at every tier; 64 refined at low and medium, 128 at high (idle time only; unverified). 32 refined in half
+  the time and ended blotchier.
 - 2026-11-18 (46e.14b, default chosen, owner to confirm): **the level-0 window** ±48 m at every tier (±32 m was not
   cheaper on the orbit and lost level 0 at a high view); **the light volume's memory row** 36 MiB at low and medium,
   48 at high; **the default path's rows** sun field 64 MiB, walk 16 MiB (GPU), region stitch 8 MiB (page).
