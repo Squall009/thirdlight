@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MATERIAL_BITS, SHADER_CONSTRUCTION_BIT, shaderGridSide, WETNESS_MAX } from '@thirdlight/voxel';
 
-import { AXIS_PROJECTION_LEVEL, voxelDrawPath, voxelLightStoreFromUrl, voxelPathsFromUrl } from './voxel-surface-path';
+import { LIGHTING_TIERS, LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
+import { AXIS_PROJECTION_LEVEL, LightStoreChoice, voxelDrawPath, voxelLightStoreFor, voxelLightStoreFromUrl, voxelPathsFromUrl } from './voxel-surface-path';
 
 const side = shaderGridSide(32);
 const grid = (fill: (i: number) => number): Uint16Array => Uint16Array.from({ length: side ** 3 }, (_, i) => fill(i));
@@ -32,9 +33,28 @@ describe('a voxel draw\'s path', () => {
     expect(voxelPathsFromUrl('?voxelPaths=full')).toBe(false);
   });
 
-  it('lights voxel worlds by the volume only when the page asks for it; the removed stores and anything else are off', () => {
-    expect(voxelLightStoreFromUrl('')).toBe('off');
+  it("lights voxel worlds as the tier says on WebGPU, never by the volume on WebGL 2, and the query's store over both", () => {
+    expect(voxelLightStoreFromUrl('')).toBe(null);
     expect(voxelLightStoreFromUrl('?voxelLight=volume')).toBe('volume');
-    for (const v of ['off', 'cache', 'hybrid', 'Volume', '']) expect(voxelLightStoreFromUrl(`?voxelLight=${v}`)).toBe('off');
+    expect(voxelLightStoreFromUrl('?voxelLight=off')).toBe('off');
+    for (const v of ['cache', 'hybrid', 'Volume', '']) expect(voxelLightStoreFromUrl(`?voxelLight=${v}`)).toBe(null);
+    for (const tier of LIGHTING_TIERS) {
+      const on = LIGHTING_TIER_SETTINGS[tier].voxelLightVolume.enabled;
+      expect(voxelLightStoreFor(null, on, true)).toBe(on ? 'volume' : 'off');
+      expect(voxelLightStoreFor(null, on, false)).toBe('off');
+      expect(voxelLightStoreFor('off', on, true)).toBe('off');
+      expect(voxelLightStoreFor('volume', on, true)).toBe('volume');
+    }
+  });
+
+  it("follows the tier each frame until a bench sets a store; the query's store stays", () => {
+    const tier = new LightStoreChoice(null);
+    expect(tier.next({ tierOn: true, webgpu: true })).toBe('volume');
+    expect(tier.next({ tierOn: false, webgpu: true })).toBe('off');
+    expect(tier.next({ tierOn: true, webgpu: false })).toBe('off');
+    expect(tier.next('volume')).toBe('volume');
+    expect(tier.next({ tierOn: false, webgpu: true })).toBe(null);
+    const query = new LightStoreChoice('off');
+    expect(query.next({ tierOn: true, webgpu: true })).toBe('off');
   });
 });

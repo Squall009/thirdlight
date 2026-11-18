@@ -43,7 +43,7 @@ import { VOXEL_SIZE_M, type FloatingOrigin } from '@thirdlight/voxel';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { disposeObjectTree } from './dispose';
 import { applyObjectDecalLayers } from './projected-decals';
-import { PieceDraw } from './voxel-piece-draw';
+import { PieceDraw, VOXEL_KIT_PIECE_KEY } from './voxel-piece-draw';
 import { TRIM_RUN_ATTRIBUTE } from './voxel-trim-u';
 import { CullView, maxScaleOf, SphereSide } from './view-cull';
 import { STATIC_CASTER_KEY } from './shadow-casters';
@@ -309,7 +309,7 @@ export class VoxelPieceBatches {
     mesh.castShadow = mesh.receiveShadow = this.shadows;
     if (this.staticCasters) mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.renderOrder = PIECE_RENDER_ORDER;
-    mesh.userData['voxelKitPiece'] = true;
+    mesh.userData[VOXEL_KIT_PIECE_KEY] = true;
     // What it draws: the kind's own mesh (the draw's geometry shares its attributes) and whether that is a trim run's.
     mesh.userData[PIECE_SOURCE_KEY] = b.kind.geometry;
     if (b.kind.geometry.getAttribute(TRIM_RUN_ATTRIBUTE) !== undefined) mesh.userData['voxelTrimGeometry'] = true;

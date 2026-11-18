@@ -34,7 +34,7 @@ import { registerLayeredLights } from './light-layers';
 import { registerScreenSpaceOcclusion } from './post-ao';
 import { registerContactShadows } from './post-contact-shadows';
 import { registerSunField } from './voxel-sun-field';
-import { registerVoxelLightVolume } from './voxel-light-volume';
+import { registerVoxelLightVolume } from './voxel-light-volume-read';
 import { registerReflections } from './post-reflections';
 import { registerProbeLighting } from './probe-lighting';
 import { registerClusterHeat } from './cluster-heat';

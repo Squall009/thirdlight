@@ -732,7 +732,7 @@ function voxelLightHooks(draws: VoxelWorldDraws, adapter: () => SceneAdapter | n
       const changed = draws.setMaterials(next);
       return { changed, volume: draws.lightVolume()?.diagnostics()['looksChanged'] ?? null };
     },
-    store: () => draws.lightStore,
+    store: () => draws.lightStore.current,
     /**
      * The texture-unit guard's record from now on: the device's limit, the programs refused, and each program seen
      * (material, its sampled fragment textures by name, admitted or not). Null: no guard on this renderer.
@@ -800,7 +800,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
   const draws = new VoxelWorldDraws({
     // Play and exports draw voxel worlds with shadows: cast and received as static casters of the scene's cached maps.
     shadows: true,
-    // Their near surfaces are lit by the page's lighting store (`?voxelLight=`; off by default).
+    // Their near surfaces are lit by the page's lighting store (the level's tier's; `?voxelLight=off|volume` overrides).
     lighting: true,
     kits: kitMeshes.world(kits.records, kits.seed),
     // The worlds' material tables from the build's material records.

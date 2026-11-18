@@ -84,7 +84,7 @@ import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRec
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from './voxel-surface';
-import { voxelLightStoreFromUrl, voxelPathsFromUrl, voxelShadowsFromUrl, voxelSunFromUrl, type VoxelLightStore } from './voxel-surface-path';
+import { LightStoreChoice, voxelLightStoreFromUrl, voxelPathsFromUrl, voxelShadowsFromUrl, voxelSunFromUrl, type VoxelLightStore } from './voxel-surface-path';
 import { SunFieldHost, type SunFieldRenderer } from './voxel-sun-field';
 import { sceneShadowsOf, type SceneShadowLink } from './shadow-casters';
 import { farFeedbackFromUrl } from './voxel-far-feedback';
@@ -96,7 +96,7 @@ import { gpuPassHides } from './gpu-pass-hides';
 import { fineDeviceOf } from './voxel-fine-bricks';
 import { VoxelWalkGpu } from './voxel-walk-gpu';
 import { VoxelLightVolume, type VolumeDevice } from './voxel-light-volume';
-import { volumeReadLevelCount } from './voxel-light-volume-layout';
+import { volumeReadFlag } from './voxel-light-volume-layout';
 import type { RegionTextureRenderer } from './region-texture';
 import { SURFACE_READ_URL_PARAM } from './adapter-surface-light';
 
@@ -308,8 +308,8 @@ export class VoxelWorldDraws {
   private readonly walks = new Map<string, VoxelWalkGpu>();
   /** Each world's sky heights by chunk column, as the batches bring them (every renderer: plain arrays). */
   private readonly skies = new Map<string, SkyColumns>();
-  /** The page's lighting store. */
-  lightStore: VoxelLightStore;
+  /** The page's lighting store: the query's, a bench's, or the level's tier's. */
+  readonly lightStore: LightStoreChoice;
   /** The scene shadow link whose ground this page tells (taken back on dispose). */
   private groundLink: SceneShadowLink | null = null;
   private readonly ground = (x: number, z: number): number | null => this.groundAt(x, z);
@@ -325,8 +325,8 @@ export class VoxelWorldDraws {
   private storeRead: (() => void) | null = null;
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
-    this.lightStore = opts.lighting === true ? voxelLightStoreFromUrl(pageSearch()) : 'off';
-    if (this.lightStore === 'volume') this.storeRead = this.readWalk();
+    this.lightStore = new LightStoreChoice(opts.lighting === true ? voxelLightStoreFromUrl(pageSearch()) : null);
+    if (this.lightStore.query !== null) this.setLightStore({ tierOn: false, webgpu: false });
     this.unregister.push(
       gpuPassHides.register({ category: 'near', name: 'voxel near surfaces and kit pieces', present: () => [...this.worlds.values()].some((w) => w.view.count > 0), hide: (h) => this.showNear(!h) }),
       gpuPassHides.register({ category: 'far', name: 'voxel far field', present: () => [...this.worlds.values()].some((w) => w.view.far.nodes > 0), hide: (h) => this.showFar(!h) }),
@@ -577,7 +577,12 @@ export class VoxelWorldDraws {
 
   /** With the volume as the store: the volume made once a world walks on the GPU, and its frame's share. */
   private volumeFrame(): void {
-    if (this.lightStore !== 'volume' || this.opts.lighting !== true) return;
+    if (this.opts.lighting !== true) return;
+    // The level's tier decides, each frame (the level may change); a page without a level is lit as the volume's own
+    // settings read it (the low tier's).
+    const r = this.opts.renderer();
+    if (r !== null) this.setLightStore({ tierOn: levelLighting(this.opts.residency?.level() ?? { lighting: 'low' }).voxelLightVolume.enabled, webgpu: fineDeviceOf(r) !== null });
+    if (this.lightStore.current !== 'volume') return;
     if (this.volume === null) {
       const world = [...this.walks.keys()][0];
       const renderer = this.opts.renderer();
@@ -586,7 +591,7 @@ export class VoxelWorldDraws {
       if (world === undefined || renderer === null || scene === null || device === null || this.walks.get(world)!.buffers() === null) return;
       this.volumeWorld = world;
       const readFlag = new URLSearchParams(pageSearch()).get(SURFACE_READ_URL_PARAM);
-      this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), lamps: () => this.opts.lamps?.() ?? null, read: readFlag !== '0', readLevels: volumeReadLevelCount(readFlag) });
+      this.volume = new VoxelLightVolume({ scene, renderer: renderer as unknown as RegionTextureRenderer, device: device as VolumeDevice, walk: () => this.walks.get(world) ?? null, level: () => this.opts.residency?.level() ?? null, look: (m) => this.looks(m), ground: (x, z) => this.groundAt(x, z), lamps: () => this.opts.lamps?.() ?? null, readFlag: volumeReadFlag(readFlag) });
       // The grids of chunks drawn before it came are not at hand: their bricks bounce the default grey until drawn again.
       this.volumeBounce();
     }
@@ -707,12 +712,13 @@ export class VoxelWorldDraws {
   }
 
   /**
-   * The lighting store from now on (the page's query sets the first; a bench or a check compares the stores on one
-   * page without loading it again).
+   * The lighting store from now on: one a bench or a check names (it compares the stores on one page without loading
+   * it again; the tier no longer decides), or the tier's (each frame, unless the page's query or a bench named one).
    */
-  setLightStore(store: VoxelLightStore): void {
-    if (this.opts.lighting !== true || store === this.lightStore) return;
-    this.lightStore = store;
+  setLightStore(choice: VoxelLightStore | { tierOn: boolean; webgpu: boolean }): void {
+    const store = this.lightStore.next(choice);
+    if (this.opts.lighting !== true || store === null || store === this.lightStore.current) return;
+    this.lightStore.current = store;
     if (store === 'volume') this.storeRead ??= this.readWalk();
     else {
       this.dropVolume();

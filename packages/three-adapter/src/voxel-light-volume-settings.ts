@@ -11,7 +11,7 @@ export type VolumeSettings = { readonly [K in keyof VoxelLightVolumeSettings]: n
 
 /** A tier's settings as the volume reads them (its switches as 0 or 1). */
 export function volumeSettingsOf(v: VoxelLightVolumeSettings): VolumeSettings {
-  return { ...v, reachCoarse: v.reachCoarse ? 1 : 0 };
+  return { ...v, reachCoarse: v.reachCoarse ? 1 : 0, enabled: v.enabled ? 1 : 0 };
 }
 
 /** The page flag naming values laid over the settings. */

@@ -81,32 +81,31 @@ import { gpuPassBudgetMs, gpuPassIdleBudgetMs, levelFrameBudget, MEMORY_BUDGET_B
 import { VOXEL_SIZE_M, type WalkBlockView, type WalkBlockWire, type WalkTable } from '@thirdlight/voxel';
 
 import type { N } from './effects-tsl';
-import { TSL_SCALAR_OPS } from './field-ops';
 import { CameraWindow } from './camera-window';
 import { gpuPassHides } from './gpu-pass-hides';
 import { gpuTextureOf, uploadTextureRegion, type RegionTextureRenderer } from './region-texture';
-import { KEPT_IRRADIANCE, isProbeHeld, markProbeHeld } from './probe-lighting';
+import { isProbeHeld, markProbeHeld } from './probe-lighting';
 import { SkyProbe } from './surface-probe-sky';
 import { BOUNCE_ALBEDO, SH_E0, SH_E1 } from './surface-probes';
 import { VolumeBounceSource, VolumeColourCache, volumeCellColour, volumeCellGlow, volumeColourRgb, volumeMaterialBricks, type VolumeBounceMeans } from './voxel-light-volume-colours';
 import { VolumeLookWatch } from './voxel-light-volume-looks';
 import { volumeReferenceFace, volumeRoomCells, type VolumeCheckCell, type VolumeLightWorld, type VolumeReferenceCounts } from './voxel-light-volume-reference';
-import { texelTexture } from './texel-texture-node';
 import type { VoxelMaterialLook } from './voxel-surface';
 import type { VoxelWalkGpu } from './voxel-walk-gpu';
 import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer, type GpuEncoder, type GpuTexture } from './tracer-gpu';
 import type { ClusterLights } from './cluster-build';
 import { NO_VOLUME_LAMPS, VolumeLampLists, volumeLampSet, volumeLampSetWithGlow, type VolumeLampListCounts, type VolumeLampListJob, type VolumeLampSet } from './voxel-light-volume-lamps';
-import { ambientCubeSteps, VOLUME_ALBEDO_WIDTH, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_BRICKS_PER_ROW, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_GLOW_EMITTER, volumeBlendWeight, volumeFilterShare, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_READ_OFFSET_CELLS, VOLUME_WINDOW_BRICKS, VOLUME_WORD, volumeBlockBrick, volumeBlockBricks, volumeBrickKey, volumeBrickLamps, volumeCellM, volumeChangedBricks, volumeDecode, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumePoolTexel, VOLUME_READ_KEY, volumeMarkBoxes, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { VOLUME_ALBEDO_WIDTH, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_BRICKS_PER_ROW, VOLUME_FACES, VOLUME_GLOW_EMITTER, volumeBlendWeight, volumeFilterShare, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKey, volumeBrickLamps, volumeCellM, volumeChangedBricks, volumeDecode, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumePoolTexel, volumeMarkBoxes, type VolumeBlockBricks, type VolumeReadFlag } from './voxel-light-volume-layout';
 import { VolumePacing } from './voxel-light-volume-pacing';
 import { VolumeIndexRows, VolumeRefiner, volumeNearestFirst } from './voxel-light-volume-refine';
 import { VolumeHistory, VolumePendingChanges } from './voxel-light-volume-changes';
 import { followCutUpdates, followWeight, VolumeFollow, VolumeSunSkyWatch, type VolumeLightChange } from './voxel-light-volume-follow';
 import { VolumeTuning, type VolumeSettings } from './voxel-light-volume-settings';
+import { VoxelVolumeLight } from './voxel-light-volume-read';
 import { VOLUME_LIST_WORDS, VOLUME_PARAM_COARSE, VOLUME_PARAM_FLOATS, volumeUpdateWgsl } from './voxel-light-volume-wgsl';
 
 const TSL: N = TSLTyped;
-const { If, float, int, ivec2, luminance, max, mix, normalWorld, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, uint, uniform, vec3 } = TSL;
+const { renderGroup, uniform } = TSL;
 
 /** Bricks an update a frame before the pass's cost is known. */
 const START_BRICKS = 32;
@@ -160,10 +159,8 @@ export interface VoxelLightVolumeDeps {
   ground(x: number, z: number): number | null;
   /** The page's lamps as the clustered lights gathered them last (absent or null: none). */
   lamps?(): ClusterLights | null;
-  /** False: the volume is lit but no surface reads it (`?surfaceRead=0`, a comparison of what reading costs and changes). */
-  readonly read?: boolean;
-  /** The levels the surfaces read, finest first (absent: every level; `volumeReadLevelCount` of the page's flag). */
-  readonly readLevels?: number;
+  /** What the surfaces' read does (absent: all of it; the page's `surfaceRead` flag, a comparison of what reading costs and changes). */
+  readonly readFlag?: VolumeReadFlag;
 }
 
 
@@ -317,7 +314,7 @@ export class VoxelLightVolume {
     // The settle count is the tier's at the volume's start (a brick's history is counted in its updates).
     this.history = new VolumeHistory<Brick>(start.settleUpdates, CHANGES_CONTINUE_FRAMES, (b) => this.markStale(b));
     this.gpu = new VolumeGpu(deps.device, deps.renderer, this.slotBudget(start.listEntries), start.listEntries);
-    this.light = new VoxelVolumeLight(this.gpu, deps.read !== false, deps.readLevels ?? VOLUME_LEVELS);
+    this.light = new VoxelVolumeLight(this.gpu, deps.readFlag);
     // What the looks give the volume now: a later record edit is held against it.
     this.looksChanged();
     // The held lights are marked before the light joins: the programs its joining builds again take them as held.
@@ -513,6 +510,7 @@ export class VoxelLightVolume {
     }
     this.look(more);
     if (this.light.read) this.holdAmbient();
+    this.light.faceFloor.value = this.tuning.at(this.deps.level()).readFaceFloor;
     this.lights();
     this.history.frame(this.frames);
     if (this.lightFollow.frame(this.frames)) {
@@ -929,6 +927,8 @@ export class VoxelLightVolume {
       following: this.lightFollow.following,
       lightChanges: this.sunSky.counts,
       followWindow: this.tuning.at(this.deps.level()).followWindow,
+      // What the surfaces' read does (the page's comparison flag, proven by what a bench reads back here) and its face floor.
+      read: { ...this.light.flag, faceFloor: this.tuning.at(this.deps.level()).readFaceFloor },
       refining: this.refiner.ordered,
       lamps: this.lamps.count,
       // Where a hit has no list (no kept brick of any level holds it with one: it loops over the whole table): past every
@@ -1383,150 +1383,3 @@ function uintTexture(width: number, height: number, name: string): THREE.Storage
   t.name = name;
   return t;
 }
-
-// ---------------------------------------------------------------------------------------------------------------
-// The read
-
-/** The volume as a light of the scene: lit programs find its node among their lights (and are built again when it comes). */
-export class VoxelVolumeLight extends THREE.Light {
-  readonly isVoxelLightVolume = true;
-  /** The eye of the last frame drawn (world metres; NaN before one) and the way it looks (unit). */
-  readonly eye = [NaN, NaN, NaN];
-  readonly forward = [0, 0, -1];
-  constructor(readonly gpu: VolumeGpu, readonly read: boolean, readonly readLevels: number = VOLUME_LEVELS) {
-    super(0xffffff, 0);
-    this.name = 'voxel light volume';
-  }
-}
-
-/** The light node of {@link VoxelVolumeLight}: the voxel surfaces' read, built after every light the volume does not hold. */
-class VoxelVolumeLightNode extends (THREE.Node as unknown as new () => { updateType: string; [k: string]: unknown }) {
-  static get type(): string {
-    return 'VoxelVolumeLightNode';
-  }
-  readonly isVoxelLightVolumeNode = true;
-  private readonly pool: N;
-  private readonly index: N;
-
-  constructor(readonly light: VoxelVolumeLight) {
-    super();
-    this.pool = texelTexture(light.gpu.pool);
-    this.index = texelTexture(light.gpu.indexTex);
-    this.updateType = TSL.NodeUpdateType.RENDER;
-  }
-
-  update(frame: { camera?: THREE.Camera | null }): void {
-    const c = frame.camera;
-    if (c === null || c === undefined) return;
-    const e = this.light.eye;
-    e[0] = c.matrixWorld.elements[12]!;
-    e[1] = c.matrixWorld.elements[13]!;
-    e[2] = c.matrixWorld.elements[14]!;
-    const m = c.matrixWorld.elements;
-    const len = Math.hypot(m[8]!, m[9]!, m[10]!) || 1;
-    this.light.forward[0] = -m[8]! / len;
-    this.light.forward[1] = -m[9]! / len;
-    this.light.forward[2] = -m[10]! / len;
-  }
-
-  setup(builder: N): void {
-    const m = builder.material as { userData?: Record<string, unknown> } | undefined;
-    // Every lit draw reads it (voxel surfaces, kit pieces, props, moving objects: one light for all) but one that says
-    // not to: a screen-space shade whose pixel is not its geometry's (the far field's).
-    if (!this.light.read || m?.userData?.[VOLUME_READ_KEY] === false || builder.renderer?.backend?.isWebGPUBackend !== true) return;
-    const ctx = builder.context;
-    const r = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, positionWorld, normalWorldGeometry.normalize(), normalWorld, this.light.readLevels);
-    const w = r.weight;
-    const replaced = ctx.irradiance.sub(KEPT_IRRADIANCE).add(ctx.iblIrradiance);
-    const darker = luminance(r.light).div(max(luminance(replaced), float(1e-4))).clamp(0, 1);
-    ctx.radiance.mulAssign(mix(float(1), darker, w));
-    ctx.irradiance.assign(mix(ctx.irradiance, KEPT_IRRADIANCE.add(r.light), w));
-    ctx.iblIrradiance.mulAssign(w.oneMinus());
-  }
-}
-
-/** A pool word's light (TSL; the CPU twin is `volumeDecode`). */
-function decodeNode(w: N): N {
-  const scale = TSL.exp2(float(w.shiftRight(uint(27))).sub(VOLUME_WORD.expBias + VOLUME_WORD.mantissaBits));
-  return vec3(float(w.bitAnd(uint(511))), float(w.shiftRight(uint(9)).bitAnd(uint(511))), float(w.shiftRight(uint(18)).bitAnd(uint(511)))).mul(scale);
-}
-
-/**
- * The surfaces' read of one level (TSL; the CPU reference is `volumeReadAt`): the light at `p` facing `n`, from the
- * eight cells of the level round the point half a cell off it along `ng`, and the weight of those holding light.
- */
-function volumeRead(level: number, pool: N, index: N, origin: N, p: N, ng: N, n: N): { light: N; weight: N } {
-  const cellM = volumeCellM(level);
-  const win = VOLUME_LEVEL_WINDOWS[level]!;
-  const tag = `tlVolume${level}`;
-  const g = p.add(ng.mul(VOLUME_READ_OFFSET_CELLS * cellM)).div(cellM).sub(0.5);
-  const i0 = g.floor().toVar(`${tag}Cell`);
-  const f = g.sub(i0).toVar(`${tag}Frac`);
-  const sum = vec3(0).toVar(`${tag}Sum`);
-  const ws = float(0).toVar(`${tag}Weights`);
-  const dims = vec3(win[0], win[1], win[2]);
-  const fx = select(n.x.lessThan(0), uint(1), uint(0));
-  const fy = select(n.y.lessThan(0), uint(3), uint(2));
-  const fz = select(n.z.lessThan(0), uint(5), uint(4));
-  const word = (base: N, face: N): N => {
-    const i = base.add(face);
-    return pool.load(ivec2(int(i.mod(uint(VOLUME_POOL_WIDTH))), int(i.div(uint(VOLUME_POOL_WIDTH))))).x;
-  };
-  for (let k = 0; k < 8; k++) {
-    const pick = (a: 'x' | 'y' | 'z', bit: number): N => (((k >> bit) & 1) === 1 ? f[a] : f[a].oneMinus());
-    const w = pick('x', 0).mul(pick('y', 1)).mul(pick('z', 2));
-    If(w.greaterThan(1e-4), () => {
-      const c = i0.add(vec3((k >> 0) & 1, (k >> 1) & 1, (k >> 2) & 1));
-      const b = c.div(4).floor();
-      const inside = b.greaterThanEqual(origin).all().and(b.lessThan(origin.add(dims)).all());
-      If(inside, () => {
-        const s = b.sub(dims.mul(b.div(dims).floor()));
-        const slot = index.load(ivec2(int(s.x.add(s.z.mul(win[0]))), int(s.y).add(VOLUME_INDEX_ROW_BASE[level]!))).x;
-        If(slot.greaterThan(uint(0)), () => {
-          const l = c.sub(b.mul(4));
-          const local = uint(l.x.add(l.y.mul(4)).add(l.z.mul(16)));
-          const base = slot.sub(uint(1)).mul(uint(VOLUME_BRICK_TEXELS)).add(local.mul(uint(VOLUME_FACES))).toVar();
-          const wx = word(base, fx).toVar();
-          If(wx.notEqual(uint(0)), () => {
-            const lx = decodeNode(wx);
-            const ly = decodeNode(word(base, fy));
-            const lz = decodeNode(word(base, fz));
-            const e = ambientCubeSteps(TSL_SCALAR_OPS, n.x, n.y, n.z, [lx, lx, ly, ly, lz, lz]);
-            sum.addAssign(e.mul(w));
-            ws.addAssign(w);
-          });
-        });
-      });
-    });
-  }
-  return { light: sum.div(max(ws, float(1e-4))), weight: ws };
-}
-
-/**
- * The read over the levels (TSL; the CPU reference is `volumeReadLevels`): level 0, then each coarser level for what the
- * finer ones left (a level takes the smooth step of its weight to {@link VOLUME_FULL_WEIGHT} of what is left; a coarse
- * level is not read once less than {@link VOLUME_LEFT_MIN} is left, so a surface beside its 0.5 m cells reads only them).
- * Returns the light and the weight it holds (0: no level holds light here; the flat term stays).
- */
-function volumeReadLevels(pool: N, index: N, origins: readonly N[], p: N, ng: N, n: N, levels: number): { light: N; weight: N } {
-  const acc = vec3(0).toVar('tlVolumeLight');
-  const left = float(1).toVar('tlVolumeLeft');
-  for (let level = 0; level < Math.min(levels, VOLUME_LEVELS); level++) {
-    const read = (): void => {
-      const r = volumeRead(level, pool, index, origins[level]!, p, ng, n);
-      const a = smoothstep(float(0), float(VOLUME_FULL_WEIGHT), r.weight);
-      acc.addAssign(r.light.mul(a.mul(left)));
-      left.mulAssign(a.oneMinus());
-    };
-    if (level === 0) read();
-    else If(left.greaterThan(VOLUME_LEFT_MIN), read);
-  }
-  const weight = left.oneMinus().toVar('tlVolumeWeight');
-  return { light: acc.div(max(weight, float(1e-4))), weight };
-}
-
-/** Teach a renderer the volume's light. */
-export function registerVoxelLightVolume(): void {
-  VoxelVolumeLight.registerNode(VoxelVolumeLightNode as never);
-}
-

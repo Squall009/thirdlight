@@ -12,7 +12,7 @@ import { applyWalkWires, OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView
 
 import { ClusterLights } from './cluster-build';
 import { volumeLampSet } from './voxel-light-volume-lamps';
-import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, volumeLampReaches, volumeLampFacesBrick, VOLUME_LAMP_NEGLIGIBLE, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevelCount, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, volumeLampReaches, volumeLampFacesBrick, VOLUME_LAMP_NEGLIGIBLE, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadFlag, volumeReadLevels, VOLUME_READ_KINDS, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
 
 /** A cached brick lookup over a walk source's level-0 blocks (as the volume keeps them). */
 function brickLookup(tsrc: WalkSource): (bx: number, by: number, bz: number) => VolumeBlockBricks | null {
@@ -345,6 +345,121 @@ describe('the light volume layout', () => {
   });
 });
 
+describe("the surfaces' read with fewer faces (the face floor)", () => {
+  // Cells of the town scrap holding light (open, a solid cell across a face), each face a light of its own.
+  const holds = (x: number, y: number, z: number): boolean => !townCell(x, y, z) && (townCell(x + 1, y, z) || townCell(x - 1, y, z) || townCell(x, y + 1, z) || townCell(x, y - 1, z) || townCell(x, y, z + 1) || townCell(x, y, z - 1));
+  const hash = (x: number, y: number, z: number, f: number): number => {
+    let h = Math.imul(x * 73856093 ^ y * 19349663 ^ z * 83492791 ^ f * 2654435761, 2246822519) >>> 0;
+    h ^= h >>> 13;
+    return ((Math.imul(h, 3266489917) >>> 0) / 2 ** 32) * 4;
+  };
+  const faces = (x: number, y: number, z: number): number[][] | null => (holds(x, y, z) ? Array.from({ length: 6 }, (_, f) => [hash(x, y, z, f), hash(x, y, z, f + 6), hash(x, y, z, f + 12)]) : null);
+  /** The read as first built: every face toward the normal by the ambient cube's n² (the reference the cheaper read is held to). */
+  const fullRead = (p: readonly number[], n: readonly number[]): { light: number[]; weight: number; spread: number } => {
+    const g = [0, 1, 2].map((a) => (p[a]! + n[a]! * 0.5 * 0.5) / 0.5 - 0.5);
+    const i0 = g.map(Math.floor);
+    const f = g.map((v, a) => v - i0[a]!);
+    const sum = [0, 0, 0];
+    let ws = 0;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < 8; k++) {
+      const c = [0, 1, 2].map((a) => i0[a]! + ((k >> a) & 1));
+      const w = [0, 1, 2].reduce((acc, a) => acc * (((k >> a) & 1) === 1 ? f[a]! : 1 - f[a]!), 1);
+      const fc = w > 0 ? faces(c[0]!, c[1]!, c[2]!) : null;
+      if (fc === null) continue;
+      for (let ch = 0; ch < 3; ch++) {
+        sum[ch]! += w * ambientCubeSteps(CPU_SCALAR_OPS, n[0]!, n[1]!, n[2]!, [fc[0]![ch]!, fc[1]![ch]!, fc[2]![ch]!, fc[3]![ch]!, fc[4]![ch]!, fc[5]![ch]!]);
+        for (const face of fc) {
+          lo = Math.min(lo, face[ch]!);
+          hi = Math.max(hi, face[ch]!);
+        }
+      }
+      ws += w;
+    }
+    return { light: sum.map((v) => (ws > 0 ? v / ws : 0)), weight: ws, spread: ws > 0 ? hi - lo : 0 };
+  };
+  // Points on the scrap's surfaces: the face between a solid cell and an open one holding light, anywhere across it.
+  const points: { p: number[]; n: number[] }[] = [];
+  let seed = 11;
+  const rnd = (): number => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32;
+  for (let x = -30; x < 32 && points.length < 3000; x += 2) for (let z = -22; z < 34; z += 2) for (let y = -4; y < 17; y++) {
+    if (!holds(x, y, z)) continue;
+    for (let a = 0; a < 3; a++) for (const sgn of [1, -1]) {
+      const c = [x, y, z];
+      c[a]! -= sgn;
+      if (!townCell(c[0]!, c[1]!, c[2]!)) continue;
+      const p = [0, 1, 2].map((b) => (b === a ? (sgn > 0 ? [x, y, z][b]! : [x, y, z][b]! + 1) : [x, y, z][b]! + rnd()) * 0.5);
+      const n = [0, 0, 0];
+      n[a] = sgn;
+      points.push({ p, n });
+    }
+  }
+
+  it('on an axis face it reads one face a cell and gives the full read exactly, at any floor', () => {
+    expect(points.length).toBeGreaterThanOrEqual(2000);
+    for (const floor of [0, 0.1, 0.2, 0.3]) for (const { p, n } of points) {
+      const full = fullRead(p, n);
+      const r = volumeReadAt(p, n, 0.5, faces, CPU_SCALAR_OPS, floor);
+      expect(r.weight).toBe(full.weight);
+      for (let ch = 0; ch < 3; ch++) expect(r.light[ch]).toBeCloseTo(full.light[ch]!, 12);
+    }
+  });
+
+  it('on a slope or a normal-mapped face: at a floor of 0 the full read; above it within (3 t / (1 − 3 t)) of the faces\' spread', () => {
+    const worst: Record<number, number> = {};
+    const mean: Record<number, number> = {};
+    let n0 = 0;
+    for (const floor of [0, 0.05, 0.1, 0.2]) {
+      let sum = 0;
+      let count = 0;
+      worst[floor] = 0;
+      for (const { p, n: axis } of points) {
+        // A normal up to 70° off the face's, every way round it (a normal map's, a slope's, a kit piece's).
+        const v = axis.map((c) => c + (rnd() * 2 - 1) * 1.4);
+        const l = Math.hypot(v[0]!, v[1]!, v[2]!);
+        const n = v.map((c) => c / l);
+        const full = fullRead(p, n);
+        if (full.weight === 0) continue;
+        const r = volumeReadAt(p, n, 0.5, faces, CPU_SCALAR_OPS, floor);
+        expect(r.weight).toBeCloseTo(full.weight, 12);
+        const bound = floor === 0 ? 1e-9 : ((3 * floor) / (1 - 3 * floor)) * full.spread + 1e-9;
+        for (let ch = 0; ch < 3; ch++) {
+          const d = Math.abs(r.light[ch]! - full.light[ch]!);
+          expect(d).toBeLessThanOrEqual(bound);
+          worst[floor] = Math.max(worst[floor]!, d / Math.max(full.spread, 1e-9));
+          sum += d / Math.max(full.light[ch]!, 1e-3);
+          count++;
+        }
+      }
+      mean[floor] = sum / count;
+      n0 = count / 3;
+    }
+    expect(n0).toBeGreaterThanOrEqual(2000);
+    console.log(`[face floor] ${n0} slope points: mean relative error ${Object.entries(mean).map(([t, m]) => `${t}: ${(m * 100).toFixed(2)} %`).join(', ')}; worst over the spread ${Object.entries(worst).map(([t, m]) => `${t}: ${m.toFixed(3)}`).join(', ')}`);
+  });
+
+  it('keeps the leak rule: a wall 0.5 m thick keeps 1 and 100 apart at any floor and any normal on its face', () => {
+    const solid = (x: number, y: number): boolean => x === 10 || y < 0;
+    const wallFaces = (x: number, y: number): number[][] | null => {
+      if (solid(x, y) || !(solid(x + 1, y) || solid(x - 1, y) || solid(x, y - 1))) return null;
+      const v = x < 10 ? 1 : 100;
+      return Array.from({ length: 6 }, () => [v, v, v]);
+    };
+    for (const floor of [0, 0.1, 0.3]) for (let k = 0; k < 400; k++) {
+      const v = [-1 + (rnd() * 2 - 1) * 0.9, (rnd() * 2 - 1) * 0.9, (rnd() * 2 - 1) * 0.9];
+      const l = Math.hypot(v[0]!, v[1]!, v[2]!);
+      const n = v.map((c) => c / l);
+      // The reader's point steps off along the face's own normal (the geometry's): the room side at x = 5 m.
+      const p = [5, 0.01 + (k % 20) * 0.37, (k * 0.173) % 3];
+      const room = volumeReadAt(p, n, 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, floor);
+      if (room.weight > 0) expect(room.light[0]).toBeCloseTo(1, 9);
+      const street = volumeReadAt([5.5, p[1]!, p[2]!], [-n[0]!, n[1]!, n[2]!], 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, floor);
+      if (street.weight > 0) expect(street.light[0]).toBeCloseTo(100, 9);
+    }
+  });
+});
+
 /** Ground below y 0 (cells), and a closed room: 0.5 m walls round an inside of 16 × 6 × 16 cells (8 × 3 × 8 m) from cell (0, 0, 0). */
 function roomCell(x: number, y: number, z: number): boolean {
   if (y < 0) return true;
@@ -354,12 +469,18 @@ function roomCell(x: number, y: number, z: number): boolean {
   return x === -1 || x === 16 || z === -1 || z === 16 || y === 6;
 }
 
-describe("the surfaces' read levels by the page's flag", () => {
-  it('reads every level unless the flag asks for level 0 alone', () => {
-    expect(volumeReadLevelCount(null)).toBe(VOLUME_LEVELS);
-    expect(volumeReadLevelCount('1')).toBe(VOLUME_LEVELS);
-    expect(volumeReadLevelCount('0')).toBe(VOLUME_LEVELS);
-    expect(volumeReadLevelCount('level0')).toBe(1);
+describe("the surfaces' read by the page's flag", () => {
+  it('reads everything unless the flag names a part, and nothing at 0', () => {
+    const all = VOLUME_READ_KINDS.surface | VOLUME_READ_KINDS.kit | VOLUME_READ_KINDS.prop;
+    expect(volumeReadFlag(null)).toEqual({ read: true, levels: 'all', probe: 'light', allFaces: false, kinds: all });
+    expect(volumeReadFlag('1')).toEqual({ read: true, levels: 'all', probe: 'light', allFaces: false, kinds: all });
+    expect(volumeReadFlag('0').read).toBe(false);
+    expect(volumeReadFlag('level0').levels).toBe('level0');
+    expect(volumeReadFlag('coarse').levels).toBe('coarse');
+    expect(volumeReadFlag('index,allfaces')).toMatchObject({ probe: 'index', allFaces: true });
+    expect(volumeReadFlag('nodecode').probe).toBe('nodecode');
+    expect(volumeReadFlag('kit,prop').kinds).toBe(VOLUME_READ_KINDS.kit | VOLUME_READ_KINDS.prop);
+    expect(volumeReadFlag('surface').kinds).toBe(VOLUME_READ_KINDS.surface);
   });
 });
 

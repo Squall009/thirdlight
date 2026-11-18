@@ -210,8 +210,11 @@ export class PieceDraw implements CullableCopies {
   }
 }
 
+/** `mesh.userData[VOXEL_KIT_PIECE_KEY] === true`: a kit-piece draw. */
+export const VOXEL_KIT_PIECE_KEY = 'voxelKitPiece';
+
 /** Whether `o` is a kit-piece draw (a chunk view's, one a piece kind). */
-export const isPieceDraw = (o: THREE.Object3D): o is THREE.Mesh => (o as THREE.Mesh).isMesh === true && o.userData['voxelKitPiece'] === true;
+export const isPieceDraw = (o: THREE.Object3D): o is THREE.Mesh => (o as THREE.Mesh).isMesh === true && o.userData[VOXEL_KIT_PIECE_KEY] === true;
 
 /** The copies a piece draw draws now (outside a pass: all it holds). */
 export const pieceDrawCopies = (mesh: THREE.Mesh): number => (mesh.geometry as THREE.InstancedBufferGeometry).instanceCount;

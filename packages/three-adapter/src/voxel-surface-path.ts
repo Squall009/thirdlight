@@ -71,17 +71,39 @@ export function voxelSunFromUrl(search: string): boolean {
 
 /**
  * Where a game page's voxel worlds keep their light (the lighting store): `off` draws them as before (sun, shadows and
- * the clustered lights per pixel), `volume` adds sky light and bounce from a voxel light volume. Set by the page's
- * query, `?voxelLight=off|volume`; any other value is `off`.
+ * the clustered lights per pixel), `volume` adds sky light and bounce from a voxel light volume. The level's lighting
+ * tier decides (`voxelLightVolume.enabled`, on WebGPU only); a page's query `?voxelLight=off|volume` overrides it for a
+ * comparison.
  */
 export const VOXEL_LIGHT_URL_PARAM = 'voxelLight';
 export const VOXEL_LIGHT_STORES = ['off', 'volume'] as const;
 export type VoxelLightStore = (typeof VOXEL_LIGHT_STORES)[number];
-/** The store a page without the flag uses (the volume is switched on by the tier once it is tuned). */
-export const VOXEL_LIGHT_STORE_DEFAULT: VoxelLightStore = 'off';
 
-/** The lighting store a page's query names (absent or unknown: the default). */
-export function voxelLightStoreFromUrl(search: string): VoxelLightStore {
+/** The lighting store a page's query names (absent or unknown: null, the tier decides). */
+export function voxelLightStoreFromUrl(search: string): VoxelLightStore | null {
   const v = new URLSearchParams(search).get(VOXEL_LIGHT_URL_PARAM);
-  return (VOXEL_LIGHT_STORES as readonly string[]).includes(v ?? '') ? (v as VoxelLightStore) : VOXEL_LIGHT_STORE_DEFAULT;
+  return (VOXEL_LIGHT_STORES as readonly string[]).includes(v ?? '') ? (v as VoxelLightStore) : null;
+}
+
+/** The store a page's voxel worlds are lit by: the query's, else the volume where the tier has it on and the renderer is WebGPU (WebGL 2 has no volume). */
+export function voxelLightStoreFor(query: VoxelLightStore | null, tierOn: boolean, webgpu: boolean): VoxelLightStore {
+  return query ?? (tierOn && webgpu ? 'volume' : 'off');
+}
+
+/** A page's lighting store: the query's, one a bench or a check set, or the level's tier's (looked at each frame). */
+export class LightStoreChoice {
+  /** The store the page lights its voxel worlds by now. */
+  current: VoxelLightStore = 'off';
+  private set = false;
+  constructor(readonly query: VoxelLightStore | null) {}
+
+  /** The store to take now: `store` when set by a bench or a check (from then on the tier no longer decides), else the tier's while the query names none (null: keep the current one). */
+  next(store: VoxelLightStore | { tierOn: boolean; webgpu: boolean }): VoxelLightStore | null {
+    if (typeof store === 'string') {
+      this.set = true;
+      return store;
+    }
+    if (this.set) return null;
+    return voxelLightStoreFor(this.query, store.tierOn, store.webgpu);
+  }
 }
