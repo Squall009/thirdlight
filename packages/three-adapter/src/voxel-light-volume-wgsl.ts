@@ -52,9 +52,9 @@
  * level-0 cells at their hits.
  */
 import { WALK_GPU_MAX_STEPS, voxelWalkWgsl } from './voxel-walk-wgsl';
-import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_GLOW_EMITTER, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_LIST_WORDS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
+import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_GLOW_EMITTER, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_WIDTH, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_NEGLIGIBLE, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
 import { SH_Y0, SH_Y1 } from './surface-probes';
-import { CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED } from './cluster-build';
+import { CLUSTER_POINT, CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED } from './cluster-build';
 import { volumeLampTermsWgsl, volumeSpotConeWgsl } from './voxel-light-volume-terms';
 import { VOLUME_GLOW_FORM_FACTOR_WGSL } from './voxel-light-volume-emitters';
 
@@ -131,7 +131,8 @@ const AREA_LIGHT_WGSL = /* wgsl */ `
  * holds none runs no bigger a loop than before (the code costs every invocation registers and size, as the clustered
  * loop's area kinds do every lit pixel: built only while one is there).
  */
-export function volumeUpdateWgsl(areas: boolean, glow = false): string {
+export function volumeUpdateWgsl(areas: boolean, glow = false, listEntries = VOLUME_LAMP_LIST_ENTRIES): string {
+  const listWords = listEntries + 2;
   return /* wgsl */ `
 struct Params {
   origin: vec4<i32>,
@@ -284,7 +285,7 @@ fn lamp_list_at(c: vec3<i32>) -> i32 {
   var v = lamp_slot_of(c, 0u, params.origin.xyz, params.dims.xyz, 0u);
 ${Array.from({ length: VOLUME_LEVELS - 1 }, (_, k) => k + 1).map((l) => `  if (v == 0u) { v = lamp_slot_of(c, ${l}u, params.coarse[${l - 1}].xyz, vec3<i32>(${VOLUME_LEVEL_WINDOWS[l]!.join(', ')}), ${VOLUME_INDEX_ROW_BASE[l]}u); }`).join('\n')}
   if (v == 0u) { return -1; }
-  return i32((v - 1u) * ${VOLUME_LAMP_LIST_WORDS}u);
+  return i32((v - 1u) * ${listWords}u);
 }
 
 /**
@@ -346,8 +347,36 @@ ${areas ? AREA_LIGHT_WGSL : '    {'}
 
 ${glow ? GLOW_EMITTERS_WGSL : ''}
 /**
- * The radiance a ray from p along d sees: the sky past the reach, else what the surface it meets gives off and its
- * bounce (xi: direct_light's; own: the updated cell's list, whose emitters' glow it leaves out).
+ * The radiance arriving at q along d from beyond it, as the coarse levels hold it: the light a surface at q facing back
+ * along −d would take (its cell's ambient cube with normal d) over π, from the finest level whose window holds q's cell
+ * with light; w < 0 where none does.
+ */
+fn coarse_radiance(q: vec3<f32>, d: vec3<f32>) -> vec4<f32> {
+${Array.from({ length: VOLUME_LEVELS - 1 }, (_, k) => k + 1).map((l) => `  {
+    let cc = vec3<i32>(floor(q / (CELL_M * ${1 << l}.0)));
+    let b = cc >> vec3<u32>(2u);
+    let o = params.coarse[${l - 1}].xyz;
+    let dims = vec3<i32>(${VOLUME_LEVEL_WINDOWS[l]!.join(', ')});
+    if (all(b >= o) && all(b < o + dims)) {
+      let s = ((b % dims) + dims) % dims;
+      let v = textureLoad(index_tex, vec2<i32>(s.x + dims.x * s.z, ${VOLUME_INDEX_ROW_BASE[l]} + s.y), 0).x;
+      if (v != 0u) {
+        let lc = volume_local(cc);
+        let fx = volume_decode(textureLoad(pool, pool_at(v - 1u, lc, select(0u, 1u, d.x < 0.0))).x);
+        let fy = volume_decode(textureLoad(pool, pool_at(v - 1u, lc, select(2u, 3u, d.y < 0.0))).x);
+        let fz = volume_decode(textureLoad(pool, pool_at(v - 1u, lc, select(4u, 5u, d.z < 0.0))).x);
+        let e = fx * d.x * d.x + fy * d.y * d.y + fz * d.z * d.z;
+        if (any(e > vec3<f32>(0.0))) { return vec4<f32>(e / PI, 1.0); }
+      }
+    }
+  }`).join('\n')}
+  return vec4<f32>(0.0, 0.0, 0.0, -1.0);
+}
+
+/**
+ * The radiance a ray from p along d sees: past the reach the coarse levels' light there (the light beyond, where they
+ * hold it and \`params.coarse[0].w\` says so) or the sky, else what the surface it meets gives off and its bounce (xi:
+ * direct_light's; own: the updated cell's list, whose emitters' glow it leaves out).
  */
 fn ray_radiance(p: vec3<f32>, d: vec3<f32>, xi: vec2<f32>, own: u32) -> vec3<f32> {
   var cell: vec3<i32>;
@@ -355,6 +384,10 @@ fn ray_radiance(p: vec3<f32>, d: vec3<f32>, xi: vec2<f32>, own: u32) -> vec3<f32
   var inv: vec3<f32>;
   voxel_walk_ray(p, d, &cell, &frac, &inv);
   let h = voxel_walk(cell, frac, inv, params.misc.x, 1u, params.levels.x);
+  if (h.end == 0u && params.coarse[0].w != 0) {
+    let far = coarse_radiance(p + d * params.misc.x, d);
+    if (far.w >= 0.0) { return far.xyz; }
+  }
   if (h.end == 0u || h.end == 2u) { return sky_radiance(d); }
   if (h.end != 1u || h.axis < 0) { return vec3<f32>(0.0); }
   let a = u32(h.axis);
@@ -404,7 +437,7 @@ fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) 
   let origin = (vec3<f32>(c) + 0.5) * (CELL_M * f32(1 << level));
   let rays = u32(params.dims.w);
   // This brick's own lamp list (its slot's).
-  let own = u32(b.w) * ${VOLUME_LAMP_LIST_WORDS}u;
+  let own = u32(b.w) * ${listWords}u;
   let h = hash3(c, face + 8u * level);
   let j = vec2<f32>(f32(h & 0xffffu), f32(h >> 16u)) / 65536.0;
   var sum = vec3<f32>(0.0);
@@ -466,14 +499,18 @@ export const VOLUME_LAMP_LIST_PARAM_WORDS = 4;
 export const VOLUME_LAMP_LIST_STAT_WORDS = 8;
 
 /**
- * The lamp lists' build (entry point `build`): one invocation a job, a job a brick and its slot (x, y, z, and the
- * slot with the brick's level over its low 24 bits), or a slot to clear (w = −1 − slot). It tests every lamp of the table against the brick's box (its reach
- * sphere meets the box), keeps the `VOLUME_LAMP_LIST_ENTRIES` that are strongest while more reach it (the weakest
- * goes, the latest of equals), and writes them by index with the count listed and the count reaching it. The CPU
- * reference is `volumeBrickLamps`. The count (entry point `count`): every slot's list summed into the counts the
- * volume's diagnostics show (bricks over, lamps dropped), one invocation a slot.
+ * The lamp lists' build (entry point `build`), for lists of `entries` lamps: one invocation a job, a job a brick and its
+ * slot (x, y, z, and the slot with the brick's level over its low 24 bits), or a slot to clear (w = −1 − slot). It tests
+ * every lamp of the table against the brick's box (its reach sphere meets the box, and a spot's cone or a one-sided area
+ * light's front meets it: `lamp_faces_brick`), keeps the `entries` that are strongest while more reach it (the weakest
+ * goes, the latest of equals), then lets the weakest kept go while what is left out stays under
+ * `VOLUME_LAMP_NEGLIGIBLE` of the brick's lamp light, and writes them by index with the count listed and the count
+ * reaching it. The CPU reference is `volumeBrickLamps`. The count (entry point `count`): every slot's list summed into
+ * the counts the volume's diagnostics show (bricks over: a full list that left lamps out; lamps dropped from them;
+ * lamps left out as negligible), one invocation a slot.
  */
-export const VOLUME_LAMP_LIST_WGSL = /* wgsl */ `
+export function volumeLampListWgsl(entries: number): string {
+  return /* wgsl */ `
 struct ListParams {
   jobs: u32,
   lamps: u32,
@@ -486,15 +523,34 @@ struct ListParams {
 @group(0) @binding(3) var<storage, read_write> lists: array<u32>;
 @group(0) @binding(4) var<storage, read_write> counts: array<atomic<u32>>;
 
-const ENTRIES: u32 = ${VOLUME_LAMP_LIST_ENTRIES}u;
-const WORDS: u32 = ${VOLUME_LAMP_LIST_WORDS}u;
+const ENTRIES: u32 = ${entries}u;
+const WORDS: u32 = ${entries + 2}u;
 const BRICK_M: f32 = ${VOLUME_BRICK_M.toFixed(1)};
+const NEGLIGIBLE: f32 = ${VOLUME_LAMP_NEGLIGIBLE};
 
 /** The CPU twin is volumeLampStrength. */
 fn lamp_strength(a: vec4<f32>, b: vec4<f32>, d: f32) -> f32 {
   let t = d / a.w;
   let w = clamp(1.0 - t * t * t * t, 0.0, 1.0);
   return max(b.x, max(b.y, b.z)) * w * w / max(pow(max(d, 0.1), b.w), 0.01);
+}
+
+/** Whether lamp i can light the box lo … lo + size past its reach's test (a spot's cone, a one-sided area light's front). The CPU twin is volumeLampFacesBrick. */
+fn lamp_faces_brick(i: u32, lo: vec3<f32>, size: f32) -> bool {
+  let a = lamps[${VOLUME_LAMP_VEC4S}u * i];
+  let c = lamps[${VOLUME_LAMP_VEC4S}u * i + 2u];
+  let field = u32(c.w);
+  let kind = field & 3u;
+  if (kind == ${CLUSTER_POINT}u || (kind >= ${CLUSTER_RECT}u && (field & ${CLUSTER_TWO_SIDED}u) != 0u)) { return true; }
+  let h = size * 0.5;
+  let v = lo + vec3<f32>(h) - a.xyz;
+  let along = dot(v, c.xyz);
+  if (kind >= ${CLUSTER_RECT}u) { return along + h * (abs(c.x) + abs(c.y) + abs(c.z)) > 0.0; }
+  let d = length(v);
+  let rb = h * 1.7320508;
+  if (d <= rb) { return true; }
+  let theta = acos(clamp(along / d, -1.0, 1.0));
+  return theta - asin(rb / d) < acos(clamp(lamps[${VOLUME_LAMP_VEC4S}u * i + 3u].w, -1.0, 1.0));
 }
 
 @compute @workgroup_size(${VOLUME_LAMP_LIST_WORKGROUP})
@@ -511,17 +567,21 @@ fn build(@builtin(global_invocation_id) gid: vec3<u32>) {
   let size = BRICK_M * f32(1u << (u32(job.w) >> 24u));
   let lo = vec3<f32>(job.xyz) * size;
   let hi = lo + vec3<f32>(size);
-  var ids: array<u32, ${VOLUME_LAMP_LIST_ENTRIES}>;
-  var sc: array<f32, ${VOLUME_LAMP_LIST_ENTRIES}>;
+  var ids: array<u32, ${entries}>;
+  var sc: array<f32, ${entries}>;
   var n = 0u;
   var total = 0u;
+  var sum = 0.0;
+  // What the lamps not kept give (those past the list's size).
+  var rest = 0.0;
   for (var i = 0u; i < lp.lamps; i++) {
     let a = lamps[${VOLUME_LAMP_VEC4S}u * i];
     let g = max(max(lo - a.xyz, a.xyz - hi), vec3<f32>(0.0));
     let d2 = dot(g, g);
-    if (!(d2 < a.w * a.w)) { continue; }
+    if (!(d2 < a.w * a.w) || !lamp_faces_brick(i, lo, size)) { continue; }
     total = total + 1u;
     let s = lamp_strength(a, lamps[${VOLUME_LAMP_VEC4S}u * i + 1u], sqrt(d2));
+    sum = sum + s;
     if (n < ENTRIES) {
       ids[n] = i;
       sc[n] = s;
@@ -533,9 +593,29 @@ fn build(@builtin(global_invocation_id) gid: vec3<u32>) {
       if (sc[k] < sc[w] || (sc[k] == sc[w] && ids[k] > ids[w])) { w = k; }
     }
     if (s > sc[w]) {
+      rest = rest + sc[w];
       ids[w] = i;
       sc[w] = s;
+    } else {
+      rest = rest + s;
     }
+  }
+  // Strongest first (equal strengths: the lower index), then the weakest go while what is left out stays negligible.
+  for (var k = 1u; k < n; k++) {
+    let v = ids[k];
+    let vs = sc[k];
+    var j = k;
+    while (j > 0u && (sc[j - 1u] < vs || (sc[j - 1u] == vs && ids[j - 1u] > v))) {
+      ids[j] = ids[j - 1u];
+      sc[j] = sc[j - 1u];
+      j = j - 1u;
+    }
+    ids[j] = v;
+    sc[j] = vs;
+  }
+  while (n > 0u && rest + sc[n - 1u] <= NEGLIGIBLE * sum) {
+    n = n - 1u;
+    rest = rest + sc[n];
   }
   // By index, as the CPU's rule lists them.
   for (var k = 1u; k < n; k++) {
@@ -562,12 +642,15 @@ fn count(@builtin(global_invocation_id) gid: vec3<u32>) {
   atomicAdd(&counts[0], 1u);
   atomicAdd(&counts[1], n);
   atomicMax(&counts[2], total);
-  if (total > n) {
+  if (total > n && n == ENTRIES) {
     atomicAdd(&counts[3], 1u);
     atomicAdd(&counts[4], total - n);
+  } else if (total > n) {
+    atomicAdd(&counts[5], total - n);
   }
 }
 `;
+}
 
 /** Steps a walk of the update may take at most (the walk's own). */
 export const VOLUME_WALK_STEPS = WALK_GPU_MAX_STEPS;

@@ -3,7 +3,7 @@
  *
  * - **The refining** ({@link VolumeRefiner}): while nothing is stale, or the
  *   stale work leaves room, the update keeps taking settled bricks short of
- *   their history (`VOLUME_HISTORY_UPDATES`), so the light keeps converging
+ *   their history (the tier's `historyUpdates`), so the light keeps converging
  *   while the view stands still and stops once every brick has had its
  *   history. The fewest updates first, a brick farther from the eye waiting
  *   for more of them and one behind the camera longer, so the view round the
@@ -14,7 +14,7 @@
  *   (their slot holds their own light then, not the last brick's of that
  *   slot: readers and the filter's neighbours never read a slot's old light).
  */
-import { VOLUME_HISTORY_UPDATES, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_WINDOW_BRICKS, volumeCellM, volumeLevelIndexTexel } from './voxel-light-volume-layout';
+import { VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_WINDOW_BRICKS, volumeCellM, volumeLevelIndexTexel } from './voxel-light-volume-layout';
 
 /** A brick as the refining reads it. */
 export interface RefineBrick {
@@ -43,7 +43,7 @@ const BRICK_M = volumeCellM(0) * 4;
 const gap = (lo: number, n: number, v: number): number => (v < lo ? lo - v : v >= lo + n ? v - lo - n + 1 : 0);
 
 /** A brick's distance from the eye's level-0 brick `e`, in level-0 bricks (the largest of the axes' gaps). */
-function brickGap(b: RefineBrick, e: readonly number[]): number {
+export function brickGap(b: Pick<RefineBrick, 'level' | 'bx' | 'by' | 'bz'>, e: readonly number[]): number {
   const n = 1 << b.level;
   return Math.max(gap(b.bx * n, n, e[0]!), gap(b.by * n, n, e[1]!), gap(b.bz * n, n, e[2]!));
 }
@@ -100,7 +100,7 @@ export class VolumeRefiner<B extends RefineBrick> {
    * their history), in the refining's order round `eye` looking along `forward`. Finding none left records that every
    * brick is refined.
    */
-  take(bricks: () => Iterable<B>, idle: (b: B) => boolean, eye: readonly number[], forward: readonly number[], count: number, list: B[]): void {
+  take(bricks: () => Iterable<B>, idle: (b: B) => boolean, eye: readonly number[], forward: readonly number[], count: number, list: B[], history: number): void {
     if (this.refined) return;
     let left = count;
     // A brick once a call: the order made again partway may hold one the last order gave this call.
@@ -114,7 +114,7 @@ export class VolumeRefiner<B extends RefineBrick> {
         left--;
       }
       if (left === 0) return;
-      this.queue = this.order(bricks(), idle, eye, forward, REFINE_LOOKAHEAD * count);
+      this.queue = this.order(bricks(), idle, eye, forward, REFINE_LOOKAHEAD * count, history);
       this.at = 0;
       if (this.queue.length === 0) {
         this.refinedAt = this.changes;
@@ -124,7 +124,7 @@ export class VolumeRefiner<B extends RefineBrick> {
   }
 
   /** Up to `want` bricks in order: by their updates, plus {@link REFINE_UPDATES_A_BRICK} for every level-0 brick from the eye, plus {@link REFINE_BEHIND_UPDATES} behind the camera. */
-  private order(bricks: Iterable<B>, idle: (b: B) => boolean, eye: readonly number[], fw: readonly number[], want: number): B[] {
+  private order(bricks: Iterable<B>, idle: (b: B) => boolean, eye: readonly number[], fw: readonly number[], want: number, history: number): B[] {
     const e = eye.map((v) => Math.floor(v / BRICK_M));
     const buckets: B[][] = [];
     for (const b of bricks) {
@@ -132,7 +132,7 @@ export class VolumeRefiner<B extends RefineBrick> {
       const n = 1 << b.level;
       // Behind: its centre more than its own size behind the eye along the view.
       const behind = ((b.bx + 0.5) * n - e[0]! - 0.5) * fw[0]! + ((b.by + 0.5) * n - e[1]! - 0.5) * fw[1]! + ((b.bz + 0.5) * n - e[2]! - 0.5) * fw[2]! < -n;
-      const key = Math.min(b.updates, VOLUME_HISTORY_UPDATES) + REFINE_UPDATES_A_BRICK * brickGap(b, e) + (behind ? REFINE_BEHIND_UPDATES : 0);
+      const key = Math.min(b.updates, history) + REFINE_UPDATES_A_BRICK * brickGap(b, e) + (behind ? REFINE_BEHIND_UPDATES : 0);
       (buckets[key] ??= []).push(b);
     }
     const out: B[] = [];

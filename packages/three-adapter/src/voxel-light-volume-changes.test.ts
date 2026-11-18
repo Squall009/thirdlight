@@ -68,7 +68,7 @@ describe('the light volume history through a change of light', () => {
    * last change, and the frames that took.
    */
   function model(light: (f: number) => number, changes: ReadonlySet<number>, frames: number): { value: number; settledAt: number | null } {
-    const b = { updates: 0, samples: 0, value: 0 };
+    const b = { updates: 0, samples: 0, target: SETTLE, value: 0 };
     let stale = true;
     const h = new VolumeHistory<typeof b>(SETTLE, CONTINUE, () => void (stale = true));
     let settledAt: number | null = null;
@@ -107,3 +107,71 @@ describe('the light volume history through a change of light', () => {
     expect(mid.value).toBeLessThan(1);
   });
 });
+
+describe('the light volume past a changed lamp\'s reach', () => {
+  const SETTLE = 8;
+  const OUTER = 2;
+
+  /**
+   * Two bricks under a lamp switched off at frame 50: one in its reach (its light: the lamp's 1 and the rest's 0.2) and
+   * one past it (its bounce: 0.3, the rest 0.2), each updated once a frame while stale by the WGSL's blend (its
+   * weight by `volumeBlendWeight`'s rule: the estimate alone from nothing). Returns the frames each took to settle again
+   * and what was left of the lamp's light in each once both settled.
+   */
+  function lampOff(outer: number): { settled: [number, number]; left: [number, number] } {
+    const inner = { updates: SETTLE, samples: SETTLE, target: SETTLE, value: 1.2 };
+    const past = { updates: SETTLE, samples: SETTLE, target: SETTLE, value: 0.5 };
+    const stale = new Set<typeof inner>();
+    const h = new VolumeHistory<typeof inner>(SETTLE, 30, (b) => void stale.add(b));
+    const settled: [number, number] = [-1, -1];
+    for (let f = 0; f < 200; f++) {
+      if (f === 50) {
+        const continuing = h.change(f);
+        h.restart(inner);
+        h.marked(past, continuing, true, outer);
+      }
+      h.frame(f);
+      for (const [i, b] of [inner, past].entries()) {
+        if (!stale.has(b)) continue;
+        const est = 0.2;
+        const w = 1 / (Math.ceil(b.updates / 4) + 1);
+        b.value = b.updates === 0 ? est : b.value + (est - b.value) * w;
+        b.updates++;
+        if (b.updates >= b.target) {
+          stale.delete(b);
+          settled[i] = f;
+        }
+      }
+    }
+    return { settled, left: [(inner.value - 0.2) / 1, (past.value - 0.2) / 0.3] };
+  }
+
+  it('settles the bricks past the reach in fewer updates, with nothing of the lamp left in either', () => {
+    const r = lampOff(OUTER);
+    expect(r.settled).toEqual([50 + SETTLE - 1, 50 + OUTER - 1]);
+    expect(Math.abs(r.left[0])).toBeLessThan(0.01);
+    expect(Math.abs(r.left[1])).toBeLessThan(0.01);
+    // The settle count for both, as every brick took before.
+    expect(lampOff(SETTLE).settled).toEqual([50 + SETTLE - 1, 50 + SETTLE - 1]);
+  });
+
+  it('gives a brick past the reach its fewer updates, the settle count while changes continue, and the larger target once they stop', () => {
+    const b = { updates: SETTLE, samples: SETTLE, target: SETTLE };
+    const marks: number[] = [];
+    const h = new VolumeHistory<typeof b>(SETTLE, 30, () => void marks.push(b.target));
+    h.marked(b, h.change(0), true, OUTER);
+    expect(b.target).toBe(OUTER);
+    expect(b.updates).toBe(0);
+    // A lamp moving: within the continue frames, half its history and the settle count; once they stop, from nothing
+    // with the larger of the targets it was marked with (the nearer change's).
+    b.updates = SETTLE;
+    h.marked(b, h.change(10), true, OUTER);
+    expect(b.updates).toBe(SETTLE >> 1);
+    expect(b.target).toBe(SETTLE);
+    h.marked(b, h.change(12), true, SETTLE);
+    h.frame(100);
+    expect(b.updates).toBe(0);
+    expect(b.target).toBe(SETTLE);
+  });
+});
+

@@ -12,7 +12,7 @@ import { applyWalkWires, OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView
 
 import { ClusterLights } from './cluster-build';
 import { volumeLampSet } from './voxel-light-volume-lamps';
-import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevelCount, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, volumeLampReaches, volumeLampFacesBrick, VOLUME_LAMP_NEGLIGIBLE, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadLevelCount, volumeReadLevels, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
 
 /** A cached brick lookup over a walk source's level-0 blocks (as the volume keeps them). */
 function brickLookup(tsrc: WalkSource): (bx: number, by: number, bz: number) => VolumeBlockBricks | null {
@@ -513,8 +513,9 @@ describe('the light volume lamp lists', () => {
       const f = (k: number): number => (0.5 + i * k) % 1;
       t.set([-24 + 48 * f(0.7548776662), -2 + 12 * f(0.5698402910), -24 + 48 * f(0.4301597090), i % 7 === 0 ? 0.5 + f(0.31) : i % 5 === 0 ? 12 + 8 * f(0.21) : 2 + 8 * f(0.13)], o);
       t.set([1 + 9 * f(0.17), 2 * f(0.23), 3 * f(0.29), i % 3 === 0 ? 1 : 2], o + 4);
-      // A spot's axis and its kind field, passed through (the list does not read them).
+      // Every fourth a spot shining down in a 40° cone (its axis and kind field; the cone's cos in word 15).
       t.set([0, -1, 0, i % 4 === 0 ? 1 : 0], o + 8);
+      t[o + 15] = Math.cos((40 * Math.PI) / 180);
     }
     return t;
   }
@@ -529,43 +530,91 @@ describe('the light volume lamp lists', () => {
     }
     return Math.sqrt(d2) < t[o + 3]!;
   };
+  /**
+   * Brute force: whether lamp i lights some point of the brick (a 5 × 5 × 5 grid of its points, corners and faces
+   * included): within its reach, a spot's within its cone, a one-sided area light's in front of its plane.
+   */
+  const lights = (t: Float32Array, i: number, b: readonly number[], level = 0): boolean => {
+    const o = i * VOLUME_LAMP_FLOATS;
+    const m = VOLUME_BRICK_M * 2 ** level;
+    const kind = t[o + 11]! & 3;
+    for (let x = 0; x <= 4; x++) for (let y = 0; y <= 4; y++) for (let z = 0; z <= 4; z++) {
+      const v = [b[0]! * m + (x * m) / 4 - t[o]!, b[1]! * m + (y * m) / 4 - t[o + 1]!, b[2]! * m + (z * m) / 4 - t[o + 2]!];
+      const d = Math.hypot(v[0]!, v[1]!, v[2]!);
+      if (!(d < t[o + 3]!)) continue;
+      const along = v[0]! * t[o + 8]! + v[1]! * t[o + 9]! + v[2]! * t[o + 10]!;
+      if (kind === 1 && d > 1e-6 && along / d <= t[o + 15]!) continue;
+      if (kind >= 2 && (t[o + 11]! & 4) === 0 && along <= 0) continue;
+      return true;
+    }
+    return false;
+  };
+  /** The lamps the rule ranks for a brick (reach and facing), strongest first (equal: lower index), with their strengths. */
+  const ranked = (t: Float32Array, n: number, b: readonly number[], level = 0): Array<[number, number]> => {
+    const r: Array<[number, number]> = [];
+    for (let i = 0; i < n; i++) if (volumeLampReaches(t, i, b[0]!, b[1]!, b[2]!, level) && volumeLampFacesBrick(t, i, b[0]!, b[1]!, b[2]!, level)) r.push([i, volumeLampStrength(t, i, b[0]!, b[1]!, b[2]!, level)]);
+    return r.sort((p, q) => q[1] - p[1] || p[0] - q[0]);
+  };
   const BRICKS: number[][] = [];
   for (let x = -14; x < 14; x++) for (let y = -2; y < 6; y++) for (let z = -14; z < 14; z++) BRICKS.push([x, y, z]);
 
-  it('a brick lists every lamp whose reach meets its box and none other, by index; past the entries the strongest, the rest counted', () => {
+  it('a lamp is ranked by a brick only where it can light it: its reach meets the box, a spot\'s cone and a one-sided area light\'s front too (brute force over the box\'s points)', () => {
+    const t = scrap();
+    const n = t.length / VOLUME_LAMP_FLOATS;
+    let culled = 0;
+    let lit = 0;
+    for (const b of BRICKS) for (let i = 0; i < n; i++) {
+      const ranks = volumeLampReaches(t, i, b[0]!, b[1]!, b[2]!) && volumeLampFacesBrick(t, i, b[0]!, b[1]!, b[2]!);
+      // Never a lamp that lights some point of the box left out (the rule is conservative: a bounding sphere's cone).
+      if (lights(t, i, b)) {
+        lit++;
+        expect(ranks, `lamp ${i} lights brick ${b.join(',')}`).toBe(true);
+      }
+      if (reaches(t, i, b) && !ranks) culled++;
+    }
+    // The spots' cones leave out bricks their reach meets above and beside them.
+    expect(lit).toBeGreaterThan(1000);
+    expect(culled).toBeGreaterThan(200);
+  });
+
+  it('a brick lists its strongest lamps by index, leaving out only what is negligible or past the entries; the rest counted (brute force)', () => {
     const t = scrap();
     const n = t.length / VOLUME_LAMP_FLOATS;
     let over = 0;
     let dropped = 0;
+    let negligible = 0;
     let most = 0;
     let lit = 0;
     for (const b of BRICKS) {
-      const want: number[] = [];
-      for (let i = 0; i < n; i++) if (reaches(t, i, b)) want.push(i);
-      const all = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!, Infinity);
-      expect(all.listed, `brick ${b.join(',')}`).toEqual(want);
+      const want = ranked(t, n, b);
+      const sum = want.reduce((x, w) => x + w[1], 0);
+      // With no limit and nothing negligible: every lamp that can light it.
+      const all = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!, Infinity, 0, 0);
+      expect(all.listed, `brick ${b.join(',')}`).toEqual(want.map((w) => w[0]).sort((p, q) => p - q));
       expect(all.total).toBe(want.length);
       const r = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!);
       expect(r.total).toBe(want.length);
       most = Math.max(most, r.total);
       if (want.length > 0) lit++;
-      if (want.length <= VOLUME_LAMP_LIST_ENTRIES) {
-        expect(r.listed).toEqual(want);
-        continue;
-      }
-      // Overflow: as many as the list holds, by index, each at least as strong as every lamp left out.
-      over++;
-      dropped += want.length - r.listed.length;
-      expect(r.listed.length).toBe(VOLUME_LAMP_LIST_ENTRIES);
+      // By index, the strongest: each listed at least as strong as every lamp left out.
       expect([...r.listed].sort((a, c) => a - c)).toEqual(r.listed);
-      const strength = (i: number): number => volumeLampStrength(t, i, b[0]!, b[1]!, b[2]!);
-      const least = Math.min(...r.listed.map(strength));
-      for (const i of want) if (!r.listed.includes(i)) expect(strength(i), `lamp ${i} left out of ${b.join(',')}`).toBeLessThanOrEqual(least);
+      expect(r.listed).toEqual(want.slice(0, r.listed.length).map((w) => w[0]).sort((p, q) => p - q));
+      const left = want.slice(r.listed.length).reduce((x, w) => x + w[1], 0);
+      if (r.listed.length < VOLUME_LAMP_LIST_ENTRIES) {
+        // A list not full left out only what is negligible, and listed no more than it needed.
+        expect(left).toBeLessThanOrEqual(VOLUME_LAMP_NEGLIGIBLE * sum * (1 + 1e-9));
+        if (r.listed.length > 0) expect(left + want[r.listed.length - 1]![1]).toBeGreaterThan(VOLUME_LAMP_NEGLIGIBLE * sum);
+        negligible += want.length - r.listed.length;
+      } else if (want.length > r.listed.length) {
+        over++;
+        dropped += want.length - r.listed.length;
+      }
     }
-    // The scrap reaches its bricks unevenly: some bricks over the list, most within it.
+    // The scrap reaches its bricks unevenly: some bricks over the list, most within it; the negligible rule leaves lamps out.
     expect(lit).toBeGreaterThan(BRICKS.length / 2);
-    expect(over).toBeGreaterThan(20);
+    expect(over).toBeGreaterThan(5);
     expect(dropped).toBeGreaterThan(over);
+    expect(negligible).toBeGreaterThan(100);
     expect(most).toBeGreaterThan(VOLUME_LAMP_LIST_ENTRIES);
     // A brick of the scrap reached by no lamp lists none.
     expect(volumeBrickLamps(t, n, 400, 0, 0)).toEqual({ listed: [], total: 0 });
@@ -588,13 +637,13 @@ describe('the light volume lamp lists', () => {
     const t = scrap();
     const n = t.length / VOLUME_LAMP_FLOATS;
     const before = BRICKS.map((b) => volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!));
-    const beforeAll = BRICKS.map((b) => volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!, Infinity));
+    const beforeAll = BRICKS.map((b) => volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!, Infinity, 0, 0));
     const moved = 37;
     const old = t.slice(moved * VOLUME_LAMP_FLOATS, moved * VOLUME_LAMP_FLOATS + VOLUME_LAMP_FLOATS);
-    const meetsOld = BRICKS.map((b) => reaches(t, moved, b));
+    const meetsOld = BRICKS.map((b) => reaches(t, moved, b) && volumeLampFacesBrick(t, moved, b[0]!, b[1]!, b[2]!));
     t[moved * VOLUME_LAMP_FLOATS] = old[0]! + 7.3;
     t[moved * VOLUME_LAMP_FLOATS + 2] = old[2]! - 3.1;
-    const meetsNew = BRICKS.map((b) => reaches(t, moved, b));
+    const meetsNew = BRICKS.map((b) => reaches(t, moved, b) && volumeLampFacesBrick(t, moved, b[0]!, b[1]!, b[2]!));
     // The box a lamp's bricks are looked for in holds every brick it meets.
     const [lo, hi] = volumeLampBrickBox(t, moved);
     BRICKS.forEach((b, k) => {
@@ -604,10 +653,11 @@ describe('the light volume lamp lists', () => {
     let onlyOne = 0;
     BRICKS.forEach((b, k) => {
       const after = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!);
-      const afterAll = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!, Infinity);
+      const afterAll = volumeBrickLamps(t, n, b[0]!, b[1]!, b[2]!, Infinity, 0, 0);
       const differs = JSON.stringify(after) !== JSON.stringify(before[k]);
       if (differs) changed++;
       if (!meetsOld[k] && !meetsNew[k]) expect(differs, `brick ${b.join(',')} met by neither`).toBe(false);
+      if (!meetsNew[k] && !reaches(t, moved, b) && meetsOld[k] === meetsNew[k]) expect(afterAll.listed.includes(moved)).toBe(false);
       if (meetsOld[k] !== meetsNew[k]) {
         onlyOne++;
         // Its reach gained or lost the lamp: the count reaching it changes, and the full list by exactly that lamp.
@@ -669,14 +719,15 @@ describe('the light volume lamp lists', () => {
         for (let i = 0; i < n; i++) {
           const o = i * VOLUME_LAMP_FLOATS;
           const d = Math.hypot(...[x, y, z].map((b, a) => t[o + a]! - Math.min(Math.max(t[o + a]!, b * m), b * m + m)));
-          if (d < t[o + 3]!) want.push(i);
+          if (d < t[o + 3]! && volumeLampFacesBrick(t, i, x, y, z, level)) want.push(i);
+          if (lights(t, i, [x, y, z], level)) expect(want.includes(i), `level ${level}: lamp ${i} lights brick ${x},${y},${z}`).toBe(true);
         }
-        const r = volumeBrickLamps(t, n, x, y, z, Infinity, level);
+        const r = volumeBrickLamps(t, n, x, y, z, Infinity, level, 0);
         expect(r.listed, `level ${level} brick ${x},${y},${z}`).toEqual(want);
         if (want.length > 0) lit++;
         const k = volumeBrickLamps(t, n, x, y, z, undefined, level);
         expect(k.total).toBe(want.length);
-        expect(k.listed.length).toBe(Math.min(want.length, VOLUME_LAMP_LIST_ENTRIES));
+        expect(k.listed).toEqual(ranked(t, n, [x, y, z], level).slice(0, k.listed.length).map((w) => w[0]).sort((p, q) => p - q));
       }
       expect(lit).toBeGreaterThan(10);
     }
@@ -734,7 +785,7 @@ describe('the light volume lamp lists', () => {
     expect([volumeLampSet(plain, box).count, volumeLampSet(plain, box).areas]).toEqual([2, false]);
   });
 
-  it('an area light (rect, line, two-sided) is listed by every brick its reach meets and no other', () => {
+  it('an area light (rect, line, two-sided) is listed by every brick its reach meets in front of it (both sides when two-sided) and no other', () => {
     const l = new ClusterLights();
     l.add({ kind: 'rect', position: [3.2, 2.9, -1.1], reach: 6, color: [0, 0, 5], direction: [0, -1, 0], u: [0.5, 0, 0], v: [0, 0, 0.25] });
     l.add({ kind: 'line', position: [-6.4, 1.3, 4.7], reach: 9.5, color: [3, 3, 3], direction: [0, 0, 1], u: [0.6, 0, 0] });
@@ -743,6 +794,7 @@ describe('the light volume lamp lists', () => {
     const set = volumeLampSet(l, [[-50, -20, -50], [50, 20, 50]]);
     expect(set.count).toBe(4);
     const met = [0, 0, 0];
+    const behind = [0, 0, 0, 0];
     for (const level of [0, 1]) {
       for (const b of BRICKS) {
         const want: number[] = [];
@@ -750,12 +802,19 @@ describe('the light volume lamp lists', () => {
           const o = i * VOLUME_LAMP_FLOATS;
           const m = VOLUME_BRICK_M * 2 ** level;
           const d = Math.hypot(...b.map((v, a) => set.data[o + a]! - Math.min(Math.max(set.data[o + a]!, v * m), v * m + m)));
-          if (d < set.data[o + 3]!) want.push(i);
+          const front = lights(set.data, i, b, level);
+          if (d < set.data[o + 3]! && front) want.push(i);
+          // Behind a one-sided light's plane: met by its reach, never listed.
+          if (d < set.data[o + 3]! && !front && level === 0) behind[i]!++;
         }
-        expect(volumeBrickLamps(set.data, set.count, b[0]!, b[1]!, b[2]!, undefined, level).listed, `level ${level} brick ${b.join(',')}`).toEqual(want);
+        expect(volumeBrickLamps(set.data, set.count, b[0]!, b[1]!, b[2]!, undefined, level, 0).listed, `level ${level} brick ${b.join(',')}`).toEqual(want);
         for (let i = 0; i < 3; i++) if (level === 0 && want.includes(i)) met[i]!++;
       }
     }
     expect(met.every((n) => n > 20), JSON.stringify(met)).toBe(true);
+    // The one-sided rect and line leave out the bricks behind them; the two-sided rect and the point none.
+    expect(behind[0]).toBeGreaterThan(10);
+    expect(behind[1]).toBeGreaterThan(10);
+    expect([behind[2], behind[3]]).toEqual([0, 0]);
   });
 });

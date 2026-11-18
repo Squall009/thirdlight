@@ -36,8 +36,8 @@
  */
 import { CLUSTER_RECT, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED, type ClusterLights } from './cluster-build';
 import { GPU_BUFFER_USAGE, GPU_MAP_READ, grownGpuBuffer, type GpuBuffer } from './tracer-gpu';
-import { VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_WORDS } from './voxel-light-volume-layout';
-import { VOLUME_LAMP_LIST_PARAM_WORDS, VOLUME_LAMP_LIST_STAT_WORDS, VOLUME_LAMP_LIST_WGSL, VOLUME_LAMP_LIST_WORKGROUP } from './voxel-light-volume-wgsl';
+import { VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LAMP_FLOATS } from './voxel-light-volume-layout';
+import { VOLUME_LAMP_LIST_PARAM_WORDS, VOLUME_LAMP_LIST_STAT_WORDS, VOLUME_LAMP_LIST_WORKGROUP, volumeLampListWgsl } from './voxel-light-volume-wgsl';
 import type { VolumeDevice } from './voxel-light-volume';
 
 /** The lamps the volume's update reads, as its table holds them. */
@@ -137,16 +137,18 @@ export interface VolumeLampListCounts {
   readonly listed: number;
   /** The most lamps reaching one brick (listed or not). */
   readonly mostReaching: number;
-  /** Bricks reached by more lamps than a list holds, and the lamps they left out. */
+  /** Bricks whose full list left lamps out (more reach it than it holds that are not negligible), and the lamps they left out. */
   readonly bricksOver: number;
   readonly lampsDropped: number;
+  /** Lamps left out of lists that were not full: their light negligible against the brick's other lamps'. */
+  readonly lampsNegligible: number;
 }
 
 /** The lamp table, the lists and their window index on the volume's device. */
 export class VolumeLampLists {
   /** The lamp table (grown with it; at least 256 bytes). */
   lampBuffer: GpuBuffer;
-  /** A slot's list (`VOLUME_LAMP_LIST_WORDS` words) for every slot of the pool. */
+  /** A slot's list (its entries and two words) for every slot of the pool. */
   readonly lists: GpuBuffer;
   /** Every level's window's slot + 1 of each brick (0: none), wrapped and stacked as the pool's index. */
   readonly slots: GpuBuffer;
@@ -174,19 +176,25 @@ export class VolumeLampLists {
   /** Builds dispatched: all, those of every brick (the table changed), slots built and cleared, the last builds' GPU ms. */
   readonly stats = { builds: 0, fullBuilds: 0, slotsBuilt: 0, slotsCleared: 0, lastJobs: 0, lastMs: 0, lastFullJobs: 0, lastFullMs: 0, timed: 0 };
 
+  /** u32 words a slot's list takes: the lamps listed, the lamps reaching the brick, the entries. */
+  readonly words: number;
+
   constructor(
     private readonly device: VolumeDevice,
     private readonly capacity: number,
+    /** Lamps a list holds at most (the tier's). */
+    readonly entries: number,
   ) {
+    this.words = entries + 2;
     const d = device;
     const STORAGE = GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_DST;
     this.lampBuffer = d.createBuffer({ size: 256, usage: STORAGE, label: 'voxel light volume lamps' });
     // New buffers are zeros: every list empty, no brick's slot known.
-    this.lists = d.createBuffer({ size: capacity * VOLUME_LAMP_LIST_WORDS * 4, usage: STORAGE | GPU_BUFFER_USAGE.COPY_SRC, label: 'voxel light volume lamp lists' });
+    this.lists = d.createBuffer({ size: capacity * this.words * 4, usage: STORAGE | GPU_BUFFER_USAGE.COPY_SRC, label: 'voxel light volume lamp lists' });
     this.slots = d.createBuffer({ size: VOLUME_INDEX_WIDTH * VOLUME_INDEX_ROWS * 4, usage: STORAGE, label: 'voxel light volume lamp list index' });
     this.params = d.createBuffer({ size: VOLUME_LAMP_LIST_PARAM_WORDS * 4, usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST, label: 'voxel light volume lamp list params' });
     this.counts = d.createBuffer({ size: VOLUME_LAMP_LIST_STAT_WORDS * 4, usage: STORAGE | GPU_BUFFER_USAGE.COPY_SRC, label: 'voxel light volume lamp list counts' });
-    const module = d.createShaderModule({ code: VOLUME_LAMP_LIST_WGSL, label: 'voxel light volume lamp lists' }) as { getCompilationInfo?(): Promise<{ messages: ReadonlyArray<{ type: string; lineNum: number; message: string }> }> };
+    const module = d.createShaderModule({ code: volumeLampListWgsl(entries), label: 'voxel light volume lamp lists' }) as { getCompilationInfo?(): Promise<{ messages: ReadonlyArray<{ type: string; lineNum: number; message: string }> }> };
     void module.getCompilationInfo?.().then((info) => {
       for (const m of info.messages) if (m.type === 'error') console.error(`voxel light volume lamp lists WGSL, line ${m.lineNum}: ${m.message}`);
     });
@@ -324,7 +332,7 @@ export class VolumeLampLists {
         read.unmap();
         read.destroy();
         this.counting = false;
-        this.lastCounts = { bricksLit: c[0]!, listed: c[1]!, mostReaching: c[2]!, bricksOver: c[3]!, lampsDropped: c[4]! };
+        this.lastCounts = { bricksLit: c[0]!, listed: c[1]!, mostReaching: c[2]!, bricksOver: c[3]!, lampsDropped: c[4]!, lampsNegligible: c[5]! };
       },
       () => {
         read.destroy();
@@ -338,7 +346,7 @@ export class VolumeLampLists {
     const out = new Map<number, { listed: number[]; total: number }>();
     if (slots.length === 0) return out;
     const d = this.device;
-    const bytes = VOLUME_LAMP_LIST_WORDS * 4;
+    const bytes = this.words * 4;
     const buf = d.createBuffer({ size: bytes * slots.length, usage: GPU_MAP_READ | GPU_BUFFER_USAGE.COPY_DST, label: 'voxel light volume lamp lists read' });
     const enc = d.createCommandEncoder();
     slots.forEach((s, k) => enc.copyBufferToBuffer(this.lists, s * bytes, buf, k * bytes, bytes));
@@ -348,7 +356,7 @@ export class VolumeLampLists {
     buf.unmap();
     buf.destroy();
     slots.forEach((s, k) => {
-      const o = k * VOLUME_LAMP_LIST_WORDS;
+      const o = k * this.words;
       out.set(s, { listed: [...all.subarray(o + 2, o + 2 + all[o]!)], total: all[o + 1]! });
     });
     return out;

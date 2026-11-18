@@ -411,7 +411,7 @@ export class VoxelWorldHost {
     const regions = new OpenRegionStitch(streamer);
     this.regions = regions;
     this.unresidentRegions?.();
-    this.unresidentRegions = residentBytes.register('voxelStream', () => regions.bytes);
+    this.unresidentRegions = residentBytes.register('regionStitch', () => regions.bytes);
     streamer.on((e) => this.onStream(e));
     conn.present?.(streamer, s.sectionEdge, regions);
   }

@@ -14,7 +14,7 @@ describe('the resident-bytes report', () => {
       probes: { textureBytes: 4 * MIB, budgetBytes: 128 * MIB },
       surfaceCache: { usedBytes: 40 * MIB, budgetBytes: 32 * MIB },
     };
-    const m = memoryReport('low', [{ voxelStream: 300 * MIB }, { voxelStream: 84 * MIB, physics: 8 * MIB }], diagnostics, 96 * MIB);
+    const m = memoryReport('low', [{ voxelStream: 300 * MIB, lightVolume: 30 * MIB }, { voxelStream: 84 * MIB, physics: 8 * MIB, regionStitch: 4 * MIB }], diagnostics, 96 * MIB);
     expect(m.tier).toBe('low');
     expect(m.rows.map((r) => r.id)).toEqual([...MEMORY_BUDGET_IDS]);
     const row = Object.fromEntries(m.rows.map((r) => [r.id, r]));
@@ -26,9 +26,10 @@ describe('the resident-bytes report', () => {
     expect(row.worldStream!.resident).toBe(10 * MIB);
     expect(row.probes!.resident).toBe(4 * MIB);
     expect(row.surfaceCache!.use).toBe(1.25);
-    for (const id of ['farSelection', 'sceneObjects', 'undo'] as const) expect([row[id]!.resident, row[id]!.use]).toEqual([null, null]);
-    expect(m.page).toEqual({ resident: 392 * MIB, budget: (768 + 512 + 48 + 32) * MIB, target: MEMORY_BUDGET_BY_TIER.low.target!.page });
-    expect(m.gpu).toEqual({ resident: (96 + 100 + 10 + 40 + 4) * MIB, budget: (384 + 256 + 768 + 32 + 128) * MIB, target: MEMORY_BUDGET_BY_TIER.low.target!.gpu });
+    expect([row.lightVolume!.resident, row.regionStitch!.resident]).toEqual([30 * MIB, 4 * MIB]);
+    for (const id of ['farSelection', 'sceneObjects', 'sunField', 'voxelWalk', 'undo'] as const) expect([row[id]!.resident, row[id]!.use]).toEqual([null, null]);
+    expect(m.page).toEqual({ resident: (392 + 4) * MIB, budget: (768 + 8 + 512 + 48 + 32) * MIB, target: MEMORY_BUDGET_BY_TIER.low.target!.page });
+    expect(m.gpu).toEqual({ resident: (96 + 100 + 10 + 40 + 4 + 30) * MIB, budget: (384 + 256 + 768 + 32 + 128 + 36 + 64 + 16) * MIB, target: MEMORY_BUDGET_BY_TIER.low.target!.gpu });
     // JSON-safe (the capture file holds it).
     expect(JSON.parse(JSON.stringify(m))).toEqual(m);
   });

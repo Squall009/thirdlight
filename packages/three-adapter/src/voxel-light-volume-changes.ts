@@ -50,10 +50,14 @@ export class VolumePendingChanges<V> {
   }
 }
 
-/** A brick as a change's marks read and write it: its updates toward settling and its rays' place in their sequence. */
+/**
+ * A brick as a change's marks read and write it: its updates toward settling, its rays' place in their sequence, and the
+ * updates it takes from nothing to count as settled.
+ */
 export interface VolumeHistoryBrick {
   updates: number;
   samples: number;
+  target: number;
 }
 
 /**
@@ -62,13 +66,19 @@ export interface VolumeHistoryBrick {
  * the light as it is now holds (nothing of a light that went). While changes keep coming (one within `continueFrames`
  * of the last: a blend of looks, a moving lamp, a brush stroke) a brick keeps half its history instead, so the light
  * follows smoothly, and starts from nothing once the changes have stopped for as long.
+ *
+ * A brick may be given fewer updates to settle from nothing (`target`): one past a changed lamp's reach only saw the
+ * lamp's bounce, and its first update replaces what it held (nothing of the old bounce is left), so it needs fewer
+ * updates than a brick the lamp lit to count as settled; the refining goes on converging it after.
  */
 export class VolumeHistory<B extends VolumeHistoryBrick> {
   private lastChange = -Infinity;
-  private readonly later = new Set<B>();
+  /** Bricks to start from nothing once the changes stop, with the updates each then takes to settle. */
+  private readonly later = new Map<B, number>();
 
   constructor(
-    private readonly settle: number,
+    /** Updates a brick takes from nothing to settle. */
+    readonly settle: number,
     private readonly continueFrames: number,
     /** A brick marked: it is stale (to be updated). */
     private readonly stale: (b: B) => void,
@@ -81,10 +91,11 @@ export class VolumeHistory<B extends VolumeHistoryBrick> {
     return continuing;
   }
 
-  /** A brick from nothing. */
-  restart(b: B): void {
+  /** A brick from nothing (`target`: the updates it takes to settle; absent: the settle count). */
+  restart(b: B, target = this.settle): void {
     b.updates = 0;
     b.samples = 0;
+    b.target = Math.max(1, Math.min(target, this.settle));
     this.later.delete(b);
     this.stale(b);
   }
@@ -95,20 +106,22 @@ export class VolumeHistory<B extends VolumeHistoryBrick> {
    * where the bricks beside each change start from nothing anyway and starting the rest again would double the work
    * of every arrival.
    */
-  marked(b: B, continuing: boolean, later = true): void {
+  marked(b: B, continuing: boolean, later = true, target = this.settle): void {
     if (!continuing) {
-      this.restart(b);
+      this.restart(b, target);
       return;
     }
     b.updates = Math.min(b.updates, this.settle >> 1);
-    if (later) this.later.add(b);
+    b.target = this.settle;
+    // A brick waiting already keeps the larger of its two targets (the nearer change's).
+    if (later) this.later.set(b, Math.max(target, this.later.get(b) ?? 0));
     this.stale(b);
   }
 
   /** Each frame: bricks that kept history through continuing changes start from nothing once the changes stopped. */
   frame(frame: number): void {
     if (this.later.size === 0 || frame - this.lastChange <= this.continueFrames) return;
-    for (const b of [...this.later]) this.restart(b);
+    for (const [b, target] of [...this.later]) this.restart(b, target);
   }
 
   /** A brick gone (out of the window). */

@@ -139,6 +139,41 @@ export type ReflectionQuality = (typeof REFLECTION_QUALITIES)[number];
 export const LIGHTING_TIERS = ['low', 'medium', 'high'] as const;
 export type LightingTier = (typeof LIGHTING_TIERS)[number];
 
+/**
+ * What the voxel light volume's update does at a tier (three-adapter voxel-light-volume.ts; the light kept in the open
+ * cells beside voxel surfaces round the camera). Set from measurement on the low tier's target (an Iris Xe at 720p, the
+ * 30 Hz cap); medium and high scaled from low, not measured on their own hardware. Engine settings, not a project's:
+ * a level does not set them.
+ */
+export interface VoxelLightVolumeSettings {
+  /**
+   * Updates a moving sun's or sky's light is followed over: while the light keeps moving (a day) every kept brick is
+   * refreshed in turn and each estimate blended in by at least 1 / this (an exponential mean: the light lags the sun by
+   * about this many of a brick's refreshes, its noise held to a mean of this many updates' rays).
+   */
+  readonly followWindow: number;
+  /**
+   * Updates a brick past a changed lamp's reach (which saw only its bounce) takes from nothing to count as settled
+   * again; the bricks in its reach take `settleUpdates`.
+   */
+  readonly outerSettle: number;
+  /** Lamps a brick's lamp list holds at most (each slot of the pool keeps one list: memory against the volume's row). */
+  readonly listEntries: number;
+  /** Rays each cell face casts an update. */
+  readonly rays: number;
+  /** Metres a ray goes before what lies beyond counts (the sky, or the coarse levels' light there), and a walk toward the sun. */
+  readonly rayReachM: number;
+  readonly sunReachM: number;
+  /** A ray that meets nothing within its reach takes the coarse levels' light at its end where they hold it (the far houses and hills), not the sky. */
+  readonly reachCoarse: boolean;
+  /** Updates a brick takes from nothing to settle. */
+  readonly settleUpdates: number;
+  /** Updates a brick is refined to while nothing changes; then the update stops. */
+  readonly historyUpdates: number;
+  /** Level 0's window across (2 m bricks; up is half of it): the 0.5 m cells kept round the camera, ±this metres. */
+  readonly windowBricks: number;
+}
+
 /** What a lighting tier sets. */
 export interface LightingTierSettings {
   /** The surface cache's memory budget (MiB). */
@@ -159,14 +194,41 @@ export interface LightingTierSettings {
    * not a march of their own: far mountains and houses shading valleys and streets; WebGPU), 0: off.
    */
   readonly voxelSunSteps: number;
+  /** The voxel light volume's update. */
+  readonly voxelLightVolume: Readonly<VoxelLightVolumeSettings>;
 }
+
+/**
+ * The light volume's update by tier (default chosen, owner to confirm; measured in the phase plan): low measured on its
+ * target; medium and high scaled from it (unverified on target hardware): their GPU has the time for more rays a face
+ * and a longer refinement, the same window and lists (the layout's window is the largest the index holds).
+ */
+const VOXEL_LIGHT_VOLUME_BY_TIER: Readonly<Record<LightingTier, Readonly<VoxelLightVolumeSettings>>> = Object.freeze({
+  low: Object.freeze({ followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
+  medium: Object.freeze({ followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
+  high: Object.freeze({ followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
+});
 
 /** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */
 export const LIGHTING_TIER_SETTINGS: Readonly<Record<LightingTier, Readonly<LightingTierSettings>>> = Object.freeze({
-  low: Object.freeze({ surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 2048, voxelSunSteps: 12 }),
-  medium: Object.freeze({ surfaceCacheMiB: 64, surfaceLightMs: 1.5, contactShadows: true, reflections: 'medium' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 4096, voxelSunSteps: 16 }),
-  high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2, shadowAtlas: 8192, voxelSunSteps: 24 }),
+  low: Object.freeze({ surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 2048, voxelSunSteps: 12, voxelLightVolume: VOXEL_LIGHT_VOLUME_BY_TIER.low }),
+  medium: Object.freeze({ surfaceCacheMiB: 64, surfaceLightMs: 1.5, contactShadows: true, reflections: 'medium' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 4096, voxelSunSteps: 16, voxelLightVolume: VOXEL_LIGHT_VOLUME_BY_TIER.medium }),
+  high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2, shadowAtlas: 8192, voxelSunSteps: 24, voxelLightVolume: VOXEL_LIGHT_VOLUME_BY_TIER.high }),
 });
+
+/**
+ * What is wrong with a light volume's settings (empty: nothing): every count a whole number of at least one, the
+ * reaches positive metres, the window an even count of bricks of at least 8, the history at least the settle.
+ */
+export function voxelLightVolumeSettingsProblems(v: VoxelLightVolumeSettings): string[] {
+  const out: string[] = [];
+  for (const k of ['followWindow', 'outerSettle', 'listEntries', 'rays', 'settleUpdates', 'historyUpdates', 'windowBricks'] as const) if (!Number.isInteger(v[k]) || v[k] < 1) out.push(`${k} is a whole number of at least 1`);
+  for (const k of ['rayReachM', 'sunReachM'] as const) if (!(v[k] > 0)) out.push(`${k} is a positive number of metres`);
+  if (v.outerSettle > v.settleUpdates) out.push('outerSettle is at most settleUpdates');
+  if (v.historyUpdates < v.settleUpdates) out.push('historyUpdates is at least settleUpdates');
+  if (v.windowBricks % 2 !== 0 || v.windowBricks < 8) out.push('windowBricks is an even number of at least 8');
+  return out;
+}
 
 /** The tier of a level that names none. */
 export const DEFAULT_LIGHTING_TIER: LightingTier = 'medium';
@@ -201,6 +263,7 @@ export function levelLighting(level: Pick<QualityLevelConfig, 'lighting' | 'surf
     surfaceReach: t.surfaceReach,
     shadowAtlas: level.shadowAtlas ?? t.shadowAtlas,
     voxelSunSteps: t.voxelSunSteps,
+    voxelLightVolume: t.voxelLightVolume,
   };
 }
 
@@ -447,14 +510,18 @@ const UNCAPPED_TIER_HZ = 60;
 
 /**
  * The measured GPU passes' own shares within their rows (default chosen, owner to confirm): the shadow maps keep a
- * fiftieth of the frame (0.67 ms at 30 Hz; the town measured 0.6–0.7 ms at the low tier), the live light the rest of
- * the lighting row.
+ * fiftieth of the frame (0.67 ms at 30 Hz; the town measured 0.6–0.7 ms at the low tier); the live light (the light
+ * volume's update) what keeps the row's measured total within it. Its own timestamps read 1.2–1.4× short of what the
+ * frame pays for it (the read of a pool being written, the rest of the frame waiting), so its
+ * share is set from the measured row, not the row less the shadows. Medium and high keep low's
+ * shares of their frame (unverified on target hardware).
  */
 const GPU_PASS_SHARES: Readonly<Partial<Record<GpuPassCategory, number>>> = Object.freeze({ shadows: 0.02, lighting: 0.18 });
 
 /**
- * The passes' shares while they only refine (default chosen, owner to confirm): the live light half its own share
- * (3.0 ms at 30 Hz), so a view standing still converges in a minute or so and keeps most of the light's row free.
+ * The passes' shares while they only refine (default chosen, owner to confirm): the live light's, set as its live
+ * share is from what the row measures, so a view standing still converges in a minute or so and keeps most of the
+ * light's row free.
  */
 const GPU_IDLE_SHARES: Readonly<Partial<Record<GpuPassCategory, number>>> = Object.freeze({ lighting: 0.09 });
 
@@ -526,6 +593,24 @@ export const SCENE_OBJECT_BUDGET_BYTES = 32 * MIB;
 export const PROBE_RESIDENT_BYTES = 128 * MIB;
 
 /**
+ * GPU memory the voxel light volume may take by tier (bytes): its pool of brick slots (each a brick's 64 cells' six
+ * faces, their colours and glows, and its lamp list), its index and the update's buffers. Its slots are as many as
+ * fit (the window's kept bricks: 8,977–9,910 of level 0 and the coarse levels at the town's views with ±48 m,
+ * measured in the phase plan), so the row is the pool's size, never a count of bricks a scene may have.
+ */
+export const LIGHT_VOLUME_BUDGET_BYTES_BY_TIER: Readonly<Record<LightingTier, number>> = Object.freeze({ low: 36 * MIB, medium: 36 * MIB, high: 36 * MIB });
+
+/**
+ * Memory the default path of a voxel world holds beside its streaming (bytes; measured on the town inside the 8 km
+ * world): the sun field's tops and shade lines on the GPU (55 MB with its page copy), the occupancy
+ * walk's blocks on the GPU (8.5 MB), the open regions' stitch on the page (4.2 MB). Budgets the profiler weighs them
+ * against; they are sized with room above those readings, not caps the systems keep to.
+ */
+export const SUN_FIELD_BUDGET_BYTES = 64 * MIB;
+export const VOXEL_WALK_GPU_BUDGET_BYTES = 16 * MIB;
+export const REGION_STITCH_BUDGET_BYTES = 8 * MIB;
+
+/**
  * One entry of a tier's memory budget: what it holds, where (`page`: the
  * page's and its workers' heaps; `gpu`: GPU memory; `backend`: the editor's
  * backend, not part of a game's memory), its bytes, and the constant (or
@@ -557,6 +642,7 @@ function memoryEntries(tier: LightingTier): readonly MemoryBudgetEntry[] {
   const e = (id: MemoryBudgetId, label: string, side: MemoryBudgetEntry['side'], bytes: number, from: string): MemoryBudgetEntry => Object.freeze({ id, label, side, bytes, from });
   const all: Readonly<Record<MemoryBudgetId, MemoryBudgetEntry>> = {
     voxelStream: e('voxelStream', 'voxel streaming (chunks, derived parts, overlay, tables, mips, kits)', 'page', VOXEL_STREAM_BUDGET_BYTES[tier], 'VOXEL_STREAM_BUDGET_BYTES'),
+    regionStitch: e('regionStitch', 'voxel open regions stitched across chunks', 'page', REGION_STITCH_BUDGET_BYTES, 'REGION_STITCH_BUDGET_BYTES'),
     physics: e('physics', 'physics memory (the simulation stops past it)', 'page', PHYSICS_MEMORY_CAP_BYTES, 'PHYSICS_MEMORY_CAP_BYTES'),
     farSelection: e('farSelection', 'far nodes drawn at once (their stored bytes)', 'page', FAR_BUDGET_BYTES, 'FAR_BUDGET_BYTES'),
     sceneObjects: e('sceneObjects', "a scene's objects (each scene)", 'page', SCENE_OBJECT_BUDGET_BYTES, 'SCENE_OBJECT_BUDGET_BYTES'),
@@ -565,6 +651,9 @@ function memoryEntries(tier: LightingTier): readonly MemoryBudgetEntry[] {
     worldStream: e('worldStream', 'streamed scene cells (the project may set its own)', 'gpu', STREAMING_BUDGET_DEFAULT_MB * MIB, 'STREAMING_BUDGET_DEFAULT_MB'),
     surfaceCache: e('surfaceCache', 'surface cache', 'gpu', LIGHTING_TIER_SETTINGS[tier].surfaceCacheMiB * MIB, 'LIGHTING_TIER_SETTINGS.surfaceCacheMiB'),
     probes: e('probes', 'probe tiles', 'gpu', PROBE_RESIDENT_BYTES, 'PROBE_RESIDENT_BYTES'),
+    lightVolume: e('lightVolume', 'voxel light volume (its pool of brick slots, index and lamp lists)', 'gpu', LIGHT_VOLUME_BUDGET_BYTES_BY_TIER[tier], 'LIGHT_VOLUME_BUDGET_BYTES_BY_TIER'),
+    sunField: e('sunField', "voxel sun field (columns' tops and shade lines)", 'gpu', SUN_FIELD_BUDGET_BYTES, 'SUN_FIELD_BUDGET_BYTES'),
+    voxelWalk: e('voxelWalk', "voxel occupancy walk's blocks on the GPU", 'gpu', VOXEL_WALK_GPU_BUDGET_BYTES, 'VOXEL_WALK_GPU_BUDGET_BYTES'),
     undo: e('undo', 'voxel undo (each world, in the backend)', 'backend', UNDO_MEMORY_BUDGET_BYTES, 'UNDO_MEMORY_BUDGET_BYTES'),
   };
   return Object.freeze(MEMORY_BUDGET_IDS.map((id) => all[id]));

@@ -1759,6 +1759,7 @@ export {
   LIGHTING_TIERS,
   LIGHTING_TIER_SETTINGS,
   levelLighting,
+  voxelLightVolumeSettingsProblems,
   lightingTierRank,
   lightingTierValues,
   LOW_FRAME_RATE_CAP,
@@ -1766,6 +1767,10 @@ export {
   UPSCALED_RENDER_SCALE,
   FRAME_BUDGET_BY_TIER,
   MEMORY_BUDGET_BY_TIER,
+  LIGHT_VOLUME_BUDGET_BYTES_BY_TIER,
+  SUN_FIELD_BUDGET_BYTES,
+  VOXEL_WALK_GPU_BUDGET_BYTES,
+  REGION_STITCH_BUDGET_BYTES,
   PHYSICS_MEMORY_CAP_BYTES,
   PROBE_RESIDENT_BYTES,
   type MemoryBudget,
@@ -1781,6 +1786,7 @@ export {
   type FrameBudgetShares,
   type LightingTier,
   type LightingTierSettings,
+  type VoxelLightVolumeSettings,
 } from './quality-levels';
 // The quality level a device starts at (its lighting tier from its renderer and GPU).
 export { deviceGpuClassOf, deviceLightingTier, deviceQualityLevel, type DeviceGpuClass, type DeviceGpuInfo, type DeviceLightingTier } from './quality-device';

@@ -1,8 +1,11 @@
 /** The light volume's refining order and its index's first-update rule (voxel-light-volume-refine.ts). */
 import { describe, expect, it } from 'vitest';
+import { LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
 
-import { VOLUME_HISTORY_UPDATES } from './voxel-light-volume-layout';
 import { VolumeIndexRows, VolumeRefiner } from './voxel-light-volume-refine';
+
+/** Updates a brick is refined to (the low tier's). */
+const VOLUME_HISTORY_UPDATES = LIGHTING_TIER_SETTINGS.low.voxelLightVolume.historyUpdates;
 
 interface B {
   level: number;
@@ -23,14 +26,14 @@ describe('the refining', () => {
     const r = new VolumeRefiner<B>();
     const idle = (b: B): boolean => b.updates < VOLUME_HISTORY_UPDATES;
     const firstTaken: B[] = [];
-    r.take(() => bricks, idle, [0.5, 0.5, 0.5], [0, 0, -1], 4, firstTaken);
+    r.take(() => bricks, idle, [0.5, 0.5, 0.5], [0, 0, -1], 4, firstTaken, VOLUME_HISTORY_UPDATES);
     // Nearest first: the brick holding the eye, the two beside it, then the next in front.
     expect(firstTaken.map((b) => b.bz)).toEqual([0, -1, 1, -2]);
     let frames = 0;
     let order: number[] = [];
     while (!r.refined && frames < 100_000) {
       const list: B[] = [];
-      r.take(() => bricks, idle, [0.5, 0.5, 0.5], [0, 0, -1], 4, list);
+      r.take(() => bricks, idle, [0.5, 0.5, 0.5], [0, 0, -1], 4, list, VOLUME_HISTORY_UPDATES);
       for (const b of list) b.updates++;
       if (frames === 400) order = bricks.map((b) => b.updates);
       frames++;
@@ -41,14 +44,14 @@ describe('the refining', () => {
     expect(order[50]! - order[10]!).toBeGreaterThanOrEqual(40);
     expect(order[49]! - order[60]!).toBeGreaterThanOrEqual(10);
     const none: B[] = [];
-    r.take(() => bricks, idle, [0.5, 0.5, 0.5], [0, 0, -1], 4, none);
+    r.take(() => bricks, idle, [0.5, 0.5, 0.5], [0, 0, -1], 4, none, VOLUME_HISTORY_UPDATES);
     expect(none).toEqual([]);
     // A change: refining again (here a brick restarted below its history).
     bricks[3]!.updates = 8;
     r.changed();
     expect(r.refined).toBe(false);
     const again: B[] = [];
-    r.take(() => bricks, idle, [0.5, 0.5, 0.5], [0, 0, -1], 4, again);
+    r.take(() => bricks, idle, [0.5, 0.5, 0.5], [0, 0, -1], 4, again, VOLUME_HISTORY_UPDATES);
     expect(again).toEqual([bricks[3]]);
     // Taken once a call however the order is made again within it.
     expect(new Set(again).size).toBe(again.length);

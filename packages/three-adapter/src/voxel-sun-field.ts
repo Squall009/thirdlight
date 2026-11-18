@@ -148,8 +148,17 @@ export class SunField {
 
   /** GPU and page bytes (the buffer on both sides, the far nodes' tops). */
   get bytes(): number {
-    // The tops on both sides, the two line textures (8 bytes a column each), the far nodes' tops.
-    return this.buffer.array.byteLength * (this.made ? 2 : 1) + (this.made ? 2 * 2 * SUN_WINDOW_TEXELS * SUN_WINDOW_TEXELS * 8 : 0) + this.far.bytes;
+    return this.pageBytes + this.gpuBytes;
+  }
+
+  /** Page bytes: the tops' buffer and the far nodes' tops. */
+  get pageBytes(): number {
+    return this.buffer.array.byteLength + this.far.bytes;
+  }
+
+  /** GPU bytes: the tops' buffer and the two line textures (8 bytes a column each), once made. */
+  get gpuBytes(): number {
+    return this.made ? this.buffer.array.byteLength + 2 * 2 * SUN_WINDOW_TEXELS * SUN_WINDOW_TEXELS * 8 : 0;
   }
 
   /** The tier's samples a march (0: off). */
@@ -674,13 +683,13 @@ export class SunFieldHost {
     edge: number,
     voxelM: number,
     skies: () => Iterable<SkyColumns>,
-    register: { hide(apply: (hidden: boolean) => void): () => void; bytes(read: () => number): () => void },
+    register: { hide(apply: (hidden: boolean) => void): () => void; bytes(page: () => number, gpu: () => number): () => void },
   ) {
     this.field = new SunField(edge, voxelM, skies);
     this.light = new SunFieldLight(this.field);
     scene.add(this.light);
     link.sunField = this.field;
-    this.offs.push(register.hide((h) => this.field.hide(h)), register.bytes(() => this.field.bytes));
+    this.offs.push(register.hide((h) => this.field.hide(h)), register.bytes(() => this.field.pageBytes, () => this.field.gpuBytes));
   }
 
   /** The tier's samples a march (`voxelSunSteps`), read each frame. */

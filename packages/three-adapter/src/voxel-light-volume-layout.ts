@@ -194,13 +194,6 @@ export function ambientCubeSteps<F, B>(o: ScalarOps<F, B>, nx: F, ny: F, nz: F, 
 // How an update writes a face
 
 /**
- * Updates a brick is refined to while nothing changes (each update 4 rays a face): past its first settle the update
- * keeps taking settled bricks, nearest the eye first, until each has had this many, then stops again. A tier setting
- * once the volume is tuned.
- */
-export const VOLUME_HISTORY_UPDATES = 64;
-
-/**
  * A face's light is the mean of about the last 1 / this of its brick's updates (an estimate is blended in by
  * 1 / (⌈updates / this⌉ + 1)): the estimates made while the bounces a brick reads were still building fade out, where a
  * mean of every estimate kept them (a closed white box held 0.62 of its light after 8 updates and 0.79 after 64 with
@@ -635,17 +628,63 @@ export interface VolumeBrickLamps {
 }
 
 /**
- * The lamps brick (bx, by, bz) of `level` lists, the CPU reference of the list build (`VOLUME_LAMP_LIST_WGSL`): every lamp
- * of the table (`count` lamps) whose reach meets the brick's box; past `entries` of them, the `entries` strongest
- * ({@link volumeLampStrength}; equal strengths: the lower index), listed by index.
+ * The share of a brick's lamp light ({@link volumeLampStrength} summed over the lamps reaching it) its weakest lamps may
+ * together give and go unlisted: they are negligible against the others (a street of lamps lighting one brick: the far
+ * ones' falloff leaves them a few hundredths of the near ones'), and a list then holds only the lamps that matter.
  */
-export function volumeBrickLamps(lamps: ArrayLike<number>, count: number, bx: number, by: number, bz: number, entries = VOLUME_LAMP_LIST_ENTRIES, level = 0): VolumeBrickLamps {
-  const hit: number[] = [];
-  for (let i = 0; i < count; i++) if (volumeLampReaches(lamps, i, bx, by, bz, level)) hit.push(i);
-  if (hit.length <= entries) return { listed: hit, total: hit.length };
-  const ranked = hit.map((i) => [i, volumeLampStrength(lamps, i, bx, by, bz, level)] as const);
+export const VOLUME_LAMP_NEGLIGIBLE = 0.02;
+
+/** The spot's axis or an area light's facing, its cone's cos, and its kind field, in a lamp's words. */
+const LAMP_AXIS = 8;
+const LAMP_FIELD = 11;
+const LAMP_COS_OUTER = 15;
+
+/**
+ * Whether lamp `i` can light anything in brick (bx, by, bz) of `level` beyond its reach sphere's test: a spot only where
+ * its cone meets the brick's bounding sphere, a one-sided area light only where the brick has a point in front of its
+ * plane. The update's WGSL `lamp_faces_brick`.
+ */
+export function volumeLampFacesBrick(lamps: ArrayLike<number>, i: number, bx: number, by: number, bz: number, level = 0): boolean {
+  const o = i * VOLUME_LAMP_FLOATS;
+  const field = lamps[o + LAMP_FIELD]!;
+  const kind = field & 3;
+  if (kind === 0 || (kind >= 2 && (field & 4) !== 0)) return true;
+  const m = VOLUME_BRICK_M * 2 ** level;
+  const h = m / 2;
+  const v = [(bx + 0.5) * m - lamps[o]!, (by + 0.5) * m - lamps[o + 1]!, (bz + 0.5) * m - lamps[o + 2]!];
+  const ax = [lamps[o + LAMP_AXIS]!, lamps[o + LAMP_AXIS + 1]!, lamps[o + LAMP_AXIS + 2]!];
+  const along = v[0]! * ax[0]! + v[1]! * ax[1]! + v[2]! * ax[2]!;
+  if (kind >= 2) return along + h * (Math.abs(ax[0]!) + Math.abs(ax[1]!) + Math.abs(ax[2]!)) > 0;
+  const d = Math.hypot(v[0]!, v[1]!, v[2]!);
+  const rb = h * Math.sqrt(3);
+  if (d <= rb) return true;
+  const theta = Math.acos(Math.min(1, Math.max(-1, along / d)));
+  return theta - Math.asin(rb / d) < Math.acos(Math.min(1, Math.max(-1, lamps[o + LAMP_COS_OUTER]!)));
+}
+
+/**
+ * The lamps brick (bx, by, bz) of `level` lists, the CPU reference of the list build (`volumeLampListWgsl`): of the
+ * lamps of the table (`count` lamps) whose reach meets the brick's box and that can light it there
+ * ({@link volumeLampFacesBrick}), the strongest ({@link volumeLampStrength}; equal strengths: the lower index), as many
+ * as `entries` hold and as many as leave the rest under `negligible` of their sum ({@link VOLUME_LAMP_NEGLIGIBLE}),
+ * listed by index; `total` counts every one that reaches it.
+ */
+export function volumeBrickLamps(lamps: ArrayLike<number>, count: number, bx: number, by: number, bz: number, entries = VOLUME_LAMP_LIST_ENTRIES, level = 0, negligible = VOLUME_LAMP_NEGLIGIBLE): VolumeBrickLamps {
+  const ranked: Array<readonly [number, number]> = [];
+  let sum = 0;
+  for (let i = 0; i < count; i++) {
+    if (!volumeLampReaches(lamps, i, bx, by, bz, level) || !volumeLampFacesBrick(lamps, i, bx, by, bz, level)) continue;
+    const s = volumeLampStrength(lamps, i, bx, by, bz, level);
+    ranked.push([i, s]);
+    sum += s;
+  }
   ranked.sort((a, b) => b[1] - a[1] || a[0] - b[0]);
-  return { listed: ranked.slice(0, entries).map((s) => s[0]).sort((a, b) => a - b), total: hit.length };
+  let n = Math.min(entries, ranked.length);
+  let rest = 0;
+  for (let k = n; k < ranked.length; k++) rest += ranked[k]![1];
+  // The weakest listed go while what is left out stays negligible.
+  while (n > 0 && rest + ranked[n - 1]![1] <= negligible * sum) rest += ranked[--n]![1];
+  return { listed: ranked.slice(0, n).map((s) => s[0]).sort((a, b) => a - b), total: ranked.length };
 }
 
 /** The level-0 bricks a lamp's reach sphere can meet (inclusive, a box of them; those in it are tested one by one). */

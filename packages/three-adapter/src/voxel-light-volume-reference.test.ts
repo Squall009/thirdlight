@@ -5,13 +5,17 @@
  * history's weights, and the colours a textured look bounces.
  */
 import { describe, expect, it } from 'vitest';
+import { LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
 import { mulberry32 } from '@thirdlight/shared';
 
 import { BOUNCE_ALBEDO, SH_Y0 } from './surface-probes';
 import { VolumeColourCache, volumeCellColour, volumeLookBounce } from './voxel-light-volume-colours';
-import { VOLUME_HISTORY_UPDATES, VOLUME_LAMP_FLOATS, volumeBlendWeight } from './voxel-light-volume-layout';
+import { VOLUME_LAMP_FLOATS, volumeBlendWeight } from './voxel-light-volume-layout';
 import { VolumeUpdateModel, volumePredicateSource, volumeReferenceFace, type VolumeLightWorld } from './voxel-light-volume-reference';
 import type { VoxelMaterialLook } from './voxel-surface';
+
+/** Updates a brick is refined to (the low tier's). */
+const VOLUME_HISTORY_UPDATES = LIGHTING_TIER_SETTINGS.low.voxelLightVolume.historyUpdates;
 
 /** A sky of uniform radiance `l` (grey) as the pass's SH words. */
 function uniformSky(l: number): Float32Array {

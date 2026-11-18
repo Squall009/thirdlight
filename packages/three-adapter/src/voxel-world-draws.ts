@@ -330,11 +330,17 @@ export class VoxelWorldDraws {
     this.unregister.push(
       gpuPassHides.register({ category: 'near', name: 'voxel near surfaces and kit pieces', present: () => [...this.worlds.values()].some((w) => w.view.count > 0), hide: (h) => this.showNear(!h) }),
       gpuPassHides.register({ category: 'far', name: 'voxel far field', present: () => [...this.worlds.values()].some((w) => w.view.far.nodes > 0), hide: (h) => this.showFar(!h) }),
-      // The walk's blocks are a share of the chunks drawn (a page a mixed block), held on the page and the GPU.
+      // The walk's blocks are a share of the chunks drawn (a page a mixed block): the page's copy with the stream, the
+      // GPU's against the walk's own row.
       residentBytes.register('voxelStream', () => {
         let n = 0;
-        for (const g of this.walks.values()) n += g.table.bytes + g.gpuBytes;
+        for (const g of this.walks.values()) n += g.table.bytes;
         for (const k of this.skies.values()) n += k.bytes;
+        return n;
+      }),
+      residentBytes.register('voxelWalk', () => {
+        let n = 0;
+        for (const g of this.walks.values()) n += g.gpuBytes;
         return n;
       }),
     );
@@ -655,7 +661,10 @@ export class VoxelWorldDraws {
       this.sun ??= new SunFieldHost(scene, link, edge, VOXEL_SIZE_M, () => this.skies.values(), {
         // Its march sits inside every sun-lit program: the measurement's hide skips it there.
         hide: (h) => gpuPassHides.register({ category: 'shadows', name: 'voxel sun march', present: () => (this.sun?.steps ?? 0) > 0, hide: h }),
-        bytes: (read) => residentBytes.register('voxelStream', read),
+        bytes: (page, gpu) => {
+          const offs = [residentBytes.register('voxelStream', page), residentBytes.register('sunField', gpu)];
+          return () => offs.forEach((off) => off());
+        },
       });
       const sun = this.sun;
       view.far.nodesChanged = (added, removed) => {
