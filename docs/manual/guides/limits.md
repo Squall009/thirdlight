@@ -44,7 +44,7 @@ holds this build's value.
   (`texture_budget_mb`, default
   [512 MiB](../reference/limits-project-model-2.md#limit-texture-budget-default-mb)),
   streamed terrain tiles and block chunks (`streaming_budget_mb`, default
-  [768 MiB](../reference/limits-project-model-2.md#limit-streaming-budget-default-mb)),
+  [768 MiB](../reference/limits-project-model-3.md#limit-streaming-budget-default-mb)),
   light probes (128 MiB of GPU memory, fixed; the renderer's, not in the
   reference). A budget is never a refusal: the least needed detail is
   dropped first, and a ring that alone needs more is reported once in
@@ -81,7 +81,7 @@ and **Texture budget**.
 
 **API:** [`setSettings`](../reference/ops-detail.md#op-setSettings)
 `{"settings": {"texture_budget_mb": 768, "streaming_budget_mb": 1024}}`
-(each [1](../reference/limits-project-model-2.md#limit-streaming-budget-min-mb)–[65,536](../reference/limits-project-model-2.md#limit-streaming-budget-max-mb) MiB; see
+(each [1](../reference/limits-project-model-3.md#limit-streaming-budget-min-mb)–[65,536](../reference/limits-project-model-3.md#limit-streaming-budget-max-mb) MiB; see
 [the settings](../reference/content-blocks-settings.md#content-settings)).
 
 Raise a budget only for machines that have the memory: the defaults hold a
