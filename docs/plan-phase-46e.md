@@ -3852,6 +3852,12 @@ night cameras' brightness from run to run (D723). The per-pixel read (D705) and 
   cheaper on the orbit and lost level 0 at a high view); **the light volume's memory row** 36 MiB at low and medium,
   48 at high; **the default path's rows** sun field 64 MiB, walk 16 MiB (GPU), region stitch 8 MiB (page).
 
+- 2026-11-18 (OWNER, relayed by the owner's other session; `owner-decisions.md`, a7fcbc6c): (1) the glow mask in the
+  ORM map's alpha is approved as proposed on acc46e-11 and can be built (it affects only the drawn pixel; the volume
+  uses the mask's mean, computed by the engine); (2) dark rooms: no default minimum brightness, no per-scene minimum:
+  the 46e.13b question is answered "none". The lead places the mask's build after the tuning (46e.14 c) and before
+  46e.15, as 46e.12 (e).
+
 ## 10. Open questions for the owner (asked with the plan)
 
 1. The two parts with a stop at the lighting choice. **Owner 2026-11-14: yes.**
@@ -3874,6 +3880,8 @@ The page with pictures and the table: `docs/briefs/acceptance-46e-a.md` (publish
    more missed frames at 150 m/s). Default: keep them on at every tier; D667, D675, D701 fixed in 46e-b's first item.
 
 ### At 46e.13b (2026-11-17): one question, with the default that stands if unanswered
+
+**Owner 2026-11-18 (relayed): answered — none. No minimum brightness, no per-scene minimum.**
 
 1. **Rooms are dark at a game's exposure.** With the update's loss fixed the room camera's room holds what a path
    tracer over the same voxels gives it (its floor's cells within 1.01–1.09 of the update's own target, the rest the
