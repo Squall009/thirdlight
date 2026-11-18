@@ -6,6 +6,7 @@
  * shot that shows no voxels (the same picture with the voxels hidden, e.g. a camera looking at the sky) is
  * refused.
  */
+import { DAY_PRESET_IDS } from './day-cycle';
 import { describe, expect, it } from 'vitest';
 import { validateEnvironmentPresets, type ModelErrorV2 } from '@thirdlight/project-model';
 import { chunkGrid, createDenseChunk, localIndex, VOXEL_ROLE } from '@thirdlight/voxel';
@@ -119,7 +120,8 @@ describe('the lighting cameras', () => {
     const errors: ModelErrorV2[] = [];
     validateEnvironmentPresets(LIGHTING_PRESETS, '/environment/presets', errors);
     expect(errors).toEqual([]);
-    expect(LIGHTING_PRESETS.map((p) => p.presetId)).toEqual([...LIGHT_PRESET_IDS]);
+    // The noon and night looks, then the moving sun's day (day-cycle.ts).
+    expect(LIGHTING_PRESETS.map((p) => p.presetId)).toEqual([...LIGHT_PRESET_IDS, ...DAY_PRESET_IDS]);
   });
 });
 
