@@ -3107,6 +3107,12 @@ key light); the 32 scene's two stale readings at the street and room (below; and
 run: not traced); medium and high are one run each. The orbit's first rounds (D711) are kept beside the readings in the
 raw files.
 
+**Gate.** `gate-fast-20261118-111813` (676d8a99; every bench and the three-adapter change) RED at vitest: the
+lighting cameras' test listed the bench's looks as noon and night only (the day's looks are new: the test now lists
+them, 4e03a33e); `gate-rerun-20261118-112604` GREEN (vitest, e2e core + voxel + lighting 22 passed, the village perf
+check). The Play tests 1.5 / 2.5 min (46e.12d: 1.5 / 2.5). No e2e file added: the change is bench code and a page
+flag read once at the volume's start.
+
 **What the tuning has to decide** (the numbers it starts from; nothing tuned here):
 1. **The per-pixel read** (D705): +2.8–4.0 ms `near` at the town's cameras, +4.2–5.5 at the many-lamps street and
    room, +8.5–9.6 at the high view; level 0's eight cells most of it (+4–5 of +4.4–6.1 at the 128 street), the coarse
