@@ -242,7 +242,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `docs/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
 | 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
 | 46e.10 | Done 2026-11-17 (cb7229fa…5503e495): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); 10b: walk blocks only while the page reads its GPU walk; 10c: sim frames build full diagnostics only when sent (11.8 ms a tick of voxel stats after a 150 m/s stop): store off nothing pending 7.0–7.3 s (base 7.4–7.5, before 10.5–11.4), D701 fixed; D672 narrowed; D711 |
-| 46e.11 | Proposed 2026-11-16 (24296e84), published as acc46e-11: `docs/briefs/proposal-46e.11-emissive.md` — no new stored field (the voxel path reads the record's `params.emissive` × `params.emissiveIntensity`; the volume keeps one more word a cell, 28 → 32 B); three questions with defaults. **Waiting for the owner's note; nothing built.** |
+| 46e.11 | Proposed 2026-11-16 (24296e84, acc46e-11), **owner's note 2026-11-17 (relayed): approved with changes** — reuse `params.emissive` × `emissiveIntensity`; no mask: the surface draws glow × the colour texture, the volume uses glow × the material's mean colour; a mask only in a spare channel of a map already read, its entry text to the owner before it is built; no far glow. (d) builds the no-mask part. |
 | 46e.12 | (a) done 2026-11-17 (b73ee726…2b80a9c2): lamp list per kept brick built in compute, 128 extra lamps 4.1–6.1 → 0.21–0.24 ms a brick. (b), (c) done 2026-11-17 (3d198037…38220994): spots by cone, rect and line lights by the LTC form factor (one definition, = per-pixel to 1e-6), walk to a point per ray; one spot + one area 0.029 ms a brick (base 0.024–0.028). (d) waits for the owner |
 | 46e.13 | (a) done (f2bc0110…6280f957): a change restarts what it reaches (D715, D695), batch work in the slice (D708), share 6.0 ms (D690 open). (b) done 2026-11-17 (99f2526a, 9e74e084): bounces converge, refining while idle (4.2–5.3 ms GPU), a write-time filter, texture-mean colours; room blotch 0.67 → 0.27, error vs a CPU reference 0.33 → 0.16; room dark (§10 Q) |
 | 46e.14 | not started |
@@ -3163,6 +3163,19 @@ exposure before rays or reach are tuned for it; the light types' "behind" check 
 - 2026-11-17 (46e.13b, default chosen, owner to confirm): the Play e2e's light-volume checks are a test of their own
   on the same backend (the shadows, sun field and the rest stay in the first); it builds and digs the script's wall
   once first, as the shadow checks do before it in the other test, so its store-off pictures see the same world.
+
+- 2026-11-17 (OWNER, relayed by the owner's other session so the running agents were not interrupted; recorded in
+  `owner-decisions.md` and on the proposal page, f5c3ea49): the emissive entry is **approved with changes**. (1) Reuse
+  the two glow fields. (2) Drawn glow and light given off are separate: without a mask the voxel surface draws glow
+  colour × strength × the material's colour texture and the volume uses glow colour × strength × the material's mean
+  colour, one value a material; a mask affects only the drawn pixel, sits in a spare channel of a map the surface
+  already reads (no new array, no 14th binding; none free: report and stop), and the volume then uses the mask's
+  mean, computed by the engine; the mask is stored data, so its add-only entry text is published for the owner before
+  it is built. (3) No glow in the far field in 46e-b. Known: voxel materials already carrying a glow start glowing.
+- 2026-11-18 (lead): 46e.13 verified as three slices' worth in two agents: (a) the lead looked at the far view (the
+  gable patches gone), (b) at `46e.13b/cmp-room-auto-base-head.png` and `cmp-night-types-base-head.png` (blotches
+  down; the room still near black with auto-exposure: the §10 question stands). D690 stays open, narrowed: no pacing
+  signal true at the cap was found; the tuning sets the store's share with that overrun known.
 
 ## 10. Open questions for the owner (asked with the plan)
 
