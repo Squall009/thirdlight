@@ -270,15 +270,25 @@ export function ambientCubeFaceWeights<F, B>(o: ScalarOps<F, B>, nx: F, ny: F, n
  * The light a surface at `p` (metres) facing `n` (unit) reads, the CPU reference of the surfaces' read: the eight
  * cells round the point half a cell off it along `n`, weighted trilinearly, only those holding light counted
  * (`faces(x, y, z)`: the six faces' light of a cell, null where none is held), divided by the weight they had; each
- * cell's light is its faces toward `n` by {@link ambientCubeFaceWeights} with the read's face floor.
+ * cell's light is its faces toward `n` by {@link ambientCubeFaceWeights} with the read's face floor. `nearest`: the one
+ * cell the point half a cell off the surface lies in, with all the weight where it holds light (the read past the
+ * tier's `readFullM`).
  * Returns the light and the weight (0: none of the eight holds light; the reader keeps its flat term).
  */
-export function volumeReadAt(p: readonly number[], n: readonly number[], cellM: number, faces: (x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, faceFloor = 0): { light: [number, number, number]; weight: number } {
+export function volumeReadAt(p: readonly number[], n: readonly number[], cellM: number, faces: (x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, faceFloor = 0, nearest = false): { light: [number, number, number]; weight: number } {
   const g = [0, 1, 2].map((a) => (p[a]! + n[a]! * VOLUME_READ_OFFSET_CELLS * cellM) / cellM - 0.5);
-  const i0 = g.map(Math.floor);
-  const f = g.map((v, a) => v - i0[a]!);
   const fw = ambientCubeFaceWeights(o, n[0]!, n[1]!, n[2]!, faceFloor);
   const side = [0, 1, 2].map((a) => volumeFace(a, n[a]!));
+  if (nearest) {
+    // The cell the point half a cell off the surface lies in, alone (the surfaces' read past `readFullM`).
+    const c = g.map((v) => Math.floor(v + 0.5));
+    const fc = faces(c[0]!, c[1]!, c[2]!);
+    if (fc === null) return { light: [0, 0, 0], weight: 0 };
+    const at = (ch: number): number => fw[0] * fc[side[0]!]![ch]! + fw[1] * fc[side[1]!]![ch]! + fw[2] * fc[side[2]!]![ch]!;
+    return { light: [at(0), at(1), at(2)], weight: 1 };
+  }
+  const i0 = g.map(Math.floor);
+  const f = g.map((v, a) => v - i0[a]!);
   const sum: [number, number, number] = [0, 0, 0];
   let wsum = 0;
   for (let k = 0; k < 8; k++) {
@@ -311,7 +321,7 @@ export function volumeWeightShare(w: number): number {
  * (a character's head over a field, the middle of a room) the first coarse level holding light round it, and a point
  * no level holds keeps its flat term (weight 0). `faces(level, x, y, z)`: a cell of that level's six faces, or null.
  */
-export function volumeReadLevels(p: readonly number[], n: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, faceFloor = 0): { light: [number, number, number]; weight: number; shares: number[] } {
+export function volumeReadLevels(p: readonly number[], n: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, faceFloor = 0, nearest = false): { light: [number, number, number]; weight: number; shares: number[] } {
   let left = 1;
   const acc = [0, 0, 0];
   const shares: number[] = [];
@@ -320,7 +330,7 @@ export function volumeReadLevels(p: readonly number[], n: readonly number[], fac
       shares.push(0);
       continue;
     }
-    const r = volumeReadAt(p, n, volumeCellM(level), (x, y, z) => faces(level, x, y, z), o, faceFloor);
+    const r = volumeReadAt(p, n, volumeCellM(level), (x, y, z) => faces(level, x, y, z), o, faceFloor, nearest && level === 0);
     const a = volumeWeightShare(r.weight);
     for (let k = 0; k < 3; k++) acc[k]! += left * a * r.light[k]!;
     shares.push(left * a);

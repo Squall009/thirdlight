@@ -30,6 +30,20 @@ const SKY_SAMPLES = 512;
 const SKY_ROUGHNESS = 1;
 /** How often (ms) what the sky is made of is looked at again. */
 export const SKY_CHECK_MS = 500;
+
+/**
+ * `texture.userData[ENVIRONMENT_BAKES_KEY]`: how many times an environment map kept in place was baked again (its
+ * render target drawn anew: its uuid and version stay). A look's numbers change at once and its sky's light is baked
+ * up to a second later, so the probe looks again when the bake lands, not only when the numbers changed: a probe that
+ * projected between the two kept the old sky's light until the next change.
+ */
+export const ENVIRONMENT_BAKES_KEY = 'tlEnvironmentBakes';
+
+/** An environment map baked (again, into the same target: its texture stays the same object), counted for the probes; returns it. */
+export function countEnvironmentBake(t: THREE.Texture): THREE.Texture {
+  t.userData[ENVIRONMENT_BAKES_KEY] = ((t.userData[ENVIRONMENT_BAKES_KEY] as number | undefined) ?? 0) + 1;
+  return t;
+}
 /** How far above the map's typical irradiance (the mean of its darker nine tenths) a direction's is held. */
 const SKY_SPIKE = 3;
 
@@ -107,7 +121,7 @@ export class SkyProbe {
     if (this.busy) return;
     const env = scene.environment;
     const bg = (scene.background as THREE.Color | null)?.isColor === true ? (scene.background as THREE.Color) : null;
-    const sky = `${env?.uuid ?? ''}|${env?.version ?? 0}|${scene.environmentIntensity}|${scene.environmentRotation.y}|${bg?.getHex() ?? ''}`;
+    const sky = `${env?.uuid ?? ''}|${env?.version ?? 0}|${String(env?.userData?.[ENVIRONMENT_BAKES_KEY] ?? 0)}|${scene.environmentIntensity}|${scene.environmentRotation.y}|${bg?.getHex() ?? ''}`;
     if (now - this.checkedAt < SKY_CHECK_MS) {
       this.waiting = sky !== this.seen;
       return;

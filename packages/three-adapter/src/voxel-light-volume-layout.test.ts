@@ -439,7 +439,31 @@ describe("the surfaces' read with fewer faces (the face floor)", () => {
     console.log(`[face floor] ${n0} slope points: mean relative error ${Object.entries(mean).map(([t, m]) => `${t}: ${(m * 100).toFixed(2)} %`).join(', ')}; worst over the spread ${Object.entries(worst).map(([t, m]) => `${t}: ${m.toFixed(3)}`).join(', ')}`);
   });
 
-  it('keeps the leak rule: a wall 0.5 m thick keeps 1 and 100 apart at any floor and any normal on its face', () => {
+  it('past the full distance it reads the cell in front of the surface alone: on an axis face that cell\'s faces exactly, and the eight cells\' blend within their spread', () => {
+    let within = 0;
+    let sum = 0;
+    for (const { p, n } of points) {
+      const r = volumeReadAt(p, n, 0.5, faces, CPU_SCALAR_OPS, 0, true);
+      const front = [0, 1, 2].map((a) => Math.floor(p[a]! / 0.5 + n[a]! * 0.5));
+      const fc = faces(front[0]!, front[1]!, front[2]!);
+      // The cell in front of a face between a solid cell and one holding light is that one.
+      expect(fc).not.toBeNull();
+      expect(r.weight).toBe(1);
+      const axis = n.findIndex((v) => v !== 0);
+      const f = axis * 2 + (n[axis]! < 0 ? 1 : 0);
+      for (let ch = 0; ch < 3; ch++) expect(r.light[ch]).toBeCloseTo(fc![f]![ch]!, 12);
+      const full = fullRead(p, n);
+      for (let ch = 0; ch < 3; ch++) {
+        const d = Math.abs(r.light[ch]! - full.light[ch]!);
+        expect(d).toBeLessThanOrEqual(full.spread + 1e-9);
+        sum += d / Math.max(full.light[ch]!, 1e-3);
+        within++;
+      }
+    }
+    console.log(`[nearest] ${points.length} axis points: mean relative difference from the eight cells' blend ${((sum / within) * 100).toFixed(1)} % (faces drawn at random per cell: an upper end)`);
+  });
+
+  it('keeps the leak rule: a wall 0.5 m thick keeps 1 and 100 apart at any floor, any normal on its face, near or past the full distance', () => {
     const solid = (x: number, y: number): boolean => x === 10 || y < 0;
     const wallFaces = (x: number, y: number): number[][] | null => {
       if (solid(x, y) || !(solid(x + 1, y) || solid(x - 1, y) || solid(x, y - 1))) return null;
@@ -452,10 +476,12 @@ describe("the surfaces' read with fewer faces (the face floor)", () => {
       const n = v.map((c) => c / l);
       // The reader's point steps off along the face's own normal (the geometry's): the room side at x = 5 m.
       const p = [5, 0.01 + (k % 20) * 0.37, (k * 0.173) % 3];
-      const room = volumeReadAt(p, n, 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, floor);
-      if (room.weight > 0) expect(room.light[0]).toBeCloseTo(1, 9);
-      const street = volumeReadAt([5.5, p[1]!, p[2]!], [-n[0]!, n[1]!, n[2]!], 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, floor);
-      if (street.weight > 0) expect(street.light[0]).toBeCloseTo(100, 9);
+      for (const nearest of [false, true]) {
+        const room = volumeReadAt(p, n, 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, floor, nearest);
+        if (room.weight > 0) expect(room.light[0]).toBeCloseTo(1, 9);
+        const street = volumeReadAt([5.5, p[1]!, p[2]!], [-n[0]!, n[1]!, n[2]!], 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, floor, nearest);
+        if (street.weight > 0) expect(street.light[0]).toBeCloseTo(100, 9);
+      }
     }
   });
 });

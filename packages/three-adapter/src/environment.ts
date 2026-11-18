@@ -57,6 +57,7 @@ import { createHeightFog, type HeightFogLike } from './height-fog';
 import { buildPostPipeline, cloudDriftUniform, compileIntoTarget, createSkyMesh, followCamera, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan, type SkyParams } from './environment-nodes';
 import type { PhysicalSky } from './physical-sky';
 import { EnvironmentExposure, type ExposureDiagnostics } from './environment-exposure';
+import { countEnvironmentBake } from './surface-probe-sky';
 import type { ExposureLook } from '@thirdlight/runtime';
 
 /** Structural copies of the project-model environment types. */
@@ -802,7 +803,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const params = bake.mode === 'procedural' ? procParams(sky) : undefined;
     if (params !== undefined) setSkyUniforms(bake.mesh, params);
     envMap = pmrem.fromScene(bake.scene, 0, 0.1, bake.mode === 'procedural' ? 10000 : 100, envMap !== null ? { renderTarget: envMap } : {});
-    scene.environment = envMap.texture;
+    scene.environment = countEnvironmentBake(envMap.texture);
     skyInputs(sky, bakedInputs, params);
   };
   /** Re-bake the image-based lighting from the sky as it is now (a blend moved it past the threshold). */

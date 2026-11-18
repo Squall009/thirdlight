@@ -159,6 +159,12 @@ export interface VoxelLightVolumeSettings {
    */
   readonly readFaceFloor: number;
   /**
+   * Metres from the eye within which the surfaces read the 0.5 m cells round a pixel blended (eight cells, trilinear);
+   * past it a pixel reads the one cell in front of its surface (one brick's slot, its faces toward the normal), where a
+   * cell is a few pixels across and its blend is not seen.
+   */
+  readonly readFullM: number;
+  /**
    * Updates a moving sun's or sky's light is followed over: while the light keeps moving (a day) every kept brick is
    * refreshed in turn and each estimate blended in by at least 1 / this (an exponential mean: the light lags the sun by
    * about this many of a brick's refreshes, its noise held to a mean of this many updates' rays).
@@ -217,9 +223,9 @@ export interface LightingTierSettings {
  * they would run, so they stay low's (the Play test runs at high on the integrated GPU).
  */
 const VOXEL_LIGHT_VOLUME_BY_TIER: Readonly<Record<LightingTier, Readonly<VoxelLightVolumeSettings>>> = Object.freeze({
-  low: Object.freeze({ enabled: false, readFaceFloor: 0, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
-  medium: Object.freeze({ enabled: false, readFaceFloor: 0, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
-  high: Object.freeze({ enabled: false, readFaceFloor: 0, followWindow: 8, outerSettle: 2, listEntries: 24, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 128, windowBricks: 48 }),
+  low: Object.freeze({ enabled: false, readFaceFloor: 0, readFullM: 1000, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
+  medium: Object.freeze({ enabled: false, readFaceFloor: 0, readFullM: 1000, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
+  high: Object.freeze({ enabled: false, readFaceFloor: 0, readFullM: 1000, followWindow: 8, outerSettle: 2, listEntries: 24, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 128, windowBricks: 48 }),
 });
 
 /** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */
@@ -240,7 +246,7 @@ export const VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX = 0.3;
 export function voxelLightVolumeSettingsProblems(v: VoxelLightVolumeSettings): string[] {
   const out: string[] = [];
   for (const k of ['followWindow', 'outerSettle', 'listEntries', 'rays', 'settleUpdates', 'historyUpdates', 'windowBricks'] as const) if (!Number.isInteger(v[k]) || v[k] < 1) out.push(`${k} is a whole number of at least 1`);
-  for (const k of ['rayReachM', 'sunReachM'] as const) if (!(v[k] > 0)) out.push(`${k} is a positive number of metres`);
+  for (const k of ['rayReachM', 'sunReachM', 'readFullM'] as const) if (!(v[k] > 0)) out.push(`${k} is a positive number of metres`);
   if (v.outerSettle > v.settleUpdates) out.push('outerSettle is at most settleUpdates');
   if (v.historyUpdates < v.settleUpdates) out.push('historyUpdates is at least settleUpdates');
   if (v.windowBricks % 2 !== 0 || v.windowBricks < 8) out.push('windowBricks is an even number of at least 8');
