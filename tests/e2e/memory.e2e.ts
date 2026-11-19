@@ -441,9 +441,9 @@ test('Play started and stopped returns the editor page to its baseline (iframe, 
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: [0, 0, 0] }, components: { voxelWorld: { world: 'slice' } } });
   const pitch = (35 * Math.PI) / 180;
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World camera', transform: { position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
-  // The voxel world's own share first (the store named off), then the light volume as the tier runs it: each its own
-  // baseline, so a growth names its owner.
-  for (const store of ['off', null] as const) {
+  // The light volume as the tier runs it, then the voxel world alone (the store named off): each its own baseline, so
+  // a growth names its owner.
+  for (const store of [null, 'off'] as const) {
     const probe = await openEditor(page, store === null ? editorUrl() : editorUrl().replace('#', `&voxelLight=${store}#`));
     // The Scene view streams the world round the editor camera too: its draws settle before the baseline is taken.
     let seen = '';
@@ -454,7 +454,7 @@ test('Play started and stopped returns the editor page to its baseline (iframe, 
       seen = m ?? '';
       return still;
     }, { timeout: 60_000, intervals: [1000], message: "the Scene view's world drawn and still" }).toBeGreaterThanOrEqual(5);
-    if (store === 'off') {
+    if (store === null) {
       // The page's heap grows by about 2 MiB a Play over a voxel world for its first dozen and then holds (a cache that fills: the
       // next ten add 0.3 MiB): taken before the baselines, so the loops read what each store leaves behind.
       for (let i = 0; i < VOXEL_PLAY_WARM_CYCLES; i++) {
