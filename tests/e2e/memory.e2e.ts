@@ -19,7 +19,8 @@
  * - the Scene view: an editor scene closed/opened (its objects leave and
  *   come back), instancing groups formed and dissolved, the renderer
  *   backend swapped (a new canvas each time);
- * - Play started and stopped (iframe, simulation worker, renderer);
+ * - Play started and stopped (iframe, simulation worker, renderer; a small voxel world in view, lit on WebGPU by the
+ *   light volume the tier runs);
  * - in one Play session: an additive scene loaded/unloaded, a level
  *   restarted (`replay`), and scripts spawning and destroying copies.
  *
@@ -42,6 +43,7 @@ import { cycles, describe as summary, expectBack, installProbe, MemoryProbe, TOL
 import { skinnedGlb } from './skinned-glb';
 import { projectWindow, editorPane, editorTab, closeEditor, createItem, expectEditorOpen, openEditor as openEditorTab, openWindow, previewCanvas, previewPane, type EditorKind } from './ui';
 import { mustCommand } from '../support/commands';
+import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 
 /**
  * Cycles per loop. A loop whose leak would keep a GPU object, a context, a worker or a renderer
@@ -430,14 +432,27 @@ async function stopPlay(page: Page): Promise<void> {
   await expect(page.locator('iframe')).toHaveCount(0, { timeout: 30_000 });
 }
 
-test('Play started and stopped returns the editor page to its baseline (iframe, worker, renderer)', async ({ page }) => {
+test('Play started and stopped returns the editor page to its baseline (iframe, worker, renderer, a voxel world lit by the light volume)', async ({ page }) => {
   test.setTimeout(600_000);
   be = await startBackend('memory-play', 'starter');
+  // A small voxel world in view: on WebGPU every Play lights it by the light volume the tier runs (its pool, index,
+  // colours, glow words, lamp lists, update pipelines and the walk's blocks), which Stop must release with the rest.
+  const at = writeSliceWorld(be.projectDir, 'slice', 256).scene.map((c) => c * 0.5);
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: [0, 0, 0] }, components: { voxelWorld: { world: 'slice' } } });
+  const pitch = (35 * Math.PI) / 180;
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World camera', transform: { position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
   const probe = await openEditor(page);
+  let lit = 0;
   await leakCheck(page, probe, 'Play start/stop', cycles(COUNTED_CYCLES), async () => {
-    await startPlay(page);
+    const { frame } = await startPlay(page);
+    if (gpuAvailable()) {
+      // The volume made and lighting cells before Stop (none on WebGL 2).
+      await expect.poll(() => frame().evaluate(() => { const l = (window as unknown as { __tlVoxelPlay?: { light?: { store(): string; progress(): { texelsWritten: number } | null } } }).__tlVoxelPlay?.light; return l?.store() === 'volume' ? (l.progress()?.texelsWritten ?? 0) : 0; }), { timeout: 30_000, message: 'the light volume lights the voxel world' }).toBeGreaterThan(0);
+      lit++;
+    }
     await stopPlay(page);
   });
+  if (gpuAvailable()) expect(lit).toBeGreaterThan(0);
   expect(page.frames()).toHaveLength(1);
   await probe.detach();
 });
