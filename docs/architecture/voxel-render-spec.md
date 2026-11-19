@@ -16,6 +16,7 @@ on 2026-11-02) is not grown further; the derived steps 28 → 31 are also rows o
 | derived 29 → 30 | 46d.6c | owned faces merged (format spec §3.7) | none (derived) |
 | derived 30 → 31, far cache 1 | 46d.7a | openings closed at coarse levels; the far cache | none (derived, cache) |
 | far serving and modes | 46d.7b, 46d.7c | far routes, catalog `far` rows, `voxelFarField` / `voxelFarError` | manifest v5, schema 8, add-only |
+| emissive, glow mask | 46e.12d, 46e.12e | `params.emissive` × `emissiveIntensity` read by voxel surfaces and the light volume (§1); a texture set's ORM A read as the glow mask (§2) | none (readings of what is stored) |
 
 § numbers name the format spec's sections unless marked as this page's. Kits are on
 [voxel-kit-format.md](voxel-kit-format.md), the role spec on [voxel-role-spec.md](voxel-role-spec.md), the texture
@@ -151,8 +152,8 @@ cache; every project, build and export stays byte for byte as it was.
   any grid change; a record edit rewrites the table and the cells beside the materials whose glow or bounce colour
   changed, and marks what their light reaches; no derive, mesh or grid upload.
 - A project whose voxel materials already carry a glow (ignored until now) starts to glow. No glow in the far field
-  in 46e-b. A glow mask is not part of this step (its proposed entry, `docs/briefs/proposal-46e.11-emissive.md`,
-  waits for the owner's note).
+  in 46e-b. Where a texture set's ORM map has an alpha, it is the glow mask: §2, "Owner note (46e.11, 2026-11-18): a
+  glow mask in a texture set's ORM alpha" (drawn glow × mask; the volume's one value glow × the mean of what is drawn).
 
 ## 2. Texture sets
 
@@ -164,12 +165,13 @@ chosen, owner to confirm (plan 46d §9).
 
 **The arrays.** Per map type one texture array: `albedo` (sRGB, **the height 0–1 in A**, linear; texture layout v1
 as amended 2026-11-09), `normal` (tangent-space, OpenGL green up, its A unused), `orm` (occlusion, roughness,
-metalness). A layer is one distinct texture set of
+metalness; **its A the glow mask**, below). A layer is one distinct texture set of
 the voxel materials' `voxel.surfaces` (`project-model` `voxel-surface-textures.ts`, `voxelSurfaceTextures`):
 layers numbered in ascending voxel id, wall then floor then ceiling; equal sets share a layer (a floor falling back
 to its wall, two materials on the same textures). A set without an albedo has no layer (its surfaces draw the
 material's flat colour); a set leaving out a normal or ORM map takes that map's neutral constant layer (a flat
-normal; AO 1, roughness 0.8, no metal); a map no set names has no array (the surface reads its neutral value).
+normal; AO 1, roughness 0.8, no metal, glow mask 1: `VOXEL_ORM_ABSENT`); a map no set names has no array (the surface
+reads its neutral value).
 Every array has at least two layers (a single-layer KTX2 is not an array). At most `MAX_TEXTURE_LAYERS` (256, the
 GPU's array limit) layers; a set past it has no layer (`dropped`). All layers of an array are one size (the
 assembly's rule): the authored size, 4096² for a 4 m construction tile (1024 px/m), so a 2 m terrain tile carries
@@ -198,6 +200,25 @@ between the two heaviest materials like the colour. The albedo is multiplied by 
 a tint, white for the set as authored). The image's first row is its top. Roughness is the ORM's G (wetness lowers
 it), metalness its B, occlusion its R. The test patterns leave the default program (`?patterns=1` on the voxel
 world page draws them).
+
+**Owner note (46e.11, 2026-11-18: the mask entry approved as proposed on acc46e-11, relayed by the owner's other
+session): a glow mask in a texture set's ORM alpha.** An add-only reading inside texture layout v1 and project schema
+8: the A of a voxel texture set's `orm` map is the **glow mask** (0 no glow, 1 the material's full glow; linear). A
+designer paints it into the ORM image's alpha (cracks of a lava rock, the lit panes of a window texture); an ORM image
+without alpha, a set without an ORM map and a material without a set glow whole (the voxel ORM array's absent value
+`VOXEL_ORM_ABSENT` (`project-model` `voxel-surface-textures.ts`) is the material graphs' absent ORM with A = 1; the
+layered surfaces', decals' and graphs' own absent ORM keeps A = 0). Drawn: a near voxel surface's glow is glow × the
+pixel's colour × the mask (the same ORM read, its fourth channel), blended as the colour is; so bloom follows the mask.
+Lit: the light volume uses one value a material, glow × the mean of what it draws over its wall set (the tint × the
+mean of texture colour × mask), measured by the engine with the texture means when the arrays arrive, never set by
+hand; the emitters' power is the same value. Nothing else changes: the arrays, their encoding (UASTC, linear) and their
+GPU format and bytes are as they are; a mask costs file bytes of an ORM layer (3.4 % on a smooth 4096² mask, 18.7 % on
+the bench's sharp 1024² crack mask). Not read by the far field (no glow there in 46e-b). **As built, where it differs
+from the proposed text:** the volume's value is the mean of the product (colour × mask), not mean colour × mask mean:
+the means' pass takes the colour mean from the ≤ 16² level as before and each channel's share the mask keeps from the
+≤ 128² level of the albedo and the ORM's A read together (`TEXTURE_STREAM_TAIL_PX`, the always-resident tail; the
+encoder's mips ring at a sharp mask's edges and drift its mean up by about a tenth at 32² and below), so a material
+whose mask is 1 everywhere keeps its value of before exactly.
 
 **Draw paths (46d.19; default chosen, owner to confirm; WebGPU only).** No format change. Each near draw (a chunk, a
 mip node, a seam) takes one of four programs, chosen when its shader data arrives (`voxelDrawPath`): one solid

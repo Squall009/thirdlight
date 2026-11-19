@@ -11,7 +11,7 @@ import { MAX_TEXTURE_LAYERS } from './content-limits';
 import { FLAT_NORMAL_TEXEL, TEXTURE_ABSENT_VALUES } from './material-graph-kinds';
 import { fillLayerId, textureSlotSetKey } from './texture-slots';
 import type { MaterialVoxel } from './voxel-materials';
-import { VOXEL_NO_LAYER, voxelSurfaceTextures } from './voxel-surface-textures';
+import { VOXEL_NO_LAYER, VOXEL_ORM_ABSENT, voxelSurfaceTextures } from './voxel-surface-textures';
 
 const mat = (voxel: MaterialVoxel, shader = 'standard'): { shader: string; voxel: MaterialVoxel } => ({ shader, voxel });
 
@@ -36,7 +36,7 @@ describe('the voxel surface texture arrays', () => {
       [12, [2, 1, 2]],
     ]);
     const flat = fillLayerId(FLAT_NORMAL_TEXEL);
-    const orm = fillLayerId(TEXTURE_ABSENT_VALUES.orm);
+    const orm = fillLayerId(VOXEL_ORM_ABSENT);
     // The albedo array is a height array (its A the height, a brightness height where a texture has none); the
     // normal and ORM arrays carry no height.
     expect(t.sets.albedo).toEqual({ layers: ['grass-a', 'timber-a', 'plaster-a'], mode: 'color', height: true });
@@ -62,6 +62,17 @@ describe('the voxel surface texture arrays', () => {
     // Only a floor set: the wall and ceiling have none.
     const f = voxelSurfaceTextures([mat({ id: 9, use: 'construction', surfaces: { floor: { albedo: 'f' } } })])!;
     expect(f.layers.get(9)).toEqual([VOXEL_NO_LAYER, 0, VOXEL_NO_LAYER]);
+  });
+
+  it("fill a set without an ORM map with the graphs' absent ORM at A = 1 (the glow mask: glows whole), leaving the graphs' own absent ORM as it was", () => {
+    // The voxel ORM's A is the glow mask: a set without an ORM map glows whole, as an ORM image without alpha does.
+    expect(VOXEL_ORM_ABSENT).toEqual([1, 0.8, 0, 1]);
+    expect(fillLayerId(VOXEL_ORM_ABSENT)).toBe('#ffcc00ff');
+    // The layered surfaces', decals' and graphs' absent ORM keeps its A of 0, byte for byte.
+    expect(TEXTURE_ABSENT_VALUES.orm).toEqual([1, 0.8, 0, 0]);
+    expect(fillLayerId(TEXTURE_ABSENT_VALUES.orm)).toBe('#ffcc0000');
+    const t = voxelSurfaceTextures([mat({ id: 1, use: 'terrain', surfaces: { wall: { albedo: 'a', orm: 'o' } } }), mat({ id: 2, use: 'terrain', surfaces: { wall: { albedo: 'b' } } })])!;
+    expect(t.sets.orm).toEqual({ layers: ['o', '#ffcc00ff'], mode: 'data' });
   });
 
   it('stop at the array limit: a set past it has no layer and its id is listed', () => {

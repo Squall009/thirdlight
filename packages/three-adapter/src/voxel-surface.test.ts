@@ -110,6 +110,27 @@ describe('the voxel surface program', () => {
     expect((glsl.match(/uniform\s+(?:highp\s+|mediump\s+|lowp\s+)?sampler2DArray\b/g) ?? []).length).toBe(4);
   });
 
+  it("draws a texture set's glow × its glow mask, the A of the ORM sample it takes already (on every path)", async () => {
+    await settle();
+    /** The fourth channel of the third array a program samples (albedo, normal, ORM in the set's order) is read. */
+    const ormAlphaRead = (wgsl: string): boolean => {
+      const body = wgsl.slice(wgsl.indexOf('@fragment'));
+      const samples = [...body.matchAll(/(\w+) = textureSample\w*\(\s*(\w+),/g)];
+      const arrays = [...new Set(samples.map((m) => m[2]!))];
+      const orm = arrays[2];
+      if (orm === undefined) return false;
+      // The sampled variables and what is made of them whole (copies, the projections' weighted sum).
+      const vars = new Set(samples.filter((m) => m[2] === orm).map((m) => m[1]!));
+      for (let grew = true; grew; ) {
+        grew = false;
+        for (const m of body.matchAll(/(\w+) = ([^;]+);/g)) if (!vars.has(m[1]!) && [...vars].some((v) => new RegExp(`\\b${v}\\b(?!\\.)`).test(m[2]!))) (vars.add(m[1]!), (grew = true));
+      }
+      return [...vars].some((v) => new RegExp(`\\b${v}\\.w\\b`).test(body));
+    };
+    expect(ormAlphaRead(program('blend', false, false, false))).toBe(true);
+    for (const path of [{ materials: 1, projection: 'blend' }, { materials: 2, projection: 'axis' }, { materials: 1, projection: 'axis' }] as VoxelSurfacePath[]) expect(ormAlphaRead(program('blend', false, false, false, path)), JSON.stringify(path)).toBe(true);
+  });
+
   it('builds a program a draw path: one material reads one set, one projection one sample a map (with the picked axis\'s gradients), every one in uniform control flow, on WGSL', async () => {
     await settle();
     const samples = (wgsl: string): number => (wgsl.match(/\btextureSample\w*\s*\(/g) ?? []).length;

@@ -87,7 +87,7 @@ import { gpuTextureOf, uploadTextureRegion, type RegionTextureRenderer } from '.
 import { isProbeHeld, markProbeHeld } from './probe-lighting';
 import { SkyProbe } from './surface-probe-sky';
 import { BOUNCE_ALBEDO, SH_E0, SH_E1 } from './surface-probes';
-import { VolumeBounceSource, VolumeColourCache, volumeCellColour, volumeCellGlow, volumeColourRgb, volumeMaterialBricks, type VolumeBounceMeans } from './voxel-light-volume-colours';
+import { VolumeBounceSource, VolumeColourCache, volumeCellColour, volumeCellGlow, volumeColourRgb, volumeLookGlow, volumeMaterialBricks, type VolumeBounceMeans } from './voxel-light-volume-colours';
 import { VolumeLookWatch } from './voxel-light-volume-looks';
 import { volumeReferenceFace, volumeRoomCells, type VolumeCheckCell, type VolumeLightWorld, type VolumeReferenceCounts } from './voxel-light-volume-reference';
 import type { VoxelMaterialLook } from './voxel-surface';
@@ -810,11 +810,13 @@ export class VoxelLightVolume {
   }
 
   /**
-   * The surfaces' albedo array and each voxel id's wall, floor and ceiling layer (null: none): its layers' mean colours
-   * are measured once on the GPU, and from then on a textured look bounces its tint times its texture's mean (every
-   * brick's colours made again, the light started again as for a change of the sun).
+   * The surfaces' albedo array, their ORM array (its A the glow mask; null: none, glowing whole) and each voxel id's
+   * wall, floor and ceiling layer (null: none): its layers' mean colours and means of colour × mask are measured once on
+   * the GPU, and from then on a textured look bounces its tint times its texture's mean and glows by the mean of what it
+   * draws (every brick's colours and glows made again, the light started again as for a change of the sun).
    */
-  setBounceTextures(albedo: THREE.Texture | null, layers: ReadonlyMap<number, readonly [number, number, number]> | null): void {
+  setBounceTextures(albedo: THREE.Texture | null, layers: ReadonlyMap<number, readonly [number, number, number]> | null, orm: THREE.Texture | null = null): void {
+    const mask = albedo === null || orm === null ? null : gpuTextureOf(this.deps.renderer, orm);
     this.bounce.measure(this.deps.device, albedo === null ? null : gpuTextureOf(this.deps.renderer, albedo), albedo?.colorSpace === THREE.SRGBColorSpace, layers, () => {
       if (this.disposed) return;
       // Every brick is written again below: the looks as they read now are the ones held from here.
@@ -822,7 +824,7 @@ export class VoxelLightVolume {
       this.looksChanged();
       for (const b of this.bricks.values()) if (b.level === 0 && b.slot >= 0) this.albedoDirty.add(b);
       if (this.bricks.size > 0) this.markAll(false);
-    });
+    }, mask);
   }
 
   /**
@@ -947,6 +949,10 @@ export class VoxelLightVolume {
       looksChanged: this.looks.edits,
       looksChangedIds: this.looks.lastIds,
       glowing: this.looks.glowing,
+      // Each glowing material's one value (glow × the mean of what it draws), and the texture means' last pass (ms).
+      glowValues: Object.fromEntries([...this.looks.glowIds].map((m) => [m, volumeLookGlow(this.deps.look(m), this.bounce.means?.get(m) ?? null)])),
+      meansMeasured: this.bounce.means !== null,
+      meansMs: this.bounce.lastMs,
       ...this.stats,
     };
   }

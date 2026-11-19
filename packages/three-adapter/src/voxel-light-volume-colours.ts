@@ -6,22 +6,34 @@
  * texture set bounces its colour, and a textured look whose texture means are not known yet bounces the probes' grey.
  *
  * The texture means are measured once where the albedo array is handed to the surfaces (`textureLayerMeans`: a small
- * compute pass that reads a coarse level of every layer and averages it, so the volume needs no per-frame read).
+ * compute pass that reads a coarse level of every layer and averages it, so the volume needs no per-frame read). The
+ * same pass reads the ORM array's A beside it (the glow mask), texel for texel, so each layer also has the mean of
+ * what its glow draws: colour × mask.
  *
  * The glow a cell gives its rays' hits, written beside its colour: the mean, over the solid cells across its faces, of
- * each one's material's glow (one value a material: its glow colour × strength × its mean colour, the tint times its
- * wall set's texture mean, or its flat colour without a set); 0 where none glows. Never stored per voxel: a material's
- * glow is its record's.
+ * each one's material's glow (one value a material: its glow colour × strength × the mean of what it draws, the tint
+ * times its wall set's texture mean of colour × glow mask, or its flat colour without a set); 0 where none glows. Never
+ * stored per voxel: a material's glow is its record's, its mask its texture's.
  */
 import * as THREE from 'three/webgpu';
+import { TEXTURE_STREAM_TAIL_PX } from '@thirdlight/project-model';
 import { MATERIAL_BITS } from '@thirdlight/voxel';
 
 import { BOUNCE_ALBEDO } from './surface-probes';
 import { volumeEncode } from './voxel-light-volume-layout';
 import type { VoxelMaterialLook } from './voxel-surface';
 
-/** By voxel id, the mean linear colour of its wall, floor and ceiling albedo layers (null: none of that side). */
+/**
+ * By voxel id, the means of its wall, floor and ceiling layers (null: none of that side): the mean linear colour (r, g,
+ * b), then, where the glow mask was read, the mean of colour × glow mask (three more: what its glow draws; absent: the
+ * colour's, a mask of 1).
+ */
 export type VolumeBounceMeans = ReadonlyMap<number, readonly [readonly number[] | null, readonly number[] | null, readonly number[] | null]>;
+
+/** A layer's mean of what its glow draws (colour × glow mask): its last three where measured, else its colour's. */
+function drawnGlowMean(mean: readonly number[]): readonly number[] {
+  return mean.length >= 6 ? mean.slice(3, 6) : mean;
+}
 
 /** The side of a solid cell a neighbour across `dy` sees: 0 its wall (beside), 1 its floor (the cell over it), 2 its ceiling (under it). */
 function side(dy: number): number {
@@ -55,15 +67,16 @@ export type VolumeChunkGrid = Uint16Array | number;
 
 /**
  * The radiance a material's surfaces give off into the volume (linear rgb; null: it does not glow): its look's glow
- * times its mean colour, the tint times its wall set's texture mean (the side terrain draws everywhere and construction
- * on every face but floors and ceilings), or the tint alone without a set or before the means are measured (as it draws
- * with no set: its flat colour).
+ * times the mean of what it draws, the tint times its wall set's texture mean of colour × glow mask (the side terrain
+ * draws everywhere and construction on every face but floors and ceilings), or the tint alone without a set or before
+ * the means are measured (as it draws with no set: its flat colour, glowing whole).
  */
 export function volumeLookGlow(look: VoxelMaterialLook, means: readonly (readonly number[] | null)[] | null): [number, number, number] | null {
   const g = look.glow;
   if (g === undefined || g[0] + g[1] + g[2] <= 0) return null;
   const tint = new THREE.Color().setHex(look.colour);
-  const mean = means?.[0] ?? null;
+  const wall = means?.[0] ?? null;
+  const mean = wall === null ? null : drawnGlowMean(wall);
   const c = mean === null ? [tint.r, tint.g, tint.b] : [tint.r * mean[0]!, tint.g * mean[1]!, tint.b * mean[2]!];
   return [g[0] * c[0]!, g[1] * c[1]!, g[2] * c[2]!];
 }
@@ -262,16 +275,69 @@ interface MeansTexture {
 /** Texels a side the level the means are read from has at most (a coarse level holds the layer's mean colour). */
 const MEANS_LEVEL_TEXELS = 16;
 
+/**
+ * Texels a side the level the glow mask's share is read from has at most: the always-resident tail's largest (a
+ * streamed array's finer levels may not be there yet). Finer than the colour's: the encoder's mip filter rings at a
+ * sharp mask's edges and its levels are clamped at 0, so a crack mask's mean drifts up by about a tenth at 32² and
+ * below (measured, `tools/voxel-bench/glow-mask.test.ts`); at 128² it holds.
+ */
+const MASK_LEVEL_TEXELS = TEXTURE_STREAM_TAIL_PX;
+
+/** Invocations a layer's workgroup sums the mask's level with. */
+const MEANS_GROUP = 64;
+
+/**
+ * Per layer (a workgroup each): the albedo's coarse level summed by one invocation as ever (its mean colour), and over
+ * the finer level of both the albedo and the ORM array's A (the glow mask, read at the same place of its own level;
+ * `q.w` 0: no ORM array, the mask 1) the sums of colour × mask with the mask's own, and of the colour alone, so the
+ * mask's share of each channel is told apart from the colour's mean (`f.w` 1: sRGB bytes in a plain format, made linear
+ * a texel before they are summed).
+ */
 const MEANS_WGSL = /* wgsl */ `
 @group(0) @binding(0) var t: texture_2d_array<f32>;
 @group(0) @binding(1) var<storage, read_write> out: array<vec4<f32>>;
 @group(0) @binding(2) var<uniform> p: vec4<u32>;
-@compute @workgroup_size(1)
-fn main(@builtin(global_invocation_id) g: vec3<u32>) {
-  if (g.x >= p.w) { return; }
-  var s = vec4<f32>(0.0);
-  for (var y = 0u; y < p.z; y++) { for (var x = 0u; x < p.y; x++) { s += textureLoad(t, vec2<u32>(x, y), g.x, p.x); } }
-  out[g.x] = s / f32(p.y * p.z);
+@group(0) @binding(3) var m: texture_2d_array<f32>;
+@group(0) @binding(4) var<uniform> q: vec4<u32>;
+@group(0) @binding(5) var<uniform> f: vec4<u32>;
+var<workgroup> wp: array<vec4<f32>, ${MEANS_GROUP}>;
+var<workgroup> wc: array<vec4<f32>, ${MEANS_GROUP}>;
+fn lin(c: vec3<f32>) -> vec3<f32> {
+  return select(pow((c + 0.055) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
+}
+@compute @workgroup_size(${MEANS_GROUP})
+fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_index) li: u32) {
+  let layer = wg.x;
+  var pr = vec4<f32>(0.0);
+  var co = vec4<f32>(0.0);
+  let nf = f.y * f.z;
+  for (var i = li; i < nf; i += ${MEANS_GROUP}u) {
+    let x = i % f.y;
+    let y = i / f.y;
+    var c = textureLoad(t, vec2<u32>(x, y), layer, f.x).rgb;
+    if (f.w != 0u) { c = lin(c); }
+    var a = 1.0;
+    if (q.w != 0u) { a = textureLoad(m, vec2<u32>(x * q.y / f.y, y * q.z / f.z), layer, q.x).a; }
+    pr += vec4<f32>(c * a, a);
+    co += vec4<f32>(c, 1.0);
+  }
+  wp[li] = pr;
+  wc[li] = co;
+  workgroupBarrier();
+  for (var k = ${MEANS_GROUP / 2}u; k > 0u; k = k >> 1u) {
+    if (li < k) {
+      wp[li] += wp[li + k];
+      wc[li] += wc[li + k];
+    }
+    workgroupBarrier();
+  }
+  if (li == 0u) {
+    var s = vec4<f32>(0.0);
+    for (var y = 0u; y < p.z; y++) { for (var x = 0u; x < p.y; x++) { s += textureLoad(t, vec2<u32>(x, y), layer, p.x); } }
+    out[layer * 3u] = s / f32(p.y * p.z);
+    out[layer * 3u + 1u] = wp[0] / f32(nf);
+    out[layer * 3u + 2u] = wc[0] / f32(nf);
+  }
 }`;
 
 const STORAGE = 0x80;
@@ -280,28 +346,58 @@ const COPY_DST = 0x8;
 const UNIFORM = 0x40;
 const MAP_READ = 0x1;
 
+/** The level of a texture whose larger side is at most `texels` (its last where none is), and its size. */
+function meansLevel(t: MeansTexture, texels: number): [number, number, number] {
+  let level = 0;
+  while (level < t.mipLevelCount - 1 && Math.max(t.width >> level, t.height >> level) > texels) level++;
+  return [level, Math.max(1, t.width >> level), Math.max(1, t.height >> level)];
+}
+
 /**
- * The mean linear colour of every layer of a texture array on the GPU (null: not on WebGPU, or no texture there):
- * a coarse level's texels averaged per layer (sRGB formats are read linear; a plain 8-bit format holding sRGB colour
- * is turned linear here).
+ * A layer's means from the pass's sums (each over its level's texel count): `s` the coarse level's colour, `prod` the
+ * finer level's colour × glow mask (rgb) and mask (a), `col` its colour alone (linear there). Its mean linear colour
+ * (`lin`: the coarse mean made linear), then the mean of what its glow draws: that colour times each channel's share
+ * the mask keeps (`prod / col`; the mask's mean where a channel is black), so a layer whose mask is 1 everywhere gives
+ * its colour mean again exactly.
  */
-export async function textureLayerMeans(device: unknown, gpuTexture: unknown, srgbData: boolean): Promise<number[][] | null> {
+export function layerMeansOfSums(s: readonly number[], prod: readonly number[], col: readonly number[], lin: (c: number) => number): number[] {
+  const colour = [lin(s[0]!), lin(s[1]!), lin(s[2]!)];
+  const drawn = [0, 1, 2].map((k) => colour[k]! * (col[k]! > 0 ? prod[k]! / col[k]! : prod[3]!));
+  return [...colour, ...drawn];
+}
+
+/**
+ * The means of every layer of a texture array on the GPU (null: not on WebGPU, or no texture there): a coarse level's
+ * texels averaged per layer (sRGB formats are read linear; a plain 8-bit format holding sRGB colour is turned linear
+ * here), each layer's [r, g, b] mean colour followed by its mean of colour × glow mask (`layerMeansOfSums`), the mask the
+ * A of `maskTexture`'s same layer (the ORM array: null, none, the mask 1).
+ */
+export async function textureLayerMeans(device: unknown, gpuTexture: unknown, srgbData: boolean, maskTexture: unknown = null): Promise<number[][] | null> {
   const d = device as MeansDevice | null;
   const t = gpuTexture as MeansTexture | null;
   if (d === null || t === null || typeof t.createView !== 'function') return null;
-  let level = 0;
-  while (level < t.mipLevelCount - 1 && Math.max(t.width >> level, t.height >> level) > MEANS_LEVEL_TEXELS) level++;
-  const w = Math.max(1, t.width >> level);
-  const h = Math.max(1, t.height >> level);
+  const [level, w, h] = meansLevel(t, MEANS_LEVEL_TEXELS);
+  const [fLevel, fw, fh] = meansLevel(t, MASK_LEVEL_TEXELS);
   const layers = t.depthOrArrayLayers;
-  const bytes = layers * 16;
+  const mt = maskTexture as MeansTexture | null;
+  const mask = mt !== null && typeof mt.createView === 'function' && mt.depthOrArrayLayers >= layers ? mt : null;
+  const [mLevel, mw, mh] = mask === null ? [0, 1, 1] : meansLevel(mask, Math.max(fw, fh));
+  const plainSrgb = srgbData && !t.format.endsWith('-srgb');
+  const bytes = layers * 48;
   const pipeline = d.createComputePipeline({ layout: 'auto', compute: { module: d.createShaderModule({ code: MEANS_WGSL, label: 'voxel albedo means' }), entryPoint: 'main' }, label: 'voxel albedo means' });
   const out = d.createBuffer({ size: bytes, usage: STORAGE | COPY_SRC, label: 'voxel albedo means' });
   const read = d.createBuffer({ size: bytes, usage: MAP_READ | COPY_DST, label: 'voxel albedo means read' });
   const params = d.createBuffer({ size: 16, usage: UNIFORM | COPY_DST, label: 'voxel albedo means params' });
+  const maskParams = d.createBuffer({ size: 16, usage: UNIFORM | COPY_DST, label: 'voxel albedo means mask params' });
+  const fineParams = d.createBuffer({ size: 16, usage: UNIFORM | COPY_DST, label: 'voxel albedo means fine params' });
   try {
     d.queue.writeBuffer(params, 0, new Uint32Array([level, w, h, layers]));
-    const group = d.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: t.createView({ dimension: '2d-array', baseMipLevel: 0, mipLevelCount: t.mipLevelCount }) }, { binding: 1, resource: { buffer: out } }, { binding: 2, resource: { buffer: params } }] });
+    d.queue.writeBuffer(maskParams, 0, new Uint32Array([mLevel, mw, mh, mask === null ? 0 : 1]));
+    d.queue.writeBuffer(fineParams, 0, new Uint32Array([fLevel, fw, fh, plainSrgb ? 1 : 0]));
+    const view = t.createView({ dimension: '2d-array', baseMipLevel: 0, mipLevelCount: t.mipLevelCount });
+    // Without a mask the albedo is bound in its place (never read: a binding needs a texture).
+    const maskView = mask === null ? view : mask.createView({ dimension: '2d-array', baseMipLevel: 0, mipLevelCount: mask.mipLevelCount });
+    const group = d.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: view }, { binding: 1, resource: { buffer: out } }, { binding: 2, resource: { buffer: params } }, { binding: 3, resource: maskView }, { binding: 4, resource: { buffer: maskParams } }, { binding: 5, resource: { buffer: fineParams } }] });
     const enc = d.createCommandEncoder();
     const pass = enc.beginComputePass({ label: 'voxel albedo means' });
     pass.setPipeline(pipeline);
@@ -313,29 +409,33 @@ export async function textureLayerMeans(device: unknown, gpuTexture: unknown, sr
     await read.mapAsync(MAP_READ);
     const v = new Float32Array(read.getMappedRange().slice(0));
     read.unmap();
-    const lin = (c: number): number => (!srgbData || t.format.endsWith('-srgb') ? c : c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-    return Array.from({ length: layers }, (_, i) => [lin(v[i * 4]!), lin(v[i * 4 + 1]!), lin(v[i * 4 + 2]!)]);
+    const lin = (c: number): number => (!plainSrgb ? c : c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return Array.from({ length: layers }, (_, i) => layerMeansOfSums([...v.subarray(i * 12, i * 12 + 4)], [...v.subarray(i * 12 + 4, i * 12 + 8)], [...v.subarray(i * 12 + 8, i * 12 + 12)], lin));
   } finally {
     out.destroy();
     read.destroy();
     params.destroy();
+    maskParams.destroy();
+    fineParams.destroy();
   }
 }
 
 /**
- * The bounce colours' texture means as the volume keeps them: measured from the albedo array each time the surfaces
- * are given one (the last ask wins), by voxel id from its wall, floor and ceiling layers.
+ * The bounce colours' texture means as the volume keeps them: measured from the albedo array (and the ORM array's glow
+ * mask) each time the surfaces are given them (the last ask wins), by voxel id from its wall, floor and ceiling layers.
  */
 export class VolumeBounceSource {
   /** By voxel id (null: none measured, or no array). */
   means: VolumeBounceMeans | null = null;
+  /** Ms from the last ask to its means (the pass, its read back and the wait for the GPU). */
+  lastMs = 0;
   private ask = 0;
 
   /**
-   * The means of `gpuTexture`'s layers measured (null: none: the looks' colours alone), `layers` each voxel id's; `done`
-   * once {@link means} changed.
+   * The means of `gpuTexture`'s layers measured (null: none: the looks' colours alone), the glow mask from `maskTexture`'s
+   * A (null: none, a mask of 1), `layers` each voxel id's; `done` once {@link means} changed.
    */
-  measure(device: unknown, gpuTexture: unknown, srgbData: boolean, layers: ReadonlyMap<number, readonly [number, number, number]> | null, done: () => void): void {
+  measure(device: unknown, gpuTexture: unknown, srgbData: boolean, layers: ReadonlyMap<number, readonly [number, number, number]> | null, done: () => void, maskTexture: unknown = null): void {
     const ask = ++this.ask;
     if (gpuTexture === null || layers === null) {
       if (this.means === null) return;
@@ -343,9 +443,11 @@ export class VolumeBounceSource {
       done();
       return;
     }
-    void textureLayerMeans(device, gpuTexture, srgbData).then(
+    const t0 = performance.now();
+    void textureLayerMeans(device, gpuTexture, srgbData, maskTexture).then(
       (means) => {
         if (ask !== this.ask || means === null) return;
+        this.lastMs = performance.now() - t0;
         const by = new Map<number, [number[] | null, number[] | null, number[] | null]>();
         for (const [id, l] of layers) by.set(id, [means[l[0]] ?? null, means[l[1]] ?? null, means[l[2]] ?? null]);
         this.means = by;

@@ -98,7 +98,7 @@ import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-
 import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
-import { voxelFarLightChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
+import { GLOW_MASKED_MAT, GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -939,7 +939,6 @@ let playWorld: string | null = null;
 let pitCamera = '';
 
 /** The Play camera (metres, as `playProject` places it): over the pad, 35° down. */
-const PLAY_PITCH = (35 * Math.PI) / 180;
 const playCamera = (at: readonly number[]): { position: number[]; rotation: number[] } => ({ position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(PLAY_PITCH / 2), 0, 0, Math.cos(PLAY_PITCH / 2)] });
 /** The decal marks on the far world's stone wall (metres: its front face, above the banister). */
 const DECAL_SIDE = 1.2;
@@ -973,7 +972,7 @@ async function playProject(): Promise<[number, number, number]> {
   const [ox, oy, oz] = farScene;
   const at: [number, number, number] = [(ox + 9.5) / 2, oy / 2, (oz + 10.5) / 2];
   const world = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: at }, components: { voxelWorld: { world: 'far', blendMetres: PLAY_BLEND_M, quality: { low: FAR_TEST_RINGS } } } }))['createdId']);
-  pitCamera = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: playCamera(at), components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } }))['createdId']);
+  pitCamera = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Pit camera', transform: playCamera(at), components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: PLAY_FOV_Y_DEG, near: 0.1, far: 300 } } }))['createdId']);
   // A projected and a clipped decal on the wall's front face (facing +z: a decal projects along its −z), plain colours.
   await playCmd('setMaterial', { material: { materialId: 'mark-red', name: 'Red mark', shader: 'decal', params: { color: '#e01010' }, textures: {} } });
   await playCmd('setMaterial', { material: { materialId: 'mark-blue', name: 'Blue mark', shader: 'decal', params: { color: '#1030e0' }, textures: {} } });
@@ -1040,9 +1039,10 @@ async function playProject(): Promise<[number, number, number]> {
     "    const stub = box(-1.5, 0.5, 5, -0.5, 2.5, 5.5);",
     `    for (const _ of ctx.debug.command('hutstone')) ctx.game.add(v.set(stub, { material: ${MAT.stone}, role: ${VOXEL_ROLE.wall} }).ok ? 'stubBuilt' : 'hutRefused', 1);`,
     "    for (const _ of ctx.debug.command('unstone')) ctx.game.add(v.dig(stub).ok ? 'stubDug' : 'hutRefused', 1);",
-    // A strip of the glowing test material along the shut hut's south wall (painted: shader data), and back to plaster.
+    // A strip of the glowing test materials along the shut hut's south wall (painted: shader data; the plain one, then
+    // the masked one on its last 0.75 m at +x: the stub hides the strip's −x half from the camera), and back to plaster.
     "    const glowStrip = box(-1.5, 1, 2, 1.5, 1.5, 2.5);",
-    `    for (const _ of ctx.debug.command('hutglow')) ctx.game.add(v.paint(glowStrip, { material: ${GLOW_MAT} }).ok ? 'hutGlow' : 'hutRefused', 1);`,
+    `    for (const _ of ctx.debug.command('hutglow')) ctx.game.add(v.paint(box(-1.5, 1, 2, 0.75, 1.5, 2.5), { material: ${GLOW_MAT} }).ok && v.paint(box(0.75, 1, 2, 1.5, 1.5, 2.5), { material: ${GLOW_MASKED_MAT} }).ok ? 'hutGlow' : 'hutRefused', 1);`,
     `    for (const _ of ctx.debug.command('hutunglow')) ctx.game.add(v.paint(glowStrip, { material: ${MAT.plaster} }).ok ? 'hutUnglow' : 'hutRefused', 1);`,
     // The hut's floor slab repainted (its shape as it was): the light volume's bounce takes the floor's colour.
     `    for (const _ of ctx.debug.command('hutgreen')) ctx.game.add(v.set(box(-2, 0, 2.5, 2, 0.5, 10), { material: ${MAT.grass}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutGreen' : 'hutRefused', 1);`,
@@ -1081,7 +1081,6 @@ async function playProject(): Promise<[number, number, number]> {
  * A glowing voxel material (a voxel id the world does not use): grey, no texture set, a green glow of strength 4, so
  * its pixels draw greener and brighter than its grey (128) and the volume's cells by it hold green over blue as its glow.
  */
-const GLOW_MAT = 40;
 const GLOW_MATERIAL = { materialId: 'mat-glow-voxel', name: 'Glow (voxel)', shader: 'standard', params: { color: '#808080', emissive: '#20ff80', emissiveIntensity: 4 }, textures: {}, voxel: { id: GLOW_MAT, use: 'construction' } };
 
 /** The Play world's material blend (its `voxelWorld` object's, not the engine's default): Play and the export draw with it. */
@@ -1665,6 +1664,11 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
   test('Play: the voxel light volume lights the hut, its kit pieces and moving objects, bounces every light type, follows edits and lights, and refines while nothing changes', async ({ page }) => {
     test.setTimeout(240_000);
     await playCmd('setMaterial', { material: GLOW_MATERIAL });
+    const mask = glowMaskFiles(be.projectDir);
+    await playCmd('importAssets', { folder: mask.folder });
+    const listed = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 100, offset: 0 } })) as unknown as { assets: { assetId: string; sourcePath?: string }[] };
+    const masked = mask.material({ albedo: listed.assets.find((a) => a.sourcePath === mask.files.albedo)!.assetId, orm: listed.assets.find((a) => a.sourcePath === mask.files.orm)!.assetId });
+    await playCmd('setMaterial', { material: masked });
     const { at, psid, errors, shadowObjects, away, observe } = await startPlay(page, renderer);
     // The script's wall built and dug once first, as the shadow checks do before the other Play test reaches here: the
     // light checks build and dig it again, and digging it takes the stub's end with it (its kit pieces change shape), so
@@ -1680,6 +1684,7 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
     await groundRelief(false);
     await playCmd('deleteMaterial', { materialId: GLOW_MATERIAL.materialId });
+    await playCmd('deleteMaterial', { materialId: String(masked['materialId']) });
     await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp, shadowObjects.spot, shadowObjects.panel] });
   });
 }

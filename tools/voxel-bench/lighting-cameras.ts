@@ -138,6 +138,21 @@ export const BENCH_GLOW_MATERIALS = Object.freeze([
   Object.freeze({ materialId: 'bench-lava', name: 'Bench lava', shader: 'standard', instanceOf: 'voxel-rock', params: { color: '#ffffff', emissive: '#ff5a14', emissiveIntensity: 4 }, textures: {}, voxel: { id: 4001, use: 'terrain' } }),
   Object.freeze({ materialId: 'bench-crystal', name: 'Bench crystal', shader: 'standard', instanceOf: 'voxel-plaster', params: { color: '#ffffff', emissive: '#3fe0ff', emissiveIntensity: 1.5 }, textures: {}, voxel: { id: 4002, use: 'construction' } }),
 ]);
+/**
+ * `--glow`'s masked lava (bench data, made before Play and removed after): the lava's glow on the town's rock whose ORM
+ * map carries a crack mask in its alpha (`crackGlowMask`, about 27 % of the tile's glow), an ORM texture the bench
+ * writes from the rock's own (its RGB as stored) into {@link BENCH_GLOW_MASK_FOLDER} and imports as any texture. Painted
+ * beside each lava strip ({@link GLOW_COMMANDS}), so one picture shows the cracks against the whole glow.
+ */
+export const BENCH_GLOW_MASK_FOLDER = 'assets/bench-glow-mask';
+export const BENCH_GLOW_MASK_FILE = 'bench-lava-cracks-orm.png';
+export function benchMaskedLava(ormAssetId: string): { readonly materialId: string; readonly voxel: { readonly id: number; readonly use: string; readonly surfaces: { readonly wall: { readonly orm: string } } } } & Readonly<Record<string, unknown>> {
+  const lava = BENCH_GLOW_MATERIALS[0]!;
+  return { materialId: 'bench-lava-cracked', name: 'Bench lava (cracks)', shader: 'standard', instanceOf: lava.instanceOf, params: { ...lava.params }, textures: {}, voxel: { id: 4003, use: 'terrain', surfaces: { wall: { orm: ormAssetId } } } };
+}
+/** The masked lava's voxel id (the behaviour paints it when the world has it). */
+const LAVA_MASKED_ID = 4003;
+
 /** Where the glow scene's cells are read for their blotch (`cellBlotch` ±4 m round it): by the fence's block and the night strip, by the room's strip. */
 export const GLOW_PROBES: Readonly<Record<string, readonly [number, number, number]>> = Object.freeze({ 'night-lamps': [40, 1, -29.5], 'room-window': [-3.5, 1.5, 1] });
 /** The behaviour's glow commands: everything painted; the night strip painted back to the ground's own and painted again. */
@@ -251,6 +266,7 @@ const LAMP = ${JSON.stringify(BENCH_LAMPS[2]!.position)};
 const LAMP_WALL = ${JSON.stringify(LAMP_WALL)};
 const LAVA = ${BENCH_GLOW_MATERIALS[0]!.voxel.id};
 const CRYSTAL = ${BENCH_GLOW_MATERIALS[1]!.voxel.id};
+const LAVA_MASKED = ${LAVA_MASKED_ID};
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
 export default {
   prepare() { return {}; },
@@ -291,6 +307,9 @@ export default {
           s.strip = { min: [37, gy - 0.5, -28.5], max: [43, gy, -28] };
           s.stripWas = g.voxel.material;
           if (v.paint(s.strip, { material: LAVA }).ok) ctx.game.add('glow_strip', 1);
+          // The masked lava beside it, 0.5 m to the street's left (a world without that material refuses it: not counted).
+          if (v.paint({ min: [37, gy - 0.5, -27.5], max: [43, gy, -27] }, { material: LAVA_MASKED }).ok) ctx.game.add('glow_masked_strip', 1);
+          ctx.game.add('glow_ground_cm', Math.round(gy * 100));
           for (const z of [-28.75, -29.25, -29.75, -30.25, -30.75, -31.25]) {
             const h = v.raycast([40.25, gy + 3, z], [0, -1, 0], 6);
             if (h === null || h.voxel === null || h.point[1] < gy + 0.6) continue;
@@ -312,6 +331,8 @@ export default {
         // The wall at the floor's height (the eye's height looks out of a window).
         const wall = floor === null ? null : v.raycast([room[0], floor.point[1] + 0.25, room[2]], [-1, 0, 0], 12);
         if (wall !== null && floor !== null && v.paint({ min: [wall.at[0] + 0.25, floor.point[1] - 0.5, room[2] - 3], max: [wall.at[0] + 0.75, floor.point[1], room[2] + 3] }, { material: LAVA }).ok) ctx.game.add('glow_room_strip', 1);
+        // The masked lava 1 m into the room from it, along it.
+        if (wall !== null && floor !== null && v.paint({ min: [wall.at[0] + 1.25, floor.point[1] - 0.5, room[2] - 3], max: [wall.at[0] + 1.75, floor.point[1], room[2] + 3] }, { material: LAVA_MASKED }).ok) ctx.game.add('glow_room_masked_strip', 1);
         ctx.game.add('glow_room', 1);
       }
       for (const _ of ctx.debug.command('${GLOW_COMMANDS.stripOff}')) ctx.game.add(s.strip !== null && v.paint(s.strip, { material: s.stripWas }).ok ? 'glow_strip_offs' : 'glow_refused', 1);

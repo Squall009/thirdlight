@@ -67,23 +67,24 @@
  *
  * Not part of `npm test`.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, loadavg, uptime } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
+import { decodePngRgba, DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
 import { profileSummary, type ProfileReport } from '@thirdlight/game-host';
 import { decodePng } from '../../tests/e2e/png';
 import { commandEnvelope } from '../../tests/support/commands';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MATERIALS, MANY_LAMP_CAMERAS, MANY_LAMP_SHOT_NAMES, type LightingCamera, GLOW_COMMANDS, GLOW_PROBES, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
+import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MASK_FILE, BENCH_GLOW_MASK_FOLDER, BENCH_GLOW_MATERIALS, benchMaskedLava, MANY_LAMP_CAMERAS, MANY_LAMP_SHOT_NAMES, type LightingCamera, GLOW_COMMANDS, GLOW_PROBES, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import type { Picture } from './lighting-cameras';
 import { openPlay, type PlayGame } from './travel-page';
 import { settleAfter, type CountSample } from './travel';
 import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, MANY_LAMPS_COMMANDS, parseLampsOption, placeManyLamps } from './many-lamps';
 import { dayBehaviour, DAY_ARC_DEG, DAY_COMMANDS, DAY_SPEEDS } from './day-cycle';
+import { crackGlowMask, placeholderPng, withAlpha } from './texture-sets';
 
 const O = parseLightShotsArgs(process.argv.slice(2));
 /** `--lamps N`: the many-lamps scene of N lights (many-lamps.ts) placed, and its cameras taken after the five (unless `--only` names cameras). */
@@ -211,6 +212,19 @@ async function volumeCellsPlaced(eye: number[]): Promise<BenchVolumeCell[] | nul
   return cells === null ? null : cells.map((c) => ({ cell: c.cell, faces: c.faces }));
 }
 
+/** The red light of the cells just over the night's lava strip (z −28.25) and its masked strip (z −27.25), x 37–43. */
+async function glowStripLight(game: PlayGame): Promise<{ unmasked: number; masked: number; ratio: number | null } | null> {
+  const gy = ((await game.observe().catch(() => null))?.counters ?? {})['glow_ground_cm'];
+  if (gy === undefined || gy === 0) return null;
+  const row = (z: number): number[][] => Array.from({ length: 12 }, (_, i) => [37.25 + i * 0.5, gy / 100 + 0.25, z]);
+  const cells = (await game.frame.evaluate((pts) => (window as unknown as { __tlVoxelPlay?: { light?: { volumeCells?(p: number[][]): Promise<Array<{ faces: (number[] | null)[] }> | null> } } }).__tlVoxelPlay?.light?.volumeCells?.(pts) ?? null, [...row(-28.25), ...row(-27.25)]).catch(() => null)) as Array<{ faces: (number[] | null)[] }> | null;
+  if (cells === null || cells.length !== 24) return null;
+  const red = (c: { faces: (number[] | null)[] }): number => c.faces.reduce((n, f) => n + (f?.[0] ?? 0), 0);
+  const unmasked = cells.slice(0, 12).reduce((n, c) => n + red(c), 0) / 12;
+  const masked = cells.slice(12).reduce((n, c) => n + red(c), 0) / 12;
+  return { unmasked: Number(unmasked.toFixed(4)), masked: Number(masked.toFixed(4)), ratio: unmasked > 0 ? Number((masked / unmasked).toFixed(3)) : null };
+}
+
 /** Waits for the page's lighting store to light what it holds (`off`: nothing to wait for). */
 async function storeLit(game: PlayGame, store: string): Promise<{ litS: number | null; state: VolumeStats | null }> {
   return store === 'volume' ? volumeLit(game) : { litS: null, state: null };
@@ -265,6 +279,45 @@ async function meterSet(game: PlayGame, hide: { near?: boolean; far?: boolean })
   if (!ok) throw new Error('the page has no meter (WebGPU and a voxel world needed)');
 }
 
+/** `--glow`'s masked ORM as written (bytes against the rock ORM it is made from, its mask's mean), for the run's record. */
+let glowMask: Record<string, unknown> | null = null;
+
+/**
+ * The masked lava (`--glow`): the rock's ORM image (the lava's parent's wall set) read from the project, its alpha set to
+ * the bench's crack mask, written to the bench's own folder and imported; the material made of it. The undo deletes the
+ * material and the asset and removes the folder.
+ */
+async function prepareGlowMask(b: ReturnType<typeof benchApi>): Promise<() => Promise<void>> {
+  const parent = BENCH_GLOW_MATERIALS[0]!.instanceOf;
+  const record = JSON.parse(readFileSync(join(PROJECT_DIR, 'assets', 'materials', `${parent}.material.json`), 'utf8')) as { data: { voxel?: { surfaces?: { wall?: { orm?: string } } } } };
+  const ormId = record.data.voxel?.surfaces?.wall?.orm;
+  if (ormId === undefined) throw new Error(`${parent} has no wall ORM map to mask`);
+  const assets = async (): Promise<Array<{ assetId: string; sourcePath?: string }>> => ((await b.api('commands', { op: 'queryAssets', projectId: O.project, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>;
+  const source = (await assets()).find((a) => a.assetId === ormId)?.sourcePath;
+  if (source === undefined) throw new Error(`asset ${ormId} has no source file`);
+  const bytes = new Uint8Array(readFileSync(join(PROJECT_DIR, ...source.split('/'))));
+  const png = decodePngRgba(bytes);
+  if (!png.ok || png.png.width !== png.png.height) throw new Error(`${source}: ${png.ok ? 'not square' : png.message}`);
+  const size = png.png.width;
+  const mask = crackGlowMask(size);
+  const masked = placeholderPng(withAlpha(png.png.rgba, mask), size);
+  const dir = join(PROJECT_DIR, ...BENCH_GLOW_MASK_FOLDER.split('/'));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, BENCH_GLOW_MASK_FILE), masked);
+  await b.command('importAssets', { folder: BENCH_GLOW_MASK_FOLDER });
+  const id = (await assets()).find((a) => a.sourcePath === `${BENCH_GLOW_MASK_FOLDER}/${BENCH_GLOW_MASK_FILE}`)?.assetId;
+  if (id === undefined) throw new Error('the masked ORM was not imported');
+  const material = benchMaskedLava(id);
+  await b.command('setMaterial', { material });
+  glowMask = { source, size, sourceBytes: bytes.length, maskedBytes: masked.length, maskMean: Number((mask.reduce((n, v) => n + v, 0) / mask.length / 255).toFixed(4)), assetId: id, voxelId: material.voxel.id };
+  console.log(`glow mask: ${JSON.stringify(glowMask)}`);
+  return async () => {
+    await b.command('deleteMaterial', { materialId: material.materialId }).catch((err: unknown) => console.error(`${material.materialId} not deleted: ${String(err)}`));
+    await b.command('deleteAsset', { assetId: id }).catch((err: unknown) => console.error(`${id} not deleted: ${String(err)}`));
+    rmSync(dir, { recursive: true, force: true });
+  };
+}
+
 async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<void>> {
   // The project's content lists its presets by id; setting the list replaces it, so a project with presets of its own is refused.
   const content = JSON.parse(readFileSync(join(PROJECT_DIR, 'content.json'), 'utf8')) as { content: { environment?: { presets?: unknown[] } } };
@@ -284,6 +337,7 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   }
   const glowMaterials = O.glow || SCENE !== null;
   if (glowMaterials) for (const m of BENCH_GLOW_MATERIALS) await b.command('setMaterial', { material: m });
+  const unmask = O.glow ? await prepareGlowMask(b) : null;
   const unplace = SCENE === null ? null : await placeManyLamps(SCENE, (op, args) => b.command(op, args), sceneEntities);
   const before = cameraBehaviour(PROJECT_DIR);
   await publishCameraBehaviour(b, PROJECT_DIR, BEHAVIOR, lightShotsSource(CAMERAS, [...(SCENE !== null ? [manyLampsBehaviour(SCENE)] : []), dayBehaviour()]));
@@ -298,6 +352,7 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
       if (e !== undefined) await b.command('deleteEntity', { entityId: e.id }).catch((err: unknown) => console.error(`lamp not taken out: ${String(err)}`));
     }
     await unplace?.().catch((err: unknown) => console.error(`many lamps not taken out: ${String(err)}`));
+    await unmask?.();
     if (glowMaterials) for (const m of BENCH_GLOW_MATERIALS) await b.command('deleteMaterial', { materialId: m.materialId }).catch((err: unknown) => console.error(`${m.materialId} not deleted: ${String(err)}`));
     const cam = sceneEntities().find((e) => e.name === 'Perf far camera');
     if (before !== null && before !== BEHAVIOR && cam !== undefined) await b.command('setBehaviorProperties', { entityId: cam.id, behaviorId: before, values: {} }).catch(() => undefined);
@@ -491,10 +546,11 @@ async function main(): Promise<void> {
         for (let i = 0; i < 40 && (parts[command] ?? 0) === 0; i++) {
           await page.waitForTimeout(250);
           const c = (await game.observe().catch(() => null))?.counters ?? {};
-          for (const k of ['glow_night', 'glow_strip', 'glow_block', 'glow_panel', 'glow_room', 'glow_room_strip']) parts[k] = c[k] ?? 0;
+          for (const k of ['glow_night', 'glow_strip', 'glow_masked_strip', 'glow_block', 'glow_panel', 'glow_room', 'glow_room_strip', 'glow_room_masked_strip', 'glow_ground_cm']) parts[k] = c[k] ?? 0;
         }
       }
       out['glowParts'] = parts;
+      out['glowMask'] = glowMask;
       console.log(`glow: ${JSON.stringify(parts)}`);
       if (Object.values(parts).some((n) => n === 0)) problems.push(`glow: a part was not painted (${JSON.stringify(parts)})`);
     }
@@ -537,6 +593,9 @@ async function main(): Promise<void> {
       const probe = O.glow && store === 'volume' ? GLOW_PROBES[cam.name] : undefined;
       const glowPlaced = probe === undefined ? null : await game.frame.evaluate(volumeCellsPlaced, [...probe]).catch(() => null);
       const blotch = { picture: pictureBlotch(shown), cells: placed === null ? null : cellBlotch(placed), mean: meanBrightness(shown), ...(glowPlaced !== null ? { glow: cellBlotch(glowPlaced) } : {}) };
+      // With the glow at night: the light the cells over the lava strip and over the masked strip beside it hold (each
+      // cell's faces summed, red: the lava's), and the masked strip's share of the whole strip's.
+      const strips = O.glow && store === 'volume' && cam.name === 'night-lamps' ? await glowStripLight(game) : null;
       console.log(`${cam.name}: blotch ${JSON.stringify(blotch)}`);
       let reference: unknown = null;
       if (O.reference !== null && store === 'volume') {
@@ -662,6 +721,7 @@ async function main(): Promise<void> {
         ...(O.gpuStale ? { gpuStale } : {}),
         ...(refined !== null ? { refined } : {}),
         lights: await canvasLights(game),
+        ...(strips !== null ? { glowStrips: strips } : {}),
         ...(SCENE !== null ? { glowPatches: { painted: counters['ml_glow_painted'] ?? 0, refused: counters['ml_glow_refused'] ?? 0, of: SCENE.glow.length } } : {}),
         ...(gpuHere ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
         at: host(),

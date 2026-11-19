@@ -246,3 +246,46 @@ export function placeholderPng(rgba: Uint8Array, size: number): Uint8Array {
   for (let y = 0; y < size; y++) raw.set(rgba.subarray(y * size * 4, (y + 1) * size * 4), y * row + 1);
   return pngBytes({ width: size, height: size, bitDepth: 8, colorType: 6, idat: new Uint8Array(deflateSync(raw, { level: 6 })) });
 }
+
+/**
+ * A glow mask of cracks (0–255 a texel, `size`² with the image's first row its top): the edges between cells of a
+ * jittered grid of `cells` a side over the tile (seamless left–right and top–bottom), full on an edge and soft over
+ * `widthTile` of the tile beside it, as the glowing veins of a lava rock. Deterministic. The bench's test data for a
+ * glow mask in an ORM map's alpha.
+ */
+export function crackGlowMask(size: number, cells = 6, widthTile = 0.016): Uint8Array {
+  const out = new Uint8Array(size * size);
+  const seed = 41;
+  const site = (cx: number, cy: number): [number, number] => {
+    const wx = ((cx % cells) + cells) % cells;
+    const wy = ((cy % cells) + cells) % cells;
+    return [cx + 0.15 + 0.7 * hash(wx, wy, seed), cy + 0.15 + 0.7 * hash(wx, wy, seed + 1)];
+  };
+  for (let y = 0; y < size; y++) {
+    const v = (1 - (y + 0.5) / size) * cells;
+    for (let x = 0; x < size; x++) {
+      const u = ((x + 0.5) / size) * cells;
+      const ix = Math.floor(u);
+      const iy = Math.floor(v);
+      let d1 = Infinity;
+      let d2 = Infinity;
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+        const [sx, sy] = site(ix + ox, iy + oy);
+        const d = Math.hypot(sx - u, sy - v);
+        if (d < d1) [d1, d2] = [d, d1];
+        else if (d < d2) d2 = d;
+      }
+      // Half the gap between the two nearest sites: the distance to their cells' shared edge (in cells).
+      const edge = (d2 - d1) / 2 / cells;
+      out[y * size + x] = Math.round(255 * (1 - smooth(widthTile * 0.35, widthTile, edge)));
+    }
+  }
+  return out;
+}
+
+/** An RGBA image (8-bit, `size`²) with its A replaced by `mask` (a copy). */
+export function withAlpha(rgba: Uint8Array, mask: Uint8Array): Uint8Array {
+  const out = rgba.slice();
+  for (let i = 0; i < mask.length; i++) out[i * 4 + 3] = mask[i]!;
+  return out;
+}

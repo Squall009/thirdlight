@@ -1081,10 +1081,10 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
           reliefOut.assign(select(seen, hb.recess, float(0)));
           blended = mix(s1.albedo, s2.albedo, hs);
           // The glow: each material's (linear radiance, from the table texels its pixel reads already) times its own colour
-          // (its texture × tint), blended as the colour is.
+          // (its texture × tint) and its glow mask (the A of the ORM read already), blended as the colour is.
           const glowA = vec3(s1.glowRB.x, rA.w, s1.glowRB.y);
           const glowB = vec3(s2.glowRB.x, rB.w, s2.glowRB.y);
-          glowOut.assign(select(seen, mix(glowA.mul(s1.albedo), glowB.mul(s2.albedo), hs), vec3(0)));
+          glowOut.assign(select(seen, mix(glowA.mul(s1.albedo).mul(s1.glowMask), glowB.mul(s2.albedo).mul(s2.glowMask), hs), vec3(0)));
           normalOut.assign(select(seen, mix(s1.normal, s2.normal, hs).normalize(), n));
           ormOut.assign(select(seen, mix(s1.orm, s2.orm, hs), vec3(1, 0.8, 0)));
         } else {

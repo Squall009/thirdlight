@@ -598,12 +598,12 @@ export class VoxelWorldDraws {
     this.volume.frame();
   }
 
-  /** The volume's bounce colours from the surfaces' albedo array (its layers' means), as the arrays are drawn. */
+  /** The volume's bounce colours and glows from the surfaces' albedo array and ORM's glow mask (their layers' means), as the arrays are drawn. */
   private volumeBounce(): void {
     const a = this.arrays;
     // `?voxelBounceMeans=0` keeps the looks' colours alone (a comparison of what the texture means change).
     const off = new URLSearchParams(pageSearch()).get('voxelBounceMeans') === '0';
-    this.volume?.setBounceTextures(off ? null : (a?.textures.albedo ?? null), off ? null : (a?.layers ?? null));
+    this.volume?.setBounceTextures(off ? null : (a?.textures.albedo ?? null), off ? null : (a?.layers ?? null), off ? null : (a?.textures.orm ?? null));
   }
 
   /**

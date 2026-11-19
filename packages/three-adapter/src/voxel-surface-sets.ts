@@ -7,7 +7,7 @@
  */
 import * as TSLTyped from 'three/tsl';
 
-import { VOXEL_MATERIAL_LIMITS } from '@thirdlight/project-model';
+import { VOXEL_MATERIAL_LIMITS, VOXEL_ORM_ABSENT } from '@thirdlight/project-model';
 
 import type { N } from './effects-tsl';
 import { gridFrame, tileUv, type ProjectionOps } from './voxel-surface-projection';
@@ -23,10 +23,10 @@ const LEVEL_FACE_NORMAL_Y = 0.95;
 
 /**
  * The neutral texels of the maps (RGBA bytes) a program samples before its arrays arrive, and a layerless material
- * reads: white albedo at height 1 (the surface: no relief, no crevice), a flat normal, the absent ORM (AO 1,
- * roughness 0.8, no metal).
+ * reads: white albedo at height 1 (the surface: no relief, no crevice), a flat normal, the voxel ORM's absent value
+ * (AO 1, roughness 0.8, no metal, the glow mask 1: glows whole).
  */
-export const NEUTRAL_TEXELS = { albedo: [255, 255, 255, 255], normal: [128, 128, 255, 255], orm: [255, 204, 0, 0] } as const;
+export const NEUTRAL_TEXELS = { albedo: [255, 255, 255, 255], normal: [128, 128, 255, 255], orm: VOXEL_ORM_ABSENT.map((v) => Math.round(v * 255)) as [number, number, number, number] } as const;
 
 /** The projection's scalar operations on shader nodes. */
 export const NODE_OPS: ProjectionOps<N, N> = {
@@ -189,7 +189,7 @@ const NEUTRAL_ORM = (): N => vec3(NEUTRAL_TEXELS.orm[0] / 255, NEUTRAL_TEXELS.or
  * `lod`: the reads' mip level from the tile (absent: the implicit one, or the projection's derivatives); `maps`: which
  * maps are read.
  */
-export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend', lod?: TileLevel, maps: SetMaps = 'full'): { albedo: N; normal: N; orm: N; height: N; glowRB: N } {
+export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, mode: SetProjectionMode = 'blend', lod?: TileLevel, maps: SetMaps = 'full'): { albedo: N; normal: N; orm: N; height: N; glowRB: N; glowMask: N } {
   const { n } = at;
   const { l, tiles, ls, built, onBuilt, has, gt, read, weighted, axis } = setProjection(src, m, at, mode, lod);
   const a = read(src.maps.albedo);
@@ -197,11 +197,13 @@ export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, m
   const height = select(has, weighted(a).a, float(1));
   // The glow's r and b ride the a of the tiles and layers texels read here (its g the relief texel's: the caller's).
   const glowRB = vec2(tiles.w, ls.w);
-  if (maps === 'albedo') return { albedo: textured, normal: n, orm: NEUTRAL_ORM(), height, glowRB };
+  // The albedo alone (the far shade, which draws no glow): the mask as without an ORM map.
+  if (maps === 'albedo') return { albedo: textured, normal: n, orm: NEUTRAL_ORM(), height, glowRB, glowMask: float(1) };
   // On one axis the read is turned by that axis's frame alone (its weight 1).
   const bn = axis ?? at.bn;
   const t = read(src.maps.normal).map((x) => x.xyz.mul(2).sub(1)) as [N, N, N];
   const o = read(src.maps.orm);
+  const ow = weighted(o).toVar();
   // The grid projection: tangent U, bitangent V (voxel-surface-projection.ts), the face normal.
   const frame = gridFrame(NODE_OPS, [n.x, n.y, n.z]);
   const onGrid = vec3(...frame.u).mul(t[0].x).add(vec3(...frame.v).mul(t[0].y)).add(n.mul(t[0].z));
@@ -213,9 +215,11 @@ export function textureSetAt(src: TextureSetSource, m: N, at: TextureSetPoint, m
   return {
     albedo: band === null ? textured : select(built, mix(l.rgb, band.rgb, band.a), textured),
     normal: select(has, mix(onAxes, onGrid, onBuilt).normalize(), n),
-    orm: select(has, weighted(o).xyz, NEUTRAL_ORM()),
+    orm: select(has, ow.xyz, NEUTRAL_ORM()),
     height,
     glowRB,
+    // The ORM's A is the glow mask (1 the material's full glow); without a layer the material glows whole.
+    glowMask: select(has, ow.w, float(1)),
   };
 }
 

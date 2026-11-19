@@ -10,7 +10,8 @@ import { Color } from 'three';
 import { MATERIAL_BITS, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX } from '@thirdlight/voxel';
 
 import { voxelStandInLook } from './voxel-chunk-view';
-import { VolumeColourCache, volumeBrickGlows, volumeCellGlow, volumeLookGlow, volumeLookKey, volumeMaterialBox, volumeMaterialBricks } from './voxel-light-volume-colours';
+import { layerMeansOfSums, VolumeColourCache, volumeBrickGlows, volumeCellGlow, volumeLookGlow, volumeLookKey, volumeMaterialBox, volumeMaterialBricks } from './voxel-light-volume-colours';
+import { VolumeLookWatch } from './voxel-light-volume-looks';
 import { volumeDecode, volumeEncode, volumeMarkBoxes, type VolumeMarkable } from './voxel-light-volume-layout';
 import { VolumeUpdateModel, volumeGlowDirect, volumePredicateSource, volumeReferenceFace, type VolumeLightWorld } from './voxel-light-volume-reference';
 import { volumeBrickEmitters, volumeGlowBrickKey, volumeGlowFormFactor } from './voxel-light-volume-emitters';
@@ -178,6 +179,39 @@ describe('emissive voxel materials: the cells beside them', () => {
       else if (gap <= reach) expect(b.updates).toBe(4);
       else expect(b.updates).toBe(30);
     }
+  });
+
+  it("glows by the mean of what it draws: the wall set's colour × glow mask where the mask was read, its colour mean (as before) where it is 1 or was not read", () => {
+    const tint = lin(0xa04020);
+    const colour = [0.5, 0.25, 0.8];
+    // The pass's sums: the coarse colour, and over the finer level colour × mask (mask a third of the texels) and colour.
+    const col = [0.52, 0.24, 0.82];
+    const prod = [0.52 * 0.3, 0.24 * 0.35, 0.82 * 0.3, 0.32];
+    const masked = layerMeansOfSums(colour, prod, col, (c) => c);
+    expect(masked.slice(0, 3)).toEqual(colour);
+    expect(masked.slice(3, 6).map((v) => Number(v.toFixed(6)))).toEqual([0.5 * 0.3, 0.25 * 0.35, 0.8 * 0.3].map((v) => Number(v.toFixed(6))));
+    const want = look(20).glow!.map((v, k) => v * tint[k]! * masked[3 + k]!);
+    volumeLookGlow(look(20), [masked, null, null])!.forEach((v, k) => expect(v).toBeCloseTo(want[k]!, 12));
+    // A mask of 1 everywhere: the pass's drawn mean is the colour mean exactly, so the value is the one without a mask.
+    const unmasked = layerMeansOfSums(colour, [...col, 1], col, (c) => c);
+    expect(unmasked.slice(3, 6)).toEqual(colour);
+    expect(volumeLookGlow(look(20), [unmasked, null, null])).toEqual(volumeLookGlow(look(20), [colour, null, null]));
+    // sRGB bytes in a plain format: the colour made linear, the mask's share kept.
+    const srgb = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    expect(layerMeansOfSums(colour, [...col, 1], col, srgb).slice(3, 6)).toEqual(colour.map(srgb));
+    // A channel black over the finer level: its share is the mask's mean (nothing glows there either way).
+    expect(layerMeansOfSums([0, 0.5, 0.5], [0, 0.1, 0.1, 0.25], [0, 0.4, 0.4], (c) => c)[3]).toBe(0);
+  });
+
+  it("marks the bricks bordering a material whose glow mask's mean changed (a texture change), and only that material", () => {
+    const watch = new VolumeLookWatch();
+    const at = (mask: number): Map<number, [number[] | null, number[] | null, number[] | null]> => new Map([[20, [[0.5, 0.5, 0.5, 0.5 * mask, 0.5 * mask, 0.5 * mask], null, null]], [21, [[0.5, 0.5, 0.5], null, null]], [23, [[0.5, 0.5, 0.5], null, null]]]);
+    expect(watch.changed(look, at(1), ['0,0,0'])).toBe(0);
+    expect(watch.changed(look, at(1), ['0,0,0'])).toBe(0);
+    expect(watch.changed(look, at(0.3), ['0,0,0'])).toBe(1);
+    const found: [readonly number[], readonly number[]][] = [];
+    watch.drain(() => true, new Map([['0,0,0', grid]]), (lo, hi) => void found.push([lo, hi]));
+    expect(found).toEqual([volumeMaterialBricks(grid, [0, 0, 0], new Set([20]))]);
   });
 
   it("changes a look's key for the volume exactly when its glow or bounce colours do", () => {

@@ -3,14 +3,22 @@
  * shadow, a moving box in it, a red lamp's shadow of the wall, a moving box's shadow on the voxel grass. Pixels read
  * with png.ts.
  */
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { changedPixels, decodePng } from './png';
 import { expect, test, type Page } from './pw';
 import { LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
 import { cellBlotch } from '../../tools/voxel-bench/lighting-cameras';
+import { placeholderPng } from '../../tools/voxel-bench/texture-sets';
 
 /** What the checks drive: the editor page with Play running, the play session, the character's stand (metres), the test objects' ids and where they wait, and the project API. */
+/** The Play camera's pitch down (radians) and vertical field of view (degrees): the hut's pictures are projected with them. */
+export const PLAY_PITCH = (35 * Math.PI) / 180;
+export const PLAY_FOV_Y_DEG = 60;
+/** Where the camera stands in the hut (from the world's anchor), looking down it along −z. */
+const HUT_EYE = [0, 2.2, 9.5] as const;
+
 export interface ShadowCheckSetup {
   readonly page: Page;
   readonly psid: string;
@@ -421,7 +429,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   await expect.poll(() => hook('volume'), { timeout: 10_000 }).toBeNull();
   await place(ids.lamp, away);
   const offBefore = await still('volume-off-before');
-  const eye = rel(0, 2.2, 9.5);
+  const eye = rel(...HUT_EYE);
   // The box mid-room, 1.2–2 m up and 0.8 m or more from the walls, floor and ceiling: no 0.5 m cell beside its faces in
   // view holds light, so it reads the 1 m level.
   const box = rel(0.8, 1.6, 6.5);
@@ -544,6 +552,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   console.log(`[voxel-play] light volume readers: the blue box in the shut hut ${boxIn.volume.lum.toFixed(1)} against ${boxIn.off.lum.toFixed(1)} by the flat term (${boxIn.off.n} px); the kit pieces on the stub ${kit.volume.lum.toFixed(1)} against ${kit.off.lum.toFixed(1)} (${kit.off.n} px); the box 1.7 m over the pad ${boxOpen.volume.lum.toFixed(1)} against ${boxOpen.off.lum.toFixed(1)} (${boxOpen.off.n} px)`);
   console.log(`[voxel-play] light volume lamp lists: ${lists.length} bricks round the lamp, ${listsKept.length} kept, ${listsLit.length} listing a lamp, ${listsDiffer.length} differing from the CPU's rule (${JSON.stringify(listsDiffer.slice(0, 2))}); up the wall's face ${faceLists.length} bricks, ${faceLists.filter(listsLamp).length} listing the red lamp (${JSON.stringify(lampAt)}); 1 m level ${listsCoarse.length} kept, ${listsCoarse.filter(listsLamp).length} listing it, ${listsCoarseDiffer.length} differing (${JSON.stringify(listsCoarseDiffer.slice(0, 2))}; the first lists ${JSON.stringify(faceLists[0]?.at)}); most reaching one ${Math.max(0, ...lists.map((l) => l.cpu.total))}`);
   console.log(`[voxel-play] light volume light types: the spot's red bounce on the west wall's cells: faces looking at the wall it lights ${typed.front.toFixed(3)} (${typed.frontN} faces), at the wall behind it ${typed.behind.toFixed(3)} (ratio ${typed.ratio.toFixed(3)}; settled ${typed.litMs} ms); the panel's blue bounce on the faces looking down at the floor it lights ${typed.panel.toFixed(3)} (${typed.panelN} faces; before it was placed ${typed.panelBefore.toFixed(3)}), with both taken out ${typed.panelOff.toFixed(3)} (settled ${typed.offMs} ms), the spot's then ${typed.frontOff.toFixed(3)} (before it came ${typed.frontBefore.toFixed(3)}); the cells then against before the lights came ${(typed.residue * 100).toFixed(2)} % of what the lights moved them`);
+  console.log(`[voxel-play] light volume glow mask: the volume's values (green) plain ${(glow.values[String(GLOW_MAT)]?.[1] ?? 0).toFixed(5)}, masked ${(glow.values[String(GLOW_MASKED_MAT)]?.[1] ?? 0).toFixed(5)} (ratio ${((glow.values[String(GLOW_MASKED_MAT)]?.[1] ?? 0) / Math.max(glow.values[String(GLOW_MAT)]?.[1] ?? 0, 1e-9)).toFixed(4)} against the mask's mean ${GLOW_MASK_SHARE}); glowing px a column over the plain part ${glow.pxPlain.toFixed(1)}, over the masked part ${glow.pxMasked.toFixed(1)} (ratio ${(glow.pxMasked / Math.max(glow.pxPlain, 1)).toFixed(3)}); the cells at their foot, green looking up: plain ${glow.nearPlain.toFixed(4)}, masked ${glow.nearMasked.toFixed(4)} (ratio ${(glow.nearMasked / Math.max(glow.nearPlain, 1e-9)).toFixed(3)}); the far wall's green ${glow.north[1]!.toFixed(4)} (a whole strip of the plain one read 0.40)`);
   console.log(`[voxel-play] light volume glow: the strip's pixels ${glow.px} px greener than the shut hut's, their green ${glow.green.toFixed(1)} against the material's grey 128; the cells along the north wall facing it: rgb ${glow.north.map((v) => v.toFixed(4)).join(', ')} (before ${glow.northBefore.map((v) => v.toFixed(4)).join(', ')}); at its foot looking up ${glow.foot.map((v) => v.toFixed(4)).join(', ')}: red over green ${glow.rg.toFixed(4)} against the glow's ${GLOW_RG.toFixed(4)}, green over blue ${glow.gb.toFixed(3)} against its ${(1 / 0.2158605001138992).toFixed(3)}; settled ${glow.litMs} ms after the paint, ${glow.offMs} ms after it was painted back; the far wall's green then against before ${(glow.residue * 100).toFixed(2)} % of what the glow moved it`);
   console.log(`[voxel-play] light volume edit: the lamp's red bounce up the wall's face ${lit.red.toFixed(3)} (${lit.n} cells), the pillar built ${shaded.red.toFixed(3)} (settled ${builtMs} ms after the command), dug ${relit.red.toFixed(3)} (${dugMs} ms), its cells against before it was built ${(pillarResidue * 100).toFixed(2)} % of what the pillar moved them; the pillar and the face's cells ${across ? 'in two chunks' : 'in one chunk'}`);
   console.log(`[voxel-play] light volume refining: the open hut's cells' neighbour difference at its settle ${refine.settled.mean.toFixed(4)} (${refine.settled.pairs} pairs, bricks at ${refine.settledUpdates} updates), refined ${refine.refined.mean.toFixed(4)} (${refine.refined.pairs} pairs, bricks at ${refine.refinedUpdates} updates, ${refine.ms} ms later): ratio ${(refine.refined.mean / Math.max(refine.settled.mean, 1e-9)).toFixed(3)}`);
@@ -596,12 +605,50 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   expect(typed.frontOff - typed.frontBefore, "the spot taken out, its bounce is gone once the bricks settle again").toBeLessThan(VOLUME_GONE_SHARE * typed.front);
   expect(typed.residue, 'the lights taken out, the cells are back near what they held before the lights came').toBeLessThan(VOLUME_RESIDUE_SHARE);
   expect(glow.px, 'the glowing strip draws brighter in the shut hut').toBeGreaterThan(GLOW_MIN_PX);
+  // The masked half: the volume's one value is the plain one's × the mask's mean (the same grey drawn under it); it
+  // draws glowing only over its mask's share, and the cells before it hold about that share of the plain half's light.
+  const plainValue = glow.values[String(GLOW_MAT)]?.[1] ?? 0;
+  const maskedValue = glow.values[String(GLOW_MASKED_MAT)]?.[1] ?? 0;
+  expect(plainValue, 'the plain glow has its value in the volume').toBeGreaterThan(0);
+  expect(Math.abs(maskedValue / plainValue - GLOW_MASK_SHARE), "the masked glow's value is the plain one's × the mask's mean").toBeLessThan(GLOW_MASK_VALUE_TOLERANCE);
+  expect(glow.pxPlain, "the strip's plain part draws its glow over its height").toBeGreaterThan(GLOW_MIN_COLUMN_PX);
+  expect(Math.abs(glow.pxMasked / glow.pxPlain - GLOW_MASK_SHARE), "the masked part glows over its mask's share of the plain part's height").toBeLessThan(GLOW_MASK_PX_TOLERANCE);
+  expect(glow.nearMasked / glow.nearPlain, "the cells before the masked half hold less of the glow than before the plain half").toBeLessThan(GLOW_MASK_NEAR_RANGE[1]);
+  expect(glow.nearMasked / glow.nearPlain, "the cells before the masked half hold about the mask's share of the plain half's glow").toBeGreaterThan(GLOW_MASK_NEAR_RANGE[0]);
   expect(glow.green, "the strip's pixels are brighter than its grey alone").toBeGreaterThan(GLOW_ALBEDO_GREEN);
   expect(glow.north[1], "the far wall's cells hold the strip's glow").toBeGreaterThan(GLOW_LIT_FACTOR * Math.max(glow.northBefore[1]!, 1e-4));
   // Red over green (the panel's fading blue lies under the strip: its blue is not the glow's alone).
   expect(glow.rg, "the cells at the strip's foot hold the glow's colour (red over green)").toBeGreaterThan(GLOW_RG / 2);
   expect(glow.rg, "the cells at the strip's foot hold the glow's colour (red over green)").toBeLessThan(GLOW_RG * 2);
   expect(glow.residue, "the strip painted back, the far wall's cells are back near what they held before").toBeLessThan(VOLUME_RESIDUE_SHARE);
+}
+
+/**
+ * The glowing test material with a glow mask (a voxel id the world does not use): the same glow as the plain one on a
+ * texture set of a flat grey albedo (128, under a white tint: the plain one's #808080 drawn) and an ORM whose A is
+ * the mask, 1 over the lower {@link GLOW_MASK_SHARE} of each 0.5 m tile and 0 above it, so on the strip (one tile high)
+ * a band along its foot glows. Painted on the strip's last 0.75 m at +x, beside the plain material.
+ */
+export const GLOW_MASKED_MAT = 41;
+export const GLOW_MASK_SHARE = 0.4;
+const GLOW_MASK_SIDE = 256;
+const GLOW_MASK_FOLDER = 'assets/glow-mask';
+
+/** The masked material's two maps written into the project's `assets/glow-mask` folder (imported by the caller), and its record from their asset ids. */
+export function glowMaskFiles(projectDir: string): { folder: string; files: { albedo: string; orm: string }; material: (ids: { albedo: string; orm: string }) => Record<string, unknown> } {
+  const n = GLOW_MASK_SIDE;
+  const albedo = new Uint8Array(n * n * 4).map((_, i) => (i % 4 === 3 ? 255 : 128));
+  // Row 0 is the image's top: the mask's rows from the foot up.
+  const orm = new Uint8Array(n * n * 4).map((_, i) => [255, 204, 0][i % 4] ?? (1 - (Math.floor(i / 4 / n) + 0.5) / n < GLOW_MASK_SHARE ? 255 : 0));
+  const dir = join(projectDir, ...GLOW_MASK_FOLDER.split('/'));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'glow-albedo.png'), placeholderPng(albedo, n));
+  writeFileSync(join(dir, 'glow-orm.png'), placeholderPng(orm, n));
+  return {
+    folder: GLOW_MASK_FOLDER,
+    files: { albedo: `${GLOW_MASK_FOLDER}/glow-albedo.png`, orm: `${GLOW_MASK_FOLDER}/glow-orm.png` },
+    material: (ids) => ({ materialId: 'mat-glow-masked-voxel', name: 'Glow, masked (voxel)', shader: 'standard', params: { color: '#ffffff', emissive: '#20ff80', emissiveIntensity: 4 }, textures: {}, voxel: { id: GLOW_MASKED_MAT, use: 'construction', tileMetres: 0.5, surfaces: { wall: { albedo: ids.albedo, orm: ids.orm } } } }),
+  };
 }
 
 /**
@@ -613,6 +660,22 @@ const GLOW_RG = 0.014443843;
 const GLOW_MIN_PX = 200;
 const GLOW_ALBEDO_GREEN = 128;
 const GLOW_LIT_FACTOR = 10;
+/** The plain glowing material's voxel id (voxel-world.e2e.ts's `GLOW_MATERIAL`, on the strip's −x half). */
+export const GLOW_MAT = 40;
+/** The masked value's ratio to the plain one against the mask's mean: the means' pass reads the GPU's ORM array (BC7 keeps a 0/255 mask exactly). */
+const GLOW_MASK_VALUE_TOLERANCE = 0.02;
+/**
+ * The masked part's glowing pixels a column over the plain part's against the mask's share: the strip lies at the
+ * picture's top edge, a column of it 27 px high, the mask's 0.4 drawn 9 px (a hand run before the check: 0.33).
+ */
+const GLOW_MASK_PX_TOLERANCE = 0.15;
+/** The plain part's columns glow over more than this many pixels (27 in a hand run). */
+const GLOW_MIN_COLUMN_PX = 12;
+/**
+ * The cell at the masked part's foot over the one at the plain part's (each sees both parts, the plain one 0.5 m off
+ * the first): a hand run before the check read 0.57; without the mask both glow whole (1).
+ */
+const GLOW_MASK_NEAR_RANGE = [0.35, 0.8] as const;
 
 /**
  * A glowing strip in the shut hut, the spot and the panel just taken out (the test material, 3 × 0.5 m along the south
@@ -630,8 +693,11 @@ async function glowChecks(
   counted: (cmd: string, name: string) => Promise<void>,
   still: (name: string) => Promise<Png>,
   shut: Png,
-): Promise<{ px: number; green: number; north: number[]; northBefore: number[]; foot: number[]; gb: number; rg: number; litMs: number; offMs: number; residue: number }> {
+): Promise<{ px: number; green: number; north: number[]; northBefore: number[]; foot: number[]; gb: number; rg: number; litMs: number; offMs: number; residue: number; pxPlain: number; pxMasked: number; nearPlain: number; nearMasked: number; values: Record<string, number[] | null> }> {
   const { rel } = driver(o);
+  // The cells at the strip's foot (on the floor against the wall: the volume keeps cells beside a surface) under the
+  // plain part (x 0 … 0.5) and under the masked part (x 1 … 1.5): their up faces look at it.
+  const nearPts = [rel(0.25, 0.75, 2.75), rel(1.25, 0.75, 2.75)];
   const northPts: number[][] = [];
   for (let x = -1.5; x < 1.5; x += 0.5) for (let y = 0.5; y < 2.5; y += 0.5) northPts.push(rel(x + 0.25, y + 0.25, 9.75));
   const footPts: number[][] = [];
@@ -648,6 +714,9 @@ async function glowChecks(
   await staleSoon('the glowing strip');
   const litMs = await settled('the glowing strip');
   const lit = await read();
+  const near = (await hook<VolumeCell[] | null>('volumeCells', nearPts)) ?? [];
+  // Each glowing material's one value the volume uses (glow × the mean of what it draws: the masked one's mask mean).
+  const values = ((await hook<{ glowValues?: Record<string, number[] | null> } | null>('volume'))?.glowValues ?? {}) as Record<string, number[] | null>;
   const pic = await still('volume-hut-glow');
   await counted('hutunglow', 'hutUnglow');
   await staleSoon('the strip painted back');
@@ -655,14 +724,30 @@ async function glowChecks(
   const after = await read();
   let px = 0;
   let green = 0;
+  // Glowing pixels a column: the plain part's (x 0.15 … 0.6) glow over the strip's height, the masked part's (x 0.9 …
+  // 1.35) over its mask's share of it; the columns from the hut camera's projection of the strip's face.
+  const columns = new Array<number>(pic.width).fill(0);
   for (let y = 0; y < pic.height; y++) for (let x = 0; x < pic.width; x++) {
     const p = pic.pixel(x, y);
     const q = shut.pixel(x, y);
     if (p[1]! - q[1]! > 40 && p[1]! > p[0]! + 40) {
       px++;
       green += p[1]!;
+      columns[x]!++;
     }
   }
+  const f = pic.height / 2 / Math.tan((PLAY_FOV_Y_DEG * Math.PI) / 360);
+  const columnOf = (x: number): number => {
+    // The strip's face (z 2.5, y 1.25) in the camera's frame: pitched down by PLAY_PITCH about x.
+    const dy = 1.25 - HUT_EYE[1];
+    const dz = 2.5 - HUT_EYE[2];
+    const depth = -(dy * Math.sin(PLAY_PITCH) + dz * Math.cos(PLAY_PITCH));
+    return Math.round(pic.width / 2 + (f * (x - HUT_EYE[0])) / depth);
+  };
+  const span = (a: number, b: number): number[] => columns.slice(columnOf(a), columnOf(b) + 1);
+  const plainCols = span(0.15, 0.6);
+  const maskedCols = span(0.9, 1.35);
+  const nearGreen = (cells: readonly VolumeCell[]): number => cells.reduce((n, c) => n + (c.faces[2]?.[1] ?? 0), 0);
   const n = northPts.length;
   // Faces looking south (−z: 5) on the far wall; looking up (+y: 2) at the strip's foot.
   const north = faceSum(lit.slice(0, n), 5);
@@ -680,6 +765,11 @@ async function glowChecks(
     litMs,
     offMs,
     residue: Math.abs(northAfter[1]! - northBefore[1]!) / Math.max(north[1]! - northBefore[1]!, 1e-6),
+    pxPlain: plainCols.length === 0 ? 0 : plainCols.reduce((a, b) => a + b, 0) / plainCols.length,
+    pxMasked: maskedCols.length === 0 ? 0 : maskedCols.reduce((a, b) => a + b, 0) / maskedCols.length,
+    nearPlain: nearGreen(near.slice(0, 1)),
+    nearMasked: nearGreen(near.slice(1)),
+    values,
   };
 }
 

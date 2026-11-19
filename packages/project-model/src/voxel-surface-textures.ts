@@ -9,9 +9,9 @@
  * Play and the export assemble each into one KTX2 array through the same
  * backend assembly and cache, and the editor's views fetch them by the same
  * key, so every host draws the one assembled array. A set leaving a map out
- * takes that map's neutral constant layer (a flat normal, the ORM absent
- * value), so a layer without its normal or ORM map looks as a material
- * without one does; a set without an albedo has no layer (its surfaces draw
+ * takes that map's neutral constant layer (a flat normal, the voxel ORM's
+ * absent value), so a layer without its normal or ORM map looks as a
+ * material without one does; a set without an albedo has no layer (its surfaces draw
  * the material's flat colour). Identical sets share a layer (a floor
  * falling back to its wall, two materials on the same textures).
  *
@@ -55,6 +55,14 @@ export function voxelArrayTopLevel(layerEdge: number, texelsPerMetre: number): n
   return over <= 1 ? 0 : Math.ceil(Math.log2(over) - 1e-9);
 }
 
+/**
+ * What a voxel texture set's ORM reads where it has no map (RGBA 0–1): the material graphs' absent ORM (AO 1,
+ * roughness 0.8, no metal) with A = 1. A voxel ORM's A is the glow mask (1: the material's full glow, 0: none), so a set
+ * without an ORM map glows whole, as an ORM image without alpha does (it decodes A = 1); the graphs', layered surfaces'
+ * and decals' absent ORM keeps its A of 0.
+ */
+export const VOXEL_ORM_ABSENT = Object.freeze([TEXTURE_ABSENT_VALUES.orm[0], TEXTURE_ABSENT_VALUES.orm[1], TEXTURE_ABSENT_VALUES.orm[2], 1] as const);
+
 /** Fewest layers an array has (a single-layer KTX2 is not an array). */
 const MIN_ARRAY_LAYERS = 2;
 
@@ -67,7 +75,7 @@ const MIN_ARRAY_LAYERS = 2;
 const MAP_SLOTS: Readonly<Record<VoxelTextureMap, { readonly mode: TextureSlotSet['mode']; readonly height?: true; readonly fill: string | null }>> = {
   albedo: { mode: 'color', height: true, fill: null },
   normal: { mode: 'normal', fill: fillLayerId(FLAT_NORMAL_TEXEL) },
-  orm: { mode: 'data', fill: fillLayerId(TEXTURE_ABSENT_VALUES.orm) },
+  orm: { mode: 'data', fill: fillLayerId(VOXEL_ORM_ABSENT) },
 };
 
 /** The voxel materials' texture arrays and each id's layer per surface. */
