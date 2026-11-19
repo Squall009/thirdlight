@@ -9,6 +9,8 @@
  *   in a 0.8 m ball: headroom puts N of them in a cluster round the town square 20 m up, in front of its orbiting
  *   camera, for the `effects` pass's cost.
  *
+ * - **The red lamp** (`BENCH_RED_LAMP`) behind the night camera's panel: the bounce's tint on a lit particle.
+ *
  * Engine-owned test data for measuring, not a product feature.
  */
 import type { LightingCamera } from './lighting-cameras';
@@ -59,6 +61,13 @@ export const BENCH_PARTICLE_EFFECTS: readonly Record<string, unknown>[] = Object
     systems: [{ systemId: 'smoke', name: 'Smoke', maxParticles: 160, space: 'local', graph: graph({ spawn: [{ type: 'spawn.rate', data: { rate: 30 } }], initialize: [{ type: 'init.position.sphere', data: { radius: 0.8 } }, { type: 'init.lifetime', data: { min: 4, max: 4 } }, { type: 'init.color', data: { color: '#b4b4b4' } }, { type: 'init.size', data: { min: 0.5, max: 0.8 } }], output: [{ type: 'output.billboard', data: { blend: 'alpha', shading: 'lit' } }] }) }],
   },
 ]);
+
+/**
+ * A red lamp 2 m behind the night camera's panel (bench data, as the street lamps; the night look sets its strength,
+ * noon turns it off): the panel faces away from it, so the red the panel shows is the light the lamp's bounce leaves
+ * in the volume, not its direct light.
+ */
+export const BENCH_RED_LAMP = Object.freeze({ name: 'Bench red lamp', position: Object.freeze([39.5, 1.5, -28] as const), light: Object.freeze({ type: 'point', color: '#ff2020', intensity: 1, range: 10, decay: 2, castShadow: false }) });
 
 /** Where a camera's panel stands: `PANEL_AHEAD_M` along its view (yaw 0 looks along −z, pitch down). */
 export function panelPlace(c: Pick<LightingCamera, 'eye' | 'yaw' | 'pitch'>): [number, number, number] {

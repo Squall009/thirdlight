@@ -65,8 +65,9 @@
  *                 without them, the light volume's cells of the two readings (`propShade`: the cart's shaded ground and
  *                 its control west of the lamp, the floor under the table and a control beside it) are read at every
  *                 camera, and each shot keeps the simulation's stamping and walk packing spans (`propSpans`)
- *   --particles   a lit particle panel (bench-particles.ts) 2.5 m in front of each of the four near cameras, made before
- *                 Play and deleted after; each shot keeps the picture's middle colour (`panel`): the panel as it is lit
+ *   --particles   a lit particle panel (bench-particles.ts) 2.5 m in front of each of the four near cameras and a red
+ *                 lamp 2 m behind the night camera's panel, made before Play and deleted after; each shot keeps the
+ *                 picture's middle colour (`panel`): the panel as it is lit
  *   --reference FILE  at each camera the light volume's room cells read back beside the CPU path-traced reference's
  *                 variants in FILE (`{ variants: [{ name, rays, bounces, reach?, sunReach?, albedo, means? }] }`)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
@@ -97,7 +98,7 @@ import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, MANY_LAMPS_COMMAND
 import { dayBehaviour, DAY_ARC_DEG, DAY_COMMANDS, DAY_SPEEDS } from './day-cycle';
 import { crackGlowMask, placeholderPng, withAlpha } from './texture-sets';
 import { benchProps, parsePropsOption, placeBenchProps, PROP_READINGS, volumeBoxLight } from './bench-props';
-import { BENCH_PANEL_EFFECT, middleColour, panelPlace, particleEntities, placeBenchParticles } from './bench-particles';
+import { BENCH_PANEL_EFFECT, BENCH_RED_LAMP, middleColour, panelPlace, particleEntities, placeBenchParticles } from './bench-particles';
 
 const O = parseLightShotsArgs(process.argv.slice(2));
 /** `--lamps N`: the many-lamps scene of N lights (many-lamps.ts) placed, and its cameras taken after the five (unless `--only` names cameras). */
@@ -346,7 +347,7 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   const dug = await b.api('commands', commandEnvelope('editVoxels', O.project, undefined, { world: O.world, command: caveStroke() }, 'voxel-bench-light-shots'));
   if (dug.json['ok'] !== true && (dug.json['error'] as { code?: string } | undefined)?.code !== 'no_change') throw new Error(`the cave: ${JSON.stringify(dug.json).slice(0, 400)}`);
   console.log(`the cave: ${dug.json['ok'] === true ? `dug, ${String(dug.json['cells'] ?? '?')} cells` : 'there already'}`);
-  const lamps = [...BENCH_LAMPS.map((l) => ({ ...l, light: BENCH_LAMP_LIGHT })), ...(ONLY.some((n) => n.startsWith('far-lamp')) ? [{ ...FAR_CHECK_LAMP, light: FAR_CHECK_LAMP_LIGHT }] : []), ...benchExtraLamps(O.extraLamps).map((l) => ({ ...l, light: BENCH_EXTRA_LAMP_LIGHT })), ...(O.lightTypes ? BENCH_LIGHT_TYPES : [])];
+  const lamps = [...BENCH_LAMPS.map((l) => ({ ...l, light: BENCH_LAMP_LIGHT })), ...(PARTICLES ? [BENCH_RED_LAMP] : []), ...(ONLY.some((n) => n.startsWith('far-lamp')) ? [{ ...FAR_CHECK_LAMP, light: FAR_CHECK_LAMP_LIGHT }] : []), ...benchExtraLamps(O.extraLamps).map((l) => ({ ...l, light: BENCH_EXTRA_LAMP_LIGHT })), ...(O.lightTypes ? BENCH_LIGHT_TYPES : [])];
   for (const lamp of lamps) {
     const had = sceneEntities().find((e) => e.name === lamp.name);
     if (had !== undefined) await b.command('deleteEntity', { entityId: had.id });
@@ -415,7 +416,7 @@ async function propShade(game: PlayGame): Promise<Record<string, unknown>> {
   for (const [name, r] of Object.entries(PROP_READINGS)) {
     const cells = await game.frame.evaluate(volumeBoxLight, { min: [...r.cells.min], max: [...r.cells.max] }).catch(() => null);
     const control = await game.frame.evaluate(volumeBoxLight, { min: [...r.control.min], max: [...r.control.max] }).catch(() => null);
-    out[name] = { cells, control, ratio: cells !== null && control !== null && control.mean > 0 ? Number((cells.mean / control.mean).toFixed(4)) : null };
+    out[name] = { cells, control, ratio: cells !== null && control !== null && control.mean > 0 ? Number((cells.mean / control.mean).toFixed(4)) : null, upRatio: cells !== null && control !== null && control.up > 0 ? Number((cells.up / control.up).toFixed(4)) : null };
   }
   return out;
 }

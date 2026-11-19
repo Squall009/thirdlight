@@ -46,8 +46,8 @@ export interface BenchProp {
 
 /** The two reading props' boxes and the cells read for them (world metres; every 0.5 m cell whose centre lies inside). */
 export const PROP_READINGS = Object.freeze({
-  /** The cart; cells: the ground's open cells east of it in its shade from lamp 3, and the same west of the lamp (the control). */
-  cart: Object.freeze({ min: [11, GROUND_Y, -26.1] as const, max: [13.5, GROUND_Y + 1.6, -24.9] as const, cells: Object.freeze({ min: [13.5, GROUND_Y, -26] as const, max: [15.5, GROUND_Y + 1, -25] as const }), control: Object.freeze({ min: [0.5, GROUND_Y, -26] as const, max: [2.5, GROUND_Y + 1, -25] as const }), camera: 'night-lamps' as const }),
+  /** The cart; cells: the ground's open cells (one layer) east of it in its shade from lamp 3, and the same west of the lamp (the control). */
+  cart: Object.freeze({ min: [11, GROUND_Y, -26.1] as const, max: [13.5, GROUND_Y + 1.6, -24.9] as const, cells: Object.freeze({ min: [13.5, GROUND_Y, -26] as const, max: [15.5, GROUND_Y + 0.5, -25] as const }), control: Object.freeze({ min: [0.5, GROUND_Y, -26] as const, max: [2.5, GROUND_Y + 0.5, -25] as const }), camera: 'night-lamps' as const }),
   /** The table by the room camera's window wall; cells: the floor's open cells under it (read against a run without it). */
   table: Object.freeze({ min: [-4.4, FLOOR_Y + 0.7, 0] as const, max: [-2.4, FLOOR_Y + 0.8, 1.6] as const, cells: Object.freeze({ min: [-4, FLOOR_Y, 0.5] as const, max: [-3, FLOOR_Y + 0.5, 1.5] as const }), control: Object.freeze({ min: [-4, FLOOR_Y, 3] as const, max: [-3, FLOOR_Y + 0.5, 4] as const }), camera: 'room-window' as const }),
 });
@@ -147,10 +147,10 @@ export async function placeBenchProps(props: readonly BenchProp[], projectDir: s
 
 /**
  * In the page: the light volume's level-0 cells whose centres lie in a box (world metres), summed: cells read, those
- * the walk says hold light (open beside a surface), those holding light on the GPU, and the mean light (the mean of
- * the six faces' mean channel) of those.
+ * the walk says hold light (open beside a surface), those holding light on the GPU, the mean light (the mean of the six
+ * faces' mean channel) of those, and the mean of their +Y face (the light a floor under them reads).
  */
-export async function volumeBoxLight(b: { min: readonly number[]; max: readonly number[] }): Promise<{ cells: number; holds: number; lit: number; mean: number } | null> {
+export async function volumeBoxLight(b: { min: readonly number[]; max: readonly number[] }): Promise<{ cells: number; holds: number; lit: number; mean: number; up: number } | null> {
   type Cell = { holds: boolean; faces: (number[] | null)[] };
   const l = (window as unknown as { __tlVoxelPlay?: { light?: { volumeCells?(p: number[][]): Promise<Cell[] | null> } } }).__tlVoxelPlay?.light;
   const pts: number[][] = [];
@@ -160,12 +160,15 @@ export async function volumeBoxLight(b: { min: readonly number[]; max: readonly 
   let holds = 0;
   let lit = 0;
   let sum = 0;
+  let up = 0;
   for (const c of cells) {
     if (c.holds) holds++;
     const faces = c.faces.filter((f): f is number[] => f !== null);
     if (faces.length === 0) continue;
     lit++;
     sum += faces.reduce((a, f) => a + (f[0]! + f[1]! + f[2]!) / 3, 0) / 6;
+    const f = c.faces[2];
+    if (f != null) up += (f[0]! + f[1]! + f[2]!) / 3;
   }
-  return { cells: cells.length, holds, lit, mean: lit === 0 ? 0 : sum / lit };
+  return { cells: cells.length, holds, lit, mean: lit === 0 ? 0 : sum / lit, up: lit === 0 ? 0 : up / lit };
 }
