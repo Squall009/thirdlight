@@ -212,7 +212,7 @@ in the generated reference, which holds this build's value.
   grid's size follows the painted length and height (a point every 0.25 m).
 - **One painted mesh** has at most 4,000,000 vertices, one path grid at
   most 400,000 points along its path
-  ([`VERTEX_PAINT_LIMITS`](../reference/limits-project-model-2.md#limit-vertex-paint-limits)).
+  ([`VERTEX_PAINT_LIMITS`](../reference/limits-project-model-3.md#limit-vertex-paint-limits)).
 - **One stroke** (one `paintVertices`) carries at most 256 dabs, a radius
   of 0.01–64 m ([`VERTEX_PAINT_BRUSH_LIMITS`](../reference/limits-project-model-2.md#limit-vertex-paint-brush-limits));
   a longer drag goes on as the next stroke.

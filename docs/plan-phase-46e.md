@@ -245,7 +245,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.11 | Proposed 2026-11-16 (24296e84, acc46e-11), **owner's note 2026-11-17 (relayed): approved with changes** — reuse `params.emissive` × `emissiveIntensity`; no mask: the surface draws glow × the colour texture, the volume uses glow × the material's mean colour; a mask only in a spare channel of a map already read, its entry to the owner first; no far glow. (d) builds the no-mask part. |
 | 46e.12 | (a) done 2026-11-17 (b73ee726…2b80a9c2): lamp list per kept brick built in compute, 128 extra lamps 4.1–6.1 → 0.21–0.24 ms a brick. (b), (c) done 2026-11-17 (3d198037…38220994): spots by cone, rect and line lights by the LTC form factor (one definition, = per-pixel to 1e-6), walk to a point per ray; one spot + one area 0.029 ms a brick (base 0.024–0.028). (d) waits for the owner |
 | 46e.13 | (a) done (f2bc0110…6280f957): a change restarts what it reaches (D715, D695), batch work in the slice (D708), share 6.0 ms (D690 open). (b) done 2026-11-17 (99f2526a, 9e74e084): bounces converge, refining while idle (4.2–5.3 ms GPU), a write-time filter, texture-mean colours; room blotch 0.67 → 0.27, error vs a CPU reference 0.33 → 0.16; room dark (§10 Q) |
-| 46e.14 | (a) done 2026-11-18 (§8d). (b) done 2026-11-18 (edee5b84…e63c9593): moving sun followed (room 0.6–1.9 % a s vs 2.1–6.2, stop 0.8 s vs 12–73); lamp off 9.6 → 2.7 s at 6 ms; lists over 6.4–9.3 k → 0.1–0.3 k; settings per tier, own memory rows; share 3.5 ms: orbit `lighting` 4.8–6.1 of 6.67, settle ~2× slower (§8d 46e.14b). (c) the read next |
+| 46e.14 | (a), (b) done 2026-11-18 (§8d). (c) done 2026-11-19 (40ddf31c…): the read +4.5/+3.9/+8.8 → +2.0/+2.3/+4.4 ms street/room/high (≤ 1.5 not reached: D724); the volume on at every tier (low's orbit 76–128 copies, travel ≤ 64 ms); D723 fixed (§8d 46e.14c) |
 | 46e.15 | not started |
 | 46e.16 | not started |
 | 46e.17 | not started |
@@ -3480,6 +3480,92 @@ which a bake in place leaves the same, so a probe that projected between the two
 the bake count on the texture, in the probe's key; vitest `surface-probe-sky.test.ts` (broken without the count:
 `broken-sky-probe-no-bake-key-vitest.log`, "expected 2 to be 3"). It also changed the noon cameras (above).
 
+**The volume on per tier.** Low: **on**, from the numbers below: the orbit keeps the 30 Hz cap with 120–128 copies of
+room (town) and 76–104 (128 lamps; 88 at 512, 96 at 32), ≈ 10–17 ms spare, no frame missed at no load; travel at 150
+m/s has no frame over 100 ms (longest 51–64 ms) and is settled (nothing pending) 7.1–7.5 s after the stop (46e.14b:
+7.2–8.4). Medium and high: on, by reasoning from low (more GPU; their read blends to 32 and 64 m), **unverified on
+target hardware**. WebGL 2: never (no compute); `webgl2-smoke` green. The editor's Scene view: no volume (as before).
+Exports: the tier field ships as tier fields do; the export check (voxel-world.e2e, the low tier's build served with
+the backend stopped, no query) waits for the store to be `volume`, settled, with cells written (9.3 M texels).
+What the tests that assumed "off" do now: the 8 km Play test names `&voxelLight=off` (it is not a lighting check);
+the light test starts from the tier's store (`volume` at high) and switches it off for its store-off pictures. The
+leak test (`memory.e2e.ts`) had no voxel world: its Play loop now has one in view, lit by the volume on WebGPU,
+each cycle waiting for written cells; with the volume the page comes back (heap 54.6 → 54.8 MiB, GPU counts equal;
+`gate-rerun-20261119-154935`); a store-off loop on a fresh page grew 1.5–2 MiB a Play in two runs (D725, not the
+volume's).
+
+**The final table of 46e.14** (low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone, 2026-11-19 11:52–17:52 UTC at
+3b4ae4e8's build; "before" = 46e.14a's untuned baseline at the same cameras and scene, not the same hour; the base
+column of the orbit is 6f3ba5ff, same hour):
+
+| | town | 32 | 128 | 512 | raw |
+|---|---|---|---|---|---|
+| orbit room (copies; second rounds): off / base / shipped (14a volume) | 176, 176 / 120, 112 / **120, 128** (30, 88) | 152 / — / 96 (64, 68) | 176, 152 / 96, 88 / **104, 76** (36, 64) | 176 / — / 88 (28, 30) | `O-*` |
+| missed at no load (of 89) | 0 | 0 | 0–1 | 0 | |
+| orbit GPU `near` off / shipped (14a volume) | 1.9–2.4 / below–4.5 (4.4–5.3) | 3.5 / 5.5 (8.0–10.4) | 4.1–4.6 / 6.3–6.5 (8.0–9.1) | 4.3 / 8.1 (6.3–10.0) | |
+| orbit GPU `lighting` shipped (row 6.67; 14a) | below–4.4 (6.9–8.2) | 4.9 (7.7–9.4) | 4.5–5.2 (7.1–8.0) | below (8.5–11.6) | |
+| orbit `far`; `shadows` | 3.0–3.6; below | 3.7; below | 3.3–3.5; below | below; below | |
+| orbit page ms; `lighting` mean (of 2.0) off / shipped (14a) | 4.8 / 5.3–5.5; 0.06–0.10 / 0.87–0.98 (0.94–1.47) | 5.3 / 6.8; 0.33 / 1.1 (1.11–2.05) | 5.3–5.5 / 6.7–7.0; 0.48–0.54 / 1.78–1.92 (1.28–2.07) | 6.1 / 7.6; 0.91 / **2.6** (2.06–2.88) | |
+| the read's `near` (read − unread, cameras, 128) | street +2.0–3.4, room +1.5–2.4, far +1.7–2.4 (base +3.2–5.0, 14a +2.8–4.0) | — | lamps-street +2.0–2.3, lamps-high +4.6–5.2 (base +4.1–4.3, +8.2–10.7; 14a +4.2, +8.5) | — | `P-*` |
+| memory: the volume's GPU (row 36 MiB = 37.7 MB); page | 36.45–36.70 MB; 8.0–12.0 MB | 36.5 | 36.57–36.71; 8–12 | 36.59–36.76 | `F-*` |
+| page heap / GPU process MiB (orbit, shipped) | 621–699 / 1,017–1,031 | 606 / 1,037 | 672–722 / 1,043–1,128 | 689 / 1,026 | |
+| lamp lists over (bricks; cameras) | 0 | 0 | 0–694 | 0–4,209 (room at noon), 9–264 at the lamp cameras | |
+| edit → first light / settled (s) | window 0.08 / 8.1; lamp wall 0.08 / 3.1, dug 0.06 / 2.9 (14a 3.7; 1.1) | — | window 0.11 / 10.4; glowing block 0.13 / 11.6; lamp off 0.20 / 6.0; wall 0.07 / 6.4 (14a 6.7–8.7; 7.2; 9.4; 4.3) | window 0.08 / 13.5; block 0.09 / 12.4; lamp off 0.04 / 6.1; wall 0.05 / 7.5 (14a 6.6; 7.1; 9.4; 4.8) | `F-*-vol` |
+| a camera's move → its store lit (s) | 0.8 (cave 15.7) | — | 0.8 | 0.8–45.9 (the noon room after the night cameras) | |
+| Play → every brick refined | not by 240 s (14a 159 s; 14b 360 s) | — | not by 240 s (14a 237 s) | not by 240 s | |
+| cell blotch 10 s → 60 s (street; room) | 0.216 → 0.132; 0.321 → 0.317 (14a 0.205 → 0.110; 0.271 → 0.271) | — | 0.226 → 0.145; 0.311 → 0.311 | 0.243 → 0.243; 0.477 → 0.477 | |
+| the moving sun, 20-min day (room; street): changed a second; GPU `lighting`; page `lighting`; cells vs the reference; stop → settled | 0.10–1.37 %; 0.01–0.6 %; 4.2–4.6 ms; 0.83–1.07; 0.20–0.30; 0.06–0.11; 0.8 s (14a 2.7–7.6 %; never settled while moving) | — | — | — | `E-town-slow` |
+| the same, 2-min day | 0.04–3.4 %; 0.02–5.6 %; 3.2–4.2 ms; 0.9–1.07; 0.16–0.87 (0.87 just after the stop); 0.05–0.32; 0.8 s | — | — | — | `E-town-fast` |
+| travel 150 m/s, two rounds (shipped / off): longest ms; > 100; missed a minute; full detail s; nothing pending s; falls, holes | 51.3, 56.1 / 53.7, 77.2; 0; 9.1, 16.5 / 14.6, 16.5; 3.3–3.8; 7.1–7.5 / 6.7–6.9; 0, 0 | — | 52.2, 63.5 / 49.2, 55.2; 0; 16.5, 13.7 / 14.6, 13.7; 3.4–3.8; 7.1–7.3 / 7.1–7.2; 0, 0 | — | `G-*` |
+| medium / high (one orbit round, shares; **unverified on target hardware**) | medium missed 2 / 180, near 4.7, far 4.7, lighting 2.9; high 37 / 100, near 13.2, far 9.3, lighting 3.7 (volume 49 MB) | — | medium 31 / 164, near 7.2, lighting 3.3; high 48 / 84, near 19.6, far 8.3 (14a high 34 / 74) | — | `Q-*` |
+
+Page `lighting` at 512 lamps stays over its 2.0 ms (2.6 on the orbit), as 46e.14b found: the lamps' own gathering,
+clustered build and shadow atlas (0.6–0.7 ms at the cameras, store off 0.91 on the orbit) with the volume's span
+(0.2–0.5 ms). Refining past 240 s: low's idle share (1.75 ms) refines the window in about six minutes (46e.14b);
+not measured to its end here. Edits settle about twice as slowly as in 46e.14a (the update's share was halved in
+46e.14b), their first light within 0.04–0.2 s.
+
+**D711** — seen again and narrowed: every first round after Play start (off 7, 7, 1, 3, 30; base −1, 5, 7; shipped
+60, −1) against 76–176 in the second; the first probe's window (0 copies) missed 1–2 of 89 frames with one 135–150 ms
+"interval" or "page" spike while the page's spans were small (draw submit 7–9 ms, the simulation's voxel streaming
+5–7 ms) and the sun field still marching (19 tiles): streaming settling after Play start; the second rounds are the
+reading, as since 46e.14a.
+
+**Pictures for the owner's page** (`page/`, looked at): `cam-<camera>.png` (store off | the volume before the tuning,
+46e.14a | now) at the five cameras and the three lamp cameras with 128 lamps: the noon room darker and more even now
+than 14a's (14a's soft wall blotches gone; the noon sky as baked), the street at noon alike in the three volume
+columns, the night street with fewer blotches on the gables than 14a; `light-types-128.png` (the lamp street: points,
+spots, door panels, fence lines, glowing strips and blocks | the lamp-lit room); `edits-128.png` (the lamp-lit room:
+before | first light | settled after its lamp is switched off: the first light already dark-warm, the settled room
+dark with the glowing block's cyan and the street through the dug window), `edits-glow-block-128.png`;
+`room-exposure.png` (fixed | auto exposure: auto barely lifts it, the room stays dark, as the owner's answer of
+2026-11-18 has it); `day-slow-room.png` (14a at 31 s and a second later | now at 30 s and a second later: 14a's
+floor patches move, now's stay put). Every light type at once rather than in crops: the lamp street holds them all.
+
+**Tests** (vitest; broken variants run once, logs in the work folder): `voxel-light-volume-layout.test.ts` +4: the
+read with fewer faces over 2,114 points on the town scrap's surfaces: on axis faces equal to the full read at floors
+0–0.3 (to 12 digits); on normals up to 70° off within 3t/(1 − 3t) of the faces' spread (mean 2.2 / 4.2 / 7.6 % at
+0.05 / 0.1 / 0.2 with faces drawn at random); the cell in front read alone equals that cell's face on axis faces and
+stays within the eight cells' spread; the leak rule (a 0.5 m wall between 1 and 100) at every floor, any normal on the
+face, blended or one cell; the page flag's parts. `voxel-surface-path.test.ts`: the store per tier on WebGPU, off on
+WebGL 2, the query over both, a bench's choice standing (broken: the WebGL 2 rule out,
+`broken-store-webgl2-vitest.log`: 2 failed). `surface-probe-sky.test.ts` (D723, above). `quality-levels.test.ts`
+covers the new fields' validity. Playwright: the export check and the leak test (above); the Play tests 1.2 / 1.5 /
+1.9 min (46e.14b: 1.6 / 2.3), the export test 29 s, the Scene view's 14 s (`gate-fast-20261119-033738`).
+
+**Gates.** `gate-fast-20261118-234408` (40ddf31c + db202cac, every area) RED 3 (frame-rate-cap D659, terrain-cdlod's
+impostor posts 0.593 against 0.6, the export check's "exportRoot is not a directory" as in 46e.14b) →
+`gate-rerun-20261119-001920` GREEN. `gate-fast-20261119-033738` (3b4ae4e8) RED 1 (frame-rate-cap, D659) →
+`gate-rerun-20261119-115020` GREEN. `gate-area-20261119-152813` (play) GREEN with its leak test lacking a voxel world;
+`gate-area-20261119-153300` and reruns `153824`, `154140`, `154602` RED on the extended leak test (the Scene view
+streaming during the loop; then D725) → `gate-rerun-20261119-154935` GREEN. `gate-area-20261119-175249` (voxel, rendering, lighting: the default changes what every voxel page draws) GREEN, 46 passed (8.3 min).
+
+**Not done / unverified.** The ≤ 1.5 ms read (D724). Medium and high: settings reasoned, one orbit round each,
+unverified on target hardware. Motion is still unseen by anyone beyond stills a second apart: a person should watch
+the room as the day moves for a minute (does the follow's lag show as light trailing the sun patch), a lamp switched
+off in the lamp-lit room (the 6 s settle: a visible fade or a step), walking from a street into a house (the read's
+one-cell hand-over at 24 m should not show as a line), and travel at speed (the volume refilling behind the camera).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -3951,6 +4037,17 @@ the bake count on the texture, in the probe's key; vitest `surface-probe-sky.tes
   uses the mask's mean, computed by the engine); (2) dark rooms: no default minimum brightness, no per-scene minimum:
   the 46e.13b question is answered "none". The lead places the mask's build after the tuning (46e.14 c) and before
   46e.15, as 46e.12 (e).
+
+- 2026-11-19 (46e.14c, default chosen, owner to confirm): **the light volume is on at every lighting tier** on
+  WebGPU game pages (Play, exports), the tier's `voxelLightVolume.enabled`; low from its measured numbers (the orbit
+  keeps the 30 Hz cap with 76–128 copies at the town and 128 lamps, travel at 150 m/s has no frame over 100 ms),
+  medium and high by reasoning (unverified on target hardware). `?voxelLight=off|volume` stays as the override.
+- 2026-11-19 (46e.14c, default chosen, owner to confirm): **the read**: low blends the eight 0.5 m cells within 24 m
+  of the eye and reads the one cell in front past it (medium 32 m, high 64 m), every face toward the normal (face
+  floor 0: a floor measured no cheaper). The brief's ≤ 1.5 ms is not reached per pixel (a floor of about 2 ms at a
+  street, D724); a lower-rate read is the way left and is not built.
+- 2026-11-19 (46e.14c, default chosen, owner to confirm): the leak test's Play loop has a voxel world in view and
+  runs twelve Plays over it before its baselines (D725).
 
 ## 10. Open questions for the owner (asked with the plan)
 
