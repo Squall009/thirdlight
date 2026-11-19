@@ -15,8 +15,8 @@ import { dayPresets } from './day-cycle';
 
 /** The pictures' names, fixed (a later item compares files of the same name). */
 export const LIGHT_SHOT_NAMES = ['street-noon', 'room-window', 'cave', 'night-lamps', 'far-view'] as const;
-/** Checks beside the five, taken only when named (`--only`): a far lamp from two places, two cameras moved 1 m. */
-export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m'] as const;
+/** Checks beside the five, taken only when named (`--only`): a far lamp from two places, two cameras moved 1 m, the lit props' two readings (bench-props.ts). */
+export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m', 'props-cart', 'props-table'] as const;
 /** The many-lamps scene's cameras (`--lamps N`, many-lamps.ts): a street with many lamps at night, a lamp-lit room, a high view over the lit town. */
 export const MANY_LAMP_SHOT_NAMES = ['lamps-street', 'lamps-room', 'lamps-high'] as const;
 export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number] | (typeof LIGHT_CHECK_NAMES)[number] | (typeof MANY_LAMP_SHOT_NAMES)[number];
@@ -194,6 +194,10 @@ export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   moved(LIGHTING_CAMERAS[0]!, 'street-noon-1m', 'shot9'),
   moved(LIGHTING_CAMERAS[0]!, 'street-noon-2m', 'shot10', 2),
   moved(LIGHTING_CAMERAS[1]!, 'room-window-2m', 'shot11', 2),
+  // The lit props' readings (bench-props.ts PROP_READINGS): the cart east of the third street lamp at night, from across
+  // the street, and the table by the room camera's window wall at noon, from the room's middle.
+  { name: 'props-cart', command: 'shot15', eye: [17, 2.2, -30.5], yaw: yawOf(-5, 5), pitch: 0.12, preset: 'bench-night', near: true, shows: 'at night, the bench cart beside the third street lamp and the ground east of it in its shade' },
+  { name: 'props-table', command: 'shot16', eye: [0.5, 1.9, 3.5], yaw: yawOf(-3.9, -2.7), pitch: 0.3, preset: 'bench-noon', near: true, shows: 'at noon, the bench table under the room camera’s window wall and the floor under it' },
 ]);
 
 /**

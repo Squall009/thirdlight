@@ -95,7 +95,7 @@ export interface ManyLampsScene {
 }
 
 /** A house of the far world's town in world metres: its footprint's corner and size, its height, and its lot's fence. */
-interface PlacedHouse {
+export interface PlacedHouse {
   readonly x0: number;
   readonly z0: number;
   readonly w: number;
@@ -106,7 +106,7 @@ interface PlacedHouse {
 }
 
 /** The far world's lots (only the world grid's houses: houses in their own grids are not in the far world). */
-function townLots(): Array<{ i: number; j: number; x0: number; z0: number; house: PlacedHouse | null; fence: boolean }> {
+export function townLots(): Array<{ i: number; j: number; x0: number; z0: number; house: PlacedHouse | null; fence: boolean }> {
   const out: Array<{ i: number; j: number; x0: number; z0: number; house: PlacedHouse | null; fence: boolean }> = [];
   for (let i = 0; i < LOTS; i++) for (let j = 0; j < LOTS; j++) {
     const lot = lotOf(i, j, TOWN_SEED);
