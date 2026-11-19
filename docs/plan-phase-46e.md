@@ -2981,7 +2981,7 @@ the import cache, derived data) (`m/project-diff.txt`); exports empty.
 **Gates.** `gate-fast-20261119-190215` (6535b4fe; every area) RED 2 of 323: `co-op.e2e.ts:129` (the export's temp
 folder gone under the gate: ENOENT on mkdtemp) and `frame-rate-cap.e2e.ts:70` (D659's watch); vitest
 `tools/voxel-bench/stream.test.ts` failed in the run and passed alone (D454's watch) → `gate-rerun-20261119-194156`
-GREEN. Play tests in the gate 1.7 / 2.1 min.
+GREEN. Play tests in the gate 1.7 / 2.1 min. Docs and the bench's fix (9a640d9a): `gate-fast-20261119-211911` GREEN (14 e2e, 6.1 min).
 
 **Not done / unverified.** Motion unseen; WebGL 2 not looked at (it builds the same program; the smoke test passes);
 medium and high not measured; the per-face mask (floor and ceiling sets) not built (wall-only, logged).
