@@ -442,6 +442,15 @@ test('Play started and stopped returns the editor page to its baseline (iframe, 
   const pitch = (35 * Math.PI) / 180;
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World camera', transform: { position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
   const probe = await openEditor(page);
+  // The Scene view streams the world round the editor camera too: its draws settle before the baseline is taken.
+  let seen = '';
+  let still = 0;
+  await expect.poll(async () => {
+    const m = await page.locator('canvas.tl-viewport').first().getAttribute('data-memory');
+    still = m !== null && m === seen ? still + 1 : 0;
+    seen = m ?? '';
+    return still;
+  }, { timeout: 60_000, intervals: [1000], message: "the Scene view's world drawn and still" }).toBeGreaterThanOrEqual(5);
   let lit = 0;
   await leakCheck(page, probe, 'Play start/stop', cycles(COUNTED_CYCLES), async () => {
     const { frame } = await startPlay(page);
