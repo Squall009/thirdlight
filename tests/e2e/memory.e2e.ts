@@ -455,7 +455,7 @@ test('Play started and stopped returns the editor page to its baseline (iframe, 
       return still;
     }, { timeout: 60_000, intervals: [1000], message: "the Scene view's world drawn and still" }).toBeGreaterThanOrEqual(5);
     if (store === 'off') {
-      // The page's heap grows by about 2 MiB a Play over a voxel world for its first dozen and then holds (D725: the
+      // The page's heap grows by about 2 MiB a Play over a voxel world for its first dozen and then holds (a cache that fills: the
       // next ten add 0.3 MiB): taken before the baselines, so the loops read what each store leaves behind.
       for (let i = 0; i < VOXEL_PLAY_WARM_CYCLES; i++) {
         await startPlay(page);
@@ -478,7 +478,7 @@ test('Play started and stopped returns the editor page to its baseline (iframe, 
   expect(page.frames()).toHaveLength(1);
 });
 
-/** Play starts over a voxel world before the Play loop's baselines (D725). */
+/** Play starts over a voxel world before the Play loop's baselines (the page's heap fills over the first dozen). */
 const VOXEL_PLAY_WARM_CYCLES = 12;
 
 /** Steps between the spawner's pairs in the leak loop. */
