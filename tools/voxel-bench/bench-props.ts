@@ -127,7 +127,7 @@ export function benchPropEntity(p: BenchProp, bounds: { min: number[]; max: numb
   };
 }
 
-/** Puts the props in the project in one paste (taking out any a stopped run left, in one delete) and gives back what takes them out again. */
+/** Puts the props in the project in pastes of a hundred (taking out any a stopped run left, in one delete) and gives back what takes them out again. */
 export async function placeBenchProps(props: readonly BenchProp[], projectDir: string, command: (op: string, args: Record<string, unknown>) => Promise<void>, entities: () => Array<{ id: string; name: string }>): Promise<() => Promise<void>> {
   const clear = async (): Promise<number> => {
     const ids = entities().filter((x) => x.name.startsWith(BENCH_PROP_PREFIX)).map((e) => e.id);
@@ -137,7 +137,9 @@ export async function placeBenchProps(props: readonly BenchProp[], projectDir: s
   const left = await clear();
   if (left > 0) console.log(`bench props: ${left} left by an earlier run taken out`);
   const bounds = benchPropBounds(projectDir);
-  await command('pasteEntities', { entities: props.map((p, i) => benchPropEntity(p, bounds, `bench-prop-${i}`)), sceneId: 'scene-main' });
+  // A request is capped in bytes: the props go in pastes of a hundred.
+  const all = props.map((p, i) => benchPropEntity(p, bounds, `bench-prop-${i}`));
+  for (let i = 0; i < all.length; i += 100) await command('pasteEntities', { entities: all.slice(i, i + 100), sceneId: 'scene-main' });
   console.log(`bench props: ${props.length} placed (${props.filter((p) => p.moves !== undefined).length} moving)`);
   return async () => {
     const n = await clear();
