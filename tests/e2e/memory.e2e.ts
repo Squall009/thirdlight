@@ -441,29 +441,33 @@ test('Play started and stopped returns the editor page to its baseline (iframe, 
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World', transform: { position: [0, 0, 0] }, components: { voxelWorld: { world: 'slice' } } });
   const pitch = (35 * Math.PI) / 180;
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'World camera', transform: { position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: 60, near: 0.1, far: 300 } } });
-  const probe = await openEditor(page);
-  // The Scene view streams the world round the editor camera too: its draws settle before the baseline is taken.
-  let seen = '';
-  let still = 0;
-  await expect.poll(async () => {
-    const m = await page.locator('canvas.tl-viewport').first().getAttribute('data-memory');
-    still = m !== null && m === seen ? still + 1 : 0;
-    seen = m ?? '';
-    return still;
-  }, { timeout: 60_000, intervals: [1000], message: "the Scene view's world drawn and still" }).toBeGreaterThanOrEqual(5);
-  let lit = 0;
-  await leakCheck(page, probe, 'Play start/stop', cycles(COUNTED_CYCLES), async () => {
-    const { frame } = await startPlay(page);
-    if (gpuAvailable()) {
-      // The volume made and lighting cells before Stop (none on WebGL 2).
-      await expect.poll(() => frame().evaluate(() => { const l = (window as unknown as { __tlVoxelPlay?: { light?: { store(): string; progress(): { texelsWritten: number } | null } } }).__tlVoxelPlay?.light; return l?.store() === 'volume' ? (l.progress()?.texelsWritten ?? 0) : 0; }), { timeout: 30_000, message: 'the light volume lights the voxel world' }).toBeGreaterThan(0);
-      lit++;
-    }
-    await stopPlay(page);
-  });
-  if (gpuAvailable()) expect(lit).toBeGreaterThan(0);
+  // The voxel world's own share first (the store named off), then the light volume as the tier runs it: each its own
+  // baseline, so a growth names its owner.
+  for (const store of ['off', null] as const) {
+    const probe = await openEditor(page, store === null ? editorUrl() : editorUrl().replace('#', `&voxelLight=${store}#`));
+    // The Scene view streams the world round the editor camera too: its draws settle before the baseline is taken.
+    let seen = '';
+    let still = 0;
+    await expect.poll(async () => {
+      const m = await page.locator('canvas.tl-viewport').first().getAttribute('data-memory');
+      still = m !== null && m === seen ? still + 1 : 0;
+      seen = m ?? '';
+      return still;
+    }, { timeout: 60_000, intervals: [1000], message: "the Scene view's world drawn and still" }).toBeGreaterThanOrEqual(5);
+    let lit = 0;
+    await leakCheck(page, probe, `Play start/stop, voxel world, ${store === null ? 'the tier\'s light volume' : 'store off'}`, cycles(COUNTED_CYCLES), async () => {
+      const { frame } = await startPlay(page);
+      if (store === null && gpuAvailable()) {
+        // The volume made and lighting cells before Stop (none on WebGL 2).
+        await expect.poll(() => frame().evaluate(() => { const l = (window as unknown as { __tlVoxelPlay?: { light?: { store(): string; progress(): { texelsWritten: number } | null } } }).__tlVoxelPlay?.light; return l?.store() === 'volume' ? (l.progress()?.texelsWritten ?? 0) : 0; }), { timeout: 30_000, message: 'the light volume lights the voxel world' }).toBeGreaterThan(0);
+        lit++;
+      }
+      await stopPlay(page);
+    });
+    if (store === null && gpuAvailable()) expect(lit).toBeGreaterThan(0);
+    await probe.detach();
+  }
   expect(page.frames()).toHaveLength(1);
-  await probe.detach();
 });
 
 /** Steps between the spawner's pairs in the leak loop. */
