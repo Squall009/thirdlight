@@ -150,6 +150,8 @@ export function benchMaskedLava(ormAssetId: string): { readonly materialId: stri
   const lava = BENCH_GLOW_MATERIALS[0]!;
   return { materialId: 'bench-lava-cracked', name: 'Bench lava (cracks)', shader: 'standard', instanceOf: lava.instanceOf, params: { ...lava.params }, textures: {}, voxel: { id: 4003, use: 'terrain', surfaces: { wall: { orm: ormAssetId } } } };
 }
+/** Added to the night strip's ground height in cm as the behaviour counts it (a counter of 0 reads as never set). */
+export const GLOW_GROUND_CM_OFFSET = 100_000;
 /** The masked lava's voxel id (the behaviour paints it when the world has it). */
 const LAVA_MASKED_ID = 4003;
 
@@ -267,6 +269,7 @@ const LAMP_WALL = ${JSON.stringify(LAMP_WALL)};
 const LAVA = ${BENCH_GLOW_MATERIALS[0]!.voxel.id};
 const CRYSTAL = ${BENCH_GLOW_MATERIALS[1]!.voxel.id};
 const LAVA_MASKED = ${glowMask ? LAVA_MASKED_ID : 0};
+const GROUND_CM_OFFSET = ${GLOW_GROUND_CM_OFFSET};
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
 export default {
   prepare() { return {}; },
@@ -309,7 +312,7 @@ export default {
           if (v.paint(s.strip, { material: LAVA }).ok) ctx.game.add('glow_strip', 1);
           // The masked lava beside it, 0.5 m to the street's left (a world without that material refuses it: not counted).
           if (LAVA_MASKED > 0 && v.paint({ min: [37, gy - 0.5, -27.5], max: [43, gy, -27] }, { material: LAVA_MASKED }).ok) ctx.game.add('glow_masked_strip', 1);
-          ctx.game.add('glow_ground_cm', Math.round(gy * 100));
+          ctx.game.add('glow_ground_cm', GROUND_CM_OFFSET + Math.round(gy * 100));
           for (const z of [-28.75, -29.25, -29.75, -30.25, -30.75, -31.25]) {
             const h = v.raycast([40.25, gy + 3, z], [0, -1, 0], 6);
             if (h === null || h.voxel === null || h.point[1] < gy + 0.6) continue;

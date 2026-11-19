@@ -81,7 +81,7 @@ import { commandEnvelope } from '../../tests/support/commands';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MASK_FILE, BENCH_GLOW_MASK_FOLDER, BENCH_GLOW_MATERIALS, benchMaskedLava, MANY_LAMP_CAMERAS, MANY_LAMP_SHOT_NAMES, type LightingCamera, GLOW_COMMANDS, GLOW_PROBES, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
+import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MASK_FILE, BENCH_GLOW_MASK_FOLDER, GLOW_GROUND_CM_OFFSET, BENCH_GLOW_MATERIALS, benchMaskedLava, MANY_LAMP_CAMERAS, MANY_LAMP_SHOT_NAMES, type LightingCamera, GLOW_COMMANDS, GLOW_PROBES, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import type { Picture } from './lighting-cameras';
 import { openPlay, type PlayGame } from './travel-page';
@@ -218,8 +218,9 @@ async function volumeCellsPlaced(eye: number[]): Promise<BenchVolumeCell[] | nul
 
 /** The red light of the cells just over the night's lava strip (z −28.25) and its masked strip (z −27.25), x 37–43. */
 async function glowStripLight(game: PlayGame): Promise<{ unmasked: number; masked: number; ratio: number | null } | null> {
-  const gy = ((await game.observe().catch(() => null))?.counters ?? {})['glow_ground_cm'];
-  if (gy === undefined || gy === 0) return null;
+  const counted = ((await game.observe().catch(() => null))?.counters ?? {})['glow_ground_cm'];
+  if (counted === undefined || counted === 0) return null;
+  const gy = counted - GLOW_GROUND_CM_OFFSET;
   const row = (z: number): number[][] => Array.from({ length: 12 }, (_, i) => [37.25 + i * 0.5, gy / 100 + 0.25, z]);
   const cells = (await game.frame.evaluate((pts) => (window as unknown as { __tlVoxelPlay?: { light?: { volumeCells?(p: number[][]): Promise<Array<{ faces: (number[] | null)[] }> | null> } } }).__tlVoxelPlay?.light?.volumeCells?.(pts) ?? null, [...row(-28.25), ...row(-27.25)]).catch(() => null)) as Array<{ faces: (number[] | null)[] }> | null;
   if (cells === null || cells.length !== 24) return null;
@@ -556,7 +557,9 @@ async function main(): Promise<void> {
       out['glowParts'] = parts;
       out['glowMask'] = glowMask;
       console.log(`glow: ${JSON.stringify(parts)}`);
-      if (Object.values(parts).some((n) => n === 0)) problems.push(`glow: a part was not painted (${JSON.stringify(parts)})`);
+      // The masked lava's parts only where it is made; the ground height is a reading, not a part.
+      const painted = Object.entries(parts).filter(([k]) => k !== 'glow_ground_cm' && (O.glowMask || !k.includes('masked')));
+      if (painted.some(([, n]) => n === 0)) problems.push(`glow: a part was not painted (${JSON.stringify(parts)})`);
     }
     await page.waitForTimeout(4000);
     out['loadingSpans'] = regionSpans((await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null)) as ProfileReport | null);
