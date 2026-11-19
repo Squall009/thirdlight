@@ -805,7 +805,7 @@ the same record dresses a prop and a wall, so there is one oak, not an
   an albedo without one gets a height from its brightness, as on
   [layered surfaces](../guides/height-in-alpha.md)); a tangent-space normal
   map with green up, its alpha unused; occlusion, roughness and metalness in
-  R, G and B); floor and ceiling use the wall's when left out. A set needs its albedo; a normal or ORM map left out is
+  R, G and B, and in its alpha the **glow mask**, below); floor and ceiling use the wall's when left out. A set needs its albedo; a normal or ORM map left out is
   flat. All textures of the sets should be one size (the engine joins them
   into arrays): a construction tile is authored at 4096 × 4096 for its
   4 × 4 m wall, the image's top up the wall.
@@ -820,6 +820,20 @@ the same record dresses a prop and a wall, so there is one oak, not an
   materials (the lit one an instance of the unlit with its own voxel id and a
   glow): the game changes the cell's material. Nothing glows past the mesh
   rings (the far field). A record edit is live.
+- **Glow mask**: to make only parts of a surface glow (the cracks of a lava
+  rock, the lit panes of a window texture), put the mask in the alpha of the
+  occlusion-roughness-metal map: white glows fully, black not at all, grey
+  in between (linear). An ORM image without alpha, a set without an ORM map
+  and a material without a set glow whole. The mask changes only what is
+  drawn (and so the bloom); the light the glow gives the room is its glow
+  times the mean of what it draws, which the engine measures from the
+  textures when they load (never set by hand), so a finer or coarser mask
+  with the same mean lights the room the same. Paint the mask so it tiles
+  like the rest of the map (an edge left white on one side and black on the
+  other draws a thin glowing line at the tile's seam); a sharp mask costs
+  more file bytes (a crack mask with hard edges +19 % on a 1024² ORM) and no
+  GPU memory where the GPU takes BC7 (the arrays' format with or without
+  alpha).
 
 Any material may also carry **`physical`** (a profile and the numbers it
 changes: `density` kg/m³, `friction`, `restitution`, `flowRate` for

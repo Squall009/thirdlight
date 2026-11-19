@@ -243,7 +243,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
 | 46e.10 | Done 2026-11-17 (cb7229fa…5503e495): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); 10b: walk blocks only while the page reads its GPU walk; 10c: sim frames build full diagnostics only when sent (11.8 ms a tick of voxel stats after a 150 m/s stop): store off nothing pending 7.0–7.3 s (base 7.4–7.5, before 10.5–11.4), D701 fixed; D672 narrowed; D711 |
 | 46e.11 | Proposed 2026-11-16 (24296e84, acc46e-11), **owner's note 2026-11-17 (relayed): approved with changes** — reuse `params.emissive` × `emissiveIntensity`; no mask: the surface draws glow × the colour texture, the volume uses glow × the material's mean colour; a mask only in a spare channel of a map already read, its entry to the owner first; no far glow. (d) builds the no-mask part. |
-| 46e.12 | (a) done 2026-11-17 (b73ee726…2b80a9c2): lamp list per kept brick built in compute, 128 extra lamps 4.1–6.1 → 0.21–0.24 ms a brick. (b), (c) done 2026-11-17 (3d198037…38220994): spots by cone, rect and line lights by the LTC form factor (one definition, = per-pixel to 1e-6), walk to a point per ray; one spot + one area 0.029 ms a brick (base 0.024–0.028). (d) waits for the owner |
+| 46e.12 | (a)–(c) done 2026-11-17; (d) 2026-11-18: glow drawn, a glow word a cell, emitters (§8c). (e) done 2026-11-19 (6535b4fe…): the ORM's A masks the drawn glow (no new read or binding, 13 of 16 units); the volume's value = glow × mean(colour × mask), cracked lava 0.2745 of plain (mask 0.274); unmasked as before within run-to-run; +18.7 % file bytes on a sharp 1024² mask; D726 |
 | 46e.13 | (a) done (f2bc0110…6280f957): a change restarts what it reaches (D715, D695), batch work in the slice (D708), share 6.0 ms (D690 open). (b) done 2026-11-17 (99f2526a, 9e74e084): bounces converge, refining while idle (4.2–5.3 ms GPU), a write-time filter, texture-mean colours; room blotch 0.67 → 0.27, error vs a CPU reference 0.33 → 0.16; room dark (§10 Q) |
 | 46e.14 | (a), (b) done 2026-11-18 (§8d). (c) done 2026-11-19 (40ddf31c…): the read +4.5/+3.9/+8.8 → +2.0/+2.3/+4.4 ms street/room/high (≤ 1.5 not reached: D724); the volume on at every tier (low's orbit 76–128 copies, travel ≤ 64 ms); D723 fixed (§8d 46e.14c) |
 | 46e.15 | not started |
@@ -2880,7 +2880,7 @@ light test 2.5 min (gate, and alone `pw/glow6.log`; 2.2–2.4 at 46e.13b), the f
 **Part B, the mask** (nothing built): the proposal page's "The mask: the proposed entry" — the ORM array's A (free,
 read on every path, UASTC keeps it, +3.4 % file bytes for a 4096² layer with a crack mask, BC7 on the Iris Xe so no
 GPU bytes; the absent ORM's A is 0 today, so the entry sets the voxel arrays' absent A to 1); the normal array's A the
-second candidate; the mean by the texture means' pass. `docs/briefs/proposal-46e.11-mask-mock.png` is a mock-up.
+second candidate; the mean by the texture means' pass. the mock-up first shown is replaced by the pictures of the mask as built (46e.12e).
 
 **Not done / unverified.** Motion unseen (no one watched a glow switched on or off, or walked past one). WebGL 2's glow
 not looked at. Medium and high not measured (the Play test runs at high). The settles in the Play test's hut are long
@@ -2890,6 +2890,101 @@ not looked at. Medium and high not measured (the Play test runs at high). The se
 **For 46e.14.** The emitters double a brick's cost where they reach (0.051 against 0.023 ms); D718 (list size shared
 with lamps); the glowing furnace refines to 0.966 (the update's own convergence, as the lamps' 1.02); the night grass
 beside a strip lit faintly: strengths are the owner's, not a knob.
+
+### 46e.12e — the glow mask
+
+**What was built** (6535b4fe; bench 7d68faa4, fed00ff5; docs after). The owner's note of 2026-11-18 approved the mask entry as
+proposed; its text is in `voxel-render-spec.md` §2 ("Owner note (46e.11, 2026-11-18 …): a glow mask in a texture set's
+ORM alpha"), §1 points to it. Work folder `~/.cache/thirdlight-phase46e/work/46e.12e/` (`progress.txt`, `pw/` hand runs
+of the Play test, `broken-*.log`, `drift-1024.json`, `m/` the measured runs with `*.uptime`, `lib.sh`, `measure.sh`).
+- **No mask: whole.** `VOXEL_ORM_ABSENT` (`project-model` `voxel-surface-textures.ts`) is the graphs' absent ORM with
+  A = 1: the voxel ORM array's fill layer (`#ffcc00ff`, was `#ffcc0000`) and the surface's neutral texel
+  (`NEUTRAL_TEXELS.orm` 255, 204, 0, 255) take it; `TEXTURE_ABSENT_VALUES.orm` (graphs, layered surfaces, decals) keeps
+  A = 0 (`texture-slots.test.ts` `#ffcc0000` unchanged, `voxel-surface-textures.test.ts` both). A material without a
+  set takes 1 in the shader (no layer). No version constant moved (`format-versions.md` untouched); the voxel ORM
+  array's slot key changes with its fill id, so a project with a set lacking an ORM map assembles that array once again.
+- **Drawn.** `textureSetAt` returns `glowMask` = the w of the ORM read it takes already (weighted over the projections
+  as its xyz), 1 without a layer; every near program multiplies each material's glow by its own before the blend.
+  Texture reads and bindings unchanged (`voxel-surface.test.ts`: 28 loads, 18 / 9 / 6 / 3 array samples by path, the
+  bindings; a new test follows the ORM sample into the program and finds its w read on all four paths).
+- **The volume's value: the mean of the product.** The texture means' pass (`textureLayerMeans`, one workgroup a
+  layer) keeps the colour mean from the ≤ 16² level exactly as before (one invocation, the same loop) and sums, over the
+  ≤ 128² level (`TEXTURE_STREAM_TAIL_PX`, always resident) of the albedo and the ORM's A read together, colour × mask,
+  the mask, and the colour; `layerMeansOfSums` gives drawn = colour mean × (Σ colour × mask / Σ colour) a channel, so a
+  mask of 1 gives the colour mean back exactly (an unmasked material's value is 46e.12 (d)'s, bit for bit). Why 128²:
+  the encoder's mips ring at a sharp mask's edges and are clamped at 0, so the crack mask's mean drifts up +0.8 / 255
+  at 64², +4.4 at 32², +6.5 to +7.5 at 16² and below (of 70: about a tenth; D726), 0.0 / −0.07 at 256² / 128²
+  (`drift-1024.json`, the 1024² bench ORM; the same at 256²: `glow-mask.test.ts`). Error on the bench's masked lava
+  (1024², box mips): the pass's 0.00 %, the cheaper colour mean × mask mean 0.28 % (the rock's colour hardly follows
+  its cracks). Per face: kept wall-only (46e.12 (d)'s default): the cells take each solid cell's material, not its side
+  (terrain draws its wall set everywhere, a construction floor its floor set), and the per-face choice would change
+  unmasked values where a floor set differs — not a few lines. The emitters' power is the same value. A texture change
+  that moves a mean changes the look's key: the bricks beside that material are found and marked, as for a record edit.
+- **Bench** `light-shots --glow`: a third material, `bench-lava-cracked` (voxel 4003, an instance of the town's rock
+  with the lava's glow), whose wall ORM is the rock's ORM image (read from the project, its RGB as stored) with
+  `crackGlowMask` in A (6 cells a 2 m tile, soft edges, 38.6 % of the texels lit, mean 0.274), written to
+  `assets/bench-glow-mask/`, imported, deleted with its asset and folder after; painted beside each lava strip (night:
+  z −27.5 … −27, 0.5 m to the street's left of the strip; room: 1 m into the room from the strip, along it).
+  `glowStrips` reads the cells over both night strips. `--no-glow-mask` leaves it out (the glow scene as at 46e.12 (d)).
+  The page's diagnostics give each glowing material's value (`glowValues`) and the pass's time (`meansMs`).
+
+**Tests.** vitest (`vitest-mask.log`, 17 files 128 tests): `voxel-surface-textures.test.ts` (the absent A 1 and the
+graphs' 0); `voxel-surface.test.ts` (the ORM's w read on every path, counts unchanged); `voxel-light-volume-glow.test.ts`
+(the value from the pass's sums, unmasked bit for bit, sRGB bytes, a mask change marks exactly the bordering bricks);
+`tools/voxel-bench/glow-mask.test.ts` (the crack mask; a masked ORM through the import encode, the slot assembly's
+packing in one encode and layer by layer then joined, transcoded by three's transcoder: the mask's mean −0.05 / 0.00 at
+256², −0.07 / −0.05 at 128² of 255, the absent layer and an alpha-less ORM 255 at every level; the value against the
+texture's own mean). Broken once each: the glow not masked in the program 1 fails (`broken-glow-not-masked-vitest.log`);
+the absent A 0 2 fail (`broken-absent-alpha-0-vitest.log`); the volume ignoring the mask 3 fail
+(`broken-means-ignore-mask-vitest.log`).
+**Play e2e** (`glowChecks`): a second test material (voxel 41: a flat grey albedo under a white tint, the plain one's
+#808080 drawn, and an ORM whose A is 1 over the lower 0.4 of each 0.5 m tile) on the strip's last 0.75 m at +x (the
+stone stub hides the strip's −x half from the camera: found from two hand runs with the halves swapped). Checked: the
+volume's values, masked over plain 0.3992 (mask 0.4, bound 0.02); glowing pixels a column over the masked part against
+the plain part's, from the camera's projection, 0.402 / 0.420 (bound 0.4 ± 0.15); the cells at the masked part's foot
+over the plain part's 0.570 / 0.575 (bound 0.35–0.8). The far wall: with the plain and masked halves swapped
+(`pw/glow3.log`, `pw/glow4-swapped.log`) the far wall's green 0.218 / 0.350 solve to a whole plain strip of 0.406
+against 46e.12 (d)'s 0.40 (the far wall holds glow in proportion to the mask's mean, within 2 %); as built 0.305–0.309
+(predicted 0.312). Broken (`broken-glow-not-masked-e2e.log`, a rebuilt page drawing the glow without the mask): fails at
+"the masked part glows over its mask's share" (0.758). The light Play test 2.1–2.2 min alone (before 2.2–2.5).
+
+**Pictures** (low, WebGPU, 1280 × 720, 30 Hz, each run alone, `m/*.uptime`; base 481e0491 in its own worktree with its
+own workspace links, the page from each, the bench the head's). Without the masked lava (`--glow --no-glow-mask`), A B
+A B (`m/compare-nomask.txt`, pixels over 10 a channel): night 0.06–0.09 % base against head, 0.02 / 0.08 % base / head
+against itself; night at 60 s 0.06–0.08 (0.02 / 0.06); room (its final and 60 s picture) base r1 5–8 % from every other
+run, the other pairs 0.35–3.0 (head against head 0.35–0.64, base r2 against head r2 0.60–1.3), means 13.3–13.6: the
+unmasked glow is drawn and lights as the base's within run-to-run (the room's own spread is wide: its refining at 60 s).
+With it (`m/mask-{base,head}-r1`, looked at): `night-lamps-arrive-60s.png` — at the head the cracked lava (left strip)
+glows only in its cracks, the rock between draws as the rock, the grass round it is less red than at the base, where
+the same material glows whole (the base ignores the alpha); the plain strip, the crystal block and panel unchanged.
+`room-window-arrive-60s.png` — the cracked strip in front of the plain one glows in its cracks; the room darker
+at the head: picture mean 14.5 against the base's 18.2 and 13.3–13.6 without the cracked strip, so the cracked strip adds
+1.0 of the 4.7 it adds glowing whole (0.21; tone-mapped means; the mask's mean 0.27); night 34.0 / 35.4 / 32.7 (the
+strip's own bright cracks in it) (`m/compare-mask.txt`). The volume's value of the cracked lava over the plain one 0.2745 (r, g, b: 0.2745 / 0.2739 /
+0.2741), its mask's mean 0.2739. The cells over the night strips (`glowStrips`, red summed over faces): masked over
+plain 0.539 at the head against 1.379 at the base (where it glows whole): 0.39 of its whole glow's, the mask's 0.27
+plus what each row's cells receive from the strip 0.5 m beside it. Copies: `docs/briefs/proposal-46e.11-mask-{night,
+room}.png`.
+
+**Cost.** Texture units (`m/units-{base,head}`, `--texture-units volume`, street): voxel surface programs at most 13 of
+16 both, none over. File bytes: the bench's 1024² rock ORM 307,334 → 799,007 PNG; as KTX2 (UASTC, the import's
+encode, `drift-1024.json`) 572,003 → 678,704 (+18.7 %; the proposal's smooth 4096² mask +3.4 %). GPU bytes: the arrays'
+format (BC7 on the Iris Xe) and sizes unchanged. The means' pass: 122.6 ms from the ask to the means on the page (the
+pass, its read back and the wait behind the frame's GPU work; once a texture change). `near` on the orbit, A B A B
+(`m/orbit-*.json`, measureGpu, one round each, 21:04–21:18): base 4.63, 4.79 ms, head 4.00, 4.42 ms
+(resolution 0.62–2.75 ms): unchanged within resolution; `lighting` 5.29, 5.38 / 4.51, 3.84 (not resolved either).
+**Staging** left as found: `m/project-before.txt` against `m/project-after.txt` (every file's hash, JSON without its
+revision fields): no bench glow material, asset, file or folder left (`assets/bench-glow-mask/` gone; the ids only in
+the command log); what differs is what the benches always write (the orbit bench sets the environment without
+light-shots' presets, light-shots re-makes its lamps and camera behaviour) and the backend's bookkeeping (`.thirdlight/`,
+the import cache, derived data) (`m/project-diff.txt`); exports empty.
+**Gates.** `gate-fast-20261119-190215` (6535b4fe; every area) RED 2 of 323: `co-op.e2e.ts:129` (the export's temp
+folder gone under the gate: ENOENT on mkdtemp) and `frame-rate-cap.e2e.ts:70` (D659's watch); vitest
+`tools/voxel-bench/stream.test.ts` failed in the run and passed alone (D454's watch) → `gate-rerun-20261119-194156`
+GREEN. Play tests in the gate 1.7 / 2.1 min.
+
+**Not done / unverified.** Motion unseen; WebGL 2 not looked at (it builds the same program; the smoke test passes);
+medium and high not measured; the per-face mask (floor and ceiling sets) not built (wall-only, logged).
 
 ## 8d. 46e.14 — the untuned baseline
 
@@ -4048,6 +4143,14 @@ one-cell hand-over at 24 m should not show as a line), and travel at speed (the 
   street, D724); a lower-rate read is the way left and is not built.
 - 2026-11-19 (46e.14c, default chosen, owner to confirm): the leak test's Play loop has a voxel world in view and
   runs twelve Plays over it before its baselines (D725).
+- 2026-11-19 (46e.12e, default chosen, owner to confirm): **the volume's glow of a masked material is glow × the mean
+  of colour × mask** over its wall set (not mean colour × mask mean; 0.28 % apart on the bench's lava), the colour mean
+  from the ≤ 16² level as before and the mask's share from the ≤ 128² level (the stream's resident tail: the encoder's
+  coarser levels drift a sharp mask's mean up, D726). Still the wall set for every face (46e.12 (d)'s default).
+- 2026-11-19 (46e.12e, default chosen, owner to confirm): the mask has no mip rule of its own (filtered by the encoder
+  as the ORM's other channels; a far masked surface draws up to a tenth brighter, D726), and a set's ORM image is
+  read whole: no flag says "this alpha is not a mask" (an ORM alpha authored for something else would mask the glow;
+  only a glowing material shows it).
 
 ## 10. Open questions for the owner (asked with the plan)
 

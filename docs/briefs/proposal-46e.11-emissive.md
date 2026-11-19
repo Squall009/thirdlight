@@ -184,8 +184,21 @@ the material record):
 > encoding (UASTC, linear) and their GPU format and bytes are as they are; a mask costs about 3 % of an ORM layer's
 > file bytes. Not read by the far field (no glow there in 46e-b).
 
-**A picture**: `docs/briefs/proposal-46e.11-mask-mock.png` is a **mock-up, not an engine picture** (nothing of the
-mask is built): the night street's crystal panel as built (left: painted over a brick front and a window, it draws the
-crystal's plaster texture glowing) and the same crop with a hand-drawn crack mask applied to its glow (right: the
-unmasked part shows the front as the standard night picture draws it). The engine's own pictures of the glow as built: `docs/briefs/proposal-46e.11-night.png`,
-`docs/briefs/proposal-46e.11-room.png` (replacing the hand-drawn mock for the owner's page).
+**A picture**: the mock-up first shown here is replaced by the engine's own pictures of the mask as built (below).
+
+## The mask as built (46e.12 (e), 2026-11-19)
+
+Built as approved (6535b4fe): the A of a voxel texture set's ORM map is the glow mask; the entry's final words are in
+`docs/architecture/voxel-render-spec.md` §2 ("Owner note (46e.11, 2026-11-18 …)"). What differs from the text above:
+the light volume takes the mean of what is drawn (colour × mask, per texel) rather than mean colour × mask mean (on the
+bench's lava the two are 0.28 % apart), the mask's share read from a 128² level of the textures (the encoder's coarser
+levels raise a sharp mask's mean by about a tenth). A set without an ORM map, a material without a set and an ORM
+image without alpha glow whole, as before: the bench's pictures without the masked material equal the earlier build's
+within run-to-run. The arrays, their bindings, reads and GPU bytes are unchanged; the bench's sharp crack mask costs
++18.7 % of its 1024² ORM layer's file bytes (the smooth mask measured above: +3.4 %).
+
+`proposal-46e.11-mask-night.png`: the night street at 60 s (low tier, WebGPU, 1280 × 720, 30 Hz): the bench's lava
+strip as before (right) and beside it the same lava whose ORM alpha carries a crack mask (left): only its cracks glow,
+the rock between them draws as rock, and it lights the grass round it less. `proposal-46e.11-mask-room.png`: the room
+at night with the lava strip at the window wall's foot and the cracked lava 1 m in front of it. The volume's value of
+the cracked lava is 0.2745 of the plain lava's, its mask's mean 0.274.
