@@ -416,7 +416,9 @@ async function propShade(game: PlayGame): Promise<Record<string, unknown>> {
   for (const [name, r] of Object.entries(PROP_READINGS)) {
     const cells = await game.frame.evaluate(volumeBoxLight, { min: [...r.cells.min], max: [...r.cells.max] }).catch(() => null);
     const control = await game.frame.evaluate(volumeBoxLight, { min: [...r.control.min], max: [...r.control.max] }).catch(() => null);
-    out[name] = { cells, control, ratio: cells !== null && control !== null && control.mean > 0 ? Number((cells.mean / control.mean).toFixed(4)) : null, upRatio: cells !== null && control !== null && control.up > 0 ? Number((cells.up / control.up).toFixed(4)) : null };
+    // The prop's own box: its cells hold no light once the walk sees it (they are a body for the light), and do without it.
+    const inside = await game.frame.evaluate(volumeBoxLight, { min: [...r.min], max: [...r.max] }).catch(() => null);
+    out[name] = { inside, cells, control, ratio: cells !== null && control !== null && control.mean > 0 ? Number((cells.mean / control.mean).toFixed(4)) : null, upRatio: cells !== null && control !== null && control.up > 0 ? Number((cells.up / control.up).toFixed(4)) : null };
   }
   return out;
 }
