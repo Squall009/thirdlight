@@ -48,7 +48,8 @@
  *   --particles N        N lit smoke puffs (bench-particles.ts) round the town square 20 m up, in front of the orbit, made
  *                        before Play and deleted after: the `effects` pass's cost with lit particles
  *   --props N            N lit props (bench-props.ts: indoors and in the streets, every fifth cart moving) placed before
- *                        Play and taken out after (the simulation's stamping and walk packing are among `spans.sim`)
+ *                        Play and taken out after (the simulation's stamping and walk packing are among `spans.sim`);
+ *                        `--props-unlit`: the same objects not marked to affect lighting (what drawing and moving them costs)
  *   --viewport WxH       (default 1280x720)   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/headroom/<quality>-<tag>.json)
  *
  * How to (staging running, the 8 km world in it, nothing else on the GPU):
@@ -240,11 +241,11 @@ async function main(): Promise<void> {
   // The many lamps (bench data): their glow materials and lamps in the project for the run, taken out after.
   if (SCENE !== null) for (const m of BENCH_GLOW_MATERIALS) await command('setMaterial', { material: m });
   const unplace = SCENE === null ? null : await placeManyLamps(SCENE, command, sceneEntities);
-  const unprop = PROPS === 0 ? null : await placeBenchProps(benchProps(PROPS), join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT), command as (op: string, args: Record<string, unknown>) => Promise<void>, sceneEntities);
+  const unprop = PROPS === 0 ? null : await placeBenchProps(benchProps(PROPS), join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT), command as (op: string, args: Record<string, unknown>) => Promise<void>, sceneEntities, !process.argv.includes('--props-unlit'));
   const unparticle = PARTICLES > 0 ? await placeBenchParticles(particleEntities(BENCH_SMOKE_EFFECT, smokePlaces(PARTICLES), 'smoke'), command as (op: string, args: Record<string, unknown>) => Promise<void>, sceneEntities) : null;
   await orbitCamera();
   const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });
-  const out: Record<string, unknown> = { bench: 'headroom', lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, props: PROPS, particles: PARTICLES, quality: QUALITY, renderer: 'webgpu', viewport: VIEWPORT, tierScale: TIER_SCALE, cap: CAP, window: WINDOW_S, world: WORLD, start: host(), rounds: [] as unknown[] };
+  const out: Record<string, unknown> = { bench: 'headroom', lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, props: PROPS, propsUnlit: process.argv.includes('--props-unlit'), particles: PARTICLES, quality: QUALITY, renderer: 'webgpu', viewport: VIEWPORT, tierScale: TIER_SCALE, cap: CAP, window: WINDOW_S, world: WORLD, start: host(), rounds: [] as unknown[] };
   const browser = await launchGpuBrowser({ vsync: true });
   const T0 = Date.now();
   try {
