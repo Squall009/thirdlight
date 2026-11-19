@@ -50,6 +50,10 @@
  *                 along the room camera's floor (`ctx.voxels`, never written to the world); with --cache-edits, the
  *                 night strip painted back and again and the lava's glow strength changed (a record edit, through the
  *                 page's hook), each timed as the other edits
+ *                 and a lava whose ORM map carries a crack mask in its alpha beside each strip (its texture written from
+ *                 the rock's ORM into the project's `assets/bench-glow-mask`, imported, and deleted after); the cells
+ *                 over both night strips read back (`glowStrips`)
+ *   --no-glow-mask with --glow: the masked lava neither made nor painted (the glow scene without it)
  *   --fresh-cells at each camera after its cells are read, every brick started again from nothing and settled, and the
  *                 same cells read again: how far the light the camera arrived to lies from a volume made with the
  *                 lights as they are (`freshApart`: summed face differences over the summed light; what a change of
@@ -337,10 +341,10 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   }
   const glowMaterials = O.glow || SCENE !== null;
   if (glowMaterials) for (const m of BENCH_GLOW_MATERIALS) await b.command('setMaterial', { material: m });
-  const unmask = O.glow ? await prepareGlowMask(b) : null;
+  const unmask = O.glow && O.glowMask ? await prepareGlowMask(b) : null;
   const unplace = SCENE === null ? null : await placeManyLamps(SCENE, (op, args) => b.command(op, args), sceneEntities);
   const before = cameraBehaviour(PROJECT_DIR);
-  await publishCameraBehaviour(b, PROJECT_DIR, BEHAVIOR, lightShotsSource(CAMERAS, [...(SCENE !== null ? [manyLampsBehaviour(SCENE)] : []), dayBehaviour()]));
+  await publishCameraBehaviour(b, PROJECT_DIR, BEHAVIOR, lightShotsSource(CAMERAS, [...(SCENE !== null ? [manyLampsBehaviour(SCENE)] : []), dayBehaviour()], O.glowMask));
   // The camera's own exposure (as a game runs it), set back after.
   const camEntity = sceneEntities().find((e) => e.name === 'Perf far camera') as { id: string; components?: { virtualCamera?: Record<string, unknown> } } | undefined;
   const camWas = camEntity?.components?.virtualCamera ?? null;

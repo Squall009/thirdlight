@@ -257,7 +257,7 @@ export const LIGHTING_PRESETS = Object.freeze([
  * after holds it there; each dig command digs its ball through `ctx.voxels` (a runtime edit: never written to
  * the world's files).
  */
-export function lightShotsSource(cameras: readonly LightingCamera[] = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS, ...MANY_LAMP_CAMERAS], extras: ReadonlyArray<{ head: string; intent: string }> = []): string {
+export function lightShotsSource(cameras: readonly LightingCamera[] = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS, ...MANY_LAMP_CAMERAS], extras: ReadonlyArray<{ head: string; intent: string }> = [], glowMask = true): string {
   return `
 ${extras.map((e) => e.head).join('\n')}
 const SHOTS = ${JSON.stringify(cameras.map((c) => ({ command: c.command, eye: c.eye, yaw: c.yaw, pitch: c.pitch, preset: c.preset })))};
@@ -266,7 +266,7 @@ const LAMP = ${JSON.stringify(BENCH_LAMPS[2]!.position)};
 const LAMP_WALL = ${JSON.stringify(LAMP_WALL)};
 const LAVA = ${BENCH_GLOW_MATERIALS[0]!.voxel.id};
 const CRYSTAL = ${BENCH_GLOW_MATERIALS[1]!.voxel.id};
-const LAVA_MASKED = ${LAVA_MASKED_ID};
+const LAVA_MASKED = ${glowMask ? LAVA_MASKED_ID : 0};
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
 export default {
   prepare() { return {}; },
@@ -308,7 +308,7 @@ export default {
           s.stripWas = g.voxel.material;
           if (v.paint(s.strip, { material: LAVA }).ok) ctx.game.add('glow_strip', 1);
           // The masked lava beside it, 0.5 m to the street's left (a world without that material refuses it: not counted).
-          if (v.paint({ min: [37, gy - 0.5, -27.5], max: [43, gy, -27] }, { material: LAVA_MASKED }).ok) ctx.game.add('glow_masked_strip', 1);
+          if (LAVA_MASKED > 0 && v.paint({ min: [37, gy - 0.5, -27.5], max: [43, gy, -27] }, { material: LAVA_MASKED }).ok) ctx.game.add('glow_masked_strip', 1);
           ctx.game.add('glow_ground_cm', Math.round(gy * 100));
           for (const z of [-28.75, -29.25, -29.75, -30.25, -30.75, -31.25]) {
             const h = v.raycast([40.25, gy + 3, z], [0, -1, 0], 6);
@@ -332,7 +332,7 @@ export default {
         const wall = floor === null ? null : v.raycast([room[0], floor.point[1] + 0.25, room[2]], [-1, 0, 0], 12);
         if (wall !== null && floor !== null && v.paint({ min: [wall.at[0] + 0.25, floor.point[1] - 0.5, room[2] - 3], max: [wall.at[0] + 0.75, floor.point[1], room[2] + 3] }, { material: LAVA }).ok) ctx.game.add('glow_room_strip', 1);
         // The masked lava 1 m into the room from it, along it.
-        if (wall !== null && floor !== null && v.paint({ min: [wall.at[0] + 1.25, floor.point[1] - 0.5, room[2] - 3], max: [wall.at[0] + 1.75, floor.point[1], room[2] + 3] }, { material: LAVA_MASKED }).ok) ctx.game.add('glow_room_masked_strip', 1);
+        if (LAVA_MASKED > 0 && wall !== null && floor !== null && v.paint({ min: [wall.at[0] + 1.25, floor.point[1] - 0.5, room[2] - 3], max: [wall.at[0] + 1.75, floor.point[1], room[2] + 3] }, { material: LAVA_MASKED }).ok) ctx.game.add('glow_room_masked_strip', 1);
         ctx.game.add('glow_room', 1);
       }
       for (const _ of ctx.debug.command('${GLOW_COMMANDS.stripOff}')) ctx.game.add(s.strip !== null && v.paint(s.strip, { material: s.stripWas }).ok ? 'glow_strip_offs' : 'glow_refused', 1);
@@ -391,6 +391,8 @@ export interface LightShotsOptions {
   readonly lightTypes: boolean;
   /** `--glow`: the glowing materials of {@link BENCH_GLOW_MATERIALS} made and painted ({@link GLOW_COMMANDS}) once Play runs. */
   readonly glow: boolean;
+  /** With `--glow`: the masked lava ({@link benchMaskedLava}) too (`--no-glow-mask`: not made nor painted, the glow scene as before it). */
+  readonly glowMask: boolean;
   readonly freshCells: boolean;
   /** `--arrival-at LIST`: with `--arrival-shots`, the seconds after each move its pictures are taken at (default 2, 10). */
   readonly arrivalAt: readonly number[];
@@ -466,6 +468,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     extraLamps: num('extra-lamps', 0, 0, 4096),
     lightTypes: argv.includes('--light-types'),
     glow: argv.includes('--glow'),
+    glowMask: !argv.includes('--no-glow-mask'),
     freshCells: argv.includes('--fresh-cells'),
     arrivalAt: (arg('arrival-at') ?? '2,10').split(',').map((x) => {
       const n = Number(x);
