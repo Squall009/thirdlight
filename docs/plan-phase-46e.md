@@ -3386,6 +3386,100 @@ shares only were not re-run at them (the 46e.14a reading stands). Motion is unse
 one has watched the day move over the room in Play for a minute. The store-off cached map at a moving sun (D722), the
 night cameras' brightness from run to run (D723). The per-pixel read (D705) and the volume on per tier: 46e.14 (c).
 
+### 46e.14c — the read, the volume on, the final table
+
+The third slice of 46e.14 (c): the light volume's per-pixel read split and cut (D705), the volume switched on per
+tier, the night cameras' two brightnesses traced (D723), and the final table. Commits 40ddf31c (the read in its own
+module, the split switches, the store per tier), db202cac (the cut; D723's fix), 3b4ae4e8 (on at every tier; the
+tests follow), 85f43f16 (docs), …. Work folder `~/.cache/thirdlight-phase46e/work/46e.14c/` (`lib.sh`, `split.sh`,
+`cut.sh`, `near.sh`, `proof.sh`, `orbit.sh`, `travel.sh`, `final.sh`, `chain*.sh`, `gpu.py`, `summ.py`, `cmp.mjs`,
+`sheets.py`, `m/` every raw run with its `*.log` and `*.uptime`, `page/` the owner's sheets, `broken-*.log`,
+`progress.txt`).
+
+**What was built.**
+
+- **The read** (`voxel-light-volume-read.ts`, moved out of `voxel-light-volume.ts`): a level is read only where its
+  window holds one of the bricks the point's eight cells lie in (the coarse levels' windows hold nothing past them:
+  the high view walked three levels of eight cells for nothing); the eight cells are one loop, not eight copies of
+  the code; one index load serves every cell in the first cell's brick; only the faces the normal weights are loaded
+  (`ambientCubeFaceWeights`: n² less the tier's face floor, over their sum; continuous, exact on axis faces); past the
+  tier's `readFullM` level 0 reads the one cell the point half a cell off the surface lies in (on an axis face the
+  cell in front: never across a wall). CPU twin `volumeReadAt(…, faceFloor, nearest)`.
+- **Bench switches** (`?surfaceRead=`, product code read once by the volume; each shot's `storeState.read` names what
+  ran, which is how each was proven to reach Play): `level0`, `coarse`, `index` (the index read, a fixed grey: no
+  face loaded), `nodecode`, `allfaces` (the read as first built: eight copies, an index load and three faces a cell),
+  and the draw kinds `surface`, `kit`, `prop` (a material's `VOLUME_READ_KIND_KEY`, the kit draws'
+  `VOXEL_KIT_PIECE_KEY`). `light-shots --gpu-at LIST` measures at named cameras only.
+- **Tier settings** (project-model `VoxelLightVolumeSettings`, add-only, in `LIGHTING_TIER_SETTINGS`; checked by
+  `voxelLightVolumeSettingsProblems`): `enabled` (the store of a game page's voxel worlds on WebGPU), `readFaceFloor`
+  (0 to `VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX` 0.3), `readFullM`. Low: on, 0, 24 m; medium: on, 0, 32 m; high: on, 0,
+  64 m (default chosen, owner to confirm, §9).
+- **The store per tier** (`voxel-world-draws.ts`, `LightStoreChoice` in `voxel-surface-path.ts`): each frame the
+  level's tier decides (the level may change at run time) on a game page (Play, exports) with WebGPU; WebGL 2 never
+  runs it; `?voxelLight=off|volume` overrides the tier; a bench's or a check's `setStore` stands from then on. The
+  editor's Scene view does not run the volume (today's behaviour: its draws are made without `lighting`).
+- **D723's fix** (`surface-probe-sky.ts`, `environment.ts`): the environment's in-place bakes are counted on the
+  texture (`countEnvironmentBake`) and the sky probe's key holds the count.
+
+**The read's cost (D705)** — measured 2026-11-18 22:41 – 2026-11-19 13:28 UTC, Iris Xe, WebGPU, 1280 × 720, low, the
+30 Hz cap, each run alone (no gate, build or agent; `*.uptime` beside each), the 128-lamp scene's street (noon),
+room (noon) and high (night) cameras, `near` from `measureGpu` (resolution 0.3–3 ms a reading; "below" = under it).
+Every run's exit 1 is the bench's after-measurement picture check (D660's kind: 0.5–17 % of pixels changed after a
+`near` hide), its readings present.
+
+| configuration (one build each block) | street | room | high | runs |
+|---|---|---|---|---|
+| unread (`surfaceRead=0`) | 1.94; below, below | 0.97; below, 0.68 | 5.86; 7.61, 7.56 | `S-noread-r1`; `C-noread-r1,2` |
+| the read as built (`allfaces`) | 6.68; 6.47, 6.56 | 4.70; 4.38, 5.12 | 15.87; 15.36, 15.48 | `S-legacy`, `C-legacy` |
+| its level 0 alone | 4.95; 6.53, 6.69 | 4.46; 5.11, 5.14 | 11.70; 11.60, 11.79 | `S-level0`, `C-level0` |
+| its index read alone (no face loaded) | 4.91; 4.77, 4.82 | 2.96; 3.21, 3.47 | 12.91; 12.05, 11.49 | `S-index`, `C-index` |
+| its words not decoded | 5.02 | 3.79 | 15.34 | `S-nodecode` |
+| voxel surfaces only read | 4.74 | 4.69 | 15.89 | `S-surface` |
+| shared index load, faces by weight (floor 0; 0.15) | 5.86; below | 4.54; 4.62 | 15.93; 15.92 | `S-new`, `S-new15` |
+| the loop, window early-out, blended everywhere | 4.35, 4.20 | 3.35, 3.26 | 13.66, 11.45 | `C-loop` |
+| … one cell past 24 m (**shipped on low**) | 3.92, 3.95; 5.05, 4.49 | 2.63, 3.54; below, 2.97 | 11.24, 11.02; 11.12, 12.31 | `C-full24`, `N-full24` |
+| … one cell past 12 m | 4.36, 3.84 | 3.01, 3.16 | 12.21, 12.76 | `C-full12` |
+| … one cell everywhere | 4.28, 4.39 | 2.40, 2.53 | 11.78, 11.61 | `N-near0` (unread there: below, 2.63 / 0.83, below / 6.49, 6.94) |
+
+Where it went: the coarse levels cost +3.7 ms at the high view (level 0 alone against all), nothing at the street
+and room: a pixel past level 0's window walked the eight cells of three coarse levels whose windows hold nothing
+there. The faces' loads and their decode were +1.8–3 ms (index alone against all), the decode alone within the
+noise; the kit pieces and props within the noise (surfaces only against all). A face floor and shared index loads
+moved nothing measurable: the loads are not the cost. With the windows' early-out and the loop the read is about
+half (street +2.0–2.3, room +2.3–2.5, high +4.4–5.9 against +4.5 / +3.9 / +8.8); reading one cell past 24 m takes the
+high view a little further. **The goal (≤ 1.5 ms at the street and room) is not reached**: one cell a pixel
+everywhere costs what eight do (+2.3 street, +1.6 room, +5 high), so what is left is the read's presence in the lit
+program (its control flow and registers), not its work; a lower-rate read (a half- or quarter-resolution pass with
+a depth- and normal-aware upsample, one more texture in the surface programs, 13 of 16 today) is the way left and is
+not built (D724). Texture units: unchanged (the read binds the same pool and index as before).
+
+**Base (6f3ba5ff) against head (3b4ae4e8), A B A B** (`P-{base,head}-{read,unread}-r{1,2}`, the five cameras and the
+three lamp cameras with 128 lamps, `near` at five of them; both pages with `&voxelLight=volume`): the read's `near`
+over unread
+
+| | street | room | far view | lamps-street | lamps-high |
+|---|---|---|---|---|---|
+| base | +5.0, +3.7 | +3.3, +4.2 | +4.0, +3.2 | +4.3, +4.1 | +10.7, +8.2 |
+| head | +3.4, +2.0 | +2.4, +1.5 | +1.7, +2.4 | +2.0, +2.3 | +5.2, +4.6 |
+
+Pictures (`cmp.mjs`, a pixel differing when a channel moves by more than 10): the head's two rounds 0.04–1.7 %
+apart. Base against head: the night and lamp cameras 0.06–1.3 %, the far view 0.02–0.16 %; the noon street 41–43 %,
+cave 57–59 % (mean 80.7 → 67.3) and room 12–14 %: **the sky fix, not the read**: at the noon cameras the base's volume
+held the sky its probe projected between the look's switch and its bake (skyUp 1.39, 1.77, 2.38 against the baked
+noon's 1.51, 2.18, 3.38, which the base's own far view reads). The read alone, one build (`H-headfull` blended
+everywhere against `H-headdefault` one cell past 24 m): street 0.50 %, room 1.86 %, cave 0.74 %, the others
+0.003–0.37 % (run to run 0.1–1.2 %). Looked at: `cmp-read-full-24.png` (the room and the high view, blended
+everywhere | 24 m): nothing to tell apart; `cmp-P-street-cave.png` (base | head, street and cave): the head's
+street a little bluer in the shade, its cave walls darker toward the back (the noon sky as baked).
+
+**D723, the night cameras' two brightnesses** — traced and fixed (db202cac): the volume's sky read the day's in the
+bright runs (`storeState.skyUp` 1.38 / 2.02 / 3.16 against 0.005 / 0.007 / 0.014). A look switched at once changes
+the environment's numbers that frame (intensity, the held lights) and bakes its sky's light into the same render
+target up to a second later (`rebakeIbl`, at most every 30 frames); the probe keyed on the texture's uuid and version,
+which a bake in place leaves the same, so a probe that projected between the two kept the old sky. The engine's, small:
+the bake count on the texture, in the probe's key; vitest `surface-probe-sky.test.ts` (broken without the count:
+`broken-sky-probe-no-bake-key-vitest.log`, "expected 2 to be 3"). It also changed the noon cameras (above).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
