@@ -65,6 +65,8 @@
  *                 without them, the light volume's cells of the two readings (`propShade`: the cart's shaded ground and
  *                 its control west of the lamp, the floor under the table and a control beside it) are read at every
  *                 camera, and each shot keeps the simulation's stamping and walk packing spans (`propSpans`)
+ *   --particles   a lit particle panel (bench-particles.ts) 2.5 m in front of each of the four near cameras, made before
+ *                 Play and deleted after; each shot keeps the picture's middle colour (`panel`): the panel as it is lit
  *   --reference FILE  at each camera the light volume's room cells read back beside the CPU path-traced reference's
  *                 variants in FILE (`{ variants: [{ name, rays, bounces, reach?, sunReach?, albedo, means? }] }`)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
@@ -95,6 +97,7 @@ import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, MANY_LAMPS_COMMAND
 import { dayBehaviour, DAY_ARC_DEG, DAY_COMMANDS, DAY_SPEEDS } from './day-cycle';
 import { crackGlowMask, placeholderPng, withAlpha } from './texture-sets';
 import { benchProps, parsePropsOption, placeBenchProps, PROP_READINGS, volumeBoxLight } from './bench-props';
+import { BENCH_PANEL_EFFECT, middleColour, panelPlace, particleEntities, placeBenchParticles } from './bench-particles';
 
 const O = parseLightShotsArgs(process.argv.slice(2));
 /** `--lamps N`: the many-lamps scene of N lights (many-lamps.ts) placed, and its cameras taken after the five (unless `--only` names cameras). */
@@ -102,6 +105,8 @@ const LAMPS = parseLampsOption(process.argv.slice(2));
 const SCENE = LAMPS === 0 ? null : manyLampsScene(LAMPS);
 /** `--props N`: the lit props scene (bench-props.ts) of N props. */
 const PROPS = parsePropsOption(process.argv.slice(2));
+/** `--particles`: the lit panels in front of the near cameras. */
+const PARTICLES = process.argv.includes('--particles');
 const ONLY: readonly string[] = SCENE !== null && !process.argv.includes('--only') ? [...O.only, ...MANY_LAMP_SHOT_NAMES] : O.only;
 const CAMERAS: readonly LightingCamera[] = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS, ...MANY_LAMP_CAMERAS];
 const DATA_ROOT = join(homedir(), 'thirdlight-staging-p45');
@@ -353,6 +358,8 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   const unmask = O.glow && O.glowMask ? await prepareGlowMask(b) : null;
   const unplace = SCENE === null ? null : await placeManyLamps(SCENE, (op, args) => b.command(op, args), sceneEntities);
   const unprop = PROPS === 0 ? null : await placeBenchProps(benchProps(PROPS), PROJECT_DIR, (op, args) => b.command(op, args), sceneEntities);
+  const panels = LIGHTING_CAMERAS.filter((c) => ['street-noon', 'room-window', 'cave', 'night-lamps'].includes(c.name));
+  const unparticle = !PARTICLES ? null : await placeBenchParticles(particleEntities(BENCH_PANEL_EFFECT, panels.map(panelPlace), 'panel'), (op, args) => b.command(op, args), sceneEntities);
   const before = cameraBehaviour(PROJECT_DIR);
   await publishCameraBehaviour(b, PROJECT_DIR, BEHAVIOR, lightShotsSource(CAMERAS, [...(SCENE !== null ? [manyLampsBehaviour(SCENE)] : []), dayBehaviour()], O.glowMask));
   // The camera's own exposure (as a game runs it), set back after.
@@ -367,6 +374,7 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
     }
     await unplace?.().catch((err: unknown) => console.error(`many lamps not taken out: ${String(err)}`));
     await unprop?.().catch((err: unknown) => console.error(`bench props not taken out: ${String(err)}`));
+    await unparticle?.().catch((err: unknown) => console.error(`bench particles not taken out: ${String(err)}`));
     await unmask?.();
     if (glowMaterials) for (const m of BENCH_GLOW_MATERIALS) await b.command('deleteMaterial', { materialId: m.materialId }).catch((err: unknown) => console.error(`${m.materialId} not deleted: ${String(err)}`));
     const cam = sceneEntities().find((e) => e.name === 'Perf far camera');
@@ -638,6 +646,8 @@ async function main(): Promise<void> {
       // cell's faces summed, red: the lava's), and the masked strip's share of the whole strip's.
       const strips = O.glow && store === 'volume' && cam.name === 'night-lamps' ? await glowStripLight(game) : null;
       const shade = store === 'volume' ? await propShade(game) : null;
+      const panel = PARTICLES ? middleColour(shown) : null;
+      if (panel !== null) console.log(`${cam.name}: panel ${JSON.stringify(panel)}`);
       if (shade !== null) console.log(`${cam.name}: prop shade ${JSON.stringify(shade)}`);
       console.log(`${cam.name}: blotch ${JSON.stringify(blotch)}`);
       let reference: unknown = null;
@@ -766,6 +776,7 @@ async function main(): Promise<void> {
         lights: await canvasLights(game),
         ...(strips !== null ? { glowStrips: strips } : {}),
         ...(shade !== null ? { propShade: shade } : {}),
+        ...(panel !== null ? { panel } : {}),
         propSpans: propSpans(report),
         ...(SCENE !== null ? { glowPatches: { painted: counters['ml_glow_painted'] ?? 0, refused: counters['ml_glow_refused'] ?? 0, of: SCENE.glow.length } } : {}),
         ...(gpuHere ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),

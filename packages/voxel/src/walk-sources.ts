@@ -9,6 +9,11 @@
  * - **Mip levels** are a node's newest result; a node derived to nothing
  *   drawn (all air or all buried) is not known there, so the walk looks
  *   further (the far node, or air).
+ * - **Props** marked to affect lighting stop light too where a world has
+ *   their channel (prop-channel.ts): a level-0 cell stops the light stop
+ *   where the voxels' coverage joined with the props' reaches
+ *   {@link LIGHT_STOP_COVERAGE} (`coverageAt`'s rule), so the walk reads one
+ *   occupancy for light. The mips and far nodes are the voxels' alone.
  * - **Far nodes** are the bricks of the nodes the far field draws, copied
  *   as they go to the page (their samples, brick table and boxes; not their
  *   looks), dropped as they go from it, counted in the world's resident
@@ -84,6 +89,58 @@ export function derivedWalkView(d: DerivedData, stop: WalkStop): WalkBlockView {
   return { flag: OCCUPANCY.mixed, brick: (i) => (occ.flag === OCCUPANCY.solid || brickFlag(occ, i) !== OCCUPANCY.empty ? OCCUPANCY.mixed : OCCUPANCY.empty), cell: (i) => lightStops(occ, light, i), column };
 }
 
+/** What a walk source reads of a world's prop channel: a resident chunk's coverage bytes (null: no prop covers it; undefined: not built). */
+export interface WalkPropCoverage {
+  chunk(cx: number, cy: number, cz: number): Uint8Array | null | undefined;
+}
+
+/**
+ * A level-0 block's light-stop view with the props over it: a cell also stops where its own coverage joined with the
+ * props' (`lightCoverageAt`) reaches {@link LIGHT_STOP_COVERAGE}. `props`: the storage chunk's bytes, the block's cells
+ * at `(ox, oy, oz)` in it (`csh`: the chunk's edge as a shift), `e` cells a side; `light`: the block's own coverage
+ * (null: air). The view as it was where no prop stops anything.
+ */
+export function propStopView(base: WalkBlockView, light: LightOut | null, props: Uint8Array, ox: number, oy: number, oz: number, e: number, csh: number): WalkBlockView {
+  let mask: Uint32Array | null = null;
+  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
+    const row = (((ox + x) << csh) | (oz + z)) << csh;
+    for (let y = 0; y < e; y++) {
+      const p = props[row | (oy + y)]!;
+      if (p === 0) continue;
+      const i = (x * e + z) * e + y;
+      if ((light === null ? p : lightCoverageAt(light, i, p)) < LIGHT_STOP_COVERAGE) continue;
+      (mask ??= new Uint32Array(Math.ceil((e * e * e) / 32)))[i >>> 5]! |= 1 << (i & 31);
+    }
+  }
+  if (mask === null) return base;
+  const m: Uint32Array = mask;
+  const bit = (i: number): boolean => ((m[i >>> 5]! >>> (i & 31)) & 1) === 1;
+  const n = e >> 2;
+  // A brick holds a prop's stopping cell when any of its 16 columns' four cells does.
+  const propBrick = (i: number): boolean => {
+    const by = i % n;
+    const bz = ((i - by) / n) % n;
+    const bx = Math.floor(i / (n * n));
+    for (let x = bx * 4; x < bx * 4 + 4; x++) for (let z = bz * 4; z < bz * 4 + 4; z++) if (((maskBits(m, (x * e + z) * e, e) >>> (by * 4)) & 15) !== 0) return true;
+    return false;
+  };
+  return {
+    flag: base.flag === OCCUPANCY.solid ? OCCUPANCY.solid : OCCUPANCY.mixed,
+    brick: (i) => {
+      const f = base.brick(i);
+      return f === OCCUPANCY.solid ? f : propBrick(i) ? OCCUPANCY.mixed : f;
+    },
+    cell: (i) => base.cell(i) || bit(i),
+    column: (c) => {
+      let own = 0;
+      if (base.column !== undefined) own = base.column(c);
+      else if (base.flag === OCCUPANCY.solid) own = e === 32 ? 0xffffffff : (1 << e) - 1;
+      else if (base.flag !== OCCUPANCY.empty) for (let y = 0; y < e; y++) if (base.cell(c * e + y)) own |= 1 << y;
+      return (own | maskBits(m, c * e, e)) >>> 0;
+    },
+  };
+}
+
 /** What a walk source reads of a streamer. */
 export interface WalkStreamerView {
   readonly sections: { readonly shift: number };
@@ -96,11 +153,14 @@ export interface WalkStreamerView {
 
 /**
  * A walk source over a streamer (`far`: the far nodes drawn, kept for walks; absent: none) — `mips: false` reads
- * level 0 alone.
+ * level 0 alone; `props`: the world's prop channel, joined into the light stop at level 0 (absent: the voxels alone).
  */
-export function streamerWalkSource(s: WalkStreamerView, far?: FarWalkNodes | null, opts: { readonly mips?: boolean } = {}): WalkSource {
+export function streamerWalkSource(s: WalkStreamerView, far?: FarWalkNodes | null, opts: { readonly mips?: boolean; readonly props?: WalkPropCoverage | null } = {}): WalkSource {
   const mips = opts.mips === false ? null : s.mips;
+  const props = opts.props ?? null;
   const cell = { material: 0, role: 0, shape: 0, wetness: 0 };
+  const per = s.grid.shift - s.sections.shift;
+  const sectionMask = (1 << per) - 1;
   return {
     maxLevel: mips?.maxLevel ?? 0,
     blockShift: (level) => (level === 0 ? s.sections.shift : s.grid.shift),
@@ -108,7 +168,11 @@ export function streamerWalkSource(s: WalkStreamerView, far?: FarWalkNodes | nul
       if (level === 0) {
         const r = s.derivedOf(bx, by, bz, true);
         if (r === null) return null;
-        return r.assembly === null ? WALK_EMPTY_VIEW : derivedWalkView(r.assembly, stop);
+        const base = r.assembly === null ? WALK_EMPTY_VIEW : derivedWalkView(r.assembly, stop);
+        const c = stop === 'light' && props !== null ? props.chunk(bx >> per, by >> per, bz >> per) : null;
+        if (c == null) return base;
+        const sh = s.sections.shift;
+        return propStopView(base, r.assembly?.light ?? null, c, (bx & sectionMask) << sh, (by & sectionMask) << sh, (bz & sectionMask) << sh, 1 << sh, s.grid.shift);
       }
       const d = mips?.derivedOf(level, bx, by, bz) ?? null;
       return d === null ? null : derivedWalkView(d, stop);

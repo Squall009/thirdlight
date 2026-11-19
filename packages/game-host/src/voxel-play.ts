@@ -81,11 +81,14 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             return fine;
           },
           pieces: (table ??= worldPieceTable(kits, seed)),
-          present: (stream, sectionEdge, regions) => {
-            conn.present?.(stream, sectionEdge, regions);
+          present: (stream, sectionEdge, regions, props) => {
+            conn.present?.(stream, sectionEdge, regions, props);
             // The batches carry the walk's blocks for the page's GPU walk while it has a reader (levels 0 and up; the far
-            // field stays the CPU's) and the sky heights the open regions found, for lighting on the page.
-            mine = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: { source: streamerWalkSource(stream), blocks: () => streamerWalkBlocks(stream) }, walkFeed: walk, ...(regions !== undefined ? { sky: regions } : {}) });
+            // field stays the CPU's; the lit props in the light stop, each change of theirs a block's change) and the sky
+            // heights the open regions found, for lighting on the page.
+            const batcher = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: { source: streamerWalkSource(stream, null, { props: props ?? null }), blocks: () => streamerWalkBlocks(stream) }, walkFeed: walk, ...(regions !== undefined ? { sky: regions } : {}) });
+            props?.listen((cx, cy, cz) => batcher.walkChanged(0, cx, cy, cz));
+            mine = batcher;
             batchers.set(world, mine);
             streams.set(world, stream);
           },

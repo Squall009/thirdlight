@@ -439,7 +439,7 @@ export { bakeFarBrick, bakeFineFarBrick, FAR_BRICK_AO_FLOOR, FAR_BRICK_BAKED_BYT
 export { FAR_BAKED_LEVELS, FAR_ENTRY_CACHE_BYTES, FAR_ERROR_PIXELS_BY_TIER, FAR_ERROR_PIXELS_RANGE, FAR_FIELD_BY_TIER, FAR_FIELD_MODES, FAR_GPU_BUDGET_BYTES_BY_TIER, FAR_JOBS_IN_FLIGHT, FAR_RESELECT_CELLS, FAR_VIEW_PIXELS_PER_RADIAN, FarField, farEventBytes, farViewOf, regionFarSource, type FarCacheLevelFiles, type FarDrawKind, type FarEvent, type FarFieldHost, type FarFieldMode, type FarFieldOptions, type FarNearRing, type FarNodeDraw, type FarNodeSource, type FarStandIns, type RegionFarSourceOptions } from './far-field';
 export { deriveMipNode, MipTree, type MipLevelView, type MipSource } from './mip-derive';
 export { buildFaceSeam, seamBytes, SEAM_PIECE_PAD_CELLS, SEAM_RIM_CELLS, SEAM_WALK_STEPS, type FaceSeam, type NodeFace, type SeamCounts, type SeamFaceInput, type SeamPiece, type SeamSurface } from './lod-seam';
-export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCoverageChunk, type PropShape } from './prop-coverage';
+export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCellBox, propCoverageChunk, propCoverageLocal, type PropLocalCoverage, type PropShape } from './prop-coverage';
 export { PROP_COVERAGE_PART, PropLightChannel, type PropChannelHost } from './prop-channel';
 export { VoxelOverlay } from './voxel-overlay';
 export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, shippedFarFile, shippedFarSource, shippedVoxelWorldsProblem, wholeFileByteSource, type ShippedFarCache, type ShippedVoxelFile, type ShippedVoxelWorld } from './shipped-world';
@@ -449,7 +449,7 @@ export { FAR_SEEN_RELEASE_SHARE, FAR_SEEN_RESELECT_MS, FAR_SEEN_STRIDE, FAR_SEEN
 export { countGround, emptyCoverage, groundAt, type GroundCoverage, type GroundGap, type GroundQuery } from './stream-coverage';
 export { walkBeforeSteps, walkCrossSteps, walkFaceRel, walkFirstSteps, walkRay, WALK_INV_NONE, type WalkRay } from './walk-steps';
 export { LIGHT_STOP_COVERAGE, WALK_MAX_STEPS, WALK_STOPS, walkVoxels, type WalkBlockView, type WalkEnd, type WalkFarNode, type WalkHit, type WalkOptions, type WalkResult, type WalkSource, type WalkStop } from './occupancy-walk';
-export { derivedWalkView, FarWalkNodes, lightStops, streamerWalkBlocks, streamerWalkSource, WALK_EMPTY_VIEW, WALK_SOLID_VIEW, type WalkBlocksView, type WalkStreamerView } from './walk-sources';
+export { derivedWalkView, FarWalkNodes, lightStops, propStopView, streamerWalkBlocks, streamerWalkSource, WALK_EMPTY_VIEW, WALK_SOLID_VIEW, type WalkBlocksView, type WalkPropCoverage, type WalkStreamerView } from './walk-sources';
 export { applyWalkWires, packWalkBlock, pageWalkView, WALK_BLOCK_SHIFT, WALK_BRICK_WORDS, WALK_CELL_WORDS, WALK_EMPTY_KEY, WALK_ENTRY_WORDS, WALK_MAX_PROBES, WALK_PAGE_WORDS, WalkBlockFeed, walkHash, walkKey, walkPageOffsets, WalkTable, type WalkBlockWire, type WalkPacked } from './walk-pages';
 export { WALK_BENCH_KINDS, walkBenchRandom, walkBenchRays, type WalkBatchRay, type WalkBenchKind } from './walk-bench';
 export { airRegions, ALL_FACE_PAIRS, ALL_REGION_FACES, facePairBit, openRegionsArrays, openRegionsBytes, openRegionsOf, REGION_FACE, REGION_PORTAL, regionLabelAt, regionSkyAt, solidRegions, type OpenRegionsOut } from './open-regions';

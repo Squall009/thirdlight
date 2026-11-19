@@ -1388,7 +1388,7 @@ describe('prop lighting-occupancy channel', () => {
     expect(lightCoverageAt(d.light, li(1, 1, 7), 128)).toBe(128);
   });
 
-  it('keeps a channel per resident chunk: a move rebuilds only the chunks the prop left and entered, equal to a fresh build, counted as a budget part', () => {
+  it('keeps a channel per resident chunk: a move recombines only the chunks the prop left and entered, equal to a fresh build, counted as a budget part', () => {
     const parts = new Map<string, number>();
     const built: string[] = [];
     const channel = new PropLightChannel({ grid, setPart: (cx, cy, cz, part, bytes) => (expect(part).toBe(PROP_COVERAGE_PART), parts.set(`${cx},${cy},${cz}`, bytes), true) }, 0.5);
@@ -1416,6 +1416,10 @@ describe('prop lighting-occupancy channel', () => {
     expect(place('crate', crate([0.1, 1.3, -0.2]))).toEqual([]);
     for (const [cx, cy, cz] of resident) channel.loaded(cx, cy, cz);
     expect(built.length).toBe(resident.length);
+    // The crate is sampled by its stamp once a chunk it touches is resident (the loads only combine what is sampled).
+    expect(channel.pending).toBe(true);
+    channel.flush();
+    expect(built.length).toBe(resident.length + 4);
     fresh();
     expect(place('tree', sphere(3, [8.3, 1.1, 8.2]))).toEqual(['0,-1,0', '0,0,0']);
     fresh();
@@ -1445,11 +1449,11 @@ describe('prop lighting-occupancy channel', () => {
     expect(channel.at(16, 2, 16)).toBeGreaterThan(0);
     expect(channel.at(16, 2, 16)).toBe(channel.chunk(0, 0, 0)![(((16 << 5) | 16) << 5) | 2]);
 
-    // Costs: a 3 m canopy moved 0.25 m at a time across chunk faces (its chunks rebuilt each move), and the bytes.
+    // Costs: a 3 m canopy moved 0.25 m at a time across chunk faces (sampled again and its cells recombined each move), and the bytes.
     for (let i = 0; i < 200; i++) channel.place('tree', sphere(3, [8.3 + 0.25 * (i % 40), 1.1, 8.2 + 0.25 * (i % 40)]));
     const us = channel.changeUs;
     const st = channel.stats();
-    console.log(`prop move (3 m sphere, 1–4 chunks rebuilt): p50 ${us.quantile(0.5).toFixed(0)} µs, p95 ${us.quantile(0.95).toFixed(0)} µs; channel: ${st.chunks} chunks, ${st.covered} covered, ${st.bytes} B`);
+    console.log(`prop move (3 m sphere, 1–4 chunks recombined): p50 ${us.quantile(0.5).toFixed(0)} µs, p95 ${us.quantile(0.95).toFixed(0)} µs; channel: ${st.chunks} chunks, ${st.covered} covered, ${st.bytes} B, samples ${st.sampledBytes} B`);
     expect(st.bytes).toBe(st.covered * grid.cellsPerChunk);
   });
 });

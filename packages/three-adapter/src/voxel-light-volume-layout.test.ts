@@ -497,9 +497,9 @@ function roomCell(x: number, y: number, z: number): boolean {
 
 describe("the surfaces' read by the page's flag", () => {
   it('reads everything unless the flag names a part, and nothing at 0', () => {
-    const all = VOLUME_READ_KINDS.surface | VOLUME_READ_KINDS.kit | VOLUME_READ_KINDS.prop;
-    expect(volumeReadFlag(null)).toEqual({ read: true, levels: 'all', probe: 'light', allFaces: false, kinds: all });
-    expect(volumeReadFlag('1')).toEqual({ read: true, levels: 'all', probe: 'light', allFaces: false, kinds: all });
+    const all = VOLUME_READ_KINDS.surface | VOLUME_READ_KINDS.kit | VOLUME_READ_KINDS.prop | VOLUME_READ_KINDS.particle;
+    expect(volumeReadFlag(null)).toEqual({ read: true, levels: 'all', probe: 'light', allFaces: false, kinds: all, particlePixel: false });
+    expect(volumeReadFlag('1')).toEqual({ read: true, levels: 'all', probe: 'light', allFaces: false, kinds: all, particlePixel: false });
     expect(volumeReadFlag('0').read).toBe(false);
     expect(volumeReadFlag('level0').levels).toBe('level0');
     expect(volumeReadFlag('coarse').levels).toBe('coarse');

@@ -521,6 +521,17 @@ export class ChunkDrawBatcher {
     if (w.pending) this.queue();
   }
 
+  /**
+   * What the walk reads of a chunk (level 0) or node changed other than through the stream's events (a lit prop's
+   * coverage): its block is packed again for the page while the feed is on.
+   */
+  walkChanged(level: number, x: number, y: number, z: number): void {
+    const w = this.walkOn > 0 && !this.closed ? this.walkFeed : null;
+    if (w === null) return;
+    w.touch(level, x, y, z);
+    this.queue();
+  }
+
   /** Walk blocks packed (or found gone) for the page so far, and sent and not removed since. */
   get walkCounts(): { readonly packed: number; readonly held: number } {
     return { packed: this.walkFeed?.packed ?? 0, held: this.walkFeed?.held ?? 0 };

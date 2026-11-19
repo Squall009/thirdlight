@@ -15,12 +15,12 @@ import * as TSLTyped from 'three/tsl';
 import type { N } from './effects-tsl';
 import { KEPT_IRRADIANCE } from './probe-lighting';
 import { texelTexture } from './texel-texture-node';
-import { ambientCubeFaceWeights, ambientCubeSteps, VOLUME_BRICK_CELLS, VOLUME_BRICK_TEXELS, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_READ_KEY, VOLUME_READ_KIND_KEY, VOLUME_READ_KINDS, VOLUME_READ_OFFSET_CELLS, VOLUME_WORD, volumeCellM, volumeReadFlag, type VolumeReadFlag, type VolumeReadKind } from './voxel-light-volume-layout';
+import { ambientCubeFaceWeights, ambientCubeSteps, VOLUME_BRICK_CELLS, VOLUME_BRICK_TEXELS, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_PARTICLE_CENTRE_KEY, VOLUME_READ_KEY, VOLUME_READ_KIND_KEY, VOLUME_READ_KINDS, VOLUME_READ_OFFSET_CELLS, VOLUME_WORD, volumeCellM, volumeReadFlag, type VolumeReadFlag, type VolumeReadKind } from './voxel-light-volume-layout';
 import { TSL_SCALAR_OPS } from './field-ops';
 import { VOXEL_KIT_PIECE_KEY } from './voxel-piece-draw';
 
 const TSL: N = TSLTyped;
-const { If, Loop, cameraPosition, float, int, ivec2, luminance, max, mix, normalWorld, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, uint, uniform, vec3 } = TSL;
+const { Fn, If, Loop, bool, cameraPosition, float, int, ivec2, luminance, max, mix, normalWorld, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, uint, uniform, vec3, vec4, vertexStage } = TSL;
 
 /** What the read reads of the store: its pool and index textures and each level's window corner (uniforms). */
 export interface VolumeReadSource {
@@ -86,14 +86,29 @@ class VoxelVolumeLightNode extends (THREE.Node as unknown as new () => { updateT
   setup(builder: N): void {
     const m = builder.material as { userData?: Record<string, unknown> } | undefined;
     const flag = this.light.flag;
-    // Every lit draw reads it (voxel surfaces, kit pieces, props, moving objects: one light for all) but one that says
-    // not to: a screen-space shade whose pixel is not its geometry's (the far field's).
+    // Every lit draw reads it (voxel surfaces, kit pieces, props, moving objects, lit particles: one light for all) but
+    // one that says not to: a screen-space shade whose pixel is not its geometry's (the far field's).
     if (!flag.read || m?.userData?.[VOLUME_READ_KEY] === false || builder.renderer?.backend?.isWebGPUBackend !== true) return;
-    const kind: VolumeReadKind = m?.userData?.[VOLUME_READ_KIND_KEY] === 'surface' ? 'surface' : (builder.object as THREE.Object3D | undefined)?.userData?.[VOXEL_KIT_PIECE_KEY] === true ? 'kit' : 'prop';
+    const own = m?.userData?.[VOLUME_READ_KIND_KEY];
+    const kind: VolumeReadKind = own === 'surface' || own === 'particle' ? own : (builder.object as THREE.Object3D | undefined)?.userData?.[VOXEL_KIT_PIECE_KEY] === true ? 'kit' : 'prop';
     if ((flag.kinds & VOLUME_READ_KINDS[kind]) === 0) return;
     const ctx = builder.context;
-    const nearest = positionWorld.sub(cameraPosition).length().greaterThan(this.light.fullM);
-    const r = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, positionWorld, normalWorldGeometry.normalize(), normalWorld, this.light.faceFloor, nearest, flag);
+    let r: { light: N; weight: N };
+    if (kind === 'particle' && !flag.particlePixel) {
+      // A lit particle reads once a vertex at its centre, facing the eye, and its pixels take that (particles overdraw:
+      // a read a pixel would be paid many times over; across a particle the light changes little).
+      const centre = (m?.userData?.[VOLUME_PARTICLE_CENTRE_KEY] as N | undefined) ?? positionWorld;
+      const toEye = cameraPosition.sub(centre).normalize();
+      const read = Fn(() => {
+        const v = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, centre, vec3(0), toEye, this.light.faceFloor, bool(true), flag);
+        return vec4(v.light, v.weight);
+      });
+      const at = vertexStage(read());
+      r = { light: at.xyz, weight: at.w };
+    } else {
+      const nearest = positionWorld.sub(cameraPosition).length().greaterThan(this.light.fullM);
+      r = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, positionWorld, normalWorldGeometry.normalize(), normalWorld, this.light.faceFloor, nearest, flag);
+    }
     const w = r.weight;
     const replaced = ctx.irradiance.sub(KEPT_IRRADIANCE).add(ctx.iblIrradiance);
     const darker = luminance(r.light).div(max(luminance(replaced), float(1e-4))).clamp(0, 1);

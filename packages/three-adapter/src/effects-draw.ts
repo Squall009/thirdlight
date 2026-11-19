@@ -30,6 +30,7 @@ import { EffectLights, EffectLightSlot } from './effect-lights';
 import type { GpuPlaySystem } from './effects-gpu-batch';
 import type { N } from './effects-tsl';
 import { motionFrameSeconds, needsPreviousPlace, OWN_PREVIOUS_POSITION_KEY } from './motion-vectors';
+import { VOLUME_PARTICLE_CENTRE_KEY, VOLUME_READ_KIND_KEY } from './voxel-light-volume-layout';
 
 const TSL: N = TSLTyped;
 const { float, vec2, vec3, vec4, select, uniform, varying } = TSL;
@@ -257,6 +258,15 @@ function cameraAxes(): { right: N; up: N; forward: N } {
   return { right, up, forward: back.negate() };
 }
 
+/**
+ * A particle material reads the light volume as a particle (when it is lit at all): once a vertex at `centre` (the
+ * particle's centre in world space; absent: each vertex where it is), not once a pixel.
+ */
+function particleRead(m: THREE.Material, centre?: N): void {
+  m.userData[VOLUME_READ_KIND_KEY] = 'particle';
+  if (centre !== undefined) m.userData[VOLUME_PARTICLE_CENTRE_KEY] = centre;
+}
+
 /** The shading of a particle material: built-in unlit/lit, or a project material. */
 function shadedMaterial(ctx: DrawContext, block: CompiledNode): { material: THREE.NodeMaterial; base: N | null; baseOpacity: N | null } {
   const shading = String(block.fields['shading'] ?? 'unlit');
@@ -321,6 +331,7 @@ class BillboardRenderer implements OutputRenderer {
     const size = d.sizeRot.x.mul(d.alive);
     const q = vec2(corner.x.mul(c).sub(corner.y.mul(s)), corner.x.mul(s).add(corner.y.mul(c))).mul(size);
     material.positionNode = withParticleMotion(material, center, velW, (c) => c.add(right.mul(q.x)).add(up.mul(q.y)));
+    particleRead(material, center);
     if (material instanceof THREE.MeshStandardNodeMaterial || String(f['shading']) === 'material') {
       const nW = TSL.cross(right, up);
       material.normalNode = TSL.normalize(TSL.cameraViewMatrix.mul(vec4(nW, 0)).xyz);
@@ -463,6 +474,7 @@ class MeshParticleRenderer implements OutputRenderer {
     const scale = d.sizeRot.x.mul(d.alive);
     // Local → world scale of a local-space system (uniform scale assumed for the model).
     m.positionNode = withParticleMotion(m, center, local ? M.mul(vec4(d.velLife.xyz, 0)).xyz : d.velLife.xyz, (c) => c.add(turn(TSL.positionGeometry).mul(scale)));
+    particleRead(m, center);
     m.normalNode = TSL.normalize(TSL.cameraViewMatrix.mul(vec4(turn(TSL.normalGeometry), 0)).xyz);
     const vColor = varying(d.color);
     m.colorNode = vec4(vec4(base).xyz.mul(vColor.xyz), 1);
@@ -543,6 +555,7 @@ class RibbonRenderer implements OutputRenderer {
     material.colorNode = vec4(blend === 'multiply' ? tinted.mul(alpha) : tinted, 1);
     material.opacityNode = alpha;
     if (material instanceof THREE.MeshStandardNodeMaterial) material.normalNode = vec3(0, 0, 1);
+    particleRead(material);
     applyBlend(material, blend);
     this.object = new THREE.Mesh(this.geometry, material);
     this.object.frustumCulled = false;

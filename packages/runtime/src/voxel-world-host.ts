@@ -17,10 +17,13 @@
  * the group and the change is reported at the next step.
  *
  * Lighting occupancy: the props marked `affectsLighting` are stamped into
- * a channel a resident chunk (`PropLightChannel`), built when the chunk
- * loads and rebuilt where a prop is placed, moves or goes, counted in the
- * stream budget and never saved; `coverageAt` reads it joined with the
- * construction's own coverage from the drawn derive results.
+ * a channel a resident chunk (`PropLightChannel`), combined when the chunk
+ * loads and where a prop is placed, moves or goes (each prop sampled once
+ * where it stands, the stamps spread over steps in the derive slice),
+ * counted in the stream budget and never saved; `coverageAt` reads it
+ * joined with the construction's own coverage from the drawn derive
+ * results, and the walk's light stop reads it with the voxels (rays here,
+ * and the page's walk blocks through the presentation).
  *
  * Saves: `save()` writes the overlay's changes as a voxel save file (the
  * fields the game marks saved, a base hash per chunk) once the bases of
@@ -117,6 +120,8 @@ const RAYCAST_SPAN = threadProfiler.span('voxel rays', 'scripts');
 const REGIONS_SPAN = threadProfiler.span('open regions stitched', 'voxelStream');
 /** Keeping the far nodes' bricks for the walk where the world runs (copied as their draws leave for the page). */
 const FAR_WALK_SPAN = threadProfiler.span('far walk nodes kept', 'voxelStream');
+/** Stamping the lit props into the lighting occupancy (prop-channel.ts), in the derive's slice. */
+const PROP_STAMP_SPAN = threadProfiler.span('prop light stamped', 'voxelStream');
 /** A world's stats for the diagnostics: the streamer's, the open regions' and the far field's counts. */
 const STATS_SPAN = { stream: threadProfiler.span('voxel stats: streamer', 'other'), regions: threadProfiler.span('voxel stats: open regions', 'other'), far: threadProfiler.span('voxel stats: far field', 'other'), rest: threadProfiler.span('voxel stats: the rest', 'other') };
 
@@ -147,9 +152,10 @@ export interface VoxelWorldConnection {
    * what draws the world: it listens to the streamer's events and joins the
    * chunks it announces. `sectionEdge`: the world's derive section edge;
    * `regions`: the world's open regions as stitched here (their sky heights
-   * travel with the draws).
+   * travel with the draws); `props`: the world's prop lighting channel (the
+   * walk's light stop joins it, and its changes are walk changes).
    */
-  present?(stream: VoxelStreamer, sectionEdge: number, regions?: OpenRegionStitch): void;
+  present?(stream: VoxelStreamer, sectionEdge: number, regions?: OpenRegionStitch, props?: PropLightChannel): void;
 }
 
 /** How the runtime reaches a project's voxel worlds (absent: a game's voxel worlds stream nothing and read null). */
@@ -405,7 +411,7 @@ export class VoxelWorldHost {
         }
       });
     this.farWalk = farWalk;
-    this.walkSource = streamerWalkSource(streamer, farWalk);
+    this.walkSource = streamerWalkSource(streamer, farWalk, { props: channel });
     this.unresidentWalk?.();
     this.unresidentWalk = farWalk === null ? null : residentBytes.register('voxelStream', () => farWalk.bytes);
     const regions = new OpenRegionStitch(streamer);
@@ -413,7 +419,7 @@ export class VoxelWorldHost {
     this.unresidentRegions?.();
     this.unresidentRegions = residentBytes.register('regionStitch', () => regions.bytes);
     streamer.on((e) => this.onStream(e));
-    conn.present?.(streamer, s.sectionEdge, regions);
+    conn.present?.(streamer, s.sectionEdge, regions, channel);
   }
 
   /**
@@ -566,6 +572,18 @@ export class VoxelWorldHost {
     const collide = [...(s.detail.fast ? [] : [f]), ...bodies, ...ahead];
     s.collision?.setFoci(collide);
     s.update();
+    const channel = this.channel;
+    if (channel?.pending === true) {
+      // The props' stamps in the derive slice, as its other streaming work: a scene's props arriving at once take steps.
+      threadProfiler.begin(PROP_STAMP_SPAN);
+      try {
+        const t0 = performance.now();
+        const ms = frameSliceMs('voxelDerive');
+        channel.update(() => performance.now() - t0 < ms);
+      } finally {
+        threadProfiler.end(PROP_STAMP_SPAN);
+      }
+    }
     if (this.regions?.pending === true) {
       // The derive slice: stitching follows the chunks the derives let through, a share of the same streaming work.
       threadProfiler.begin(REGIONS_SPAN);
@@ -660,8 +678,9 @@ export class VoxelWorldHost {
 
   /**
    * Props marked `affectsLighting` placed or moved (their shapes where they
-   * now are) or gone (null), together: each chunk any of them left or
-   * entered is rebuilt once.
+   * now are) or gone (null), together: recorded now, stamped in the steps'
+   * derive slices (each prop sampled once, the cells it left and entered
+   * combined again).
    */
   stampProps(changes: readonly (readonly [string, PropShape | null])[]): void {
     if (this.disposed || changes.length === 0) return;

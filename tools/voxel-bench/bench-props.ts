@@ -137,7 +137,7 @@ export async function placeBenchProps(props: readonly BenchProp[], projectDir: s
   const left = await clear();
   if (left > 0) console.log(`bench props: ${left} left by an earlier run taken out`);
   const bounds = benchPropBounds(projectDir);
-  await command('pasteEntities', { entities: props.map((p, i) => benchPropEntity(p, bounds, `bench-prop-${i}`)), parentId: null });
+  await command('pasteEntities', { entities: props.map((p, i) => benchPropEntity(p, bounds, `bench-prop-${i}`)), sceneId: 'scene-main' });
   console.log(`bench props: ${props.length} placed (${props.filter((p) => p.moves !== undefined).length} moving)`);
   return async () => {
     const n = await clear();

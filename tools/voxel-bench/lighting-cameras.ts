@@ -196,7 +196,7 @@ export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   moved(LIGHTING_CAMERAS[1]!, 'room-window-2m', 'shot11', 2),
   // The lit props' readings (bench-props.ts PROP_READINGS): the cart east of the third street lamp at night, from across
   // the street, and the table by the room camera's window wall at noon, from the room's middle.
-  { name: 'props-cart', command: 'shot15', eye: [17, 2.2, -30.5], yaw: yawOf(-5, 5), pitch: 0.12, preset: 'bench-night', near: true, shows: 'at night, the bench cart beside the third street lamp and the ground east of it in its shade' },
+  { name: 'props-cart', command: 'shot15', eye: [18, 3.2, -27.2], yaw: yawOf(-5.5, 1.7), pitch: 0.5, preset: 'bench-night', near: true, shows: 'at night, the bench cart beside the third street lamp and the ground east of it in its shade' },
   { name: 'props-table', command: 'shot16', eye: [0.5, 1.9, 3.5], yaw: yawOf(-3.9, -2.7), pitch: 0.3, preset: 'bench-noon', near: true, shows: 'at noon, the bench table under the room camera’s window wall and the floor under it' },
 ]);
 

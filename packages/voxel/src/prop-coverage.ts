@@ -56,14 +56,66 @@ export function propBounds(p: PropShape): { min: number[]; max: number[] } {
   return { min, max };
 }
 
+/** A prop's host cells: the first cell of its box and the box's size in cells (from its bounds). */
+export function propCellBox(p: PropShape, cellM: number): { lo: [number, number, number]; size: [number, number, number] } {
+  const b = propBounds(p);
+  const lo = [0, 1, 2].map((a) => Math.floor(b.min[a]! / cellM)) as [number, number, number];
+  const size = [0, 1, 2].map((a) => Math.floor(b.max[a]! / cellM) + 1 - lo[a]!) as [number, number, number];
+  return { lo, size };
+}
+
+/** Sample points of host cell (x, y, z) (world cells) inside a prop: the one sampling every coverage of a prop is made of. */
+function insideCount(p: PropShape, x: number, y: number, z: number, cellM: number, inv: number): number {
+  const n = PROP_SAMPLES_PER_AXIS;
+  const [c, s] = p.yaw;
+  let inside = 0;
+  for (let i = 0; i < n; i++) for (let k = 0; k < n; k++) for (let j = 0; j < n; j++) {
+    // A sample point in host metres, then into the prop's own frame (inverse yaw, scale).
+    const wx = (x + (i + 0.5) / n) * cellM - p.position[0];
+    const wy = (y + (j + 0.5) / n) * cellM - p.position[1];
+    const wz = (z + (k + 0.5) / n) * cellM - p.position[2];
+    if (p.inside((c * wx - s * wz) * inv, wy * inv, (s * wx + c * wz) * inv)) inside++;
+  }
+  return inside;
+}
+
+/** A covered share of a cell's samples as a coverage byte. */
+const coverByte = (inside: number): number => Math.round((inside * 255) / (PROP_SAMPLES_PER_AXIS * PROP_SAMPLES_PER_AXIS * PROP_SAMPLES_PER_AXIS));
+
 /**
- * A chunk's prop channel, rebuilt from the props over it: one coverage
- * byte per cell (local index), or null when no prop covers any of it.
+ * A prop's own coverage: one byte a host cell of its box (`lo`, `size` as {@link propCellBox}; index
+ * `(x · size[2] + z) · size[1] + y`), sampled once where it stands; `cells`: those it covers at all. A chunk's channel
+ * is these combined, cell for cell what {@link propCoverageChunk} samples.
+ */
+export interface PropLocalCoverage {
+  readonly lo: readonly [number, number, number];
+  readonly size: readonly [number, number, number];
+  readonly bytes: Uint8Array;
+  readonly cells: number;
+}
+
+/** Samples a prop into its own cells ({@link PropLocalCoverage}). */
+export function propCoverageLocal(p: PropShape, cellM: number): PropLocalCoverage {
+  const { lo, size } = propCellBox(p, cellM);
+  const bytes = new Uint8Array(Math.max(0, size[0] * size[1] * size[2]));
+  const inv = 1 / p.scale;
+  let cells = 0;
+  for (let x = 0; x < size[0]; x++) for (let z = 0; z < size[2]; z++) for (let y = 0; y < size[1]; y++) {
+    const inside = insideCount(p, lo[0] + x, lo[1] + y, lo[2] + z, cellM, inv);
+    if (inside === 0) continue;
+    bytes[(x * size[2] + z) * size[1] + y] = coverByte(inside);
+    cells++;
+  }
+  return { lo, size, bytes, cells };
+}
+
+/**
+ * A chunk's prop channel sampled from the props over it: one coverage byte per cell (local index), or null when no
+ * prop covers any of it. The reference the channel's combined form is held equal to.
  */
 export function propCoverageChunk(grid: ChunkGrid, cx: number, cy: number, cz: number, props: readonly PropShape[], cellM: number): Uint8Array | null {
   const e = grid.edge;
   let out: Uint8Array | null = null;
-  const n = PROP_SAMPLES_PER_AXIS;
   const x0 = cx << grid.shift;
   const y0 = cy << grid.shift;
   const z0 = cz << grid.shift;
@@ -73,21 +125,13 @@ export function propCoverageChunk(grid: ChunkGrid, cx: number, cy: number, cz: n
     const hi = (a: number, o: number): number => Math.min(e, Math.floor(b.max[a]! / cellM) - o + 1);
     const [xl, xh, yl, yh, zl, zh] = [lo(0, x0), hi(0, x0), lo(1, y0), hi(1, y0), lo(2, z0), hi(2, z0)];
     if (xl >= xh || yl >= yh || zl >= zh) continue;
-    const [c, s] = p.yaw;
     const inv = 1 / p.scale;
     for (let x = xl; x < xh; x++) for (let z = zl; z < zh; z++) for (let y = yl; y < yh; y++) {
-      let inside = 0;
-      for (let i = 0; i < n; i++) for (let k = 0; k < n; k++) for (let j = 0; j < n; j++) {
-        // A sample point in host metres, then into the prop's own frame (inverse yaw, scale).
-        const wx = (x0 + x + (i + 0.5) / n) * cellM - p.position[0];
-        const wy = (y0 + y + (j + 0.5) / n) * cellM - p.position[1];
-        const wz = (z0 + z + (k + 0.5) / n) * cellM - p.position[2];
-        if (p.inside((c * wx - s * wz) * inv, wy * inv, (s * wx + c * wz) * inv)) inside++;
-      }
+      const inside = insideCount(p, x0 + x, y0 + y, z0 + z, cellM, inv);
       if (inside === 0) continue;
       out ??= new Uint8Array(grid.cellsPerChunk);
       const idx = (((x << grid.shift) | z) << grid.shift) | y;
-      out[idx] = combineCoverage(out[idx]!, Math.round((inside * 255) / (n * n * n)));
+      out[idx] = combineCoverage(out[idx]!, coverByte(inside));
     }
   }
   return out;
