@@ -217,15 +217,17 @@ export interface LightingTierSettings {
 }
 
 /**
- * The light volume's update by tier (default chosen, owner to confirm; measured in the phase plan): low measured on its
- * target; medium and high from it (unverified on target hardware): high refines twice as far and lists 24 lamps (both
- * cost memory or idle time only); more rays or a longer reach cost every edit's settle and were not measured where
- * they would run, so they stay low's (the Play test runs at high on the integrated GPU).
+ * The light volume by tier (default chosen, owner to confirm; measured in the phase plan): on at every tier (WebGPU);
+ * low measured on its target; medium and high from it (unverified on target hardware): high refines twice as far and
+ * lists 24 lamps (both cost memory or idle time only); more rays or a longer reach cost every edit's settle and were
+ * not measured where they would run, so they stay low's (the Play test runs at high on the integrated GPU). The read:
+ * every face toward the normal (a face floor measured no cheaper), the eight cells blended to 24 m on low (past it one
+ * cell: about half the read's cost at a view over the town, nothing seen at that distance), farther on medium and high.
  */
 const VOXEL_LIGHT_VOLUME_BY_TIER: Readonly<Record<LightingTier, Readonly<VoxelLightVolumeSettings>>> = Object.freeze({
-  low: Object.freeze({ enabled: false, readFaceFloor: 0, readFullM: 1000, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
-  medium: Object.freeze({ enabled: false, readFaceFloor: 0, readFullM: 1000, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
-  high: Object.freeze({ enabled: false, readFaceFloor: 0, readFullM: 1000, followWindow: 8, outerSettle: 2, listEntries: 24, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 128, windowBricks: 48 }),
+  low: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 24, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
+  medium: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 32, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
+  high: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 64, followWindow: 8, outerSettle: 2, listEntries: 24, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 128, windowBricks: 48 }),
 });
 
 /** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */

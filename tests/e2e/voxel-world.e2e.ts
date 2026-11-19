@@ -95,7 +95,7 @@ import { chooseItem, closeMenu, inspector, menuItem } from './ui';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-sets';
-import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
+import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
 import { voxelFarLightChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
@@ -1395,7 +1395,7 @@ interface PlayStart {
  * static), a red lamp that casts, and the light volume's other light types (no shadow maps: the volume walks its own
  * shadows).
  */
-async function startPlay(page: Page, renderer: 'webgpu'): Promise<PlayStart> {
+async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<PlayStart> {
   await page.setViewportSize({ width: 1280, height: 720 });
   const at = await playProject();
   await groundRelief(true);
@@ -1409,7 +1409,7 @@ async function startPlay(page: Page, renderer: 'webgpu'): Promise<PlayStart> {
     panel: await make('Blue panel', 'group', { components: { light: { type: 'area', shape: 'rect', width: 1, height: 0.5, color: '#0000ff', intensity: 400, range: 6, castShadow: false } } }),
   };
   const errors = consoleErrors(page);
-  const url = editorUrlFor(be.editorUrl, renderer);
+  const url = editorUrlFor(be.editorUrl, renderer).replace('#', `${query}#`);
   await page.goto(url);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
@@ -1441,7 +1441,8 @@ async function startPlay(page: Page, renderer: 'webgpu'): Promise<PlayStart> {
   test("Play: a world 8 km out streams with the simulation in its worker at a tier switched at run time, a script digs a pit, the pixels change and the character falls in; a voxel save in the game's slot brings the pit back after a restart, not the wetness", async ({ page }) => {
     // The shadow and sun-field checks on one page take most of it (the light volume's are the next test's).
     test.setTimeout(240_000);
-    const { at, psid, answer, canvas, errors, shadowObjects, away, observe, drawn } = await startPlay(page, renderer);
+    // Not a lighting check: the voxel world drawn without the light volume the tier would run (the light test has it).
+    const { at, psid, answer, canvas, errors, shadowObjects, away, observe, drawn } = await startPlay(page, renderer, '&voxelLight=off');
     // The play's locator serves the world its scenes name, not the project's other worlds.
     const preview = new URL((await page.locator('iframe.tl-app__preview-frame').getAttribute('src'))!, be.origin).origin;
     const voxelStatus = async (world: string): Promise<number> => (await fetch(`${preview}${answer.playContent.path}voxels/${world}`)).status;
@@ -1965,6 +1966,13 @@ test('Export: the Play project exported and served statically with the backend s
     await expect.poll(async () => (await observe())?.counters?.['resident'] ?? 0, { timeout: 60_000, message: 'the pit is resident with the simulation in the page' }).toBe(1);
     await expect.poll(drawn, { timeout: 60_000, intervals: [100], message: 'the world is drawn with the simulation in the page' }).toBeGreaterThan(20);
     await expect.poll(async () => { const y = (await observe())?.player?.y ?? -1e9; return y > at[1] && y < at[1] + 1.2; }, { timeout: 20_000, message: 'the character stands on the pad with the simulation in the page' }).toBe(true);
+    // Lit by the light volume the low tier runs (no query names a store): it has written cells and settled, from the
+    // shipped build alone (the backend is stopped).
+    type Lit = { store: string; progress: { settled?: boolean; texelsWritten: number; waiting: number } | null };
+    const lit = (): Promise<Lit> => game.evaluate(() => { const l = (window as unknown as { __tlVoxelPlay: { light: { store(): string; progress(): Lit['progress'] } } }).__tlVoxelPlay.light; return { store: l.store(), progress: l.progress() }; });
+    expect(LIGHTING_TIER_SETTINGS.low.voxelLightVolume.enabled).toBe(true);
+    await expect.poll(async () => { const l = await lit(); return l.store === 'volume' && l.progress?.settled === true && l.progress.texelsWritten > 0 && l.progress.waiting === 0; }, { timeout: 60_000, intervals: [250], message: 'the export lit by the light volume' }).toBe(true);
+    console.log(`[voxel-export] light volume (low tier, no query): ${JSON.stringify(await lit())}`);
     console.log(`[voxel-export] far bricks: ${await farBeyondNear(game, async (name) => decodePng(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) })), 'export')} px of ground past the near field`);
     // Drawn from the baked bricks the export ships.
     expect(requests.filter((u) => bakedPaths.has(u.slice(site.url.length))).length).toBeGreaterThan(0);

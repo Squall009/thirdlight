@@ -352,6 +352,8 @@ export interface LightShotsOptions {
   readonly gpuRepeats: number;
   /** `--gpu-only LIST`: only these categories (default every one present). */
   readonly gpuOnly: readonly string[] | null;
+  /** `--gpu-at LIST`: the GPU measurement at these cameras only (null: at every camera shot). */
+  readonly gpuAt: readonly string[] | null;
   /** `--gpu-stale`: a second GPU measurement at each camera while the light volume has work (every brick kept stale). */
   readonly gpuStale: boolean;
   /** `--cache-edits`: the lighting store's edit → light times (a window dug at the room camera; a wall built and dug between a lamp and the fronts at night). */
@@ -430,6 +432,7 @@ export function parseLightShotsArgs(argv: readonly string[]): LightShotsOptions 
     gpu: argv.includes('--gpu'),
     gpuRepeats: num('gpu-repeats', 5, 3, 15),
     gpuOnly: arg('gpu-only')?.split(',').filter((x) => x !== '') ?? null,
+    gpuAt: arg('gpu-at')?.split(',').filter((x) => x !== '') ?? null,
     gpuStale: argv.includes('--gpu-stale'),
     cacheEdits: argv.includes('--cache-edits'),
     arrivalShots: argv.includes('--arrival-shots'),

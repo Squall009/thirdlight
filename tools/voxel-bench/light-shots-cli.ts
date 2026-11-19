@@ -28,7 +28,7 @@
  *                 passed its flags: a later item's lighting arrangement), starting with `&`
  *   --hold S (default 3)  --timeout S a camera (default 180)  --edits N (default 3, 0: none)
  *   --gpu         the GPU measurement at each camera (about two minutes each)   --gpu-repeats N (default 5)
- *   --gpu-only LIST  only these categories (near,far,shadows,lighting,post,effects)
+ *   --gpu-only LIST  only these categories (near,far,shadows,lighting,post,effects)   --gpu-at LIST  only at these cameras
  *   --gpu-stale   a second GPU measurement at each camera while the light volume has work (every brick marked
  *                 stale every half second meanwhile: its update at its budget)
  *   --cache-edits the lighting store's edit → light times: a window dug through the room camera's wall, then a wall
@@ -572,12 +572,13 @@ async function main(): Promise<void> {
       let gpu: unknown = null;
       let afterGpuShare: number | null = null;
       let afterGpuLaterShare: number | null = null;
-      if (O.gpu && O.lightOut) {
+      const gpuHere = O.gpu && (O.gpuAt === null || O.gpuAt.includes(cam.name));
+      if (gpuHere && O.lightOut) {
         // The volume's light out of the scene's lights: every lit program built again without its node.
         await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: { light?: { volumeLightShown?(on: boolean): unknown } } }).__tlVoxelPlay?.light?.volumeLightShown?.(false));
         await page.waitForTimeout(5000);
       }
-      if (O.gpu) {
+      if (gpuHere) {
         try {
           const g = await measureGpuOnPage((call, options) => game.frame.evaluate(gpuMeasureOnPage, { call, ...(options !== undefined ? { options } : {}) }), (ms) => page.waitForTimeout(ms), { repeats: O.gpuRepeats, ...(O.gpuOnly !== null ? { only: O.gpuOnly } : {}) });
           gpu = g;
@@ -662,7 +663,7 @@ async function main(): Promise<void> {
         ...(refined !== null ? { refined } : {}),
         lights: await canvasLights(game),
         ...(SCENE !== null ? { glowPatches: { painted: counters['ml_glow_painted'] ?? 0, refused: counters['ml_glow_refused'] ?? 0, of: SCENE.glow.length } } : {}),
-        ...(O.gpu ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
+        ...(gpuHere ? { gpu, afterGpuShare: afterGpuShare === null ? null : Number(afterGpuShare.toFixed(4)), afterGpuLaterShare: afterGpuLaterShare === null ? null : Number(afterGpuLaterShare.toFixed(4)) } : {}),
         at: host(),
       });
       console.log(`${cam.name}: lighting spans ${JSON.stringify(lightingSpans(report))}`);

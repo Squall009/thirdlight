@@ -7,6 +7,7 @@ import { writeFileSync } from 'node:fs';
 
 import { changedPixels, decodePng } from './png';
 import { expect, test, type Page } from './pw';
+import { LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
 import { cellBlotch } from '../../tools/voxel-bench/lighting-cameras';
 
 /** What the checks drive: the editor page with Play running, the play session, the character's stand (metres), the test objects' ids and where they wait, and the project API. */
@@ -413,7 +414,11 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   const staleSoon = async (what: string): Promise<void> => {
     await expect.poll(async () => (await hook<VolumeProgress | null>('progress'))?.staleUnits ?? 0, { timeout: 10_000, intervals: [50], message: `${what} makes bricks stale` }).toBeGreaterThan(0);
   };
-  expect(await hook<string>('store')).toBe('off');
+  // The tier's store (the Play test runs at high): the volume where the tier has it on; the store-off pictures are
+  // taken by switching it off, as a bench compares the stores on one page.
+  await expect.poll(() => hook<string>('store'), { timeout: 10_000, message: "the tier's lighting store" }).toBe(LIGHTING_TIER_SETTINGS.high.voxelLightVolume.enabled ? 'volume' : 'off');
+  await hook('setStore', 'off');
+  await expect.poll(() => hook('volume'), { timeout: 10_000 }).toBeNull();
   await place(ids.lamp, away);
   const offBefore = await still('volume-off-before');
   const eye = rel(0, 2.2, 9.5);
