@@ -138,6 +138,31 @@ with `ctx.voxels.coverageAt`. Nothing draws from it yet (shadows come from
 the drawn surfaces and pieces): the world's occlusion and bounce light come
 later.
 
+### Light in a voxel world
+
+On WebGPU a voxel world is lit by the **voxel light volume**: the engine keeps
+the soft light (the sky, the sun's and lamps' light bounced off walls and
+ground, the glow of glowing materials) in the open half-metre cells beside
+the world's surfaces round the camera, updates it on the GPU as the world,
+the lamps and the sun change, and every lit draw reads it in place of the
+flat ambient light: voxel surfaces, kit pieces, props and moving objects.
+The sun's and lamps' own light and shadows are drawn as before. A room is
+dark where no light gets in, a sunlit wall throws its colour on the floor,
+and light never passes through a half-metre wall.
+
+The volume follows the game: an edit, a lamp switched or moved, a look
+changed at once relight what they reach within seconds; a sun a script
+moves (`ctx.environment.blend`) is followed without starting over. Nothing
+is saved: the light is worked out on the player's machine as it plays, so
+there is nothing to bake and nothing new in `ctx`.
+
+It runs at every [lighting tier](debugging.md#lighting-tiers) on WebGPU (the
+tier's `voxelLightVolume` settings: how far round the eye a pixel blends
+the cells round it, how many lamps a cell lists, how long it refines). On
+WebGL 2 there is no volume: worlds keep the flat ambient term. The editor's
+Scene view does not run it; Play and exports do. For a comparison a page's
+query overrides the tier: `?voxelLight=off` or `?voxelLight=volume`.
+
 ## Streaming and memory
 
 - **The focus.** A world loads round where the live camera looks (its
@@ -789,7 +814,7 @@ the same record dresses a prop and a wall, so there is one oak, not an
   strength** (`params.emissiveIntensity`, 0–16), the same two fields meshes
   use. A voxel surface of a glowing material draws its glow times its colour
   (so it keeps its texture), blended into its neighbours as its colour is,
-  and with the voxel light volume on (`?voxelLight=volume`, WebGPU) it lights
+  and with the [voxel light volume](#light-in-a-voxel-world) (WebGPU) it lights
   the surfaces round it softly: there is no shadow from a glow and no
   highlight (add a lamp for a crisp pool of light). A switchable glow is two
   materials (the lit one an instance of the unlit with its own voxel id and a
@@ -881,9 +906,8 @@ These come later; worlds made now keep working when they arrive:
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
 - **Materials**: texture sets in the material Inspector (set over the API),
   and the physical section in the Inspector (profiles are set over the API).
-- **Lighting**: occlusion and bounce light from the voxels, the far field's
-  shadows, and what reads the light coverage props stamp; culling and
-  navigation over voxels.
+- **Lighting**: the far field's bounce light, and what reads the light
+  coverage props stamp; culling and navigation over voxels.
 - **Structures** (rotated grids of their own, such as a ship or a moving
   building), voxel brushes and role painting in the editor, and more MCP
   voxel tools.

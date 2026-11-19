@@ -67,9 +67,11 @@ page in the same commit.
   fading into them across its edge (`voxel-sun-field.ts`, `sun-heights.ts`; the tier's `voxelSunSteps`). The far
   field's one shade lights every light at its hit. It casts nothing into the maps and carries baked occlusion. Sky
   occlusion and bounce from voxels come only from **the lighting store**, which is the **voxel light volume** (owner's choice
-  after the 46e-a A/B; the surface cache's voxel port and the hybrid were removed, code at tag `ab-46e-a`), behind one
-  page switch, `?voxelLight=off|volume` (`off` on every tier until it is tuned; any other value is `off`;
-  `__tlVoxelPlay.light.setStore` changes it at run time; `?surfaceRead=0` lights it without reading it). WebGPU only: it
+  after the 46e-a A/B; the surface cache's voxel port and the hybrid were removed, code at tag `ab-46e-a`), **on at
+  every lighting tier** on game pages (Play, exports; the tier's `voxelLightVolume.enabled`, looked at each frame;
+  not in the editor's Scene view); `?voxelLight=off|volume` overrides the tier for a comparison,
+  `__tlVoxelPlay.light.setStore` changes it at run time, `?surfaceRead=0` lights it without reading it. WebGPU only
+  (WebGL 2 never runs it): it
   keeps light in the open cells beside surfaces (`voxel-light-volume.ts`): six values a cell (an ambient cube), 2 m
   bricks in a pool texture round the camera, updated in compute by walk rays (the sky past 24 m; at a surface its
   colour (the look's tint times its albedo texture's mean for the side seen, measured once on the GPU when the arrays arrive) times the sun and lamps seen by walks, the lamps from a list per kept brick built in compute from the clustered lights' record (the hit's level-0 brick, else its finest coarse one, else the whole table) and lit as the per-pixel light lights them: points by three's falloff, spots within their cone (no cookie), area lights (rect and line) by their diffuse form factor on their facing side, walked toward a point of them each ray picks; the ambient and hemisphere lights are in its sky term; glowing materials' glow (each open cell keeps the mean glow of the solid faces it borders, a material's glow × its mean colour; and each kept brick's glowing faces are emitters in the lamp table that the cells of the bricks they reach aim at, each glow counted once); and the volume's own light there), and three coarse levels of 1, 2 and
@@ -88,7 +90,12 @@ page in the same commit.
   `voxelLightVolume` settings (project-model `VoxelLightVolumeSettings`); a brick's lamp list holds the lamps that can
   light it (a spot's cone, an area light's front) less those negligible against the rest; read per pixel by
   every lit draw (voxel surfaces, kit pieces, props, moving objects; the far shade opts out) in place of the flat
-  ambient term. The sun's and lamps' direct light stay per pixel. Measured: plan-46e §8a 46e.6b, §8b, §8d (46e.14).
+  ambient term (`voxel-light-volume-read.ts`): level 0, then each coarse level for what it left, a level read only
+  where its window holds the point's bricks; the eight cells round the point half a cell off the surface in one loop
+  (the far four of an axis face weigh 0: never across a wall), one index load for every cell in the first one's brick,
+  only the faces the normal weights (`readFaceFloor`); past the tier's `readFullM` (low 24 m) the one cell in front
+  alone. Its floor on the Iris Xe is about 2 ms of `near` at a street (the read's presence in the lit program, not its
+  loads: one cell costs what eight do); a lower-rate read is not built (D724). The sun's and lamps' direct light stay per pixel. Measured: plan-46e §8a 46e.6b, §8b, §8d (46e.14).
 
 ## 4. Streaming
 
@@ -126,7 +133,8 @@ page in the same commit.
   bench data taken out after the run; with it `light-shots` also takes three night cameras (`lamps-street`,
   `lamps-room`, `lamps-high`) and times the lamp-lit room's edits. `light-shots --day slow|fast` moves the sun as a
   game's script does (`ctx.environment.blend` over day looks, `day-cycle.ts`) and reads the light following it.
-  `?surfaceRead=level0` makes the light volume's read take level 0 alone (a comparison of the read's parts).
+  `?surfaceRead=` names parts of the light volume's read for a comparison (`level0`, `coarse`, `index`, `nodecode`,
+  `allfaces` = the read as first built, the draw kinds `surface`, `kit`, `prop`; the volume's diagnostics carry it).
 - The **frame profile** (`window.__tlProfiler.read()` on a game page) gives each thread's CPU a frame (page,
   simulation worker, job workers) by budget category against the tier's budget, and the last long frames. It is
   shown in the editor's **Profiler** tab while Play runs, in the stats overlay (Shift+F3, Play and exports), saved

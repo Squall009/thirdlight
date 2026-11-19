@@ -282,6 +282,12 @@ One table in the engine (`LIGHTING_TIER_SETTINGS`) says what each tier sets:
 | medium | 64 MiB | 1.5 ms | on | medium (screen-space, traced where the screen has no answer, probes on rough surfaces) | the engine's counts | 12 m | 4,096² (48 MiB) |
 | high | 128 MiB | 3 ms | on | high (more steps, more traced rays) | twice | 24 m | 8,192² (192 MiB) |
 
+Voxel worlds are lit by the [voxel light volume](voxel-worlds.md#light-in-a-voxel-world)
+on WebGPU at every tier; the tier's `voxelLightVolume` settings say how
+(the 0.5 m cells blended within 24 m of the eye on low, 32 m on medium,
+64 m on high, one cell past it; high lists 24 lamps a brick and refines
+twice as long).
+
 The device picks the starting level when neither the player, the game
 (game control, `environment.quality`) nor the page names one: once its
 renderer is up it takes the device's tier and starts at the highest level
