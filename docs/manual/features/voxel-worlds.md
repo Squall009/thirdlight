@@ -132,11 +132,16 @@ A model's **Affects lighting** (`affectsLighting`, on the
 [model component](../reference/components-rendering-1.md#component-model))
 marks it as blocking light in a voxel world: its collider's shape (else the
 box of its model) is stamped into the world's light coverage, never into
-its cells and never into a save. Turn it on for large static props
-(boulders, trees), leave it off for small ones. Scripts read the result
-with `ctx.voxels.coverageAt`. Nothing draws from it yet (shadows come from
-the drawn surfaces and pieces): the world's occlusion and bounce light come
-later.
+its cells and never into a save. Turn it on for large props (boulders,
+trees, carts, tables), leave it off for small ones. A cell at least half
+covered stops the light volume's rays (below), so a table shades the floor
+under it and a cart holds back a lamp's bounce behind it; a prop that moves
+(a door, a cart) is stamped again where it goes, and the light follows as it
+does after an edit. A scene's props are stamped a few at a time over the
+first steps after they arrive, so a large scene's light settles over a
+second or two. Scripts read the result with `ctx.voxels.coverageAt`, and
+`ctx.voxels.raycast` with `stop: 'light'` stops at it. The sun's and
+lamps' shadows still come from the drawn props themselves.
 
 ### Light in a voxel world
 
@@ -145,7 +150,11 @@ the soft light (the sky, the sun's and lamps' light bounced off walls and
 ground, the glow of glowing materials) in the open half-metre cells beside
 the world's surfaces round the camera, updates it on the GPU as the world,
 the lamps and the sun change, and every lit draw reads it in place of the
-flat ambient light: voxel surfaces, kit pieces, props and moving objects.
+flat ambient light: voxel surfaces, kit pieces, props and moving objects,
+and lit particles (smoke and dust whose effect output is *lit*), which take
+it once a particle, at its centre, so a smoke puff indoors is dark and one in
+the sun is lit without a cost per pixel. Unlit and glowing particles are
+not affected.
 The sun's and lamps' own light and shadows are drawn as before. A room is
 dark where no light gets in, a sunlit wall throws its colour on the floor,
 and light never passes through a half-metre wall.

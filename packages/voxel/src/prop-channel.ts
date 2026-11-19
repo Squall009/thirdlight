@@ -161,7 +161,6 @@ export class PropLightChannel {
     const y0 = cy << this.host.grid.shift;
     const z0 = cz << this.host.grid.shift;
     this.recombine(key, cx, cy, cz, [x0, y0, z0, x0 + e, y0 + e, z0 + e]);
-    if (this.built.get(key) === null) this.host.setPart(cx, cy, cz, PROP_COVERAGE_PART, 0);
   }
 
   /** A chunk left: its channel goes with it (the streamer drops the chunk's budget parts itself); props over no resident chunk let their samples go. */
@@ -317,10 +316,10 @@ export class PropLightChannel {
     }
     const count = (this.covered.get(key) ?? 0) - before + after;
     this.covered.set(key, count);
-    const had = this.built.get(key) ?? null;
     if (count === 0) out = null;
     this.built.set(key, out);
-    if ((had === null) !== (out === null)) this.host.setPart(cx, cy, cz, PROP_COVERAGE_PART, out?.byteLength ?? 0);
+    // Every build lands as the chunk's budget part (the streamer keeps the last).
+    this.host.setPart(cx, cy, cz, PROP_COVERAGE_PART, out?.byteLength ?? 0);
     this.onBuild?.(cx, cy, cz);
     if (changed) for (const fn of this.listeners) fn(cx, cy, cz);
   }

@@ -29,6 +29,15 @@ page in the same commit.
 - **Derived data is never stored**: meshes, collision, navigation, light coverage, occupancy, detail pieces and
   open regions (region labels, chunk face connectivity, sky columns) are rebuilt in workers from voxels. The one stored derivative is the **far cache** (levels 2 and up of the mips,
   and baked bricks down to the world's bake level).
+- **Light coverage with props**: objects whose model is marked `affectsLighting` are stamped into the world's prop
+  coverage channel (`prop-channel.ts`, a byte a cell over the resident chunks, never saved): each prop sampled once
+  into its own cells where it stands (its collider, else its model's bounds; 4³ samples a cell), a chunk its props
+  combined as 1 − (1 − a)(1 − b), a move recombining only the cells it left and entered, the stamps spread over
+  steps in the derive slice on the simulation's thread. The walk's light stop reads one occupancy: a level-0 cell
+  stops light where the voxels' coverage joined with the props' is at least half (`coverageAt`'s rule), so the light
+  volume's rays and `ctx.voxels.raycast`'s light stop see lit props, moving ones too (a changed chunk's walk block
+  is sent again and the volume restarts what it reaches, as for an edit). The mips and far nodes are the voxels'
+  alone; kit pieces stamp nothing (the voxels they dress do).
 - **Edits** go through `editVoxels` strokes (set, dig, add, brush, fill, stamp). The project's one `undo` /
   `redo` steps scene edits and strokes on one line in the order they were made (workspace `undo-timeline.ts`,
   in the backend, per project); a stroke's undo and redo write back the records its world's undo store keeps
@@ -89,13 +98,17 @@ page in the same commit.
   reach, settle and history counts, follow window, lamp list size and level-0 window are the lighting tier's
   `voxelLightVolume` settings (project-model `VoxelLightVolumeSettings`); a brick's lamp list holds the lamps that can
   light it (a spot's cone, an area light's front) less those negligible against the rest; read per pixel by
-  every lit draw (voxel surfaces, kit pieces, props, moving objects; the far shade opts out) in place of the flat
-  ambient term (`voxel-light-volume-read.ts`): level 0, then each coarse level for what it left, a level read only
+  every lit draw (voxel surfaces, kit pieces, props, moving objects; the far shade opts out; lit particles once a
+  vertex instead, below) in place of the flat ambient term (`voxel-light-volume-read.ts`): level 0, then each coarse level for what it left, a level read only
   where its window holds the point's bricks; the eight cells round the point half a cell off the surface in one loop
   (the far four of an axis face weigh 0: never across a wall), one index load for every cell in the first one's brick,
   only the faces the normal weights (`readFaceFloor`); past the tier's `readFullM` (low 24 m) the one cell in front
   alone. Its floor on the Iris Xe is about 2 ms of `near` at a street (the read's presence in the lit program, not its
-  loads: one cell costs what eight do); a lower-rate read is not built (D724). The sun's and lamps' direct light stay per pixel. Measured: plan-46e §8a 46e.6b, §8b, §8d (46e.14).
+  loads: one cell costs what eight do); a lower-rate read is not built (D724). Lit particles (an effect output whose
+  shading is `lit` or a lit project material) read it in the vertex stage at the particle's centre facing the eye
+  (level 0's one cell there, the coarse levels' eight round it) and their pixels take that: particles overdraw, so a
+  read a pixel would be paid many times; `?surfaceRead=particlepixel` reads them per pixel for a comparison. Unlit
+  particles read nothing. The sun's and lamps' direct light stay per pixel. Measured: plan-46e §8a 46e.6b, §8b, §8d (46e.14).
 
 ## 4. Streaming
 
@@ -159,7 +172,7 @@ preview renderer; the node-graph canvas; asset pickers; the edit-mode shell; `pa
 core (`scatter.ts`); the spline format and curve maths; the voxel `WorkerPool` and `job-queue`; `view-cull.ts`; the level-of-detail rule by screen size with hysteresis (`@thirdlight/shared` `lodLevelOf` / `lodLevelStep`, for the CPU and shaders; voxel rings keep their own);
 `screen-history.ts`; `dither-fade.ts`; one buffer grow (`@thirdlight/shared` `grownCapacity` / `grownArray`;
 `grownGpuBuffer` for raw GPU scratch buffers); one region-texture helper for a texture three owns (`region-texture.ts`:
-partial upload, grow by copy, the texture version rule; the private three hooks for it live there alone); one occupancy walk for rays (`@thirdlight/voxel` `occupancy-walk.ts`, 6-connected, level 0 then the mips and far nodes; on the GPU `voxelWalkWgsl` over the blocks the draw batches carry while something on the page reads that walk (the light volume, a bench's check; none, and nothing is packed), to the mips only: a second copy of the loop sharing three step helpers (`walk-steps.ts`), held equal by a 1,200-ray check, not one definition; `ctx.voxels.raycast` and the editor's picks; light rays stop at half coverage); one scene realizer for the editor and games; one content closure for
+partial upload, grow by copy, the texture version rule; the private three hooks for it live there alone); one occupancy walk for rays (`@thirdlight/voxel` `occupancy-walk.ts`, 6-connected, level 0 then the mips and far nodes; on the GPU `voxelWalkWgsl` over the blocks the draw batches carry while something on the page reads that walk (the light volume, a bench's check; none, and nothing is packed), to the mips only: a second copy of the loop sharing three step helpers (`walk-steps.ts`), held equal by a 1,200-ray check, not one definition; `ctx.voxels.raycast` and the editor's picks; light rays stop at half coverage, the voxels' and lit props' joined at level 0); one scene realizer for the editor and games; one content closure for
 Play and export.
 
 ## 7. What is planned on top (see the roadmap)

@@ -60,7 +60,9 @@ the tab:
   - *Output*: Billboard (facing the camera, along the velocity or around a
     fixed axis; texture, flipbook over the life or at a frame rate,
     blending alpha/additive/premultiplied/multiply/opaque, soft particles,
-    unlit/lit or a project material), Mesh particles (a model asset),
+    unlit/lit or a project material; in a voxel world a lit particle takes
+    the [light volume's](voxel-worlds.md#light-in-a-voxel-world) light once
+    at its centre), Mesh particles (a model asset),
     Ribbon/trail (a strip through each particle's recent positions, or one
     ribbon joining the particles in birth order), Lights (a point light on
     up to 16 of the oldest particles).
