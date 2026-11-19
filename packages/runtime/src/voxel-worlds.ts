@@ -14,12 +14,12 @@
  *
  * Props whose model is marked `affectsLighting` are stamped into every
  * loaded world's lighting occupancy: their shape (collider, else model
- * bounds) where they are, again whenever their world transform changes
- * between steps, and out again when they leave.
+ * bounds) where they are, again once they have moved by the stamp's sample
+ * spacing, and out again when they leave.
  */
 import { deepFreeze } from '@thirdlight/shared';
 import { qualityLevelsOf, resolveVoxelWorld, voxelMaterialInfos, type EntityV3, type QualityLevelConfig, type VoxelMaterialInfo, type VoxelWorldComponent } from '@thirdlight/project-model';
-import type { PropShape } from '@thirdlight/voxel';
+import { PROP_SAMPLES_PER_AXIS, VOXEL_SIZE_M, type PropShape } from '@thirdlight/voxel';
 import type { PhysicsPort3D } from './ports';
 import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelRayOptions, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelWaitAnswer } from './voxel-api';
 import { VoxelWorldHost, type VoxelWorldPorts } from './voxel-world-host';
@@ -54,6 +54,30 @@ interface HeldWorld {
   readonly host: VoxelWorldHost;
   /** The objects naming it, in arrival order (the first one is its focus without a camera). */
   readonly objects: string[];
+}
+
+/**
+ * How far a stamped prop may have moved before it is stamped again (metres at its farthest point): one sample's
+ * spacing of the stamp, so a prop that moves a little every step (a cart, a door) is stamped a few times a second,
+ * not every step, and its coverage is never further than one sample from where it is.
+ */
+const RESTAMP_M = VOXEL_SIZE_M / PROP_SAMPLES_PER_AXIS;
+
+/** How far a pose (position, quaternion, scale) moved any point of a prop within `reach` m of its origin, at most (metres). */
+function poseMoved(a: readonly number[], b: readonly number[], reach: number): number {
+  const along = Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
+  const dot = Math.min(1, Math.abs(a[3]! * b[3]! + a[4]! * b[4]! + a[5]! * b[5]! + a[6]! * b[6]!));
+  const turn = 2 * Math.acos(dot) * reach;
+  const scale = Math.max(Math.abs(a[7]! - b[7]!), Math.abs(a[8]! - b[8]!), Math.abs(a[9]! - b[9]!)) * reach;
+  return along + turn + scale;
+}
+
+/** The farthest a shape's box reaches from its origin (metres). */
+function shapeReach(s: PropShape | null): number {
+  if (s === null) return 0;
+  let r = 0;
+  for (let k = 0; k < 8; k++) r = Math.max(r, Math.hypot(k & 1 ? s.max[0] : s.min[0], k & 2 ? s.max[1] : s.min[1], k & 4 ? s.max[2] : s.min[2]) * s.scale);
+  return r;
 }
 
 const NO_WORLD: VoxelRefused = Object.freeze({ ok: false, reason: 'no_world', message: 'no loaded scene has a voxel world' });
@@ -224,9 +248,9 @@ export class RuntimeVoxels {
   }
 
   /**
-   * Each lit prop whose world transform changed since its stamp (or that
-   * has none yet) is stamped again into every world, all of a step's
-   * together: the chunks they left and entered are rebuilt there once.
+   * Each lit prop that moved by a stamp's sample spacing or more since its
+   * stamp (or that has none yet) is stamped again into every world, all of
+   * a step's together.
    */
   private stampProps(): void {
     if (this.props.size === 0) return;
@@ -235,7 +259,7 @@ export class RuntimeVoxels {
       const w = this.view.worldTransform(id);
       if (w === undefined) continue;
       const pose = [...w.position, ...w.rotation, ...w.scale];
-      if (p.pose !== null && pose.every((n, i) => n === p.pose![i])) continue;
+      if (p.pose !== null && poseMoved(pose, p.pose, shapeReach(p.shape)) < RESTAMP_M) continue;
       const first = p.pose === null;
       p.pose = pose;
       p.shape = this.view.propShape(id, p.components, w);
