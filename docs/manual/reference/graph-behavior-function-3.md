@@ -1,8 +1,16 @@
-# Graph: Script function (part 3, from Materials)
+# Graph: Script function (part 3, from Sockets)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Script function node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior-function--sockets"></a>
+## Sockets
+
+- [Attach to socket](graph-behavior-5.md#node-behavior--api-sockets-attach) (`api.sockets.attach`, as in `behavior`): Attach an object to a node of the target's model, with an optional offset in the node's space (position [x, y, z], rotation quaternion [x, y, z, w], scale [x, y, z]). Without a target the object's own Socket component is used. False (and a warning in the play log) when refused: an unknown object, target or node, a loop, or a physics body. An empty entity means this object.
+- [Detach from socket](graph-behavior-5.md#node-behavior--api-sockets-detach) (`api.sockets.detach`, as in `behavior`): Detach an object from its socket: it stays where the node left it (keepWorld, the default) or snaps back to its transform from before the attach. False when it was not attached. An empty entity means this object.
+- [Socket of](graph-behavior-5.md#node-behavior--api-sockets-attached-to) (`api.sockets.attachedTo`, as in `behavior`): The socket an object rides on (the target object and the node's name), or null. An empty entity means this object.
+- [Node pose](graph-behavior-5.md#node-behavior--api-sockets-node-pose) (`api.sockets.nodePose`, as in `behavior`): A node's world position and rotation now (the target's model posed by its animator), or null when the target, its model or the node is missing — e.g. where a muzzle or a hand is.
 
 <a id="graph-behavior-function--materials"></a>
 ## Materials
@@ -132,9 +140,9 @@ The Script function node catalogue: port types, then each category's nodes with 
 ## Timeline
 
 - [Play timeline](graph-behavior-6.md#node-behavior--api-timeline-play) (`api.timeline.play`, as in `behavior`): Play a timeline, binding its slots to objects (`{ slot: entityId }`; unbound slots use the timeline's defaults). Returns its handle (0 when refused: no such timeline, or 8 already playing).
-- [Pause timeline](graph-behavior-6.md#node-behavior--api-timeline-pause) (`api.timeline.pause`, as in `behavior`): Pause a playing timeline (it holds its current state).
-- [Resume timeline](graph-behavior-6.md#node-behavior--api-timeline-resume) (`api.timeline.resume`, as in `behavior`): Resume a paused timeline.
-- [Stop timeline](graph-behavior-6.md#node-behavior--api-timeline-stop) (`api.timeline.stop`, as in `behavior`): Stop a timeline where it is (no end states: the sounds and effects it started stop, the cameras go back).
+- [Pause timeline](graph-behavior-7.md#node-behavior--api-timeline-pause) (`api.timeline.pause`, as in `behavior`): Pause a playing timeline (it holds its current state).
+- [Resume timeline](graph-behavior-7.md#node-behavior--api-timeline-resume) (`api.timeline.resume`, as in `behavior`): Resume a paused timeline.
+- [Stop timeline](graph-behavior-7.md#node-behavior--api-timeline-stop) (`api.timeline.stop`, as in `behavior`): Stop a timeline where it is (no end states: the sounds and effects it started stop, the cameras go back).
 - [Skip timeline](graph-behavior-7.md#node-behavior--api-timeline-skip) (`api.timeline.skip`, as in `behavior`): Skip to the end: every track's end state at once (cameras, transforms, music, activation; remaining signals fire unless a key says drop).
 - [Seek timeline](graph-behavior-7.md#node-behavior--api-timeline-seek) (`api.timeline.seek`, as in `behavior`): Jump to a time (seconds): the moves, fades and cameras there; keys in between do not fire.
 - [Timeline state](graph-behavior-7.md#node-behavior--api-timeline-state) (`api.timeline.state`, as in `behavior`): A play's state: playing, paused, waiting (for input or a dialogue), ended (recently), or null.

@@ -1,8 +1,17 @@
-# Graph: Visual script (part 6, from Set material parameter (`api.materials.set`))
+# Graph: Visual script (part 6, from Materials)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior--materials"></a>
+## Materials
+
+- Set material parameter (`api.materials.set`): Set a parameter on one object: a number (float), 2–4 numbers (vec2–4), "#rrggbb" (colour) or a texture asset id of the game ("" for none). Other objects wearing the material keep their values. False when refused. An empty entity means this object.
+- Material parameter (`api.materials.get`): A parameter's value on an object now: what a script set, else the object's authored override, else the material's default (null: no such parameter, or a data parameter). An empty entity means this object.
+- Reset material parameter (`api.materials.reset`): Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells. An empty entity means this object.
+- Write material data (`api.materials.setData`): Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length). An empty entity means this object.
+- Material data cell (`api.materials.getData`): One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell). An empty entity means this object.
 
 <a id="node-behavior--api-materials-set"></a>
 ### Set material parameter (`api.materials.set`)
@@ -1524,66 +1533,3 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `timelineId` | timeline | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-timeline-pause"></a>
-### Pause timeline (`api.timeline.pause`)
-
-Pause a playing timeline (it holds its current state).
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `handle` (number)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-timeline-resume"></a>
-### Resume timeline (`api.timeline.resume`)
-
-Resume a paused timeline.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `handle` (number)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-timeline-stop"></a>
-### Stop timeline (`api.timeline.stop`)
-
-Stop a timeline where it is (no end states: the sounds and effects it started stop, the cameras go back).
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `handle` (number)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |

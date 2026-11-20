@@ -6,8 +6,10 @@
  * recorded on whatever thread runs the simulation (the worker, or the page
  * in single-thread mode), into that thread's recorder.
  *
- * Path finding has no span yet: the only path query today is `ctx.grid`'s
- * walk over block layers, which run inside the scripts' phases.
+ * Path finding has its span where the voxel worlds' queries are served
+ * (voxel-worlds.ts `path finding`, at the step's start inside its voxel
+ * streaming); `ctx.grid`'s walk over block layers still runs inside the
+ * scripts' phases.
  */
 import { FRAME_BUDGET_BY_TIER, type LightingTier } from '@thirdlight/project-model';
 import { frameArbiter, threadProfiler } from '@thirdlight/shared';

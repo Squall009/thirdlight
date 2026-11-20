@@ -1,8 +1,113 @@
-# Script API types (from `BehaviorStatsLighting`)
+# Script API types (from `SaveResult`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-save-result"></a>
+## `SaveResult`
+
+```ts
+/** The outcome of one save, load or delete, or a settings document storage refused (`ctx.saves.results()`). */
+export interface SaveResult {
+  readonly op: 'save' | 'load' | 'delete' | 'settings';
+  /** The slot (0: a document given at the start, e.g. by `tl_play_start`, and the settings document). */
+  readonly slot: number;
+  readonly ok: boolean;
+  /** Why it failed. */
+  readonly reason?: string;
+  /** Set when the player's storage refused it. */
+  readonly code?: SaveStorageCode;
+}
+```
+
+<a id="script-type-save-storage-info"></a>
+## `SaveStorageInfo`
+
+```ts
+/**
+ * The player's storage as the browser reports it (`ctx.saves.storage()`):
+ * whether it keeps the game's data under disk pressure (asked for at the
+ * first save), and the site's usage and quota in bytes. Null where unknown
+ * (no storage manager, or not answered yet).
+ */
+export interface SaveStorageInfo {
+  readonly persisted: boolean | null;
+  readonly usage: number | null;
+  readonly quota: number | null;
+}
+```
+
+<a id="script-type-asset-handle-state"></a>
+## `AssetHandleState`
+
+```ts
+/** A handle's state as a script reads it. */
+export type AssetHandleState = 'loading' | 'ready' | 'failed';
+```
+
+<a id="script-type-behavior-ui-view"></a>
+## `BehaviorUiView`
+
+```ts
+/** `ctx.ui.view()`: the view the UI is drawn over. */
+export interface BehaviorUiView {
+  /** CSS px. */
+  readonly width: number;
+  readonly height: number;
+  /** width / height. */
+  readonly aspect: number;
+  /** Device pixels per CSS px. */
+  readonly pixelRatio: number;
+}
+```
+
+<a id="script-type-behavior-ui-event"></a>
+## `BehaviorUiEvent`
+
+```ts
+/** One UI event of this step (from the input frame). */
+export interface BehaviorUiEvent {
+  /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle; mode (a mode action: `value` is the mode), restart (the engine's restart), scene (the game shell's move along its scene list: `value` is the entry), reload / load / unload (a scene engine action: `value` is the scene), hold (a shell screen holding play). */
+  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene' | 'reload' | 'load' | 'unload' | 'hold';
+  /** The UI document it happened in. */
+  readonly doc: string;
+  /** The widget ('' for none). */
+  readonly widget: string;
+  /** The event name ('' for focus, show, hide). */
+  readonly name: string;
+  /** The value the action carried (or the submitted text). */
+  readonly value?: number | string | boolean | null;
+  /** The list item it came from. */
+  readonly index?: number;
+}
+```
+
+<a id="script-type-behavior-stats-time"></a>
+## `BehaviorStatsTime`
+
+```ts
+/** A frame time over the stats window: the mean and the slowest frame, in ms. */
+export interface BehaviorStatsTime {
+  readonly avg: number;
+  readonly worst: number;
+}
+```
+
+<a id="script-type-behavior-stats-occlusion"></a>
+## `BehaviorStatsOcclusion`
+
+```ts
+/** Occlusion culling in the last frame: what hidden draws the view left out. */
+export interface BehaviorStatsOcclusion {
+  /** The path it culls on: 'hiz' (a depth pyramid on the GPU, WebGPU) or 'off'. */
+  readonly path: 'off' | 'hiz';
+  /** Draws tested against what is in front of them. */
+  readonly tested: number;
+  /** Draws left out of the view because something in front hides them. */
+  readonly culled: number;
+}
+```
 
 <a id="script-type-behavior-stats-lighting"></a>
 ## `BehaviorStatsLighting`
@@ -544,6 +649,24 @@ export interface VoxelPortalInfo {
 }
 ```
 
+<a id="script-type-voxel-walk-options"></a>
+## `VoxelWalkOptions`
+
+```ts
+/** How a path or reach query walks (`findPath`, `reach`), in metres. */
+export interface VoxelWalkOptions {
+  /**
+   * The walker's height (default 2 m, at most 8): it goes only where that much is free over the floor (whole 0.5 m
+   * cells, rounded up). Its footprint is one cell: a walker up to 0.25 m in radius.
+   */
+  readonly height?: number;
+  /** The deepest drop it walks off a ledge (default 0: it never drops; whole cells, rounded down; with its height at most 8 m). */
+  readonly maxDrop?: number;
+  /** At most this many places searched (default: no bound): past it the answer is `partial`, the way to where it got closest. */
+  readonly maxNodes?: number;
+}
+```
+
 <a id="script-type-voxel-material-info"></a>
 ## `VoxelMaterialInfo`
 
@@ -691,6 +814,19 @@ export interface VoxelBox {
   readonly min: readonly [number, number, number];
   readonly max: readonly [number, number, number];
 }
+```
+
+<a id="script-type-voxel-path-status"></a>
+## `VoxelPathStatus`
+
+```ts
+/**
+ * How a path query ended: `found` (the cheapest way, or within a few per cent of it on a long path), `partial` (its
+ * `maxNodes` was spent: the way to where it got closest), `unreachable` (every way out of the start is known and none
+ * reaches the end), `unknown` (it ran into chunks not loaded yet: the way to where the known world ends nearest the
+ * end, or no world loaded).
+ */
+export type VoxelPathStatus = 'found' | 'partial' | 'unreachable' | 'unknown';
 ```
 
 <a id="script-type-entity-write-code"></a>

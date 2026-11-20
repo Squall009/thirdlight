@@ -795,6 +795,22 @@ export interface BehaviorVoxelWorld {
    */
   portalsOf(regionId: number): readonly VoxelPortalInfo[];
   /**
+   * Asks for a way a walker can go from `from` to `to` (world metres: where it stands or its middle; the standing
+   * place under it, to 2 m, or beside it, is taken). Returns the query's id, answered in `ctx.voxels.paths` at a
+   * later step: its waypoints, length and how it ended. Walks over standing places (free cells on what supports, as
+   * tall as the walker), one cell (0.5 m) up or down a step (stairs), round corners (never across one); through
+   * doorways, not props.
+   * @graphNode skip a path's points are a list, which a graph output cannot take yet
+   */
+  findPath(from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions): number;
+  /**
+   * Asks for every place a walker can stand within `maxDistance` metres walked from `from`. Returns the query's id,
+   * answered in `ctx.voxels.reaches` at a later step: how many, their box and floor area (with `points: true`, each
+   * place's middle at its floor).
+   * @graphNode skip a reach's answer is an object, which a graph output cannot take yet
+   */
+  reach(from: readonly [number, number, number], maxDistance: number, options?: VoxelWalkOptions & { readonly points?: boolean }): number;
+  /**
    * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
    * or its id has no material record in the build).
    * @graphNode skip a material record is an object, which a graph output cannot take yet
@@ -908,6 +924,57 @@ export interface VoxelSaveAnswer {
   readonly chunks: number;
   /** Why it failed. */
   readonly message?: string;
+}
+```
+
+<a id="script-type-voxel-path-answer"></a>
+## `VoxelPathAnswer`
+
+```ts
+/** A `findPath` answered (in `ctx.voxels.paths` at a later step). */
+export interface VoxelPathAnswer {
+  /** The id `findPath` returned. */
+  readonly path: number;
+  readonly world: string;
+  readonly status: VoxelPathStatus;
+  /** Why nothing was walked: no place to stand near the start (`from`) or the end (`to`), a malformed point or option (`invalid`), no voxel world loaded (`no_world`). */
+  readonly reason?: 'from' | 'to' | 'invalid' | 'no_world';
+  /**
+   * Its way as waypoints (world metres), start to end: each the middle of a standing cell at its floor, where the way
+   * turns (a straight run is one segment; corners are kept, not pulled tight).
+   */
+  readonly points: readonly (readonly [number, number, number])[];
+  /** Its length (m) along the cells walked. */
+  readonly length: number;
+  /** Places searched for it, steps it was served over and its ms in them. */
+  readonly searched: number;
+  readonly steps: number;
+  readonly ms: number;
+}
+```
+
+<a id="script-type-voxel-reach-answer"></a>
+## `VoxelReachAnswer`
+
+```ts
+/** A `reach` answered (in `ctx.voxels.reaches` at a later step): the places a walker can stand within the distance. */
+export interface VoxelReachAnswer {
+  /** The id `reach` returned. */
+  readonly reach: number;
+  readonly world: string;
+  /** `found`: every way within the distance is known; `unknown`: some way may go on into chunks not loaded yet; `unreachable`: no place to stand near the start. */
+  readonly status: 'found' | 'unreachable' | 'unknown';
+  readonly reason?: 'from' | 'invalid' | 'no_world';
+  /** The places (standing cells of 0.5 × 0.5 m) and the floor area they cover (m²). */
+  readonly count: number;
+  readonly area: number;
+  /** The box of the places (their cells, world metres; null: none). */
+  readonly bounds: VoxelBox | null;
+  /** Each place's middle at its floor (world metres), when asked for (`points: true`), else null. */
+  readonly points: readonly (readonly [number, number, number])[] | null;
+  readonly searched: number;
+  readonly steps: number;
+  readonly ms: number;
 }
 ```
 
@@ -1236,110 +1303,5 @@ export interface SaveSlotInfo {
   readonly meta: Readonly<Record<string, string>>;
   /** Set when the stored slot cannot be read (it is never loaded). */
   readonly damaged?: string;
-}
-```
-
-<a id="script-type-save-result"></a>
-## `SaveResult`
-
-```ts
-/** The outcome of one save, load or delete, or a settings document storage refused (`ctx.saves.results()`). */
-export interface SaveResult {
-  readonly op: 'save' | 'load' | 'delete' | 'settings';
-  /** The slot (0: a document given at the start, e.g. by `tl_play_start`, and the settings document). */
-  readonly slot: number;
-  readonly ok: boolean;
-  /** Why it failed. */
-  readonly reason?: string;
-  /** Set when the player's storage refused it. */
-  readonly code?: SaveStorageCode;
-}
-```
-
-<a id="script-type-save-storage-info"></a>
-## `SaveStorageInfo`
-
-```ts
-/**
- * The player's storage as the browser reports it (`ctx.saves.storage()`):
- * whether it keeps the game's data under disk pressure (asked for at the
- * first save), and the site's usage and quota in bytes. Null where unknown
- * (no storage manager, or not answered yet).
- */
-export interface SaveStorageInfo {
-  readonly persisted: boolean | null;
-  readonly usage: number | null;
-  readonly quota: number | null;
-}
-```
-
-<a id="script-type-asset-handle-state"></a>
-## `AssetHandleState`
-
-```ts
-/** A handle's state as a script reads it. */
-export type AssetHandleState = 'loading' | 'ready' | 'failed';
-```
-
-<a id="script-type-behavior-ui-view"></a>
-## `BehaviorUiView`
-
-```ts
-/** `ctx.ui.view()`: the view the UI is drawn over. */
-export interface BehaviorUiView {
-  /** CSS px. */
-  readonly width: number;
-  readonly height: number;
-  /** width / height. */
-  readonly aspect: number;
-  /** Device pixels per CSS px. */
-  readonly pixelRatio: number;
-}
-```
-
-<a id="script-type-behavior-ui-event"></a>
-## `BehaviorUiEvent`
-
-```ts
-/** One UI event of this step (from the input frame). */
-export interface BehaviorUiEvent {
-  /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle; mode (a mode action: `value` is the mode), restart (the engine's restart), scene (the game shell's move along its scene list: `value` is the entry), reload / load / unload (a scene engine action: `value` is the scene), hold (a shell screen holding play). */
-  readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene' | 'reload' | 'load' | 'unload' | 'hold';
-  /** The UI document it happened in. */
-  readonly doc: string;
-  /** The widget ('' for none). */
-  readonly widget: string;
-  /** The event name ('' for focus, show, hide). */
-  readonly name: string;
-  /** The value the action carried (or the submitted text). */
-  readonly value?: number | string | boolean | null;
-  /** The list item it came from. */
-  readonly index?: number;
-}
-```
-
-<a id="script-type-behavior-stats-time"></a>
-## `BehaviorStatsTime`
-
-```ts
-/** A frame time over the stats window: the mean and the slowest frame, in ms. */
-export interface BehaviorStatsTime {
-  readonly avg: number;
-  readonly worst: number;
-}
-```
-
-<a id="script-type-behavior-stats-occlusion"></a>
-## `BehaviorStatsOcclusion`
-
-```ts
-/** Occlusion culling in the last frame: what hidden draws the view left out. */
-export interface BehaviorStatsOcclusion {
-  /** The path it culls on: 'hiz' (a depth pyramid on the GPU, WebGPU) or 'off'. */
-  readonly path: 'off' | 'hiz';
-  /** Draws tested against what is in front of them. */
-  readonly tested: number;
-  /** Draws left out of the view because something in front hides them. */
-  readonly culled: number;
 }
 ```

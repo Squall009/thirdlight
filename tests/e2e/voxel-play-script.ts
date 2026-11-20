@@ -2,7 +2,7 @@
  * The Play project's script (voxel-world.e2e.ts's Play tests drive it by debug commands): it digs once the test asks
  * after the pit's ground is resident; on further commands it wets the ground beside the pit, saves the world into
  * the game's save slot 1 and restores it from there; casts rays; builds and reads rooms; builds the walls, the hut
- * and the other shapes the shadow and light checks read; moves objects by id. `at`: where the character stands
+ * and the other shapes the shadow and light checks read; asks for a path out of the hut; moves objects by id. `at`: where the character stands
  * (metres), the pad's middle.
  */
 import { VOXEL_ROLE } from '@thirdlight/voxel';
@@ -88,6 +88,11 @@ export function playScriptSource(at: readonly number[]): string {
     "      put('hutKind', h === null ? 0 : h.kind === 'room' ? 1 : 2); put('hutVolume', h !== null ? Math.round(h.volume) : 0); put('hutSurface4', h !== null ? Math.round(h.surface * 4) : 0); put('hutMfpCm', h !== null ? Math.round(h.meanFreePath * 100) : 0);",
     "      put('hutPortals', h?.portals ?? -1); put('hutPortalList', list.length); put('hutPortalJoins', list.length === 1 && o !== null && list[0].regions.includes(h.id) && list[0].regions.includes(o.id) ? 1 : 0); put('hutOut', o?.kind === 'outdoors' ? 1 : 0);",
     '    }',
+    // A path from inside the hut (1 m off its middle) to the pad 3 m before its door: its status (1 found, 2 partial,
+    // 3 unreachable, 4 unknown) and length (cm) once answered; the door walled up (and opened again with `hutdoor`).
+    "    for (const _ of ctx.debug.command('hutpath')) state.path = v.findPath([A[0] + 1, A[1] + 0.75, A[2] + 6.25], [A[0] + 1, A[1] + 0.25, A[2] - 3]);",
+    "    for (const a of v.paths) if (a.path === state.path) { put('pathStatus', ['found', 'partial', 'unreachable', 'unknown'].indexOf(a.status) + 1); put('pathCm', Math.round(a.length * 100)); put('pathPoints', a.points.length); ctx.game.add('pathAnswers', 1); }",
+    `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(box(-0.5, 0.5, 2, 0.5, 2.5, 2.2), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
     '    if (state.rooms) {',
     '      const a = v.regionAt(A[0], A[1] - 4.5, A[2] + 11);',
     '      const b = v.regionAt(A[0], A[1] - 4.5, A[2] + 14);',

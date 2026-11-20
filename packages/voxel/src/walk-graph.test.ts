@@ -382,6 +382,7 @@ describe('walk graph against the brute force', () => {
   it('finds the brute force’s cheapest cost over every cell (one A*), and two levels within 8 % of it', () => {
     let pairs = 0;
     let worst = 1;
+    let worstWalked = 1;
     let sum = 0;
     let unreachable = 0;
     for (const seed of [11, 12, 13, 14]) {
@@ -399,6 +400,11 @@ describe('walk graph against the brute force', () => {
           const want = truth.get(t.join(','));
           const flat = path(g, s, t, { hierarchy: false });
           const two = path(g, s, t, { flatFirst: 0 });
+          const walked = path(g, s, t, { flatFirst: 0, exitCosts: 'walk' });
+          if (want !== undefined) {
+            expect(walked.status).toBe('found');
+            worstWalked = Math.max(worstWalked, want > 0 ? walked.cost / want : 1);
+          }
           if (want === undefined) {
             expect(flat.status).toBe('unreachable');
             expect(two.status).toBe('unreachable');
@@ -422,7 +428,7 @@ describe('walk graph against the brute force', () => {
         }
       }
     }
-    console.log(`[walk graph] ${pairs} pairs found, ${unreachable} unreachable; two levels over one A*: mean ${(sum / pairs).toFixed(4)}, worst ${worst.toFixed(4)}`);
+    console.log(`[walk graph] ${pairs} pairs found, ${unreachable} unreachable; two levels over one A* (straight exit costs): mean ${(sum / pairs).toFixed(4)}, worst ${worst.toFixed(4)}; with walked exit costs worst ${worstWalked.toFixed(4)}`);
     expect(pairs).toBeGreaterThan(40);
     expect(unreachable).toBeGreaterThan(0);
     expect(worst).toBeLessThanOrEqual(1.08);

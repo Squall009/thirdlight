@@ -3207,6 +3207,18 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "The portals (door and window openings) of a region by its id (`regionAt`'s), each with its box and the regions it joins; of a portal's id, that portal. Empty when the id is not a region now (an edit split or joined it)."
     },
     {
+      "name": "findPath",
+      "kind": "method",
+      "detail": "(from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions | undefined): number",
+      "doc": "Asks for a way a walker can go from `from` to `to` (world metres: where it stands or its middle; the standing place under it, to 2 m, or beside it, is taken). Returns the query's id, answered in `ctx.voxels.paths` at a later step: its waypo"
+    },
+    {
+      "name": "reach",
+      "kind": "method",
+      "detail": "(from: readonly [number, number, number], maxDistance: number, options?: (VoxelWalkOptions & { readonly points?: boolean | undefined; }) | undefined): number",
+      "doc": "Asks for every place a walker can stand within `maxDistance` metres walked from `from`. Returns the query's id, answered in `ctx.voxels.reaches` at a later step: how many, their box and floor area (with `points: true`, each place's middle a"
+    },
+    {
       "name": "materialAt",
       "kind": "method",
       "detail": "(x: number, y: number, z: number): VoxelMaterialInfo | null",
@@ -3315,6 +3327,18 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "The saves (`save()`) answered at this step's start."
     },
     {
+      "name": "paths",
+      "kind": "property",
+      "detail": "readonly VoxelPathAnswer[]",
+      "doc": "The paths (`findPath`) answered at this step's start, in the order asked."
+    },
+    {
+      "name": "reaches",
+      "kind": "property",
+      "detail": "readonly VoxelReachAnswer[]",
+      "doc": "The reaches (`reach`) answered at this step's start, in the order asked."
+    },
+    {
       "name": "mismatches",
       "kind": "property",
       "detail": "readonly VoxelMismatch[]",
@@ -3352,6 +3376,18 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(regionId: number): readonly VoxelPortalInfo[]",
       "doc": "The portals (door and window openings) of a region by its id (`regionAt`'s), each with its box and the regions it joins; of a portal's id, that portal. Empty when the id is not a region now (an edit split or joined it)."
+    },
+    {
+      "name": "findPath",
+      "kind": "method",
+      "detail": "(from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions | undefined): number",
+      "doc": "Asks for a way a walker can go from `from` to `to` (world metres: where it stands or its middle; the standing place under it, to 2 m, or beside it, is taken). Returns the query's id, answered in `ctx.voxels.paths` at a later step: its waypo"
+    },
+    {
+      "name": "reach",
+      "kind": "method",
+      "detail": "(from: readonly [number, number, number], maxDistance: number, options?: (VoxelWalkOptions & { readonly points?: boolean | undefined; }) | undefined): number",
+      "doc": "Asks for every place a walker can stand within `maxDistance` metres walked from `from`. Returns the query's id, answered in `ctx.voxels.reaches` at a later step: how many, their box and floor area (with `points: true`, each place's middle a"
     },
     {
       "name": "materialAt",

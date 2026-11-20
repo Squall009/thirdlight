@@ -25,6 +25,13 @@
  * results, and the walk's light stop reads it with the voxels (rays here,
  * and the page's walk blocks through the presentation).
  *
+ * Paths: the world's walk graph (walk-graph.ts) is kept where it runs from
+ * the drawn results' navigation, chunk by chunk as they arrive, change and
+ * leave, in the derive slice after the open regions; `findPath` and `reach`
+ * queue their queries (walk-graph-queries.ts), served in order by the world
+ * list within the step's path-finding budget, and answered at a later step.
+ * The graph and its searches go with the world.
+ *
  * Saves: `save()` writes the overlay's changes as a voxel save file (the
  * fields the game marks saved, a base hash per chunk) once the bases of
  * chunks that left are read again, answered at a later step; `restore()`
@@ -55,6 +62,8 @@ import {
   FarWalkNodes,
   OpenRegionStitch,
   streamerWalkSource,
+  WalkGraph,
+  WalkQueries,
   walkRay,
   walkVoxels,
   WALK_STOPS,
@@ -84,6 +93,7 @@ import { frameSliceMs, residentBytes, threadProfiler } from '@thirdlight/shared'
 
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
 import { floorColumns, VoxelFloors } from './voxel-floor';
+import { noPathAnswer, noReachAnswer, voxelPathAnswer, voxelReachAnswer, walkCellAt, walkOptionsOf } from './voxel-paths';
 import {
   regionCellList,
   regionCells,
@@ -114,6 +124,9 @@ import {
   type VoxelRingsResult,
   type VoxelSaveAnswer,
   type VoxelValue,
+  type VoxelPathAnswer,
+  type VoxelReachAnswer,
+  type VoxelWalkOptions,
   type VoxelWrite,
 } from './voxel-api';
 
@@ -121,6 +134,8 @@ import {
 const RAYCAST_SPAN = threadProfiler.span('voxel rays', 'scripts');
 /** Stitching the chunks' open regions into the world's (open-region-stitch.ts), as streaming work of this thread. */
 const REGIONS_SPAN = threadProfiler.span('open regions stitched', 'voxelStream');
+/** Keeping the walk graph (walk-graph.ts) as chunks arrive, change and leave, in the derive slice after the regions. */
+const WALK_GRAPH_SPAN = threadProfiler.span('walk graph stitched', 'voxelStream');
 /** Keeping the far nodes' bricks for the walk where the world runs (copied as their draws leave for the page). */
 const FAR_WALK_SPAN = threadProfiler.span('far walk nodes kept', 'voxelStream');
 /** Stamping the lit props into the lighting occupancy (prop-channel.ts), in the derive's slice. */
@@ -253,6 +268,11 @@ export interface VoxelHostEvents {
   nextSave(): number;
   /** A restored chunk made on other world files than now (to `ctx.voxels.mismatches` at the next step). */
   mismatch(m: VoxelMismatch): void;
+  /** A path or reach query answered (to `ctx.voxels.paths` or `reaches` at the next step's start). */
+  pathAnswered(a: VoxelPathAnswer): void;
+  reachAnswered(a: VoxelReachAnswer): void;
+  /** A new path or reach query's id. */
+  nextQuery(): number;
   /** Why a world could not load or a step's work failed. */
   warn(message: string): void;
 }
@@ -271,6 +291,8 @@ export interface VoxelHostStats {
   readonly pool?: { readonly workers: number; readonly queued: number; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly cancelledQueued: number; readonly cancelledSent: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
   /** The open regions stitched (counts, bytes held) and the derive µs of a section's regions beside its mesh and its whole derive. */
   readonly regions?: Readonly<Record<string, unknown>> & { readonly regions: number; readonly enclosed: number; readonly portals: number; readonly bytes: number };
+  /** The walk graph (chunks, cells, pieces, exits, made and kept, bytes) and its queries (queued, nodes and queries served). */
+  readonly walk?: Readonly<Record<string, unknown>> & { readonly chunks: number; readonly pending: boolean; readonly bytes: number; readonly queued: number };
   readonly far?: Readonly<Record<string, unknown>> & { readonly selected: number; readonly drawn: number; readonly pending: number };
   /** Streamer updates, those where the ground under the focus or a second ahead of it was not resident and derived, and those with no ground within the ring's height under the focus. */
   readonly coverage?: Readonly<GroundCoverage>;
@@ -304,6 +326,10 @@ export class VoxelWorldHost {
   /** The world's open regions, stitched as chunks' results arrive (null: no world open). */
   private regions: OpenRegionStitch | null = null;
   private unresidentRegions: (() => void) | null = null;
+  /** The world's walk graph and its queries (null: no world open). */
+  private walk: WalkGraph | null = null;
+  private paths: WalkQueries | null = null;
+  private unresidentWalkGraph: (() => void) | null = null;
   /** The props stamped into the world, by object: kept while the world opens, placed into the channel when it is. */
   private readonly props = new Map<string, PropShape>();
   private disposed = false;
@@ -348,6 +374,8 @@ export class VoxelWorldHost {
       raycast: (origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions) => this.raycast(origin, direction, maxDistance, options),
       regionAt: (x: number, y: number, z: number) => this.regionAt(x, y, z),
       portalsOf: (id: number) => this.portalsOf(id),
+      findPath: (from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions) => this.findPath(from, to, options),
+      reach: (from: readonly [number, number, number], maxDistance: number, options?: VoxelWalkOptions & { readonly points?: boolean }) => this.reach(from, maxDistance, options),
       materialAt: (x: number, y: number, z: number) => {
         const v = this.get(x, y, z);
         return v === null ? null : (this.materials.get(v.material) ?? null);
@@ -422,6 +450,12 @@ export class VoxelWorldHost {
     this.regions = regions;
     this.unresidentRegions?.();
     this.unresidentRegions = residentBytes.register('regionStitch', () => regions.bytes);
+    const walk = new WalkGraph(streamer, VOXEL_SIZE_M);
+    const paths = new WalkQueries(walk);
+    this.walk = walk;
+    this.paths = paths;
+    this.unresidentWalkGraph?.();
+    this.unresidentWalkGraph = residentBytes.register('walkGraph', () => walk.bytes + paths.bytes);
     streamer.on((e) => this.onStream(e));
     conn.present?.(streamer, s.sectionEdge, regions, channel);
   }
@@ -508,6 +542,7 @@ export class VoxelWorldHost {
     if (e.type === 'loaded') this.channel?.loaded(e.cx, e.cy, e.cz);
     else if (e.type === 'unloaded') {
       this.regions?.touch(e.cx, e.cy, e.cz);
+      this.walk?.touch(e.cx, e.cy, e.cz);
       this.channel?.unloaded(e.cx, e.cy, e.cz);
       this.derived.delete(chunkKey(this.conn!.grid, e.cx, e.cy, e.cz));
       this.ring?.unloaded(e.cx, e.cy, e.cz);
@@ -518,6 +553,7 @@ export class VoxelWorldHost {
       if (!e.shaderOnly && !e.reliefOnly) {
         this.ring?.changed(e.cx, e.cy, e.cz);
         this.regions?.touch(e.cx, e.cy, e.cz);
+        this.walk?.touch(e.cx, e.cy, e.cz);
       }
       const id = `${e.cx},${e.cy},${e.cz}`;
       this.shaderOnlyChunks.set(id, (this.shaderOnlyChunks.get(id) ?? true) && e.shaderOnly);
@@ -588,13 +624,24 @@ export class VoxelWorldHost {
         threadProfiler.end(PROP_STAMP_SPAN);
       }
     }
+    const sliceMs = frameSliceMs('voxelDerive');
+    const stitchT0 = performance.now();
     if (this.regions?.pending === true) {
       // The derive slice: stitching follows the chunks the derives let through, a share of the same streaming work.
       threadProfiler.begin(REGIONS_SPAN);
       try {
-        this.regions.update(frameSliceMs('voxelDerive'));
+        this.regions.update(sliceMs);
       } finally {
         threadProfiler.end(REGIONS_SPAN);
+      }
+    }
+    if (this.walk?.pending === true) {
+      // The walk graph takes what the regions left of the same slice (at least one chunk an update).
+      threadProfiler.begin(WALK_GRAPH_SPAN);
+      try {
+        this.walk.update(sliceMs - (performance.now() - stitchT0));
+      } finally {
+        threadProfiler.end(WALK_GRAPH_SPAN);
       }
     }
     if (this.ring !== null) {
@@ -647,6 +694,8 @@ export class VoxelWorldHost {
 
   /** A new run: the game's changes are dropped (the world reads as its files again, rebuilt in one swap). */
   reset(): void {
+    // Queries of the run before are answered (unknown) and dropped with its answers.
+    this.paths?.clear();
     this.streamer?.clearOverlay();
     this.pending.clear();
     this.savedFields = this.settings.savedFields;
@@ -674,6 +723,12 @@ export class VoxelWorldHost {
     this.unresidentRegions = null;
     this.regions?.clear();
     this.regions = null;
+    this.paths?.clear();
+    this.paths = null;
+    this.walk?.clear();
+    this.walk = null;
+    this.unresidentWalkGraph?.();
+    this.unresidentWalkGraph = null;
     this.farWalk?.clear();
     this.farWalk = null;
     this.walkSource = null;
@@ -728,6 +783,7 @@ export class VoxelWorldHost {
       ...(this.streamer !== null ? { readRing: { setM: this.streamer.readReach.sceneRing.loadRadius * VOXEL_SIZE_M, nowM: this.streamer.ring.loadRadius * VOXEL_SIZE_M, reachM: this.streamer.readReach.cells === null ? null : this.streamer.readReach.cells * VOXEL_SIZE_M } } : {}),
       ...(m !== undefined ? { stream: { reading: m.reading, decoding: m.decoding, deriving: m.deriving, damaged: m.damaged, derivedBytes: m.bytes.derived, counters: m.counters, lod: this.streamer?.mips?.lod.counters ?? null } } : {}),
       ...(regions !== null ? { regions } : {}),
+      ...(this.walk !== null ? { walk: { ...this.walk.stats(), pending: this.walk.pending, bytes: this.walk.bytes, searchBytes: this.paths!.bytes, queued: this.paths!.queued, ...this.paths!.served } } : {}),
       ...(far !== undefined ? { far: { selected: far.nodes, drawn: far.drawn, pending: far.pending, jobs: far.jobs, selectMs: far.selectMs, meshUs: far.meshUs, queueMs: far.queueMs, readMs: far.readMs, pumpMs: far.pumpMs, commitMs: far.commitMs, firsts: far.firsts, counters: far.counters, gpu: far.gpu, standIns: far.standIns, seen: far.seen, fine: far.fine } } : {}),
     };
     P.end(STATS_SPAN.rest);
@@ -815,6 +871,47 @@ export class VoxelWorldHost {
     const r = this.regions;
     if (r === null || !Number.isInteger(id)) return [];
     return r.portalsOf(id).map(voxelPortalInfo);
+  }
+
+  /** Asks for a path (voxel-paths.ts): its id, answered when served (`servePaths`). */
+  findPath(from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions): number {
+    const id = this.events.nextQuery();
+    const a = walkCellAt(from);
+    const b = walkCellAt(to);
+    const o = walkOptionsOf(options);
+    if (a === null || b === null || o === null) this.events.pathAnswered(noPathAnswer(id, this.name, 'unreachable', 'invalid'));
+    else if (this.paths === null) this.events.pathAnswered(noPathAnswer(id, this.name, 'unknown'));
+    else this.paths.path(a, b, o, (w) => this.events.pathAnswered(voxelPathAnswer(id, this.name, w)));
+    return id;
+  }
+
+  /** Asks for the places within a walking distance: its id, answered when served. */
+  reach(from: readonly [number, number, number], maxDistance: number, options?: VoxelWalkOptions & { readonly points?: boolean }): number {
+    const id = this.events.nextQuery();
+    const a = walkCellAt(from);
+    const o = walkOptionsOf(options);
+    if (a === null || o === null || typeof maxDistance !== 'number' || !(maxDistance >= 0) || !Number.isFinite(maxDistance)) this.events.reachAnswered(noReachAnswer(id, this.name, 'unreachable', 'invalid'));
+    else if (this.paths === null) this.events.reachAnswered(noReachAnswer(id, this.name, 'unknown'));
+    else this.paths.reach(a, maxDistance, { ...o, cells: options?.points === true }, (w) => this.events.reachAnswered(voxelReachAnswer(id, this.name, w)));
+    return id;
+  }
+
+  /** Serves the world's path and reach queries in order within `ms` (the world list's path-finding budget); whether any waited. */
+  servePaths(ms: number): boolean {
+    const p = this.paths;
+    if (p === null || p.queued === 0 || this.disposed) return false;
+    p.serve(ms);
+    return true;
+  }
+
+  /** Path and reach queries waiting. */
+  get pathsQueued(): number {
+    return this.paths?.queued ?? 0;
+  }
+
+  /** The world's walk graph (null: no world open): what the benches read beside `findPath`. */
+  get walkGraph(): WalkGraph | null {
+    return this.walk;
   }
 
   /** The world's open regions as stitched (null: no world open): what lighting and benches read beside `regionAt`. */

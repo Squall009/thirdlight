@@ -12,16 +12,22 @@
  * every world's distances and memory budget follow it, without a reload.
  * Until it does, a world streams at its scene's own distances.
  *
+ * Path and reach queries are served at a step's start, after streaming, in
+ * the order asked across the worlds, within the step's path-finding budget
+ * (the frame budget table's `pathfinding` share of the simulation's frame at
+ * the quality level's tier): a query not done carries over to the next step.
+ *
  * Props whose model is marked `affectsLighting` are stamped into every
  * loaded world's lighting occupancy: their shape (collider, else model
  * bounds) where they are, again once they have moved by the stamp's sample
  * spacing, and out again when they leave.
  */
-import { deepFreeze } from '@thirdlight/shared';
-import { qualityLevelsOf, resolveVoxelWorld, voxelMaterialInfos, type EntityV3, type QualityLevelConfig, type VoxelMaterialInfo, type VoxelWorldComponent } from '@thirdlight/project-model';
+import { deepFreeze, threadProfiler } from '@thirdlight/shared';
+import { frameBudgetMs, levelFrameBudget, qualityLevelsOf, resolveVoxelWorld, voxelMaterialInfos, type EntityV3, type QualityLevelConfig, type VoxelMaterialInfo, type VoxelWorldComponent } from '@thirdlight/project-model';
 import { PROP_SAMPLES_PER_AXIS, VOXEL_SIZE_M, type PropShape } from '@thirdlight/voxel';
 import type { PhysicsPort3D } from './ports';
-import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelRayOptions, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelWaitAnswer } from './voxel-api';
+import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelPathAnswer, VoxelRayOptions, VoxelReachAnswer, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelWaitAnswer, VoxelWalkOptions } from './voxel-api';
+import { noPathAnswer, noReachAnswer } from './voxel-paths';
 import { VoxelWorldHost, type VoxelWorldPorts } from './voxel-world-host';
 import type { WorldTransform } from './world-transform';
 
@@ -80,6 +86,9 @@ function shapeReach(s: PropShape | null): number {
   return r;
 }
 
+/** Serving the worlds' path and reach queries (walk-graph-queries.ts) within the step's path-finding budget. */
+const PATH_SPAN = threadProfiler.span('path finding', 'pathfinding');
+
 const NO_WORLD: VoxelRefused = Object.freeze({ ok: false, reason: 'no_world', message: 'no loaded scene has a voxel world' });
 /** What `rings()` reads without a world: nothing streams. */
 const NO_RINGS: VoxelRings = Object.freeze({ ring: Object.freeze({ loadRadius: 0, unloadRadius: 0, loadHeight: 0, unloadHeight: 0 }), collision: Object.freeze({ radius: 0, height: 0 }), levels: Object.freeze({ level0: 0, level1: 0, relief: 0 }), quality: null, budgetBytes: null, reliefSteps: 0 });
@@ -97,6 +106,11 @@ export class RuntimeVoxels {
   private stepSaved: readonly VoxelSaveAnswer[] = Object.freeze([]);
   private mismatched: VoxelMismatch[] = [];
   private stepMismatched: readonly VoxelMismatch[] = Object.freeze([]);
+  private pathAnswers: VoxelPathAnswer[] = [];
+  private stepPaths: readonly VoxelPathAnswer[] = Object.freeze([]);
+  private reachAnswers: VoxelReachAnswer[] = [];
+  private stepReaches: readonly VoxelReachAnswer[] = Object.freeze([]);
+  private querySeq = 0;
   /** Props marked `affectsLighting`, by object, in arrival order. */
   private readonly props = new Map<string, LitProp>();
   private editSeq = 0;
@@ -131,11 +145,31 @@ export class RuntimeVoxels {
       get mismatches() {
         return voxels.stepMismatched;
       },
+      get paths() {
+        return voxels.stepPaths;
+      },
+      get reaches() {
+        return voxels.stepReaches;
+      },
       get: (x: number, y: number, z: number) => first()?.get(x, y, z) ?? null,
       coverageAt: (x: number, y: number, z: number) => first()?.coverageAt(x, y, z) ?? null,
       raycast: (origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions) => first()?.raycast(origin, direction, maxDistance, options) ?? null,
       regionAt: (x: number, y: number, z: number) => first()?.regionAt(x, y, z) ?? null,
       portalsOf: (id: number) => first()?.portalsOf(id) ?? [],
+      findPath: (from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions) => {
+        const w = first();
+        if (w !== null) return w.findPath(from, to, options);
+        const id = ++this.querySeq;
+        this.pathAnswers.push(noPathAnswer(id, '', 'unknown', 'no_world'));
+        return id;
+      },
+      reach: (from: readonly [number, number, number], maxDistance: number, options?: VoxelWalkOptions & { readonly points?: boolean }) => {
+        const w = first();
+        if (w !== null) return w.reach(from, maxDistance, options);
+        const id = ++this.querySeq;
+        this.reachAnswers.push(noReachAnswer(id, '', 'unknown', 'no_world'));
+        return id;
+      },
       materialAt: (x: number, y: number, z: number) => first()?.materialAt(x, y, z) ?? null,
       // Materials are the game's, not a world's: answered with no world loaded too.
       materialOf: (id: number) => this.materials.get(id) ?? null,
@@ -185,6 +219,9 @@ export class RuntimeVoxels {
         saved: (a) => this.saved.push(a),
         nextSave: () => ++this.saveSeq,
         mismatch: (m) => this.mismatched.push(m),
+        pathAnswered: (a) => this.pathAnswers.push(a),
+        reachAnswered: (a) => this.reachAnswers.push(a),
+        nextQuery: () => ++this.querySeq,
         warn: (m) => this.view.warn(m),
       }, () => ++this.editSeq, this.materials);
       this.worlds.set(c.world, { host, objects: [e.id] });
@@ -218,6 +255,7 @@ export class RuntimeVoxels {
    */
   beginStep(): void {
     this.streamAll();
+    this.servePaths();
     this.stepChanges = Object.freeze(this.pending);
     this.pending = [];
     this.stepAnswers = Object.freeze(this.answers);
@@ -226,6 +264,25 @@ export class RuntimeVoxels {
     this.saved = [];
     this.stepMismatched = Object.freeze(this.mismatched);
     this.mismatched = [];
+    this.stepPaths = Object.freeze(this.pathAnswers);
+    this.pathAnswers = [];
+    this.stepReaches = Object.freeze(this.reachAnswers);
+    this.reachAnswers = [];
+  }
+
+  /** The worlds' queued path and reach queries, in turn, within the step's path-finding budget (a span of its own). */
+  private servePaths(): void {
+    let any = false;
+    for (const held of this.worlds.values()) any ||= held.host.pathsQueued > 0;
+    if (!any) return;
+    const budget = frameBudgetMs(levelFrameBudget(this.level ?? {}), 'sim', 'pathfinding');
+    threadProfiler.begin(PATH_SPAN);
+    try {
+      const t0 = performance.now();
+      for (const held of this.worlds.values()) held.host.servePaths(budget - (performance.now() - t0));
+    } finally {
+      threadProfiler.end(PATH_SPAN);
+    }
   }
 
   private streamAll(): void {
@@ -316,6 +373,10 @@ export class RuntimeVoxels {
     this.stepSaved = Object.freeze([]);
     this.mismatched = [];
     this.stepMismatched = Object.freeze([]);
+    this.pathAnswers = [];
+    this.stepPaths = Object.freeze([]);
+    this.reachAnswers = [];
+    this.stepReaches = Object.freeze([]);
   }
 
   /** What the loaded worlds hold (diagnostics). */

@@ -35,6 +35,7 @@ import { benchDir } from './bench-dirs';
 import { diskFeed } from './chunk-feeds';
 import { PATH_QUERIES, PATH_DOOR, type PathQuery } from './path-queries';
 import { pathsPlay } from './paths-play';
+import { CAVE } from './lighting-cameras';
 
 const args = process.argv.slice(2);
 const opt = (name: string, d: string): string => {
@@ -111,7 +112,18 @@ function served(g: WalkGraph, query: PathQuery, options: WalkQueryOptions): Reco
   const ms = performance.now() - t0;
   const ans = a as WalkPathAnswer;
   const cells = ans.cells.length / 3;
-  return { status: ans.status, ...(ans.reason !== undefined ? { reason: ans.reason } : {}), lengthM: Number(ans.cost.toFixed(2)), cells, levels: ans.hierarchy, corridor: ans.corridor, expanded: { ...ans.run, ms: undefined }, ms: Number(ms.toFixed(2)), steps, longestStepMs: Number(longest.toFixed(2)), end: cells > 0 ? [...ans.cells.slice(-3)] : null };
+  // The cells where the way turns (what a script's points are), as world cells.
+  const turns: number[][] = [];
+  for (let i = 0; i < cells; i++) {
+    const c = [ans.cells[i * 3]!, ans.cells[i * 3 + 1]!, ans.cells[i * 3 + 2]!];
+    if (i > 0 && i < cells - 1) {
+      const d0 = [0, 1, 2].map((a) => c[a]! - ans.cells[(i - 1) * 3 + a]!);
+      const d1 = [0, 1, 2].map((a) => ans.cells[(i + 1) * 3 + a]! - c[a]!);
+      if (d0.every((v, a) => v === d1[a])) continue;
+    }
+    turns.push(c);
+  }
+  return { status: ans.status, ...(ans.reason !== undefined ? { reason: ans.reason } : {}), lengthM: Number(ans.cost.toFixed(2)), cells, levels: ans.hierarchy, corridor: ans.corridor, expanded: { ...ans.run, ms: undefined }, ms: Number(ms.toFixed(2)), steps, longestStepMs: Number(longest.toFixed(2)), end: cells > 0 ? [...ans.cells.slice(-3)] : null, turns };
 }
 
 async function nodePart(): Promise<Record<string, unknown>> {
@@ -154,26 +166,36 @@ async function nodePart(): Promise<Record<string, unknown>> {
   console.log(`graph: ${JSON.stringify(out['graph'])}`);
   // The fixed queries, each three ways (a roof's height found first: the top standable cell of its column).
   const rows: Record<string, unknown>[] = [];
-  const top = (p: readonly [number, number, number]): [number, number, number] => {
-    const [x, , z] = cellOf(p);
-    for (let cy = 4; cy >= -2; cy--) {
+  /** The highest standing cell of the point's column (at or below its height with `below`), as a point at its middle. */
+  const top = (p: readonly [number, number, number], below = false): [number, number, number] => {
+    const [x, y, z] = cellOf(p);
+    for (let cy = 10; cy >= -2; cy--) {
       const c = g.chunkAt(x >> 5, cy, z >> 5);
       if (c === null) continue;
       const col = (x & 31) * 32 + (z & 31);
-      const end = c.colStart[col + 1]!;
-      if (end > c.colStart[col]!) return [p[0], (cy * 32 + c.ys[end - 1]! + 0.5) * M, p[2]];
+      for (let k = c.colStart[col + 1]! - 1; k >= c.colStart[col]!; k--) if (!below || cy * 32 + c.ys[k]! <= y) return [p[0], (cy * 32 + c.ys[k]! + 0.5) * M, p[2]];
     }
     return [p[0], p[1], p[2]];
   };
+  const place = (p: readonly [number, number, number], t?: boolean, gr?: boolean): readonly [number, number, number] => (t === true ? top(p) : gr === true ? top(p, true) : p);
+  // The cave's axis: the highest standing place under 140 m every 2 m along it (where the hill and the dug tube are).
+  out['caveProfile'] = Array.from({ length: 16 }, (_, k) => {
+    const m = -4 + 2 * k;
+    const p: [number, number, number] = [CAVE.foot[0] + CAVE.into[0] * m, 140, CAVE.foot[2] + CAVE.into[1] * m];
+    return [m, top(p, true)[1], top([p[0], CAVE.axisY + 2.5, p[2]], true)[1]];
+  });
   resolved.length = 0;
-  for (const q0 of PATH_QUERIES) resolved.push({ ...q0, from: q0.fromTop === true ? top(q0.from) : q0.from, to: q0.toTop === true ? top(q0.to) : q0.to });
+  for (const q0 of PATH_QUERIES) resolved.push({ ...q0, from: place(q0.from, q0.fromTop, q0.fromGround), to: place(q0.to, q0.toTop, q0.toGround) });
   for (const query of resolved) {
     const row: Record<string, unknown> = { name: query.name, from: query.from, to: query.to, shows: query.shows };
     row['default'] = served(g, query, {});
     row['levels'] = served(g, query, { flatFirst: 0 });
     row['flat'] = served(g, query, { hierarchy: false });
+    // The exits' costs by walks over their pieces: the first time (nothing worked out yet), then again (kept on the exits).
+    row['walkedFirst'] = served(g, query, { flatFirst: 0, exitCosts: 'walk' });
+    row['walkedAgain'] = served(g, query, { flatFirst: 0, exitCosts: 'walk' });
     rows.push(row);
-    console.log(`${query.name}: ${JSON.stringify({ default: row['default'], levels: row['levels'], flat: row['flat'] })}`);
+    console.log(`${query.name}: ${JSON.stringify(row)}`);
   }
   out['queries'] = rows;
   // A hundred at once: the street queries' ends mixed, served a budget a step.

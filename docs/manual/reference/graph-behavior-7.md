@@ -1,8 +1,71 @@
-# Graph: Visual script (part 7, from Skip timeline (`api.timeline.skip`))
+# Graph: Visual script (part 7, from Pause timeline (`api.timeline.pause`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-timeline-pause"></a>
+### Pause timeline (`api.timeline.pause`)
+
+Pause a playing timeline (it holds its current state).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `handle` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-timeline-resume"></a>
+### Resume timeline (`api.timeline.resume`)
+
+Resume a paused timeline.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `handle` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-timeline-stop"></a>
+### Stop timeline (`api.timeline.stop`)
+
+Stop a timeline where it is (no end states: the sounds and effects it started stop, the cameras go back).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `handle` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
 
 <a id="node-behavior--api-timeline-skip"></a>
 ### Skip timeline (`api.timeline.skip`)

@@ -228,6 +228,8 @@ The Shared script function node catalogue: port types, then each category's node
 - [Voxels changes](graph-behavior-5.md#node-behavior--api-voxels-changes) (`api.voxels.changes`, as in `behavior`): The changes swapped in since the previous step, every world's, in swap order.
 - [Voxels waits](graph-behavior-5.md#node-behavior--api-voxels-waits) (`api.voxels.waits`, as in `behavior`): The `whenResident` waits answered at this step's start.
 - [Voxels saves](graph-behavior-5.md#node-behavior--api-voxels-saves) (`api.voxels.saves`, as in `behavior`): The saves (`save()`) answered at this step's start.
+- [Voxels paths](graph-behavior-5.md#node-behavior--api-voxels-paths) (`api.voxels.paths`, as in `behavior`): The paths (`findPath`) answered at this step's start, in the order asked.
+- [Voxels reaches](graph-behavior-5.md#node-behavior--api-voxels-reaches) (`api.voxels.reaches`, as in `behavior`): The reaches (`reach`) answered at this step's start, in the order asked.
 - [Voxels mismatches](graph-behavior-5.md#node-behavior--api-voxels-mismatches) (`api.voxels.mismatches`, as in `behavior`): The restored chunks found made on other world files than now, since the previous step, and whether the save was kept there.
 - [Voxel at](graph-behavior-5.md#node-behavior--api-voxels-get) (`api.voxels.get`, as in `behavior`): The voxel at a world position, or null where the world is not loaded there (never air for that).
 - [Light coverage at](graph-behavior-5.md#node-behavior--api-voxels-coverage-at) (`api.voxels.coverageAt`, as in `behavior`): How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded there, or the cell's piece is not built yet.
@@ -249,11 +251,3 @@ The Shared script function node catalogue: port types, then each category's node
 - [Camera state](graph-behavior-5.md#node-behavior--api-camera-get) (`api.camera.get`, as in `behavior`): A virtual camera's live rig values, or null when there is no such camera.
 - [World to screen](graph-behavior-5.md#node-behavior--api-camera-world-to-screen) (`api.camera.worldToScreen`, as in `behavior`): Where a world point appears on screen (x, y 0–1 from the top left), how far in front of the camera it is, and whether it is in view.
 - [Screen to ray](graph-behavior-5.md#node-behavior--api-camera-screen-to-ray) (`api.camera.screenToRay`, as in `behavior`): The ray from the camera through a screen point (x, y 0–1 from the top left): its origin and unit direction.
-
-<a id="graph-behavior-library--sockets"></a>
-## Sockets
-
-- [Attach to socket](graph-behavior-5.md#node-behavior--api-sockets-attach) (`api.sockets.attach`, as in `behavior`): Attach an object to a node of the target's model, with an optional offset in the node's space (position [x, y, z], rotation quaternion [x, y, z, w], scale [x, y, z]). Without a target the object's own Socket component is used. False (and a warning in the play log) when refused: an unknown object, target or node, a loop, or a physics body. An empty entity means this object.
-- [Detach from socket](graph-behavior-5.md#node-behavior--api-sockets-detach) (`api.sockets.detach`, as in `behavior`): Detach an object from its socket: it stays where the node left it (keepWorld, the default) or snaps back to its transform from before the attach. False when it was not attached. An empty entity means this object.
-- [Socket of](graph-behavior-5.md#node-behavior--api-sockets-attached-to) (`api.sockets.attachedTo`, as in `behavior`): The socket an object rides on (the target object and the node's name), or null. An empty entity means this object.
-- [Node pose](graph-behavior-5.md#node-behavior--api-sockets-node-pose) (`api.sockets.nodePose`, as in `behavior`): A node's world position and rotation now (the target's model posed by its animator), or null when the target, its model or the node is missing — e.g. where a muzzle or a hand is.

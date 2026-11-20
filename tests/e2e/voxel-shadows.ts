@@ -1006,6 +1006,9 @@ export async function voxelRoomChecks(o: RoomCheckSetup): Promise<void> {
   // 131.5 m² (526 faces); 4 V / S = 2.74 m.
   await expect.poll(gauges, { timeout: 20_000, intervals: [100], message: 'the hut is a room with one portal to the outdoors' }).toBe('1,1,1,1,1,90,526,274');
   const roomMs = Date.now() - t0;
+  // A path out of the hut through its door (`ctx.voxels.findPath`, answered at a later step), none once the door is
+  // walled up, one again once it is an opening again: each asked until the walk graph has the edit.
+  const walk = await hutPaths(o, counted);
   // The box on the hut's floor, off its middle; the cameras 14 m over the hut, 3 m south, looking at it.
   await place(ids.blue, rel(1, 0.8, 6.25));
   const view = async (cam: string, name: string): Promise<Png> => {
@@ -1043,6 +1046,7 @@ export async function voxelRoomChecks(o: RoomCheckSetup): Promise<void> {
   const outDiff = changedPixels(outPlain, outCut, () => true, 30);
   await counted('unhut', 'hutDug');
   await place(ids.blue, away);
+  console.log(`[voxel-play] paths: out of the hut ${JSON.stringify(walk)}`);
   console.log(`[voxel-play] rooms: the hut a room ${roomMs} ms after its build command (${await gauges()}); the page's room ${JSON.stringify(room)}; the middle's green ${roofGreen.n} of ${midPx} px with the roof drawn, ${cutGreen.n} cut away (floor lum ${cutGreen.lum.toFixed(1)}, the sunlit pad ${pad.lum.toFixed(1)}); floor pixels at least ${SUNLIT_SHARE} of the pad's: ${sunlit(cut)} under the cut roof, ${sunlit(opened)} with it dug open; the box ${boxLum(cut).toFixed(1)} under the cut roof, ${boxLum(opened).toFixed(1)} dug open; outdoors the cameras differ in ${outDiff} px`);
   expect(roofGreen.n, 'with the roof drawn the middle is plaster').toBeLessThan(ROOF_GREEN_MAX_SHARE * midPx);
   expect(cutGreen.n, 'with the roof cut away the middle is the floor').toBeGreaterThan(CUT_GREEN_MIN_SHARE * midPx);
@@ -1050,6 +1054,40 @@ export async function voxelRoomChecks(o: RoomCheckSetup): Promise<void> {
   expect(sunlit(opened), 'the roof dug open, the sun reaches the floor').toBeGreaterThan(SUNLIT_OPEN_MIN_PX);
   expect(boxLum(cut), 'the box under the cut roof is in its shadow').toBeLessThan(BOX_SHADED_SHARE * boxLum(opened));
   expect(outDiff, 'outdoors cut-away changes nothing').toBeLessThan(OUTDOORS_DIFF_MAX_PX);
+}
+
+/**
+ * The hut's path checks: from 1 m off the hut's middle to the pad 3 m before its door. The door is in the hut's north
+ * wall (x −0.5 … 0.5 m) and nothing else opens it, so a path found goes through it: at least the 9.25 m between its
+ * ends, at most 11 m (the way across to the door and back, a step down). Walled up, every way out of the room is known and none leaves it:
+ * unreachable; an opening again: found again. Each is asked again until the answer changes (an edit is in the walk
+ * graph a few steps after its swap), and how many asks and ms that took is returned.
+ */
+async function hutPaths(o: RoomCheckSetup, counted: (cmd: string, name: string) => Promise<void>): Promise<Record<string, unknown>> {
+  const { control, counter } = driver(o);
+  const ask = async (): Promise<{ status: number; cm: number; points: number }> => {
+    const n = await counter('pathAnswers');
+    await control('hutpath');
+    await expect.poll(() => counter('pathAnswers'), { timeout: 10_000, message: 'the path is answered' }).toBe(n + 1);
+    return { status: await counter('pathStatus'), cm: await counter('pathCm'), points: await counter('pathPoints') };
+  };
+  const until = async (status: number): Promise<{ asks: number; ms: number; cm: number; points: number }> => {
+    const t0 = Date.now();
+    for (let asks = 1; ; asks++) {
+      const a = await ask();
+      if (a.status === status) return { asks, ms: Date.now() - t0, cm: a.cm, points: a.points };
+      expect(Date.now() - t0, `the path's status ${a.status}, waiting for ${status}`).toBeLessThan(10_000);
+    }
+  };
+  const open = await until(1);
+  expect(open.cm, 'a path out of the hut is at least the straight line between its ends').toBeGreaterThanOrEqual(925);
+  expect(open.cm).toBeLessThanOrEqual(1100);
+  await counted('hutshut', 'hutShut');
+  const shut = await until(3);
+  await counted('hutdoor', 'hutDoor');
+  const again = await until(1);
+  expect(again.cm).toBe(open.cm);
+  return { open, shut, again };
 }
 
 /**

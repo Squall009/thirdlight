@@ -214,7 +214,7 @@ in the generated reference, which holds this build's value.
   most 400,000 points along its path
   ([`VERTEX_PAINT_LIMITS`](../reference/limits-project-model-3.md#limit-vertex-paint-limits)).
 - **One stroke** (one `paintVertices`) carries at most 256 dabs, a radius
-  of 0.01–64 m ([`VERTEX_PAINT_BRUSH_LIMITS`](../reference/limits-project-model-2.md#limit-vertex-paint-brush-limits));
+  of 0.01–64 m ([`VERTEX_PAINT_BRUSH_LIMITS`](../reference/limits-project-model-3.md#limit-vertex-paint-brush-limits));
   a longer drag goes on as the next stroke.
 - **Drawing:** painted copies stay in their instanced draw and a painted
   static object stays in its merged cell; what paint costs to draw is in

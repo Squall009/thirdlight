@@ -196,6 +196,56 @@ if (r !== null && r.kind === 'room') {
 }
 ```
 
+## Paths: `findPath`, `reach`
+
+`findPath(from, to, options?)` asks for a way a walker can go between two
+points; `reach(from, maxDistance, options?)` for every place it can stand
+within a walking distance. Each returns an id at once and is answered at a
+later step in `ctx.voxels.paths` (or `reaches`), like a `whenResident` wait:
+the engine serves the queries in the order asked within the path-finding
+share of each step (a tenth of a step's frame at the quality level's tier),
+so a long path or a hundred at once never stall the game; a long path can
+take a few steps. A point is where a body stands or its middle: the standing
+place under it (down to 2 m) or beside it is taken.
+
+The walk goes over **standing places**: a free 0.5 m cell on one that
+supports (ground, a wall's or floor's top; not water, not an opening), with
+room for the walker's `height` over it (default 2 m). From one it steps to
+the eight round it on the same level or one cell (0.5 m) up or down, so
+stairs, terraces and kerbs are walked; a step up or down needs one cell more
+headroom at its lower end; a diagonal is taken only where both cells beside
+it can be walked too (it never cuts a corner) and only inside a 16 m chunk.
+Doors are walked through when they are as tall as the walker; windows and
+low gaps are not. With `maxDrop` (metres) it also walks off ledges onto the
+first floor below, as deep as that, one way only. Under water counts as
+ground (there is no swimming). The walker's footprint is one cell: it fits a
+body up to 0.25 m in radius; wider bodies need their own margin.
+
+A path's answer has its `status`: `found`, `partial` (its `maxNodes` was
+spent: the way to where it got closest), `unreachable` (every way out of the
+start is known and none reaches the end) or `unknown` (the way runs into
+ground not loaded yet: the answer is the way to where the known world ends,
+nearest the end; never `unreachable` for that). `points` are waypoints in
+world metres, on the floor in the middle of each cell where the way turns
+(corners are kept, not cut tight), `length` in metres, and what it cost
+(`searched` places, `steps` it took, `ms`). A long path is searched over the
+chunks' pieces first and then cell by cell along that route, so it is within
+a few per cent of the shortest, never through a wall. A reach answers
+`count`, `area` (m²), `bounds` and, with `points: true`, each place.
+
+Props, doors as objects and other moving things are **not** in the walk (it
+is made from the voxels alone): a game steers its walkers round them. An
+edit is in the walk a few steps after it lands (the chunk it changed is made
+again); a query asked meanwhile sees the world as it was.
+
+```ts
+if (state.asked === undefined) state.asked = ctx.voxels.findPath(me, target);
+for (const a of ctx.voxels.paths) if (a.path === state.asked) {
+  state.route = a.status === 'found' ? a.points : null; // a game's own steering follows the points
+  state.asked = undefined;
+}
+```
+
 ## Materials: `materialAt`, `materialOf`
 
 `materialAt(x, y, z)` gives the material record of the voxel at a point,

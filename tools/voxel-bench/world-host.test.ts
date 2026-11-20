@@ -1096,6 +1096,90 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
   }, 120_000);
 });
 
+describe('paths and reaches over a world (ctx.voxels.findPath, reach)', () => {
+  it('answers at a later step in the order asked: the places within a walk, a path to one of them, unknown past the ring, invalid for a malformed point; the path-finding span on the step; the graph gone with the world', async () => {
+    const h = await harness();
+    const at: [number, number, number] = [0.25, (groundY + 1) * VOXEL_SIZE_M + 0.5, 0.25];
+    await h.stepUntil((v) => (v.isResident({ center: at, radius: 12 }) ? true : undefined), 'the ground round the focus to load');
+    // The ring loaded, derived and its walk graph made (nothing read, decoded or derived and nothing to stitch for 30 steps).
+    let quiet = 0;
+    await h.until(() => {
+      const d = h.rt.getDiagnostics();
+      const w = d.ok ? (d.diagnostics as { voxelWorlds?: Array<{ stream?: { reading: number; decoding: number; deriving: number }; walk?: { pending: boolean } }> }).voxelWorlds?.[0] : undefined;
+      const busy = w?.stream === undefined || w.stream.reading + w.stream.decoding + w.stream.deriving > 0 || w.walk?.pending !== false;
+      quiet = busy ? 0 : quiet + 1;
+      return quiet >= 30;
+    }, 'the ring and its walk graph to settle', 60_000);
+    // The walk graph is made a chunk at a time in the derive slice: ask until the reach is no longer from nowhere.
+    let reachId = 0;
+    const reached = await h.stepUntil((v) => {
+      if (reachId === 0) reachId = v.reach(at, 8, { points: true });
+      const a = v.reaches.find((r) => r.reach === reachId);
+      if (a === undefined) return undefined;
+      reachId = 0;
+      return a.count > 0 ? a : undefined;
+    }, 'a reach over the walk graph');
+    expect(['found', 'unknown']).toContain(reached.status);
+    expect(reached.points!.length).toBe(reached.count);
+    expect(reached.area).toBeCloseTo(reached.count * 0.25, 9);
+    // Every place within 8 m walked lies within 8 m of the start (a walk is never shorter than the straight line).
+    for (const p of reached.points!) expect(Math.hypot(p[0] - at[0], p[2] - at[2])).toBeLessThanOrEqual(8 + 0.75);
+    const far = reached.points!.reduce((b, p) => (Math.hypot(p[0] - at[0], p[2] - at[2]) > Math.hypot(b[0] - at[0], b[2] - at[2]) ? p : b));
+    threadProfiler.endFrame();
+    const first = threadProfiler.frameCount;
+    // Three at once: none answered in the step that asked, each at a later step (a step's answers are read in it).
+    const ids: number[] = [];
+    const all = new Map<number, BehaviorVoxels['paths'][number]>();
+    const order: number[] = [];
+    let inAsking = -1;
+    await h.stepUntil((v) => {
+      threadProfiler.endFrame();
+      threadProfiler.beginFrame();
+      if (ids.length === 0) {
+        ids.push(v.findPath(at, far), v.findPath(at, [5000, at[1], 5000]), v.findPath([Number.NaN, 0, 0], at));
+        inAsking = v.paths.filter((a) => ids.includes(a.path)).length;
+        return undefined;
+      }
+      for (const a of v.paths) if (ids.includes(a.path) && !all.has(a.path)) {
+        all.set(a.path, a);
+        order.push(a.path);
+      }
+      return all.size === 3 ? true : undefined;
+    }, 'the paths to be answered');
+    expect(inAsking).toBe(0);
+    // Answered in the order asked (the malformed one at once, the others as they are served, in turn).
+    expect(order.filter((id) => id !== ids[2])).toEqual([ids[0], ids[1]]);
+    const bad = all.get(ids[2]!)!;
+    expect(bad).toMatchObject({ status: 'unreachable', reason: 'invalid', points: [] });
+    const found = all.get(ids[0]!)!;
+    expect(found.status).toBe('found');
+    // The start's standing place: in its column, or in one beside it (where its own has no floor near the point).
+    expect(Math.max(Math.abs(found.points[0]![0] - 0.25), Math.abs(found.points[0]![2] - 0.25))).toBeLessThanOrEqual(VOXEL_SIZE_M);
+    expect(found.points.at(-1)).toEqual(far);
+    const p0 = found.points[0]!;
+    expect(found.length).toBeGreaterThanOrEqual(Math.hypot(far[0] - p0[0], far[2] - p0[2]) - 1e-9);
+    expect(found.length).toBeLessThanOrEqual(8 + 1e-9);
+    expect(found.searched).toBeGreaterThan(0);
+    // Past the 32 m ring: the way to where the known world ends, never unreachable.
+    const beyond = all.get(ids[1]!)!;
+    expect(beyond.status).toBe('unknown');
+    expect(beyond.points.length).toBeGreaterThan(1);
+    // Its end is toward the goal (+x, +z) from where it started, at the edge of what is known (the 32 m ring).
+    const b0 = beyond.points[0]!;
+    const b1 = beyond.points.at(-1)!;
+    expect(b1[0] + b1[2]).toBeGreaterThan(b0[0] + b0[2] + 16);
+    // Served in the path-finding span (its category), inside the step's voxel streaming.
+    const spans = threadProfiler.read(threadProfiler.frameCount - first).own.flatMap((f) => f.spans);
+    const path = spans.filter((x) => x.name === 'path finding');
+    expect(path.length).toBeGreaterThan(0);
+    expect(path.every((x) => x.category === 'pathfinding')).toBe(true);
+    // The graph's memory reading while the world is open, gone with it.
+    expect(residentBytes.read().walkGraph ?? 0).toBeGreaterThan(0);
+    h.rt.dispose();
+    expect(residentBytes.read().walkGraph).toBeUndefined();
+  }, 90_000);
+});
+
 describe('the frame profile of a streaming world', () => {
   it("times every job its pool's real workers ran as a span of the job workers' lane, and the world's streaming as a span of its step", async () => {
     const h = await harness();

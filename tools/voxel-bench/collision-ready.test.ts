@@ -76,7 +76,10 @@ function gatedWorker(held: (m: JobRequest) => boolean, queue: Array<() => void>)
   };
 }
 
-const events: VoxelHostEvents = { changed: () => undefined, answered: () => undefined, nextWait: () => 0, saved: () => undefined, nextSave: () => 0, mismatch: () => undefined, warn: (m) => console.warn(m) };
+const events: VoxelHostEvents = { changed: () => undefined, answered: () => undefined, nextWait: () => 0, saved: () => undefined, nextSave: () => 0, mismatch: () => undefined,
+      pathAnswered: () => undefined,
+      reachAnswered: () => undefined,
+      nextQuery: () => 0, warn: (m) => console.warn(m) };
 
 describe('a voxel world under a body', () => {
   it('counts a column settled only once every section of its chunks has its result, not at a chunk’s first event', async () => {

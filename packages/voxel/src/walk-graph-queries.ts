@@ -46,6 +46,12 @@ export interface WalkQueryOptions {
    * {@link FLAT_FIRST_NODES}; 0: the levels at once).
    */
   readonly flatFirst?: number;
+  /**
+   * What the first level counts for crossing a piece from one exit to the next: `straight` (default) the straight line
+   * between their cells, nothing walked; `walk` its cost by a walk over the piece (one flood of the piece an exit it is
+   * entered by, kept on the exit until the piece's links change).
+   */
+  readonly exitCosts?: 'straight' | 'walk';
 }
 
 /**
@@ -212,6 +218,14 @@ class PieceSpace implements SearchGraph {
   }
 }
 
+/** The straight line between two cells (cells). */
+const cellGap = (a: WalkChunk, i: number, b: WalkChunk, j: number): number => {
+  const e = a.edge;
+  const ci = a.col[i]!;
+  const cj = b.col[j]!;
+  return Math.hypot(a.cx * e + ((ci / e) | 0) - (b.cx * e + ((cj / e) | 0)), a.cy * e + a.ys[i]! - (b.cy * e + b.ys[j]!), a.cz * e + (ci % e) - (b.cz * e + (cj % e)));
+};
+
 const distCells = (c: WalkChunk, i: number, p: readonly number[]): number => {
   const e = c.edge;
   const colI = c.col[i]!;
@@ -264,6 +278,11 @@ export class WalkQueries {
     return this.queue.length;
   }
 
+  /** Bytes the searches' arrays hold (they grow to the largest search made, and are kept for the next). */
+  get bytes(): number {
+    return this.cellSearch.bytes + this.coarseSearch.bytes + this.innerSearch.bytes + this.endSearch.bytes;
+  }
+
   /** Nodes expanded and queries answered since the start. */
   get served(): { readonly nodes: number; readonly queries: number } {
     return { nodes: this.servedNodes, queries: this.servedJobs };
@@ -310,7 +329,10 @@ export class WalkQueries {
     for (const j of this.queue.splice(0)) j.abandon();
   }
 
-  /** The standable cell for a world cell: in its column from a cell above it down to {@link SNAP_DOWN} below, else in a column beside it. */
+  /**
+   * The standable cell for a world cell: in its column, the cell itself or the nearest below it to {@link SNAP_DOWN},
+   * else the one over it (a point just inside its floor); else the same in a column beside it.
+   */
   snap(p: readonly [number, number, number], agent: WalkAgent): Spot | 'unknown' | null {
     const g = this.graph;
     const e = g.grid.edge;
@@ -319,7 +341,8 @@ export class WalkQueries {
     for (const [ox, oz] of cols) {
       const x = p[0] + ox;
       const z = p[2] + oz;
-      for (let y = p[1] + 1; y >= p[1] - SNAP_DOWN; y--) {
+      for (let k = 0; k <= SNAP_DOWN + 1; k++) {
+        const y = k <= SNAP_DOWN ? p[1] - k : p[1] + 1;
         const c = g.lookup(Math.floor(x / e), Math.floor(y / e), Math.floor(z / e));
         if (c === undefined) {
           unknown = true;
@@ -396,11 +419,16 @@ class PathJob implements Job {
     const max = this.options.maxNodes ?? Infinity;
     if (this.phase === 'snap') return this.begin();
     if (this.phase === 'coarse') {
+      // One exit at a time, its piece walks counted as work: a unit is the nodes given plus at most one piece's walk.
       const s = this.q.coarseSearch;
-      const before = s.expanded;
-      const st = s.run(Math.min(nodes, Math.max(1, max - this.expanded)));
-      this.expandedCoarse += s.expanded - before;
-      this.q.count(s.expanded - before);
+      const work0 = this.expanded;
+      let st = s.status;
+      while (st === 'open' && this.expanded - work0 < nodes && this.expanded < max) {
+        const before = s.expanded;
+        st = s.run(1);
+        this.expandedCoarse += s.expanded - before;
+        this.q.count(s.expanded - before);
+      }
       if (st === 'open' && this.expanded >= max) return this.coarseEnded('partial');
       if (st === 'open') return false;
       return this.coarseEnded(st === 'found' ? 'found' : 'none');
@@ -422,7 +450,7 @@ class PathJob implements Job {
   private startLevels(): false {
     const q = this.q;
     this.leveled = true;
-    this.coarse = new CoarseSpace(q, this.start!, this.end, this.endAt, this.touched);
+    this.coarse = new CoarseSpace(q, this.start!, this.end, this.endAt, this.touched, this.options.exitCosts === 'walk');
     q.coarseSearch.start(this.coarse, { from: 0, target: 1, estimate: this.coarse.estimate });
     this.phase = 'coarse';
     return false;
@@ -506,11 +534,16 @@ class PathJob implements Job {
       if (!set.has(p)) this.corridorSize++;
       set.add(p);
     };
+    const onRoute: Array<[WalkChunk, number]> = [];
     for (const n of route) {
       const sp = c.pieceOfNode(n);
-      if (sp !== null) add(sp[0], sp[1]);
+      if (sp !== null) onRoute.push(sp);
     }
-    if (this.aim !== null && this.aim.chunk.piece[this.aim.cell] !== NO_WALK_PIECE) add(this.aim.chunk, this.aim.chunk.piece[this.aim.cell]!);
+    if (this.aim !== null && this.aim.chunk.piece[this.aim.cell] !== NO_WALK_PIECE) onRoute.push([this.aim.chunk, this.aim.chunk.piece[this.aim.cell]!]);
+    for (const [ch, p] of onRoute) add(ch, p);
+    // With straight costs the route only guesses each piece's crossing: the pieces next to it come too, so the cells'
+    // search can go round what the guess missed (a wall across a piece the straight line ran through).
+    if (this.options.exitCosts !== 'walk') for (const [ch, p] of onRoute) for (const x of this.q.graph.exitsOf(ch, p)) add(x.to, x.toPiece);
     this.startCells(corridor, this.aim);
     this.phase = 'refine';
     return false;
@@ -588,13 +621,15 @@ class CoarseSpace implements SearchGraph {
     private readonly end: Spot | null,
     private readonly endAt: readonly [number, number, number],
     private readonly touched: Set<WalkChunk>,
+    /** Crossing a piece costs its walk (else the straight line between the cells). */
+    private readonly walked: boolean,
   ) {
     const g = q.graph;
     const m = g.cellM;
     this.startPiece = start.chunk.piece[start.cell]!;
     this.endPieceOf = end === null ? -1 : end.chunk.piece[end.cell]!;
     // The end piece's walk from the end (its steps go both ways: the cost from any of its cells to the end).
-    if (end !== null) {
+    if (end !== null && walked) {
       q.endPiece.chunk = end.chunk;
       q.endPiece.piece = this.endPieceOf;
       q.endSearch.start(q.endPiece, { from: end.cell });
@@ -602,7 +637,7 @@ class CoarseSpace implements SearchGraph {
       this.innerExpanded += q.endSearch.expanded;
     }
     this.startExits = g.exitsOf(start.chunk, this.startPiece);
-    this.startCosts = this.walk(start.chunk, this.startPiece, start.cell, this.startExits);
+    this.startCosts = walked ? this.walk(start.chunk, this.startPiece, start.cell, this.startExits) : Float64Array.from(this.startExits, (x) => cellGap(start.chunk, start.cell, x.from, x.a) * m);
     this.estimate = (n: number): number => {
       if (n === 1) return 0;
       if (n === 0) return distCells(start.chunk, start.cell, endAt) * m;
@@ -625,7 +660,7 @@ class CoarseSpace implements SearchGraph {
 
   private toEnd(c: WalkChunk, piece: number, cell: number): number {
     if (this.end === null || c !== this.end.chunk || piece !== this.endPieceOf) return Infinity;
-    return this.q.endSearch.cost(cell);
+    return this.walked ? this.q.endSearch.cost(cell) : cellGap(c, cell, this.end.chunk, this.end.cell) * this.q.graph.cellM;
   }
 
   /** The piece a node stands in once across (the start's for 0; null for the end or a gone exit). */
@@ -659,15 +694,20 @@ class CoarseSpace implements SearchGraph {
     this.touched.add(x.to);
     this.frontierOf(node, x.to, x.toPiece);
     const exits = g.exitsOf(x.to, x.toPiece);
-    const at = g.linksVersion(x.to);
-    if (x.dists === null || x.distsAt !== at || x.dists.length !== exits.length) {
-      x.dists = this.walk(x.to, x.toPiece, x.b, exits);
-      x.distsAt = at;
-    }
-    const dists = x.dists;
-    for (let k = 0; k < exits.length; k++) {
-      const d = dists[k]!;
-      if (d < Infinity) step(exits[k]!.id + 2, x.cost + d);
+    if (this.walked) {
+      const at = g.linksVersion(x.to);
+      if (x.dists === null || x.distsAt !== at || x.dists.length !== exits.length) {
+        x.dists = this.walk(x.to, x.toPiece, x.b, exits);
+        x.distsAt = at;
+      }
+      const dists = x.dists;
+      for (let k = 0; k < exits.length; k++) {
+        const d = dists[k]!;
+        if (d < Infinity) step(exits[k]!.id + 2, x.cost + d);
+      }
+    } else {
+      const m = g.cellM;
+      for (const e of exits) step(e.id + 2, x.cost + cellGap(x.to, x.b, e.from, e.a) * m);
     }
     const d = this.toEnd(x.to, x.toPiece, x.b);
     if (d < Infinity) step(1, x.cost + d);
