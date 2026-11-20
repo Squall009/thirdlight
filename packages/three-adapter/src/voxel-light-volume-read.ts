@@ -18,6 +18,7 @@ import { texelTexture } from './texel-texture-node';
 import { ambientCubeFaceWeights, ambientCubeSteps, VOLUME_BRICK_CELLS, VOLUME_BRICK_TEXELS, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_PARTICLE_CENTRE_KEY, VOLUME_READ_KEY, VOLUME_READ_KIND_KEY, VOLUME_READ_KINDS, VOLUME_READ_OFFSET_CELLS, VOLUME_WORD, volumeCellM, volumeReadFlag, type VolumeReadFlag, type VolumeReadKind } from './voxel-light-volume-layout';
 import { TSL_SCALAR_OPS } from './field-ops';
 import { VOXEL_KIT_PIECE_KEY } from './voxel-piece-draw';
+import { sunFieldCover } from './voxel-sun-field';
 
 const TSL: N = TSLTyped;
 const { Fn, If, Loop, bool, cameraPosition, float, int, ivec2, luminance, max, mix, normalWorld, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, uint, uniform, vec3, vec4, vertexStage } = TSL;
@@ -39,6 +40,8 @@ export class VoxelVolumeLight extends THREE.Light {
   readonly faceFloor: N = uniform(0).setGroup(renderGroup);
   /** Metres from the eye within which level 0 is read from its eight cells (the tier's `readFullM`; set each frame). */
   readonly fullM: N = uniform(1e9).setGroup(renderGroup);
+  /** The flat term's share under a roof where the volume holds no light (the tier's `indoorShare`; set each frame). */
+  readonly indoorShare: N = uniform(1).setGroup(renderGroup);
   constructor(
     readonly gpu: VolumeReadSource,
     readonly flag: VolumeReadFlag = volumeReadFlag(null),
@@ -112,9 +115,13 @@ class VoxelVolumeLightNode extends (THREE.Node as unknown as new () => { updateT
     const w = r.weight;
     const replaced = ctx.irradiance.sub(KEPT_IRRADIANCE).add(ctx.iblIrradiance);
     const darker = luminance(r.light).div(max(luminance(replaced), float(1e-4))).clamp(0, 1);
-    ctx.radiance.mulAssign(mix(float(1), darker, w));
-    ctx.irradiance.assign(mix(ctx.irradiance, KEPT_IRRADIANCE.add(r.light), w));
-    ctx.iblIrradiance.mulAssign(w.oneMinus());
+    // What the volume leaves (1 − w) keeps the flat term; under a roof only its indoor share of it (a surface lit by the
+    // volume is not changed: w is 1 there). Particles read at their centres and keep the plain term.
+    const covered = kind === 'particle' ? null : sunFieldCover(builder, positionWorld, normalWorldGeometry);
+    const k = covered === null ? float(1) : mix(float(1), this.light.indoorShare, covered);
+    ctx.radiance.mulAssign(mix(k, darker, w));
+    ctx.irradiance.assign(mix(KEPT_IRRADIANCE.add(ctx.irradiance.sub(KEPT_IRRADIANCE).mul(k)), KEPT_IRRADIANCE.add(r.light), w));
+    ctx.iblIrradiance.mulAssign(w.oneMinus().mul(k));
   }
 }
 

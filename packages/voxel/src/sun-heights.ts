@@ -72,6 +72,22 @@ export function sunLit<F, B>(o: ScalarOps<F, B>, y: F, shade: F, pen: F): F {
   return o.min(o.n(1), o.max(o.n(0), o.add(o.div(o.sub(y, shade), pen), o.n(1))));
 }
 
+/**
+ * Columns a point is taken off its surface along its normal before its column's top is read for {@link sunCovered}:
+ * past a roof's eaves (on the town's houses within a cell of the wall: at 0.75 of a column 47 % of the outer wall
+ * faces read a top over them, at 2 columns 2.4 %), and inside any room two columns wide (every inner wall face).
+ */
+export const SUN_COVER_OFFSET = 2;
+
+/**
+ * Whether a point at height `y` is under its column's top `top` (a roof over it): 1 or 0, 0 where the column has no
+ * top. The point is taken off its surface along its normal by {@link SUN_COVER_OFFSET} columns first, so a wall's
+ * inner face reads the room's column and its outer face the column outside (the light volume's indoor share).
+ */
+export function sunCovered<F, B>(o: ScalarOps<F, B>, y: F, top: F): F {
+  return o.select(o.lt(o.n(SUN_HEIGHT_NO_TOP), top), o.select(o.lt(y, top), o.n(1), o.n(0)), o.n(0));
+}
+
 /** A column's top as a lookup gives it: metres (or {@link SUN_HEIGHT_UNKNOWN} / {@link SUN_HEIGHT_NONE}) and the column's width. */
 export interface SunColumn {
   readonly top: number;

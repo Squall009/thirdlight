@@ -190,6 +190,13 @@ export interface VoxelLightVolumeSettings {
   readonly historyUpdates: number;
   /** Level 0's window across (2 m bricks; up is half of it): the 0.5 m cells kept round the camera, ±this metres. */
   readonly windowBricks: number;
+  /**
+   * Where the volume holds no light for a pixel (past its windows, or before its bricks are lit) the flat ambient,
+   * sky and environment light stand in; under a roof (its column's sky height above it) they are taken at this share
+   * (0 … 1; 1: as outdoors), so a room seen from afar or just arrived in is not lit as the street is. Not a minimum:
+   * once the volume holds light there it alone lights the pixel.
+   */
+  readonly indoorShare: number;
 }
 
 /** What a lighting tier sets. */
@@ -224,10 +231,17 @@ export interface LightingTierSettings {
  * every face toward the normal (a face floor measured no cheaper), the eight cells blended to 24 m on low (past it one
  * cell: about half the read's cost at a view over the town, nothing seen at that distance), farther on medium and high.
  */
+/**
+ * The flat term's share under a roof where the volume holds no light (default chosen, owner to confirm): the town's
+ * room camera read about a fifth as bright settled as at its first half-second, lit then by the flat term (plan-46e
+ * 46e.16). The same at every tier: it is a look, not a cost.
+ */
+const INDOOR_SHARE = 0.2;
+
 const VOXEL_LIGHT_VOLUME_BY_TIER: Readonly<Record<LightingTier, Readonly<VoxelLightVolumeSettings>>> = Object.freeze({
-  low: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 24, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
-  medium: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 32, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48 }),
-  high: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 64, followWindow: 8, outerSettle: 2, listEntries: 24, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 128, windowBricks: 48 }),
+  low: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 24, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48, indoorShare: INDOOR_SHARE }),
+  medium: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 32, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48, indoorShare: INDOOR_SHARE }),
+  high: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 64, followWindow: 8, outerSettle: 2, listEntries: 24, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 128, windowBricks: 48, indoorShare: INDOOR_SHARE }),
 });
 
 /** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */
@@ -254,6 +268,7 @@ export function voxelLightVolumeSettingsProblems(v: VoxelLightVolumeSettings): s
   if (v.windowBricks % 2 !== 0 || v.windowBricks < 8) out.push('windowBricks is an even number of at least 8');
   if (!(v.readFaceFloor >= 0 && v.readFaceFloor <= VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX)) out.push(`readFaceFloor is from 0 to ${VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX}`);
   if (typeof v.enabled !== 'boolean') out.push('enabled is true or false');
+  if (!(v.indoorShare >= 0 && v.indoorShare <= 1)) out.push('indoorShare is from 0 to 1');
   return out;
 }
 

@@ -50,7 +50,7 @@
 import * as THREE from 'three/webgpu';
 import { StorageTexture } from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { composeSkyTile, FarSunTops, STREAM_DETAIL_SPEED, STREAM_STOPPED_MS, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_WINDOW_TEXELS, SunHeightWindow, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarBricks, type FarTopsPlace, type SkyColumns, type SunColumn } from '@thirdlight/voxel';
+import { composeSkyTile, FarSunTops, SUN_COVER_OFFSET, STREAM_DETAIL_SPEED, STREAM_STOPPED_MS, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_WINDOW_TEXELS, SunHeightWindow, sunCovered, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarBricks, type FarTopsPlace, type SkyColumns, type SunColumn } from '@thirdlight/voxel';
 import { CPU_SCALAR_OPS, threadProfiler } from '@thirdlight/shared';
 
 import type { N } from './effects-tsl';
@@ -505,6 +505,18 @@ export class SunField {
     return { all: select(none, float(1), sunLit(o, s.y, c.line.x, c.cellM)), past: select(none, float(1), sunLit(o, s.y, c.line.y, c.cellM)) };
   }
 
+  /**
+   * Whether a point (normal `n`) is under a roof: its column's top in the near window (the worlds' sky heights,
+   * 0.5 m columns) is above it, the point taken off its surface along its normal past the eaves (so a wall's
+   * outer face reads the column outside it, its inner face the room's). 1 or 0; 0 where the window does not know
+   * the column (past it the far window's columns are too wide to tell a wall's two sides apart).
+   */
+  covered(p: N, n: N): N {
+    const s = p.add(n.mul(this.nearRect.z.mul(SUN_COVER_OFFSET)));
+    const top = this.top(this.nearRect, 0, this.near.tile, s.x.div(this.nearRect.z).floor(), s.z.div(this.nearRect.z).floor());
+    return sunCovered(TSL_SCALAR_OPS, s.y, top);
+  }
+
   dispose(): void {
     this.shadeWrite.dispose();
     this.shadeRead.dispose();
@@ -545,6 +557,17 @@ function sunFieldOf(builder: N): SunField | null {
   const lights = (builder.lightsNode?.getLights?.() ?? []) as THREE.Light[];
   for (const l of lights) if ((l as Partial<SunFieldLight>).isSunField === true) return (l as SunFieldLight).field;
   return null;
+}
+
+/**
+ * Whether a lit draw's point is under a roof, by the sun field among the build's lights (`SunField.covered`), read at
+ * each vertex and carried to the pixels as the field's lines are (null: no field in this build, WebGL 2 or no voxel
+ * world). The light volume's read takes the flat term at its indoor share there.
+ */
+export function sunFieldCover(builder: N, p: N, n: N): N | null {
+  const field = sunFieldOf(builder);
+  if (field === null || builder.renderer?.backend?.isWebGPUBackend !== true) return null;
+  return varying(Fn(() => field.covered(vec3(p), vec3(n).normalize()))(), 'tlSunCovered');
 }
 
 /** The key light's shadow node with the field's march over it, and the map's square it hands over at. */

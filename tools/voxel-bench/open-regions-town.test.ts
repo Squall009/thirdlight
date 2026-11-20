@@ -5,7 +5,8 @@
  * under the sky. The houses are counted from the generator's own lots, not from the labels.
  */
 import { describe, expect, it } from 'vitest';
-import { OpenRegionStitch, voxel, VOXEL_ROLE, type RegionStreamerView } from '@thirdlight/voxel';
+import { CPU_SCALAR_OPS } from '@thirdlight/shared';
+import { OpenRegionStitch, SUN_COVER_OFFSET, sunCovered, voxel, VOXEL_ROLE, type RegionStreamerView } from '@thirdlight/voxel';
 
 import { walkWorld, WALK_GRID } from './walk-world';
 import { townWorld } from './worlds';
@@ -64,6 +65,32 @@ describe('open regions on the town', () => {
       sizes.push(`${(r.cells / 8).toFixed(0)} m³ ${(r.faces / 4).toFixed(0)} m² mfp ${mfp.toFixed(2)} m box ${span.join('×')} m portals ${ports.length}`);
     }
     console.log(`[open-regions town] rooms: ${sizes.join('; ')}`);
+    // The light volume's indoor share reads a point's column top (the sky heights) over the point taken off its surface:
+    // every wall face inside a house is under a roof, the walls' faces outside are not (the point is taken past the eaves).
+    const streetId = street.id;
+    const count = { inside: 0, insideCovered: 0, outside: 0, outsideCovered: 0 };
+    for (const r of enclosed) {
+      for (let x = r.min[0]! - 1; x <= r.max[0]! + 1; x++) for (let z = r.min[2]! - 1; z <= r.max[2]! + 1; z++) for (let y = r.min[1]!; y <= r.max[1]!; y++) {
+        const id = s.regionIdAt(x, y, z);
+        if (id !== r.id && id !== streetId) continue;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          if (!w.solidAt(x + dx, y, z + dz)) continue;
+          // The face's middle (metres), its normal away from the wall, the point taken off by the column share.
+          const m = 0.5;
+          const px = (x + 0.5 + dx / 2) * m - dx * SUN_COVER_OFFSET * m;
+          const pz = (z + 0.5 + dz / 2) * m - dz * SUN_COVER_OFFSET * m;
+          const top = s.skyHeight(Math.floor(px / m), Math.floor(pz / m))! * m;
+          const c = sunCovered(CPU_SCALAR_OPS, (y + 0.5) * m, top);
+          if (id === r.id) (count.inside++, (count.insideCovered += c));
+          else (count.outside++, (count.outsideCovered += c));
+        }
+      }
+    }
+    console.log(`[open-regions town] wall faces under a roof: inside ${count.insideCovered} of ${count.inside}, outside ${count.outsideCovered} of ${count.outside}`);
+    expect(count.inside).toBeGreaterThan(1000);
+    expect(count.insideCovered).toBe(count.inside);
+    expect(count.outside).toBeGreaterThan(1000);
+    expect(count.outsideCovered / count.outside).toBeLessThan(0.05);
   });
 });
 

@@ -513,6 +513,7 @@ export class VoxelLightVolume {
     const reading = this.tuning.at(this.deps.level());
     this.light.faceFloor.value = reading.readFaceFloor;
     this.light.fullM.value = reading.readFullM;
+    this.light.indoorShare.value = reading.indoorShare;
     this.lights();
     this.history.frame(this.frames);
     if (this.lightFollow.frame(this.frames)) {
