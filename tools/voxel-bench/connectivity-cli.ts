@@ -21,7 +21,7 @@ import { importRead, pickStore } from '@thirdlight/workspace';
 
 import { benchDir } from './bench-dirs';
 import { boxInPlanes, CELL_M, connectivityFlood, frustumPlanes, segmentUnits, UNIT_CELLS, unitKey, unitOfKey } from './connectivity-flood';
-import { DiskRegions } from './stream-node';
+import { diskFeed, generatedFeed, type ChunkFeed } from './chunk-feeds';
 import { CULL_VIEWS, findCaveViews, type CullView } from './cull-views';
 import { cavesWorld, verticalWorld } from './worlds';
 import type { TestWorld } from './world-kit';
@@ -48,47 +48,6 @@ const grid = chunkGrid(32);
 const SECTION = 16;
 const IDS = Array.from({ length: 8 }, (_, i) => i);
 const CHUNK_M = grid.edge * CELL_M;
-
-/** The world's chunks into a store, on demand: read from its region files, or generated. */
-interface ChunkFeed {
-  ensure(chunks: Array<[number, number, number]>): Promise<void>;
-}
-
-function generatedFeed(world: TestWorld, store: PaletteStore): ChunkFeed {
-  const g = world.grids[0]!;
-  const d = createDenseChunk(grid);
-  const done = new Set<string>();
-  return {
-    async ensure(chunks) {
-      for (const [cx, cy, cz] of chunks) {
-        const k = `${cx},${cy},${cz}`;
-        if (done.has(k)) continue;
-        done.add(k);
-        if (g.fill(grid, cx, cy, cz, d)) store.importChunk(cx, cy, cz, d);
-      }
-    },
-  };
-}
-
-function diskFeed(dir: string, store: PaletteStore): ChunkFeed {
-  const meta = JSON.parse(readFileSync(join(dir, 'world.json'), 'utf8')) as { worldId: string; layout: 'stacked' | 'column'; footprint: 512 };
-  const worldId = Uint8Array.from(meta.worldId.match(/../g)!.map((h) => parseInt(h, 16)));
-  const disk = new DiskRegions(join(dir, 'grid-0'));
-  const src = new RegionChunkSource({ worldId, gridId: WORLD_GRID_ID, grid, layout: meta.layout, footprint: meta.footprint, open: (n) => disk.open(n), maxOpen: 64 });
-  const done = new Set<string>();
-  return {
-    async ensure(chunks) {
-      const want = chunks.filter(([cx, cy, cz]) => !done.has(`${cx},${cy},${cz}`)).map(([cx, cy, cz]) => ({ cx, cy, cz }));
-      for (const c of want) done.add(`${c.cx},${c.cy},${c.cz}`);
-      for (let i = 0; i < want.length; i += 256) {
-        for (const r of await src.read(want.slice(i, i + 256))) {
-          if (r.kind === 'damaged') throw new Error(`chunk ${r.cx},${r.cy},${r.cz}: ${r.reason}`);
-          importRead(store, r);
-        }
-      }
-    },
-  };
-}
 
 const store = pickStore(grid);
 const feed: ChunkFeed = WORLD === 'far' ? diskFeed(WORLD_DIR, store) : generatedFeed(WORLD === 'caves' ? cavesWorld() : verticalWorld(), store);

@@ -1,8 +1,26 @@
-# Limits and defaults: project-model (part 3, from `vertex-paint.ts`)
+# Limits and defaults: project-model (part 3, from `validate.ts`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The limits and defaults `@thirdlight/project-model` defines, by source file. Values are the running build's.
+
+<a id="limits-project-model--validate"></a>
+## `validate.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-max-entity-depth"></a>`MAX_ENTITY_DEPTH` | `32` | The deepest an entity may sit in a scene's hierarchy (the root is depth 1). |
+| <a id="limit-max-len"></a>`MAX_LEN` | `1000000` |  |
+| <a id="limit-max-revision"></a>`MAX_REVISION` | `9007199254740991` |  |
+| <a id="limit-name-max"></a>`NAME_MAX` | `128` |  |
+| <a id="limit-name-min"></a>`NAME_MIN` | `1` |  |
+
+<a id="limits-project-model--vertex-paint-stroke"></a>
+## `vertex-paint-stroke.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-vertex-paint-brush-limits"></a>`VERTEX_PAINT_BRUSH_LIMITS` | `{"dabs":256,"radius":{"min":0.01,"max":64},"strengthMax":1}` | The vertex brush's bounds: a stroke fits one command. Strength is the shared brush's blend per dab (its bound is that brush's); the radius is metres in the world, not the block brush's cells, so it is bounded here. |
 
 <a id="limits-project-model--vertex-paint"></a>
 ## `vertex-paint.ts`
