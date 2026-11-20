@@ -90,10 +90,11 @@ export function playScriptSource(at: readonly number[]): string {
     '    }',
     // A path from inside the hut (1 m off its middle) out of its door to the pad west of the pit: its status (1 found,
     // 2 partial, 3 unreachable, 4 unknown) and length (cm) once answered; the door walled up (and opened again with
-    // `hutdoor`). The hut stands past the pad's edge on the hill: a doorstep slab at the pad's height in the three cell
-    // rows before its north wall (the hill above it dug away, the wall and its door left) takes a walker onto the pad.
-    `    for (const _ of ctx.debug.command('hutstep')) { const r = [v.set(box(-1, 0, 0.5, 1, 0.5, 1.7), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }), v.dig(box(-1, 0.5, 0.5, 1, 3, 1.7))]; ctx.game.add(r.every((e: any) => e.ok) ? 'hutStep' : 'hutRefused', 1); }`,
-    "    for (const _ of ctx.debug.command('hutpath')) state.path = v.findPath([A[0] + 1, A[1] + 0.75, A[2] + 6.25], [A[0] - 2.5, A[1] + 0.25, A[2] - 1]);",
+    // `hutdoor`). The hut stands past the pad's edge on the hill, a cell lower outside its door than its floor: a
+    // doorstep slab at the pad's height in the three cell rows before its north wall, 6 m wide past the pit's sides (the
+    // hill above it dug away, the wall and its door left), takes a walker onto the pad.
+    `    for (const _ of ctx.debug.command('hutstep')) { const r = [v.set(box(-3, 0, 0.5, 3, 0.5, 1.7), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }), v.dig(box(-3, 0.5, 0.5, 3, 3, 1.7))]; ctx.game.add(r.every((e: any) => e.ok) ? 'hutStep' : 'hutRefused', 1); }`,
+    "    for (const _ of ctx.debug.command('hutpath')) state.path = v.findPath([A[0] + 1, A[1] + 0.75, A[2] + 6.25], [A[0] - 2.5, A[1] + 0.25, A[2] - 3]);",
     "    for (const a of v.paths) if (a.path === state.path) { put('pathStatus', ['found', 'partial', 'unreachable', 'unknown'].indexOf(a.status) + 1); put('pathCm', Math.round(a.length * 100)); put('pathPoints', a.points.length); ctx.game.add('pathAnswers', 1); }",
     `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(box(-0.5, 0.5, 2, 0.5, 2.5, 2.2), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
     '    if (state.rooms) {',

@@ -1057,10 +1057,10 @@ export async function voxelRoomChecks(o: RoomCheckSetup): Promise<void> {
 }
 
 /**
- * The hut's path checks: from 1 m off the hut's middle out of its door (over the script's doorstep) to the pad 2.5 m
- * west and 1 m north of the character, west of the pit. The door is in the hut's north wall (x −0.5 … 0.5 m) and
- * nothing else opens it, so a path found goes through it: at least the 8.05 m between its ends, at most 14 m (to the
- * door, round the pit). Walled up, every way out of the room is known and none leaves it:
+ * The hut's path checks: from 1 m off the hut's middle out of its door (over the script's doorstep, round the pit) to
+ * the pad 2.5 m west and 3 m north of the character. The door is in the hut's north wall (x −0.5 … 0.5 m) and nothing
+ * else opens it, so a path found goes through it: at least the 9.89 m between its ends, at most 14 m (11.4 m in Node
+ * on the same cells). Walled up, every way out of the room is known and none leaves it:
  * unreachable; an opening again: found again. Each is asked again until the answer changes (an edit is in the walk
  * graph a few steps after its swap), and how many asks and ms that took is returned.
  */
@@ -1082,7 +1082,7 @@ async function hutPaths(o: RoomCheckSetup, counted: (cmd: string, name: string) 
   };
   await counted('hutstep', 'hutStep');
   const open = await until(1);
-  expect(open.cm, 'a path out of the hut is at least the straight line between its ends').toBeGreaterThanOrEqual(805);
+  expect(open.cm, 'a path out of the hut is at least the straight line between its ends').toBeGreaterThanOrEqual(989);
   expect(open.cm).toBeLessThanOrEqual(1400);
   await counted('hutshut', 'hutShut');
   const shut = await until(3);
