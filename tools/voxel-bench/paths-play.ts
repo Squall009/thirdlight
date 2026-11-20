@@ -107,23 +107,41 @@ export async function pathsPlay(opt: (name: string, d: string) => string, querie
     const game = await openPlay(b, page, { viewport, query: '', quality, world });
     const profile = async (): Promise<ProfileReport> => (await game.frame.evaluate(() => (window as unknown as { __tlProfiler: { read(): unknown } }).__tlProfiler.read())) as ProfileReport;
     const counters = async (): Promise<Record<string, number>> => (await game.observe())?.counters ?? {};
-    /** Streaming still: the world's chunk count and its walk graph the same for 6 s. */
-    const settle = async (): Promise<Record<string, unknown> | null> => {
+    /**
+     * Streaming still: the world's chunk count and its walk graph the same for 6 s. The profile is read every 2 s on the
+     * way (its ring holds about 4 s): the walk graph's and the regions' stitching a frame while the ring fills.
+     */
+    const settle = async (): Promise<{ sim: Record<string, unknown> | null; reads: ReturnType<typeof spansMs>[] }> => {
       let last = '';
       let sim: Record<string, unknown> | null = null;
+      const reads: ReturnType<typeof spansMs>[] = [];
+      let seen = -1;
       for (let i = 0, still = 0; i < 240 && still < 12; i++) {
         await page.waitForTimeout(500);
         sim = await game.sim();
         const now = JSON.stringify([sim?.['resident'], (sim?.['walk'] as { chunks?: number } | undefined)?.chunks]);
         still = now === last ? still + 1 : 0;
         last = now;
+        if (i % 4 === 3) {
+          const p = await profile();
+          const fresh: ProfileReport = { ...p, threads: { ...p.threads, sim: p.threads.sim.filter((f) => f.frame > seen) } };
+          seen = Math.max(seen, ...p.threads.sim.map((f) => f.frame));
+          reads.push(spansMs(fresh, SPANS));
+        }
       }
-      return sim;
+      return { sim, reads };
     };
+    /** The reads' frames together: ms a frame of each span and the most in one frame. */
+    const pooled = (reads: ReturnType<typeof spansMs>[]): Record<string, { perFrame: number; max: number; frames: number }> => Object.fromEntries(SPANS.map((n) => {
+      const frames = reads.reduce((k, r) => k + r[n]!.frames, 0);
+      const sum = reads.reduce((k, r) => k + r[n]!.perFrame * r[n]!.frames, 0);
+      return [n, { perFrame: Number((sum / Math.max(1, frames)).toFixed(3)), max: Math.max(0, ...reads.map((r) => r[n]!.max)), frames }];
+    }));
     const t0 = Date.now();
-    const loaded = await profile();
-    let sim = await settle();
-    out['arrival'] = { seconds: (Date.now() - t0) / 1000, walk: sim?.['walk'] ?? null, spans: spansMs(loaded, SPANS) };
+    const arrived = await settle();
+    let sim = arrived.sim;
+    out['arrival'] = { seconds: (Date.now() - t0) / 1000, walk: sim?.['walk'] ?? null, spans: pooled(arrived.reads) };
+    console.log(`play arrival: ${JSON.stringify(out['arrival'])}`);
     const ask = async (at: 'street' | 'cave'): Promise<Record<string, unknown>[]> => {
       const want = queries.map((q, k) => [q, k] as const).filter(([q]) => q.at === at);
       const c0 = (await counters())['answered'] ?? 0;
@@ -149,8 +167,9 @@ export async function pathsPlay(opt: (name: string, d: string) => string, querie
     console.log(`play hundred: ${JSON.stringify(out['hundred'])}`);
     // The cave: the camera moved there, streaming settled again.
     await game.debug('paths-at-cave');
-    sim = await settle();
-    out['cave'] = { walk: sim?.['walk'] ?? null, answers: await ask('cave') };
+    const moved = await settle();
+    sim = moved.sim;
+    out['cave'] = { walk: sim?.['walk'] ?? null, travel: pooled(moved.reads), answers: await ask('cave') };
     console.log(`play cave: ${JSON.stringify(out['cave'])}`);
     await game.stop();
   } finally {
