@@ -4193,7 +4193,10 @@ constant) and `three-hooks.test.mjs` (D734, from before this item) → 437db0bb 
 RED 4 (D732 ×2, D659, and the Play test: its hut had no step out of the door) → dd38f9c0 →
 `gate-rerun-20261120-091157` RED (still: the pit made the doorstep an island) → 46c1d8d6 → `gate-rerun-20261120-091903`
 RED 1 (D659, beside voxel-world on the GPU), the Play test green 1.9 min → `gate-rerun-20261120-092240` GREEN
-(frame-rate-cap alone; village 0 of 360 missed). The Play tests 1.9 and 2.0 min (1.8 / 2.0 before).
+(frame-rate-cap alone; village 0 of 360 missed). After the Play bench's fixes and the docs (45cc927d…e9f6a866):
+`gate-fast-20261120-104437` GREEN (32 passed, voxel area 378 s; the hut's path 11.40 m / `unreachable` / 11.40 m at
+the first asks) and `gate-area-20261120-110259` (play, the leak test) GREEN. The Play tests 1.8 and 2.1 min (1.8 / 2.0
+before).
 
 **Not done / unverified.** Nobody has watched a walker follow these paths (no steering exists; the points are checked
 against the cells only). A walker wider than a cell (D735). Doors and props as obstacles (47a; the game's steering).
