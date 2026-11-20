@@ -61,3 +61,9 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 Each is a hard stop when its phase arrives: a `gas` role (value 10) with shape as density and a mip rule like
 liquid's (47b); a fill stroke kind in the edit command (47b); narrowed feeds for liquid edits (47a); a liquid
 derived part per chunk (49); a medium channel (liquid and fog) on far-cache nodes (49).
+
+**47a's entries, proposed 2026-11-20** (`briefs/proposal-47a-formats.md`; each waits for its own note): F1 the
+structure record; F2 a structure's grid (the manifest's grid list, the transform on the object, the anchor); F3
+overrides (`TLVO` 2 from draft to used); F4 opening props and portal state; F5 spline sections that write voxels and
+the record of what a world-grid structure replaced; F6 the water body record; F7 narrowed feeds for liquid edits
+with a plain liquid part (the register's 47a line, and the first form of 49's liquid part).

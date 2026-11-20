@@ -1,7 +1,7 @@
 # Thirdlight — Status
 
-Updated 2026-11-20. Current work: **46e-b is done and accepted by the owner (2026-11-20, all five defaults stand)**. Next: **47a Structures** (`docs/roadmap.md`): it has no plan yet; a fresh session plans it from `docs/briefs/handoff-47a.md` and stops for the owner's approval of its item list before building. Carried in: D740 (128-lamp near +2.4 ms), D735 (walker width), D737 (cut-away rooms dark, as decided).
-voxel light volume and set the order (remove the cache port, every light type, defects, then tuning). What the engine is now:
+Updated 2026-11-20. Current work: **47a Structures and water bodies is planned** (`docs/plan-phase-47a.md`: 14 items, seven format entries in `docs/briefs/proposal-47a-formats.md`, five questions) and **waits for the owner's approval of its item list and order**; nothing is built. 46e-b is done and accepted (2026-11-20). Carried in: D740, D735, D736, D727, D728, D741.
+What the engine is now:
 `docs/architecture/voxel-engine.md`; owner decisions: `docs/decisions/owner-decisions.md`; order: `docs/roadmap.md`.
 
 Defects: open and watch rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
@@ -68,6 +68,7 @@ The owner reviews by building in the game folders; a problem comes back as a gam
 | 45–49 | Voxel world: formats (45), core (46a–e), structures and tools (47a–c), migration and merge (48a–c), water (49) — `docs/plan-phase-45.md` | 45 done 2026-11-02; 46a–46d done 2026-11-03…09 (owner looks pending); 46d-b done 2026-11-11 (owner look pending: acc46d-b); 46d-c done 2026-11-13 (owner look pending: acc46d-c) |
 | 46f | Shared foundations: profiler + budget table + frame arbiter, interaction field, trees and cover in the culled table, one undo, cheap merges — `docs/plan-phase-46f.md` | done 2026-11-14, owner look pending (5 questions, plan §10): Profiler tab + overlay, interaction field, copies and cover as culled-table rows, one undo with voxel redo, memory table; open D646, D652, D654–D658 |
 | 46e | Lighting, regions and the walk graph: GPU time per pass, one occupancy walk, open regions, voxel shadows, the lighting storage A/B (46e-a); the choice built out, rooms, culling, walk graph (46e-b) — `docs/plan-phase-46e.md` | 46e-a done 2026-11-16: owner chose the volume. 46e-b done 2026-11-20 (volume on per tier; props; rooms; walk graph; D740 open): `docs/briefs/acceptance-46e-b.md` |
+| 47a | Structures and water bodies: regenerated structures (buildings on their own grids, road, path and river splines), doors and windows as props with portal state, water bodies that follow ground edits, a plain liquid look — `docs/plan-phase-47a.md` | planned 2026-11-20; waits for the owner's approval of the item list and of format entries F1–F7; nothing built |
 | — | Engine verdict (owner request) — `docs/verdict-2026-10-04.md` | 2026-10-04: keep; the owner resumed feature phases with 28b; open D153, D156 |
 
 Phases 0–43 are owner look pending where visual or audible (see above). A row's open D-rows are the ones it named;
