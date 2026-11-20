@@ -4290,6 +4290,42 @@ valley and the massif in daylight); `lamps-street` (the 128-lamp street: lit gab
 patches, the glowing strip on the ground, the same as 46e.14c's); `lamps-room` (the lamp-lit room bright and even);
 `lamps-high` (the lamp-lit town from above, a cyan glow patch at the left).
 
+### 46e.19 — the near regression at 128 lamps
+
+The reading above's `near` +2.0–2.8 ms at 128 lamps with the volume on, bisected by builds, 2026-11-20 16:01–17:50 UTC
+(uptime 27.9 d, 1-minute load 0.8–2.0; low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone, gate inactive). Each
+older commit built with `node tools/build.mjs` in one scratch worktree with its own `@thirdlight` links (the build
+checked: `tlSunCovered` absent from the older bundles), served by staging from it; the HEAD's bench drives every page, so
+the scene is the same on both sides (`many-lamps.ts` is unchanged since 481e0491 but for two exports). `run.mjs headroom
+--quality low --rounds 2 --lamps 128 [--query …]`, the second rounds read. Work folder
+`~/.cache/thirdlight-phase46e/work/near128/` (`chain1–3.sh`, `lib.sh`, `summ.py`, `progress.txt`, `m/` raw runs).
+
+| run (page) | GPU `near` ms | room (copies × ms) | raw |
+|---|---|---|---|
+| 481e0491 (the tuning's end) | 5.02; 6.54 | 120 × 0.145; 96 × 0.140 | `B-481e0491`, `A2-481` |
+| ce325bf7 (after the glow mask) | 6.67 (resolution 2.6) | 88 × 0.139 | `B-ce325bf7` |
+| 5acf731a (after 46e.15) | 8.18 | 88 × 0.126 | `B-5acf731a` |
+| head 76a3dc44 | 8.84; 7.63 | 64 × 0.152; 88 × 0.121 | `B-head`, `A2-head` |
+| `&surfaceRead=0` (lit, unread): 481e0491; head | 4.08; 4.14 | 112; −1 | `R0-*` |
+| head, the glow mask compiled out of `textureSetAt` (scratch) | 9.92 | 68 × 0.125 | `X-M` |
+| head, the indoor cover left out of the read (scratch) | 7.34 | 88 × 0.118 | `X-C` |
+
+481e0491 against the head, A B A B: `near` 5.0, 6.5 against 8.8, 7.6 (+2.4 ms on the means, beyond the 1.2–1.5 ms
+spread of each side; with the reading above's 8.4, 9.2 the head is 7.6–9.2). **With the read off both are 4.1**: what
+was added is the per-pixel read's cost (about 1–2.5 ms then, 3.5–4.7 now), the same as the store-off runs show.
+
+**Not found.** Ruled out: the scene (one bench for all); the glow mask's per-pixel code (compiled out: 9.9); the indoor
+cover 058d4470 added to the read (left out: 7.3, inside the head's spread); a repeated texture-means pass or more brick
+work (the volume's counters equal: kept 8,900–9,400, stale 6,900–7,600, the means measured once, 85 ms; `looksChanged`
+0); prop stamping (the scene places no lit props; by reading the code, not measured). The read's program for surfaces,
+kit pieces and props builds the same nodes at 481e0491, ce325bf7 and 5acf731a (46e.15's change takes a separate path for
+the particle kind only), so the step is either in what the read meets (the data its loops load) or in the generated
+program around it, neither shown. The one-run readings put ce325bf7 at 6.7 (inside 481e0491's 5.0–6.5 with a 2.6 ms
+resolution) and 5acf731a at 8.2: the step is not placed beyond the spread. **Nothing changed in the product**; D740
+holds what is left (the generated surface programs' WGSL compared at the two commits, `?surfaceRead=index` and `level0`
+A B). No gate (docs only). Staging stopped, the perf camera back on `headroom-orbit`, exports empty, the scratch
+worktree removed.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
