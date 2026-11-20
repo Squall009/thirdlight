@@ -1,6 +1,6 @@
 # Phase 46e — Lighting, regions and the walk graph
 
-Status: **46e-a done 2026-11-16, the owner chose the voxel light volume (2026-11-16); 46e-b planned in the owner's order (§6), not started** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
+Status: **46e-a done 2026-11-16; 46e-b done 2026-11-20 (items 46e.9–46e.19), stopped for the owner: acceptance `docs/briefs/acceptance-46e-b.md`** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
 32faf2c0; main frozen at d4053cab). Planned from `docs/roadmap.md` (order of 2026-11-12), plan 45's 46e scope and
 §5c, requirements R40, R45, R97–R104 and R110 (`docs/architecture/voxel-format-requirements.md`),
 `docs/architecture/voxel-engine.md` §6 (foundations 2 and 7) and the 46f close (`docs/plan-phase-46f.md` §10: the
@@ -250,7 +250,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.16 | Done 2026-11-20 (3983dbca…058d4470): regionAt gives a room's kind, box, surface, 4V/S (no walk; edit → 104 ms), portalsOf; see-through and cut-away (camera `cutAway`) round the subject's room only, roof still casts; far rooms' flat term at indoorShare 0.2 under a roof (sky heights); arrival not fixed (D731), L notch cut (D730); orbit near unchanged |
 | 46e.17 | Done 2026-11-20: measured, not built. The flood (Node) keeps every level-0 draw in view at every town house, street and orbit view (cave mouth: 1 of 31 beyond the pyramid), 0 false culls (oracle, rays), 0.6–1.1 ms a run; a perfect chunk pre-filter saves 0–0.9 ms page render, within spread. Caves (no far field): it drops 25–80 % (§8c). D733 |
 | 46e.18 | Done 2026-11-20 (ba7b489a…f6a20d81): `PathSearch` (shared A*); walk graph from derived nav (2 m walker, 0.5 m steps, pieces, exits), `ctx.voxels.findPath`/`reach` in the frame's 3.33 ms; levels = one A* in length, unknown 3–7 vs 61–69 ms; Play 2,682 chunks 7.6 MB, stitch 2.1 ms/frame filling; 100 queued ≤ 3.5 ms/frame; D734–D736 |
-| 46e.19 | not started |
+| 46e.19 | Done 2026-11-20: phase gate `gate-phase-20261120-110800` green (36 min); review "close after fixes", fixed (1bbe029d, 760c2aa0); end-of-phase reading (76a3dc44): town 128 copies of room (off 176), near 4.8–5.1, lighting 5.0–5.5 ms; 128 lamps near +2.4 ms since the tuning, cause not found (D740); acceptance `docs/briefs/acceptance-46e-b.md`. **Stop for the owner.** |
 
 ## 8. Format and spec steps (owner stops)
 

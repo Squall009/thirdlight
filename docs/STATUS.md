@@ -1,6 +1,6 @@
 # Thirdlight — Status
 
-Updated 2026-11-20. Current work: **46e-b at its close (46e.19)**: every build item 46e.9–46e.18 is done (the light volume on at every tier with every light type, glow and its mask, props in its rays, rooms, the walk graph; connectivity culling measured, not built); the phase gate is green and the independent review says close after fixes; the acceptance page follows. Plan and results: `docs/plan-phase-46e.md`.
+Updated 2026-11-20. Current work: **46e-b is done and stopped for the owner** (the light volume on at every tier with every light type, glow and its mask, props in its rays, rooms, the walk graph; connectivity culling measured, not built; phase gate green, review fixed). The owner's page: `docs/briefs/acceptance-46e-b.md` (five questions). Open at the close: D740 (128-lamp near +2.4 ms since the tuning), dark rooms under cut-away (D737). 47a waits for the owner.
 voxel light volume and set the order (remove the cache port, every light type, defects, then tuning). What the engine is now:
 `docs/architecture/voxel-engine.md`; owner decisions: `docs/decisions/owner-decisions.md`; order: `docs/roadmap.md`.
 
@@ -67,7 +67,7 @@ The owner reviews by building in the game folders; a problem comes back as a gam
 | 44b | Camera: occlusion modes per camera, adaptive exposure — `docs/plan-phase-44b.md` | done 2026-11-01, owner look pending: pull-in/see-through/none per camera, auto-exposure, bloom after exposure, three r187; D339 fixed; full gate red→fixed; open D427, D429 |
 | 45–49 | Voxel world: formats (45), core (46a–e), structures and tools (47a–c), migration and merge (48a–c), water (49) — `docs/plan-phase-45.md` | 45 done 2026-11-02; 46a–46d done 2026-11-03…09 (owner looks pending); 46d-b done 2026-11-11 (owner look pending: acc46d-b); 46d-c done 2026-11-13 (owner look pending: acc46d-c) |
 | 46f | Shared foundations: profiler + budget table + frame arbiter, interaction field, trees and cover in the culled table, one undo, cheap merges — `docs/plan-phase-46f.md` | done 2026-11-14, owner look pending (5 questions, plan §10): Profiler tab + overlay, interaction field, copies and cover as culled-table rows, one undo with voxel redo, memory table; open D646, D652, D654–D658 |
-| 46e | Lighting, regions and the walk graph: GPU time per pass, one occupancy walk, open regions, voxel shadows, the lighting storage A/B (46e-a); the choice built out, rooms, culling, walk graph (46e-b) — `docs/plan-phase-46e.md` | 46e-a done 2026-11-16: owner chose the volume. 46e-b: .9, .10, .12–.18 done (volume, D724; props, D728; rooms, D730/31; .17 unbuilt; .18 walk graph, D735/36) |
+| 46e | Lighting, regions and the walk graph: GPU time per pass, one occupancy walk, open regions, voxel shadows, the lighting storage A/B (46e-a); the choice built out, rooms, culling, walk graph (46e-b) — `docs/plan-phase-46e.md` | 46e-a done 2026-11-16: owner chose the volume. 46e-b done 2026-11-20 (volume on per tier; props; rooms; walk graph; D740 open): `docs/briefs/acceptance-46e-b.md` |
 | — | Engine verdict (owner request) — `docs/verdict-2026-10-04.md` | 2026-10-04: keep; the owner resumed feature phases with 28b; open D153, D156 |
 
 Phases 0–43 are owner look pending where visual or audible (see above). A row's open D-rows are the ones it named;
