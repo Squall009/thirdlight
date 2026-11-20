@@ -238,6 +238,7 @@ export class OpenRegionStitch {
   /** Chunk columns whose sky heights changed or went since taken ({@link takeSky}), and who wants to know. */
   private readonly skyChanged = new Map<number, readonly [number, number]>();
   private readonly skyListeners: Array<() => void> = [];
+  private readonly updateListeners: Array<() => void> = [];
   private nextId = 1;
   private built = 0;
   private walked = 0;
@@ -324,6 +325,7 @@ export class OpenRegionStitch {
     }
     this.version++;
     if (this.skyChanged.size > 0) for (const f of this.skyListeners) f();
+    for (const f of this.updateListeners) f();
     return n;
   }
 
@@ -1009,6 +1011,11 @@ export class OpenRegionStitch {
         }
       }
     }
+  }
+
+  /** Calls `f` after every update that had work to do (regions may have changed: a reader of the summaries reads them again). */
+  onUpdate(f: () => void): void {
+    this.updateListeners.push(f);
   }
 
   /** Calls `f` after an update that changed some chunk column's sky heights ({@link takeSky} has them). */

@@ -99,6 +99,7 @@ import { VoxelLightVolume, type VolumeDevice } from './voxel-light-volume';
 import { volumeReadFlag } from './voxel-light-volume-layout';
 import type { RegionTextureRenderer } from './region-texture';
 import { SURFACE_READ_URL_PARAM } from './adapter-surface-light';
+import type { VoxelFocusRooms } from './voxel-focus-rooms';
 
 /** One edit's way to the screen, as this page saw it (ms). */
 export interface VoxelEditToScreen {
@@ -136,6 +137,8 @@ export interface VoxelWorldDrawsOptions {
   walkFeed?(feed: number): void;
   /** A batch was applied (a view drawing on demand draws a frame). */
   applied?(): void;
+  /** The rooms the page's see-through subjects stand in: the batches' answers go to it (absent: none are kept). */
+  readonly rooms?: Pick<VoxelFocusRooms, 'answer' | 'drop'>;
   /** The kit pieces every world draws (absent: none until {@link VoxelWorldDraws.setKits}). */
   readonly kits?: VoxelKitSet | null;
   /** The material records the worlds' tables are built from (absent: every id its stand-in until {@link VoxelWorldDraws.setMaterials}). */
@@ -494,6 +497,9 @@ export class VoxelWorldDraws {
   receive(b: ChunkDrawBatch): void {
     if (this.disposed) return;
     this.batches++;
+    // The see-through subjects' rooms are taken at once: they draw nothing of their own.
+    if (b.rooms !== undefined) this.opts.rooms?.answer(b.world, b.rooms);
+    if (b.closed === true) this.opts.rooms?.drop(b.world);
     this.waiting.push({ b, at: wallClock(), stage: null, ms: 0 });
     this.pump();
     this.loop();

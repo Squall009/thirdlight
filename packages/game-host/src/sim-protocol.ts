@@ -170,6 +170,8 @@ export type MainToWorker =
   | { readonly t: 'voxels.fine'; readonly on: boolean }
   /** The page's walk feed for every voxel world (0: nothing reads the page's GPU walk; VoxelPresentation.setWalkFeed). */
   | { readonly t: 'voxels.walk'; readonly feed: number }
+  /** Where the page's see-through subjects stand (world cells, x y z each; its number), for the rooms they are in (VoxelPresentation.setFocus). */
+  | { readonly t: 'voxels.focus'; readonly n: number; readonly cells: readonly number[] }
   | { readonly t: 'dispose' };
 
 /** The loaded scenes as the page mirrors them (entities only for a batch the page does not have yet). */

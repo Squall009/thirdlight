@@ -20,7 +20,7 @@ import { createAttributeInstancedMesh } from './attribute-instancing';
 import { batchKey, batchKeyParts, batchRefusal, BATCH_KEY, createAutoBatcher } from './batching';
 import { digestOf } from './material-graph';
 import { STATIC_KEY } from './static-merge';
-import { applyObjectSeeThrough, circleRect, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughBoxBit, seeThroughEntitiesOf, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughEntities, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
+import { applyObjectSeeThrough, circleRect, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_CUT_BIT, SEE_THROUGH_KEY, SEE_THROUGH_ROOM_DRAW_KEY, seeThroughBoxBit, seeThroughEntitiesOf, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughEntities, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
 import { CellMemo, MERGE_PAIRWISE, mergeToFit, SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, type OccluderLayer, type PackedBox, type SeeThroughMembers } from './see-through-occluders';
 import { RenderGraph } from './render-graph';
 import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, observerOf, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
@@ -1166,5 +1166,102 @@ describe('the see-through programs', () => {
     const pinned = new SeeThroughView({ ...deps, pinned: false });
     pinned.update(wgslRenderer(), camera, 0);
     expect(pinned.diagnostics().armed).toBe(false);
+  });
+});
+
+describe("a voxel world's rooms: see-through and cut-away of the subject's enclosed air", () => {
+  const UP = [0, 1, 0];
+  const box = (a: readonly number[]): THREE.Box3 => new THREE.Box3(new THREE.Vector3(a[0], a[1], a[2]), new THREE.Vector3(a[3], a[4], a[5]));
+  // Room A round the hero (open cells 4 × 2.5 × 4 m, its roof 2.5–3 m), room B beyond a 0.5 m wall at x 2–2.5.
+  const ROOM_A = [-2, 0, -2, 2, 2.5, 2];
+  // A point of B's roof the outdoors' whole-draw rule fades from a camera low over B (on its ray to the hero, past A's shell).
+  const ROOM_B_ROOF = [6.2, 3, 0];
+  const overB = (): THREE.PerspectiveCamera => perspective([10, 4, 0], [0, 1.35, 0]);
+  /** A view round the hero over one chunk draw of the world (a room draw), the hero in `room` (null: in none), after one frame. */
+  function roomView(room: readonly (readonly number[])[] | null, opts: { cut?: boolean; camera?: THREE.Camera; settings?: Partial<SeeThroughSettings> } = {}) {
+    const hero = new THREE.Object3D();
+    hero.updateMatrixWorld(true);
+    const asked: (THREE.Vector3 | null)[][] = [];
+    const answer = room === null ? null : { key: 'w:7:1', boxes: room.map(box), cell: 0.5 };
+    const rooms = { focus: (p: readonly (THREE.Vector3 | null)[]) => void asked.push(p.map((v) => v?.clone() ?? null)), room: (k: number) => (k === 0 ? answer : null) };
+    const camera = opts.camera ?? perspective([0, 10, 4], [0, 1, 0]);
+    const view = new SeeThroughView({ ...plain({ hero }), components: () => HERO, cameraTarget: () => 'hero', rooms: () => rooms, ...(opts.cut !== undefined ? { pinnedCut: opts.cut } : {}) }, { ...ON, fadeTime: 0, radius: 0.6, ...opts.settings });
+    // Twice: the first frame asks where the hero stands, the second has the room.
+    view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, 0);
+    view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, 16);
+    const count = view.fill(camera);
+    const chunk = new THREE.Mesh(new THREE.BoxGeometry(16, 8, 16));
+    chunk.position.set(2, 2, 0);
+    chunk.userData[SEE_THROUGH_ROOM_DRAW_KEY] = true;
+    chunk.updateMatrixWorld(true);
+    const fadeAt = (world: readonly number[], normal: readonly number[], draw: THREE.Object3D = chunk): number => {
+      const bits = view.bitsFor(draw, camera);
+      const v = new THREE.Vector3(world[0]!, world[1]!, world[2]!).applyMatrix4(camera.matrixWorldInverse);
+      const w = view.wholeFadesFor(draw, camera);
+      return seeThroughFadeAt([v.x, v.y, v.z], view.packed(), count, bits, { world: [world[0]!, world[1]!, world[2]!], normal: [normal[0]!, normal[1]!, normal[2]!], whole: [w.x, w.y, w.z, w.w], boxes: view.packedBoxes(), cuts: view.packedCuts() });
+    };
+    return { view, camera, chunk, fadeAt, asked };
+  }
+
+  it('asks where the subject stands: its body\'s middle', () => {
+    const { asked } = roomView([ROOM_A]);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.at(-1)![0]!.toArray()).toEqual([0, 0.9, 0]);
+  });
+
+  it('see-through: the subject in room A, camera above: A\'s roof thins, the next house\'s roof in the circle does not; outdoors the draw thins as a whole as before', () => {
+    const { fadeAt, chunk, view, camera } = roomView([ROOM_A]);
+    expect(fadeAt([0.3, 3, 0.4], UP)).toBeCloseTo(ON.maxFade, 6);
+    // The world's draw is no whole occluder while the subject is in a room: only the room's boxes.
+    expect(view.bitsFor(chunk, camera) & 1).toBe(0);
+    // A's floor never fades.
+    expect(fadeAt([0.5, 0, 0.5], UP)).toBe(0);
+    // From low over B: B's roof on the ray to the hero stays, A's wall between them thins.
+    const side = roomView([ROOM_A], { camera: overB() });
+    expect(side.fadeAt(ROOM_B_ROOF, UP)).toBe(0);
+    expect(side.fadeAt([2.5, 2, 0], [1, 0, 0])).toBeCloseTo(ON.maxFade, 6);
+    // Outdoors (no room): the draw thins as a whole, B's roof with it, as before.
+    const out = roomView(null, { camera: overB() });
+    expect(out.fadeAt(ROOM_B_ROOF, UP)).toBeGreaterThan(0);
+    expect(out.view.bitsFor(out.chunk, out.camera) & 1).toBe(1);
+  });
+
+  it('cut-away: A\'s roof and its walls from the head up are cut whole, anywhere on screen; its walls below the head, its floor and the next house stay', () => {
+    // A small circle: the cut does not need it.
+    const { fadeAt } = roomView([ROOM_A], { cut: true, settings: { radius: 0.05 } });
+    expect(fadeAt([0.3, 3, 0.4], UP)).toBe(1);
+    expect(fadeAt([1.9, 3, 1.9], UP)).toBe(1);
+    // A's east wall: its outer face (x 2.5) over the hero's head (1.8 m) cut, below kept.
+    expect(fadeAt([2.5, 2.2, 0], [1, 0, 0])).toBe(1);
+    expect(fadeAt([2.5, 1.2, 0], [1, 0, 0])).toBe(0);
+    expect(fadeAt([0.5, 0, 0.5], UP)).toBe(0);
+    expect(fadeAt(ROOM_B_ROOF, UP)).toBe(0);
+  });
+
+  it('cut-away of an L-shaped room: given its two parts the notch\'s roof (the neighbour\'s) stays; given one box round the L it is cut too', () => {
+    const parts = [[-2, 0, -2, 2, 2.5, 0], [-2, 0, 0, 0, 2.5, 2]];
+    const notch = [1.5, 3, 1.5];
+    const two = roomView(parts, { cut: true });
+    expect(two.fadeAt([-1, 3, 1], UP)).toBe(1);
+    expect(two.fadeAt([1, 3, -1], UP)).toBe(1);
+    expect(two.fadeAt(notch, UP)).toBe(0);
+    const one = roomView([[-2, 0, -2, 2, 2.5, 2]], { cut: true });
+    expect(one.fadeAt(notch, UP)).toBe(1);
+  });
+
+  it('cut-away with the subject outdoors cuts nothing; a draw no cut box reaches takes no cut bit, one with no bounds of its own does', () => {
+    const out = roomView(null, { cut: true });
+    expect(out.view.packedCuts().masks).toEqual([0, 0, 0, 0]);
+    expect(out.view.bitsFor(out.chunk, out.camera) & SEE_THROUGH_CUT_BIT).toBe(0);
+    const { view, camera } = roomView([ROOM_A], { cut: true });
+    const far = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    far.position.set(40, 1, 40);
+    far.userData[SEE_THROUGH_ROOM_DRAW_KEY] = true;
+    far.updateMatrixWorld(true);
+    expect(view.bitsFor(far, camera) & SEE_THROUGH_CUT_BIT).toBe(0);
+    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 2);
+    inst.userData[SEE_THROUGH_ROOM_DRAW_KEY] = true;
+    inst.updateMatrixWorld(true);
+    expect(view.bitsFor(inst, camera) & SEE_THROUGH_CUT_BIT).not.toBe(0);
   });
 });

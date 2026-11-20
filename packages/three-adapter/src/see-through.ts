@@ -54,6 +54,17 @@
  * uniform), so the switch rebuilds nothing. A project with the setting off
  * builds without it and pays nothing.
  *
+ * Rooms (a voxel world's enclosed regions, `SeeThroughRooms`): the view asks
+ * where each subject stands; while one stands in a room, the world's draws
+ * (`SEE_THROUGH_ROOM_DRAW_KEY`) fade for it only inside its room's shell (the
+ * boxes of the room's parts grown by a cell and the padding), never as a
+ * whole, so the walls and roof round the subject thin and the next house's
+ * do not. In cut-away (a camera's occlusion `cutAway`, or `?seethrough=
+ * cutaway`) the room's shell from the subject's head up (its columns, every
+ * storey over it) is left out instead: one more box per room part, its
+ * pixels discarded once faded in, by the same mask, so the roof still casts
+ * its whole shadow and the cached shadow map is never drawn again for it.
+ *
  * Because the bits are per draw, a subject is drawn on its own while it is
  * one ({@link SUBJECT_DRAW_KEY}): a batch or a merged cell is one draw for
  * many objects and would fade the subject with its neighbours. Subjects are
@@ -80,6 +91,31 @@ const { Fn, If, all, cameraWorldMatrix, float, int, max, min, mix, normalViewGeo
 export const SEE_THROUGH_KEY = '__tlSeeThrough';
 /** `mesh.userData[SUBJECT_DRAW_KEY] === true`: its object is a see-through subject now, drawn out of batches and merged cells. */
 export const SUBJECT_DRAW_KEY = '__tlSeeThroughSubject';
+/**
+ * `object.userData[SEE_THROUGH_ROOM_DRAW_KEY] === true`: a draw of a world whose rooms the view is told of
+ * (`SeeThroughRooms`): while a subject stands in a room it fades for that subject only inside the room's boxes, never as
+ * a whole; one with no bounds of its own (an instanced draw across chunks) takes every box of the subject's.
+ */
+export const SEE_THROUGH_ROOM_DRAW_KEY = '__tlSeeThroughRoomDraw';
+
+/** A room a subject stands in: its parts' boxes of open cells (world metres), the cell size its shell is a cell of, and a key naming it as it is. */
+export interface SeeThroughRoom {
+  readonly key: string;
+  readonly boxes: readonly THREE.Box3[];
+  readonly cell: number;
+}
+
+/** Where the rooms come from (a page's voxel worlds): asked where the subjects stand, answering the room each slot's subject is in. */
+export interface SeeThroughRooms {
+  /** The subjects' centres (world metres) by slot (null: the slot holds none), each frame some slot holds one. */
+  focus(points: readonly (THREE.Vector3 | null)[]): void;
+  /** The room slot `k`'s subject stands in, as last answered (null: none, outdoors, or not known yet). */
+  room(k: number): SeeThroughRoom | null;
+}
+
+/** The height a cut box reaches (metres): every storey over a subject. */
+const CUT_TOP = 1e6;
+
 /** The key a view arms a renderer's context with. */
 const CONTEXT_KEY = 'tlSeeThrough';
 
@@ -127,6 +163,9 @@ export interface SubjectExtent {
  */
 const BOX_BIT0 = SEE_THROUGH_SUBJECTS;
 if (BOX_BIT0 + SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS > 31 || SEE_THROUGH_SUBJECTS > 4) throw new Error('see-through: the subjects and their boxes must fit one signed 32-bit mask and one vec4');
+/** The bit of a draw some slot's cut boxes reach (cut-away): one for every slot, each slot's boxes tested. */
+export const SEE_THROUGH_CUT_BIT = 1 << (BOX_BIT0 + SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS);
+if (BOX_BIT0 + SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS + 1 > 31) throw new Error('see-through: the cut bit must fit the signed 32-bit mask');
 /** The bit of slot `k`'s box `j`. */
 export const seeThroughBoxBit = (k: number, j: number): number => 1 << (BOX_BIT0 + k * SEE_THROUGH_OCCLUDERS + j);
 /** Every bit of slot `k` (its whole-draw bit and its boxes'). */
@@ -500,6 +539,8 @@ export interface SeeThroughDrawInputs {
   readonly whole?: readonly number[];
   /** The view's boxes as packed (`SeeThroughView.packedBoxes`). */
   readonly boxes?: readonly THREE.Vector4[];
+  /** The view's cut boxes as packed and the boxes each slot holds, as bits (`SeeThroughView.packedCuts`). */
+  readonly cuts?: { readonly boxes: readonly THREE.Vector4[]; readonly masks: readonly number[] };
 }
 
 const ZERO3 = [0, 0, 0] as const;
@@ -513,7 +554,17 @@ const ZERO3 = [0, 0, 0] as const;
 export function seeThroughFadeAt(p: readonly [number, number, number], packs: readonly SubjectPack[], count: number, bits: number, draw: SeeThroughDrawInputs = {}): number {
   if (bits === 0) return 0;
   const perspective = circleRect(packs, count, _rect) ? 1 : 0;
-  let out = 0;
+  // Cut-away: the slots' cut boxes the pixel's point is in, wherever it is on screen.
+  let cut = 0;
+  if ((bits & SEE_THROUGH_CUT_BIT) !== 0 && draw.cuts !== undefined) {
+    const c = draw.cuts;
+    for (let k = 0; k < count; k++) {
+      const v = CPU_OPS.variable(0, '');
+      boxSteps(CPU_OPS, { world: draw.world ?? ZERO3, normal: draw.normal ?? ZERO3, taken: (j) => ((c.masks[k] ?? 0) & (1 << j)) !== 0, box: (j) => ({ lo: four(c.boxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2]!), hi: four(c.boxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2 + 1]!) }) }, v);
+      cut = Math.max(cut, v.read());
+    }
+  }
+  let out = cut;
   const box = (k: number, j: number): THREE.Vector4 => draw.boxes?.[(k * SEE_THROUGH_OCCLUDERS + j) * 2] ?? new THREE.Vector4();
   const boxHi = (k: number, j: number): THREE.Vector4 => draw.boxes?.[(k * SEE_THROUGH_OCCLUDERS + j) * 2 + 1] ?? new THREE.Vector4();
   const boxes = (k: number): number => {
@@ -533,7 +584,7 @@ export function seeThroughFadeAt(p: readonly [number, number, number], packs: re
       wholeFade: (k) => draw.whole?.[k] ?? 1,
       boxes,
     },
-    (f) => (out = f),
+    (f) => (out = Math.max(f, cut)),
   );
   return out;
 }
@@ -698,6 +749,10 @@ export interface SeeThroughDeps extends SeeThroughEntities {
   regroup?(root: THREE.Object3D): void;
   /** The block layers drawn (their pieces are occluders). */
   occluderLayers?(): readonly OccluderLayer[];
+  /** The rooms the subjects stand in (a page's voxel worlds; absent: none). */
+  rooms?(): SeeThroughRooms | null;
+  /** Cut-away on or off whatever the camera says (absent: the camera's `cutAway`; the page's `?seethrough=cutaway`). */
+  readonly pinnedCut?: boolean;
 }
 
 /** A subject's occluder box as it eases in and out. */
@@ -720,6 +775,12 @@ interface Slot {
   readonly boxes: Map<string, TrackedBox>;
   /** A box eased last frame (its boxes are packed again while one does, or after a search). */
   easing: boolean;
+  /** The room its subject stands in (null: none known). */
+  room: SeeThroughRoom | null;
+  /** Cut-away: how far its cut boxes have faded in (0 … 1), the boxes, and what they were made for. */
+  cutFade: number;
+  cuts: PackedBox[];
+  cutKey: string;
 }
 
 /** A draw's members' world bounds as read (`readMemberBounds`), and what they were read for. */
@@ -771,6 +832,13 @@ export class SeeThroughView implements SeeThroughControl {
   /** Each slot's boxes as packed for the shader (min xyz + nudge, max xyz + fade), and how many each holds. */
   private readonly boxes: THREE.Vector4[] = Array.from({ length: SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS * 2 }, () => new THREE.Vector4());
   private readonly boxCount: number[] = new Array<number>(SEE_THROUGH_SUBJECTS).fill(0);
+  /** Each slot's cut boxes packed as the boxes are, and as bits the boxes each holds (one component a slot, for the shader). */
+  private readonly cutBoxes: THREE.Vector4[] = Array.from({ length: SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS * 2 }, () => new THREE.Vector4());
+  private readonly cutMasks = new THREE.Vector4();
+  /** Cut-away is on (the camera's `cutAway`, or pinned). */
+  private cut = false;
+  /** Where the slots' subjects stand, as the rooms are asked for. */
+  private readonly focusAt: (THREE.Vector3 | null)[] = new Array<THREE.Vector3 | null>(SEE_THROUGH_SUBJECTS).fill(null);
   /** The step a fade eases by this frame (0 … 1). */
   private step = 1;
   /** Each draw's bits and whole-draw fades this frame. */
@@ -795,7 +863,7 @@ export class SeeThroughView implements SeeThroughControl {
   private filled = -1;
   /** Bumped when what every draw's state is worked out from changed (the camera, the packs, the boxes, the slots in use), and those as they stood. */
   private inputs = 0;
-  private readonly lastInputs = new Float64Array(9 + 16 + 2 + SETTING_KEYS.length + SEE_THROUGH_SUBJECTS * 7 + SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS * 2 * 4).fill(NaN);
+  private readonly lastInputs = new Float64Array(9 + 16 + 2 + SETTING_KEYS.length + SEE_THROUGH_SUBJECTS * 7 + SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS * 2 * 4 * 2 + 4).fill(NaN);
   /** The slots were chosen before this frame's batches were grouped (`beforeBatch`). */
   private followed = false;
   /** Bits of the slots with a fade this frame. */
@@ -835,8 +903,9 @@ export class SeeThroughView implements SeeThroughControl {
     const s = sc !== null ? seeThroughSettingsOf(sc.settings) : { ...this.base };
     // On where the camera on screen chose see-through, unless a script said otherwise; without a camera, as set.
     if (sc?.enabled !== undefined) s.enabled = sc.enabled;
-    else if (this.cameraMode !== null) s.enabled = this.cameraMode === 'seeThrough';
+    else if (this.cameraMode !== null) s.enabled = this.cameraMode === 'seeThrough' || this.cameraMode === 'cutAway';
     if (this.d.pinned !== undefined) s.enabled = this.d.pinned;
+    this.cut = s.enabled && (this.d.pinnedCut ?? this.cameraMode === 'cutAway');
     return s;
   }
 
@@ -952,8 +1021,11 @@ export class SeeThroughView implements SeeThroughControl {
     this.memberStamps();
     this.live = 0;
     this.count = 0;
+    const rooms = this.d.rooms?.() ?? null;
+    this.focusAt.fill(null);
     for (let i = 0; i < this.slots.length; i++) {
       const sl = this.slots[i];
+      this.cutMasks.setComponent(i, 0);
       if (sl === null || sl === undefined) continue;
       const target = sl.wanted && this.s.enabled ? 1 : 0;
       sl.fade = target > sl.fade ? Math.min(target, sl.fade + step) : Math.max(target, sl.fade - step);
@@ -968,11 +1040,15 @@ export class SeeThroughView implements SeeThroughControl {
       const drawn = this.d.drawn(sl.id);
       if (this.d.matrix(sl.id, _m)) subjectExtent(_m, drawn, this.d.components(sl.id), sl.ext);
       for (const o of drawn) this.markSelf(o, i);
+      this.focusAt[i] = sl.ext.centre;
+      sl.room = rooms?.room(i) ?? null;
       const found = this.search(sl, layers);
       if (found) searched = true;
       // Boxes neither found again nor easing pack as they stood.
       if ((found || sl.easing) && this.easeBoxes(sl, i, step)) easing = true;
+      if (this.cutSlot(sl, i, step)) easing = true;
     }
+    rooms?.focus(this.focusAt);
     this.membersChanged = false;
     this.searchMs = searched ? performance.now() - t0 : 0;
     if (easing) this.d.onChange?.();
@@ -1021,6 +1097,7 @@ export class SeeThroughView implements SeeThroughControl {
     const e = sl.ext;
     let key = `${this.s.padding}`;
     for (const l of layers) key += `|${l.id}:${l.version}:${l.origin.join(',')}`;
+    key += `|room:${sl.room?.key ?? '-'}:${this.cut ? 'cut' : 'thin'}`;
     // Within the search's grain of where the last search stood (an animated body's bounds, a camera settling, a
     // subject bobbing): the same occluders.
     const v = sl.vol;
@@ -1031,6 +1108,12 @@ export class SeeThroughView implements SeeThroughControl {
     const vol = sl.vol.set(_eye, e, this.s.padding);
     const found: OccluderBox[] = [];
     for (const l of layers) layerOccluders(l, vol, found, this.pieces.of(l));
+    // The subject's room: its shell (its parts' boxes grown by a cell and the padding) thins, round the subject only.
+    const room = sl.room;
+    if (room !== null && !this.cut) {
+      const g = room.cell + this.s.padding;
+      room.boxes.forEach((b, j) => found.push({ key: `room:${room.key}:${j}`, min: b.min.clone().subScalar(g), max: b.max.clone().addScalar(g), nudge: room.cell / 4 }));
+    }
     for (const draw of this.memberDraws.keys()) {
       const members = draw.userData[SEE_THROUGH_MEMBERS_KEY] as SeeThroughMembers | undefined;
       if (members === undefined) continue;
@@ -1103,6 +1186,42 @@ export class SeeThroughView implements SeeThroughControl {
     return easing;
   }
 
+  /**
+   * Cut-away for a slot: while it is on and the subject stands in a room, the room's parts' columns from the
+   * subject's head up (grown by a cell and the padding across) are its cut boxes, eased in with the fade time; they
+   * ease out where they stood when it goes. Packed for the shader as the occluder boxes are; true while easing.
+   */
+  private cutSlot(sl: Slot, k: number, step: number): boolean {
+    const room = sl.room;
+    const want = this.cut && room !== null && sl.wanted ? 1 : 0;
+    if (room !== null && want === 1) {
+      const head = sl.ext.feet + sl.ext.height;
+      const g = room.cell + this.s.padding;
+      const key = `${room.key}|${head.toFixed(3)}|${g}`;
+      if (key !== sl.cutKey) {
+        sl.cutKey = key;
+        sl.cuts = room.boxes.map((b) => ({ min: new THREE.Vector3(b.min.x - g, head, b.min.z - g), max: new THREE.Vector3(b.max.x + g, CUT_TOP, b.max.z + g), nudge: room.cell / 4, fade: 0 }));
+        mergeToFit(sl.cuts, SEE_THROUGH_OCCLUDERS);
+      }
+    }
+    sl.cutFade = want > sl.cutFade ? Math.min(want, sl.cutFade + step) : Math.max(want, sl.cutFade - step);
+    for (let j = 0; j < SEE_THROUGH_OCCLUDERS; j++) {
+      const lo = this.cutBoxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2]!;
+      const hi = this.cutBoxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2 + 1]!;
+      const b = sl.cutFade > 0 ? sl.cuts[j] : undefined;
+      if (b === undefined) {
+        lo.set(0, 0, 0, 0);
+        hi.set(0, 0, 0, 0);
+        continue;
+      }
+      lo.set(b.min.x, b.min.y, b.min.z, b.nudge);
+      hi.set(b.max.x, b.max.y, b.max.z, sl.cutFade);
+    }
+    this.cutMasks.setComponent(k, sl.cutFade > 0 ? (1 << Math.min(sl.cuts.length, SEE_THROUGH_OCCLUDERS)) - 1 : 0);
+    if (sl.cutFade <= 0) sl.cutKey = '';
+    return sl.cutFade !== want;
+  }
+
   /** The subjects asked for this frame into slots (the nearest to the camera kept when there are more than slots). */
   private follow(camera: THREE.Camera | null): void {
     for (const sl of this.slots) if (sl !== null) sl.wanted = false;
@@ -1140,7 +1259,7 @@ export class SeeThroughView implements SeeThroughControl {
           });
         }
         if (at < 0) continue;
-        sl = { id: f.id, fade: 0, wanted: false, ext: { centre: new THREE.Vector3(), feet: 0, height: 0, radius: 0 }, vol: new SubjectVolume(), searched: null, boxes: new Map(), easing: false };
+        sl = { id: f.id, fade: 0, wanted: false, ext: { centre: new THREE.Vector3(), feet: 0, height: 0, radius: 0 }, vol: new SubjectVolume(), searched: null, boxes: new Map(), easing: false, room: null, cutFade: 0, cuts: [], cutKey: '' };
         this.slots[at] = sl;
       }
       sl.wanted = true;
@@ -1202,6 +1321,7 @@ export class SeeThroughView implements SeeThroughControl {
     if (members !== undefined && !this.memberDraws.has(object)) this.membersChanged = true;
     if (members !== undefined) this.memberDraws.set(object, this.frame);
     const pieces = members !== undefined || object.userData[SEE_THROUGH_PIECES_KEY] === true;
+    const roomDraw = object.userData[SEE_THROUGH_ROOM_DRAW_KEY] === true;
     const sphere = drawSphere(object);
     // The sphere's centre in view space, once for every slot.
     const view = sphere !== null && this.camera !== null && this.filled === this.frame ? _c.copy(sphere.center).applyMatrix4(this.camera.matrixWorldInverse) : null;
@@ -1210,10 +1330,17 @@ export class SeeThroughView implements SeeThroughControl {
       const sl = this.slots[k];
       let target = 0;
       if (((slots >> k) & 1) === 1 && sl !== null && sl !== undefined) {
-        if (sphere === null) target = pieces ? 0 : 1;
-        else if (view === null ? this.mayFadeSphere(sphere, k) : mayFade(view, sphere.radius + BOUNDS_MARGIN + DRAW_GRAIN, this.packs[k]!)) {
+        // A world's draw while the subject stands in one of its rooms: only the room's boxes, never as a whole.
+        const inRoom = roomDraw && sl.room !== null;
+        const cuts = this.cutMasks.getComponent(k);
+        // A slot's cut boxes reach anywhere on screen: tested apart from its circle.
+        if (cuts !== 0 && (sphere === null || this.meetsCut(sphere, k, cuts))) bits |= SEE_THROUGH_CUT_BIT;
+        if (sphere === null) {
+          target = pieces || inRoom ? 0 : 1;
+          if (inRoom) for (let j = 0; j < this.boxCount[k]!; j++) bits |= seeThroughBoxBit(k, j);
+        } else if (view === null ? this.mayFadeSphere(sphere, k) : mayFade(view, sphere.radius + BOUNDS_MARGIN + DRAW_GRAIN, this.packs[k]!)) {
           const r = sphere.radius + BOUNDS_MARGIN;
-          if (!pieces && sl.vol.meetsSphere(sphere.center, r + DRAW_GRAIN)) target = 1;
+          if (!pieces && !inRoom && sl.vol.meetsSphere(sphere.center, r + DRAW_GRAIN)) target = 1;
           for (let j = 0; j < this.boxCount[k]!; j++) {
             const lo = this.boxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2]!;
             const hi = this.boxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2 + 1]!;
@@ -1232,6 +1359,19 @@ export class SeeThroughView implements SeeThroughControl {
     for (let k = this.count; k < SEE_THROUGH_SUBJECTS; k++) st.whole.setComponent(k, 0);
     st.bits = bits;
     return st;
+  }
+
+  /** Whether a world sphere (a draw's bounds, grown by the margin) reaches one of slot `k`'s cut boxes (`mask`: the boxes it holds). */
+  private meetsCut(sphere: THREE.Sphere, k: number, mask: number): boolean {
+    for (let j = 0; j < SEE_THROUGH_OCCLUDERS; j++) {
+      if ((mask & (1 << j)) === 0) continue;
+      const lo = this.cutBoxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2]!;
+      const hi = this.cutBoxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2 + 1]!;
+      _lo.set(lo.x, lo.y, lo.z);
+      _hi.set(hi.x, hi.y, hi.z);
+      if (sphereMeetsBox(sphere.center, sphere.radius + BOUNDS_MARGIN + lo.w, _lo, _hi)) return true;
+    }
+    return false;
   }
 
   /** Whether any point of a world sphere may fade for slot `k` at all (its circle, depth reach and half height; the packs filled for the view's camera). */
@@ -1262,6 +1402,11 @@ export class SeeThroughView implements SeeThroughControl {
   /** The view's boxes as packed for the shader (tests run them through the CPU reference). */
   packedBoxes(): readonly THREE.Vector4[] {
     return this.boxes;
+  }
+
+  /** The view's cut boxes as packed for the shader and the boxes each slot holds (bits). */
+  packedCuts(): { readonly boxes: readonly THREE.Vector4[]; readonly masks: readonly number[] } {
+    return { boxes: this.cutBoxes, masks: this.cutMasks.toArray() };
   }
 
   /** The packs filled once per frame for the view's camera (whichever uniform or draw asks first); the slots in use. */
@@ -1324,15 +1469,18 @@ export class SeeThroughView implements SeeThroughControl {
       near(ext?.radius ?? 0);
       same(this.boxCount[k]!);
     }
-    for (let j = 0; j < this.boxes.length; j++) {
-      const v = this.boxes[j]!;
-      same(v.x);
-      same(v.y);
-      same(v.z);
-      // The max's fourth is its fade.
-      if (j % 2 === 0) same(v.w);
-      else i += 1;
+    for (const list of [this.boxes, this.cutBoxes]) {
+      for (let j = 0; j < list.length; j++) {
+        const v = list[j]!;
+        same(v.x);
+        same(v.y);
+        same(v.z);
+        // The max's fourth is its fade.
+        if (j % 2 === 0) same(v.w);
+        else i += 1;
+      }
     }
+    for (let k = 0; k < SEE_THROUGH_SUBJECTS; k++) same(this.cutMasks.getComponent(k));
     if (!changed) return;
     this.inputs += 1;
     // Where things stood for the draws worked out from now on.
@@ -1348,6 +1496,8 @@ export class SeeThroughView implements SeeThroughControl {
       for (const v of [ext?.centre.x ?? 0, ext?.centre.y ?? 0, ext?.centre.z ?? 0, ext?.feet ?? 0, ext?.height ?? 0, ext?.radius ?? 0, this.boxCount[k]!]) put(v);
     }
     for (const v of this.boxes) (put(v.x), put(v.y), put(v.z), put(v.w));
+    for (const v of this.cutBoxes) (put(v.x), put(v.y), put(v.z), put(v.w));
+    for (let k = 0; k < SEE_THROUGH_SUBJECTS; k++) put(this.cutMasks.getComponent(k));
   }
 
   /** The packs as filled last (tests read them against the CPU reference). */
@@ -1361,10 +1511,12 @@ export class SeeThroughView implements SeeThroughControl {
     // Each render-group uniform fills the packs for the render's camera when it is updated, whichever three updates first.
     const filled = ({ camera }: { camera: THREE.Camera }): number => this.ensureFilled(camera);
     // One array (each subject's centre, shape, plane and body in turn, then every slot's boxes): one uniform buffer bound per draw.
-    const packed = uniformArray([...this.packs.flatMap((p) => [p.centre, p.shape, p.plane, p.body]), ...this.boxes], 'vec4')
+    const packed = uniformArray([...this.packs.flatMap((p) => [p.centre, p.shape, p.plane, p.body]), ...this.boxes, ...this.cutBoxes, this.cutMasks], 'vec4')
       .setGroup(renderGroup)
       .onRenderUpdate((f: { camera: THREE.Camera }) => void filled(f));
     const boxAt = SEE_THROUGH_SUBJECTS * PACK_VEC4S;
+    const cutAt = boxAt + SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS * 2;
+    const masksAt = cutAt + SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS * 2;
     const count = uniform(0, 'int').setGroup(renderGroup).onRenderUpdate(filled);
     const rect = uniform(this.rect, 'vec4')
       .setGroup(renderGroup)
@@ -1401,6 +1553,11 @@ export class SeeThroughView implements SeeThroughControl {
     }).setLayout({ name: 'seeThroughBoxes', type: 'float', inputs: boxInputs });
     const slotBoxes = (k: number, pv: N, face: N): N =>
       slotBoxesFn(bits.shiftRight(int(BOX_BIT0 + k * SEE_THROUGH_OCCLUDERS)), pv, face, cameraWorldMatrix, perspective, ...Array.from({ length: SEE_THROUGH_OCCLUDERS * 2 }, (_, e) => packed.element(at(boxAt + k * SEE_THROUGH_OCCLUDERS * 2 + e))));
+    // A slot's cut boxes through the same function: the boxes it holds as its bits, each box's fade the slot's cut fade.
+    const slotCuts = (k: number, pv: N, face: N): N => {
+      const m = packed.element(at(masksAt));
+      return slotBoxesFn(int([m.x, m.y, m.z, m.w][k]!), pv, face, cameraWorldMatrix, perspective, ...Array.from({ length: SEE_THROUGH_OCCLUDERS * 2 }, (_, e) => packed.element(at(cutAt + k * SEE_THROUGH_OCCLUDERS * 2 + e))));
+    };
     // Built inside each program's build (a loop and a branch need the build's stack).
     const mask = Fn((builder: { geometry?: { hasAttribute?(name: string): boolean } | null; isFlatShading(): boolean }) => {
       // Kept unless a subject fades it: a draw without a subject's bit never reads the dither.
@@ -1415,6 +1572,12 @@ export class SeeThroughView implements SeeThroughControl {
         // Else the cross of the view position's screen derivatives, taken here, in control flow uniform per draw, as
         // derivatives must be. Everything else about the face is worked out only inside the boxes.
         const faceNormal = geometryNormal ?? p.dFdx().cross(p.dFdy()).toVar('seeThroughFace');
+        // Cut-away: the slots' cut boxes the pixel is in, anywhere on screen (a draw no cut box reaches skips them).
+        const cut = float(0).toVar('seeThroughCut');
+        If(bits.bitAnd(int(SEE_THROUGH_CUT_BIT)).notEqual(int(0)), () => {
+          for (let k = 0; k < SEE_THROUGH_SUBJECTS; k++) If(count.greaterThan(int(k)), () => void cut.assign(max(cut, slotCuts(k, p, faceNormal))));
+        });
+        keep.assign(ditherKeep(cut));
         const words = [whole.x, whole.y, whole.z, whole.w];
         fadeSteps(
           TSL_OPS,
@@ -1428,7 +1591,7 @@ export class SeeThroughView implements SeeThroughControl {
             wholeFade: (k) => words[k]!,
             boxes: (k) => slotBoxes(k, p, faceNormal),
           },
-          (fade) => keep.assign(ditherKeep(fade)),
+          (fade) => keep.assign(ditherKeep(max(fade, cut))),
         );
       });
       return keep;
@@ -1467,14 +1630,20 @@ export class SeeThroughView implements SeeThroughControl {
   }
 }
 
-/** The page flag that turns see-through on or off over the project's setting (`?seethrough=on`: its look and cost, by comparison). */
+/** The page flag that turns see-through on or off over the project's setting (`?seethrough=on`: its look and cost, by comparison; `cutaway`: on, cutting rooms away). */
 export const SEE_THROUGH_URL_PARAM = 'seethrough';
 
 /** A page's see-through over the project's (true: on, false: off, null: as the project says). */
 export function seeThroughFromUrl(search: string): boolean | null {
   const v = new URLSearchParams(search).get(SEE_THROUGH_URL_PARAM);
   if (v === null) return null;
-  return v === 'on' || v === '1' || v === 'true';
+  return v === 'on' || v === '1' || v === 'true' || v === 'cutaway';
+}
+
+/** A page's cut-away over the camera's (true: `?seethrough=cutaway`, false: another value of the flag, null: no flag). */
+export function seeThroughCutFromUrl(search: string): boolean | null {
+  const v = new URLSearchParams(search).get(SEE_THROUGH_URL_PARAM);
+  return v === null ? null : v === 'cutaway';
 }
 
 /** Whether a material's draws can hide a subject: colour written, depth tested, not the shadow pass's. */

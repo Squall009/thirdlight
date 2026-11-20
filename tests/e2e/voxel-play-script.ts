@@ -59,9 +59,11 @@ export function playScriptSource(at: readonly number[]): string {
     // A hut on the pad ahead of the camera (walls and roof of plaster round a 4 × 2.5 × 7.5 m room, a floor slab): the
     // light volume's sky occlusion and bounce. Its roof opened.
     "    const hutRoof = box(-1.5, 3, 4, 1.5, 3.5, 8);",
-    `    for (const _ of ctx.debug.command('hut')) { const r = [v.set(box(-2.5, 0, 2, 2.5, 3.5, 10.5), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }), v.dig(box(-2, 0.5, 2.5, 2, 3, 10))]; ctx.game.add(r.every((e: any) => e.ok) ? 'hutBuilt' : 'hutRefused', 1); }`,
+    `    for (const _ of ctx.debug.command('hut')) { const r = [v.set(box(-2.5, 0, 2, 2.5, 3.5, 10.5), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }), v.dig(box(-2, 0.5, 2.5, 2, 3, 10))]; state.hut = r.every((e: any) => e.ok); ctx.game.add(state.hut ? 'hutBuilt' : 'hutRefused', 1); }`,
+    // A door of opening cells in the hut's north wall (a portal to the pad).
+    `    for (const _ of ctx.debug.command('hutdoor')) ctx.game.add(v.set(box(-0.5, 0.5, 2, 0.5, 2.5, 2.2), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.opening} }).ok ? 'hutDoor' : 'hutRefused', 1);`,
     "    for (const _ of ctx.debug.command('hutopen')) ctx.game.add(v.dig(hutRoof).ok ? 'hutOpened' : 'hutRefused', 1);",
-    "    for (const _ of ctx.debug.command('unhut')) ctx.game.add(v.dig(box(-2.5, 0, 2, 2.5, 3.5, 10.5)).ok ? 'hutDug' : 'hutRefused', 1);",
+    "    for (const _ of ctx.debug.command('unhut')) { state.hut = false; ctx.game.add(v.dig(box(-2.5, 0, 2, 2.5, 3.5, 10.5)).ok ? 'hutDug' : 'hutRefused', 1); }",
     // A stone stub in the hut (the test kit's material): kit pieces stand at its free ends' edges, indoors.
     "    const stub = box(-1.5, 0.5, 5, -0.5, 2.5, 5.5);",
     `    for (const _ of ctx.debug.command('hutstone')) ctx.game.add(v.set(stub, { material: ${MAT.stone}, role: ${VOXEL_ROLE.wall} }).ok ? 'stubBuilt' : 'hutRefused', 1);`,
@@ -73,9 +75,20 @@ export function playScriptSource(at: readonly number[]): string {
     `    for (const _ of ctx.debug.command('hutunglow')) ctx.game.add(v.paint(glowStrip, { material: ${MAT.plaster} }).ok ? 'hutUnglow' : 'hutRefused', 1);`,
     // The hut's floor slab repainted (its shape as it was): the light volume's bounce takes the floor's colour.
     `    for (const _ of ctx.debug.command('hutgreen')) ctx.game.add(v.set(box(-2, 0, 2.5, 2, 0.5, 10), { material: ${MAT.grass}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutGreen' : 'hutRefused', 1);`,
+    // A camera made live, looking at a target (and back): the cut-away and plain views of the hut.
+    "    for (const c of ctx.debug.command('cam', { description: 'Make a camera live on a target', args: [{ name: 'id', type: 'string' }, { name: 'target', type: 'string' }] })) ctx.game.add(ctx.camera.setTarget(String(c.id), String(c.target)) && ctx.camera.activate(String(c.id)) ? 'camLive' : 'camRefused', 1);",
+    "    for (const c of ctx.debug.command('uncam', { description: 'Take a camera off', args: [{ name: 'id', type: 'string' }] })) ctx.game.add(ctx.camera.deactivate(String(c.id)) ? 'camOff' : 'camRefused', 1);",
     "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
+    "    const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));",
+    // The hut as a room for a game: its kind, size (m³; m² × 4; mean free path in cm) and portals, and the pad outside it.
+    '    if (state.hut) {',
+    '      const h = v.regionAt(A[0], A[1] + 1.75, A[2] + 6.25);',
+    '      const o = v.regionAt(A[0], A[1] + 6, A[2] - 4);',
+    "      const list = h === null ? [] : v.portalsOf(h.id);",
+    "      put('hutKind', h === null ? 0 : h.kind === 'room' ? 1 : 2); put('hutVolume', h !== null ? Math.round(h.volume) : 0); put('hutSurface4', h !== null ? Math.round(h.surface * 4) : 0); put('hutMfpCm', h !== null ? Math.round(h.meanFreePath * 100) : 0);",
+    "      put('hutPortals', h?.portals ?? -1); put('hutPortalList', list.length); put('hutPortalJoins', list.length === 1 && o !== null && list[0].regions.includes(h.id) && list[0].regions.includes(o.id) ? 1 : 0); put('hutOut', o?.kind === 'outdoors' ? 1 : 0);",
+    '    }',
     '    if (state.rooms) {',
-    "      const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));",
     '      const a = v.regionAt(A[0], A[1] - 4.5, A[2] + 11);',
     '      const b = v.regionAt(A[0], A[1] - 4.5, A[2] + 14);',
     '      const o = v.regionAt(A[0], A[1] + 3, A[2]);',

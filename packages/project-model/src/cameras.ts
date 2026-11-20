@@ -33,7 +33,10 @@
  *   (fast in, held once clear, eased back out over `pullInTime`,
  *   `pullHoldTime` and `pullOutTime`); `seeThrough` leaves the camera where
  *   its rig puts it and thins what stands in front of the target (the
- *   project's see-through settings); `none` does neither.
+ *   project's see-through settings); `cutAway` thins it the same way and
+ *   leaves out what stands above the target's head round the room it is in
+ *   (a voxel world's enclosed region: its roof and the storeys over it; the
+ *   roof still casts its shadow); `none` does neither.
  *   A camera may expose the picture itself (`autoExposure`, eye adaptation):
  *   the renderer meters the frame's average brightness (centre-weighted or
  *   the whole frame, `exposureMetering`) and moves the exposure toward
@@ -69,7 +72,7 @@ export const CAMERA_BLENDS = ['cut', 'linear', 'eased'] as const;
 export type CameraBlendStyle = (typeof CAMERA_BLENDS)[number];
 export const CAMERA_RAIL_MODES = ['once', 'loop', 'pingpong'] as const;
 export type CameraRailMode = (typeof CAMERA_RAIL_MODES)[number];
-export const CAMERA_OCCLUSION_MODES = ['pullIn', 'seeThrough', 'none'] as const;
+export const CAMERA_OCCLUSION_MODES = ['pullIn', 'seeThrough', 'cutAway', 'none'] as const;
 export type CameraOcclusion = (typeof CAMERA_OCCLUSION_MODES)[number];
 export const CAMERA_EXPOSURE_METERING = ['centerWeighted', 'average'] as const;
 export type CameraExposureMetering = (typeof CAMERA_EXPOSURE_METERING)[number];

@@ -263,9 +263,12 @@ export interface SceneAdapterOptions {
    * `seeThrough().set(…)`, and the game's scripts through the runtime's view
    * (`ctx.camera.setSeeThrough`, which then stands over the host's).
    * `pinned`: on or off whatever the project, the host or a script says (a
-   * page's `?seethrough=on|off`, a look and cost comparison).
+   * page's `?seethrough=on|off`, a look and cost comparison); `pinnedCut`:
+   * cut-away on or off whatever the camera says (`?seethrough=cutaway`).
+   * `rooms`: where the rooms the subjects stand in come from (a page's voxel
+   * worlds): their shells thin, or are cut away, round the subjects.
    */
-  seeThrough?: { readonly settings?: Partial<import('@thirdlight/runtime').SeeThroughSettings>; readonly pinned?: boolean; readonly prebuild?: boolean; readonly onProblem?: (code: string, message: string) => void };
+  seeThrough?: { readonly settings?: Partial<import('@thirdlight/runtime').SeeThroughSettings>; readonly pinned?: boolean; readonly pinnedCut?: boolean; readonly prebuild?: boolean; readonly rooms?: import('./see-through').SeeThroughRooms; readonly onProblem?: (code: string, message: string) => void };
   /**
    * The key light's shadow as a cached static map (static casters, drawn
    * only when they change) with a dynamic map on top (`cached-shadow.ts`;

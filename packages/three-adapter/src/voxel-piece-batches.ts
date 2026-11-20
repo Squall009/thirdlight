@@ -47,6 +47,7 @@ import { PieceDraw, VOXEL_KIT_PIECE_KEY } from './voxel-piece-draw';
 import { TRIM_RUN_ATTRIBUTE } from './voxel-trim-u';
 import { CullView, maxScaleOf, SphereSide } from './view-cull';
 import { STATIC_CASTER_KEY } from './shadow-casters';
+import { SEE_THROUGH_ROOM_DRAW_KEY } from './see-through';
 
 /** `mesh.userData[PIECE_SOURCE_KEY]`: the piece mesh a draw draws (its own geometry shares that one's attributes). */
 export const PIECE_SOURCE_KEY = 'voxelPieceSource';
@@ -310,6 +311,8 @@ export class VoxelPieceBatches {
     if (this.staticCasters) mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.renderOrder = PIECE_RENDER_ORDER;
     mesh.userData[VOXEL_KIT_PIECE_KEY] = true;
+    // Pieces dress the voxels round a room as its walls and roof: they thin and cut with them.
+    mesh.userData[SEE_THROUGH_ROOM_DRAW_KEY] = true;
     // What it draws: the kind's own mesh (the draw's geometry shares its attributes) and whether that is a trim run's.
     mesh.userData[PIECE_SOURCE_KEY] = b.kind.geometry;
     if (b.kind.geometry.getAttribute(TRIM_RUN_ATTRIBUTE) !== undefined) mesh.userData['voxelTrimGeometry'] = true;

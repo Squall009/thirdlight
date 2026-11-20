@@ -104,6 +104,7 @@ import { AXIS_PROJECTION_LEVEL, voxelDrawPath } from './voxel-surface-path';
 import { MOVING_CASTER_KEY, STATIC_CASTER_KEY, type StaticShadowRevision } from './shadow-casters';
 import { disposeObjectTree } from './dispose';
 import { markOccludee, markOccludeeGroup } from './occludees';
+import { SEE_THROUGH_ROOM_DRAW_KEY } from './see-through';
 import { FULL_PATH, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
 
 /** Stand-in colours, by material id (wrapping): earth, rock and building tones, so neighbouring ids read apart. */
@@ -668,6 +669,8 @@ export class VoxelChunkView {
       this.castStatic(mesh);
       mesh.userData['voxelChunk'] = key;
       mesh.userData['voxelLevel'] = level;
+      // A room's walls and roof: while a see-through subject stands in a room, it thins or is cut only round that room.
+      mesh.userData[SEE_THROUGH_ROOM_DRAW_KEY] = true;
       mesh.userData[VOXEL_SURFACE_KEY] = surface;
       if (this.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = this.decalLayers;
       if (level === 0) {
@@ -985,6 +988,7 @@ export class VoxelChunkView {
     markOccludee(mesh, 'single');
     mesh.name = `voxel-seam ${seamId(level, nx, ny, nz, face)}`;
     mesh.matrixAutoUpdate = false;
+    mesh.userData[SEE_THROUGH_ROOM_DRAW_KEY] = true;
     if (this.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = this.decalLayers;
     const key = chunkKey(this.grid, nx, ny, nz);
     const map = (): Map<number, ChunkDraw> | undefined => this.levels[level];

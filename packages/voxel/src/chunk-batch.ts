@@ -171,10 +171,25 @@ export interface ChunkDrawBatch {
   readonly sky?: readonly SkyColumnWire[];
   /** Where the near field draws changed (with a far field only). */
   readonly nearCover?: NearCoverWire;
+  /** The rooms the page's focus points stand in, when they changed ({@link ChunkDrawBatcher.setFocus}). */
+  readonly rooms?: FocusRoomsWire;
   /** Wall-clock ms (`performance.timeOrigin + performance.now()`) when the batch left. */
   readonly sentAt: number;
   /** ms the batch's joins took where the world runs. */
   readonly joinMs: number;
+}
+
+/** The room a focus point stands in: an enclosed open region, its parts' boxes of cells (world, inclusive: six numbers a box). */
+export interface FocusRoomWire {
+  readonly id: number;
+  readonly boxes: readonly number[];
+}
+
+/** The rooms of the page's focus points ({@link ChunkDrawBatcher.setFocus}): one a point, in its order (null: in no room). */
+export interface FocusRoomsWire {
+  /** The focus the page sent (its number): the answer is for those points. */
+  readonly focus: number;
+  readonly rooms: readonly (FocusRoomWire | null)[];
 }
 
 /** What the batcher reads of a streamer's mip levels (`VoxelStreamer.mips`). */
@@ -228,6 +243,8 @@ export interface ChunkDrawBatcherOptions {
   readonly walkFeed?: number;
   /** The world's open regions where it runs (open-region-stitch.ts): with them the batches carry the sky heights that changed. */
   readonly sky?: Pick<OpenRegionStitch, 'onSky' | 'takeSky'>;
+  /** The same regions read for the rooms of the page's focus points ({@link ChunkDrawBatcher.setFocus}; absent: none answered). */
+  readonly rooms?: Pick<OpenRegionStitch, 'regionAt' | 'boxesOf' | 'changes' | 'onUpdate'>;
 }
 
 /** The buffers a batch can hand over (each once). */
@@ -314,6 +331,11 @@ export class ChunkDrawBatcher {
   private readonly walkFeed: WalkBlockFeed | null;
   /** The page's walk feed (0: off, nothing is packed). */
   private walkOn = 0;
+  /** The page's focus points (cells, x y z each) and its number; the rooms last sent for them, and the regions' change read at. */
+  private focus: { readonly n: number; readonly cells: readonly number[] } | null = null;
+  private roomsSent = '';
+  private roomsAt = -1;
+  private roomsDue: FocusRoomsWire | null = null;
 
   constructor(
     private readonly world: string,
@@ -332,6 +354,10 @@ export class ChunkDrawBatcher {
     this.setWalkFeed(this.opts.walkFeed ?? 0);
     this.opts.sky?.onSky(() => {
       if (!this.closed) this.queue();
+    });
+    // The regions changed (an edit, chunks arriving): the focus points' rooms are read again with the next batch.
+    this.opts.rooms?.onUpdate(() => {
+      if (!this.closed && this.focus !== null) this.queue();
     });
     feed.far?.on((e) => {
       if (this.closed) return;
@@ -532,6 +558,37 @@ export class ChunkDrawBatcher {
     this.queue();
   }
 
+  /**
+   * The page's focus points (world cells, x y z each; `n`: the page's number for them): the batches answer the room
+   * each stands in (an enclosed region and its parts' boxes) whenever that answer changes, read from the regions as
+   * kept (no walk), again after each update of the regions. The page sends them again as they move to other cells.
+   */
+  setFocus(n: number, cells: readonly number[]): void {
+    if (this.closed || this.opts.rooms === undefined) return;
+    this.focus = { n, cells: [...cells] };
+    this.roomsAt = -1;
+    if (this.readRooms()) this.queue();
+  }
+
+  /** The rooms of the focus points again when the regions changed since: true when they differ from what was sent. */
+  private readRooms(): boolean {
+    const r = this.opts.rooms;
+    const f = this.focus;
+    if (r === undefined || f === null || r.changes === this.roomsAt) return this.roomsDue !== null;
+    this.roomsAt = r.changes;
+    const rooms: (FocusRoomWire | null)[] = [];
+    for (let i = 0; i + 2 < f.cells.length; i += 3) {
+      const info = r.regionAt(f.cells[i]!, f.cells[i + 1]!, f.cells[i + 2]!);
+      rooms.push(info === null || !info.enclosed ? null : { id: info.id, boxes: r.boxesOf(info.id).flat() });
+    }
+    const key = JSON.stringify(rooms);
+    if (key !== this.roomsSent) {
+      this.roomsSent = key;
+      this.roomsDue = { focus: f.n, rooms };
+    }
+    return this.roomsDue !== null;
+  }
+
   /** Walk blocks packed (or found gone) for the page so far, and sent and not removed since. */
   get walkCounts(): { readonly packed: number; readonly held: number } {
     return { packed: this.walkFeed?.packed ?? 0, held: this.walkFeed?.held ?? 0 };
@@ -553,8 +610,10 @@ export class ChunkDrawBatcher {
       if (this.walkFeed.pending) this.queueLater();
     }
     const sky = this.closed ? [] : (this.opts.sky?.takeSky() ?? []);
-    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null && walk.length === 0 && sky.length === 0)) return;
-    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk, walkFeed: this.walkOn } : {}), ...(sky.length > 0 ? { sky } : {}), sentAt: wallClock(), joinMs: this.joinMs };
+    const rooms = !this.closed && this.readRooms() ? this.roomsDue : null;
+    this.roomsDue = null;
+    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null && walk.length === 0 && sky.length === 0 && rooms === null)) return;
+    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk, walkFeed: this.walkOn } : {}), ...(sky.length > 0 ? { sky } : {}), ...(rooms !== null ? { rooms } : {}), sentAt: wallClock(), joinMs: this.joinMs };
     this.farAdded = [];
     this.farRemoved = [];
     this.relief = null;

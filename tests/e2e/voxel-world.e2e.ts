@@ -98,7 +98,7 @@ import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-
 import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
-import { GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
+import { GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelRoomChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 import { playScriptSource } from './voxel-play-script';
 
 type Cell = [number, number, number];
@@ -1354,6 +1354,10 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     // The shadow and sun-field checks on one page take most of it (the light volume's are the next test's).
     test.setTimeout(240_000);
     // Not a lighting check: the voxel world drawn without the light volume the tier would run (the light test has it).
+    // Two cameras over the hut the rooms check builds, off until the script makes one live: one cuts rooms away.
+    const hutAt = await playProject();
+    const roofCam = async (name: string, occlusion: string): Promise<string> => String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name, transform: { position: [hutAt[0], hutAt[1] + 14, hutAt[2] + 9.25] }, components: { virtualCamera: { rig: 'fixed', priority: 40, enabled: false, blend: 'cut', fovY: PLAY_FOV_Y_DEG, near: 0.1, far: 300, occlusion } } }))['createdId']);
+    const roofCameras = { cut: await roofCam('Roof camera (cut away)', 'cutAway'), plain: await roofCam('Roof camera', 'none') };
     const { at, psid, answer, canvas, errors, shadowObjects, away, observe, drawn } = await startPlay(page, renderer, '&voxelLight=off');
     // The play's locator serves the world its scenes name, not the project's other worlds.
     const preview = new URL((await page.locator('iframe.tl-app__preview-frame').getAttribute('src'))!, be.origin).origin;
@@ -1507,6 +1511,7 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     await expect.poll(async () => { const c = (await observe()).counters ?? {}; return `${c['roomEnclosed'] ?? 0},${c['roomSky'] ?? 0}`; }, { timeout: 20_000, intervals: [50], message: 'the shaft opens the room to the sky' }).toBe('0,1');
     console.log(`[voxel-play] ${renderer} open regions: the shaft's dig to the room's answer changed ${Date.now() - shaftAt} ms (command round trip and polls included)`);
     expect(await counter('otherEnclosed'), 'the room behind the door stays enclosed').toBe(1);
+    await voxelRoomChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position, roofCameras });
     // The relief ring of the high tier is read in the export below (it plays the same way).
     // The far field at the low tier (the world's own short load ring there): ray-marched bricks draw the ground past
     // the near field.
@@ -1571,7 +1576,7 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     // Back to 2 m (the cache keeps the baked levels; a scene asking 2 m neither reads nor ships them).
     await playCmd('setComponent', { entityId: playWorld!, component: 'voxelWorld', value: { bakeLevel: null, quality: { low: FAR_TEST_RINGS } } });
     await groundRelief(false);
-    await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp, shadowObjects.spot, shadowObjects.panel] });
+    await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp, shadowObjects.spot, shadowObjects.panel, roofCameras.cut, roofCameras.plain] });
   });
 
   test('Play: the voxel light volume lights the hut, its kit pieces and moving objects, bounces every light type, follows edits and lights, and refines while nothing changes', async ({ page }) => {

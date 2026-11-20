@@ -383,7 +383,7 @@ export { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 // Projected decals: blended into every lit material under them (`?decals=off` leaves them out).
 export { DECALS_URL_PARAM } from './projected-decals';
 // See-through: what stands between the camera and a subject dithers away round it (`?seethrough=on|off` over the project's setting).
-export { applyObjectSeeThrough, objectSeeThrough, SEE_THROUGH_KEY, SEE_THROUGH_URL_PARAM, seeThroughFromUrl, SeeThroughView, type SeeThroughControl, type SeeThroughDiagnostics, type SeeThroughPatch } from './see-through';
+export { applyObjectSeeThrough, objectSeeThrough, SEE_THROUGH_KEY, SEE_THROUGH_URL_PARAM, SEE_THROUGH_CUT_BIT, SEE_THROUGH_ROOM_DRAW_KEY, seeThroughCutFromUrl, seeThroughFromUrl, SeeThroughView, type SeeThroughControl, type SeeThroughDiagnostics, type SeeThroughPatch, type SeeThroughRoom, type SeeThroughRooms } from './see-through';
 export { PAINT_URL_PARAM } from './vertex-paint-draw';
 export type { MeshPaintPreview, PaintPreviewMesh, PaintPreviewTarget, PathPaintPreview, VertexPaintPreview } from './vertex-paint-preview';
 export { paintOnlyChange } from './vertex-paint-update';
@@ -430,6 +430,7 @@ export { PIECE_SOURCE_KEY, VoxelPieceBatches, type PieceKind, type PieceRun } fr
 export { isPieceDraw, pieceCopyData, pieceCopyMatrix, pieceDrawCopies } from './voxel-piece-draw';
 export { KIT_DEBUG_TEXTURE_SIDE, voxelKitDebugTexture, voxelKitImageRefs, voxelKitMeshRefs, VoxelKitMeshes, VoxelKitSet, type VoxelKitTextures, type VoxelKitBytes, type VoxelKitDraw, type VoxelKitImageRef, type VoxelKitMeshRef, type VoxelKitRecordLike } from './voxel-kit-pieces';
 export { phaseTileMetres, voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
+export { VoxelFocusRooms } from './voxel-focus-rooms';
 export { capVoxelArrays, voxelTexelDensityAt, VoxelWorldDraws, type VoxelEditToScreen, type VoxelTextureResidency, type VoxelWorldDrawStats, type VoxelWorldDrawsOptions } from './voxel-world-draws';
 // GPU time per frame from timestamp queries (where the renderer records them).
 export { createGpuTiming, measuresGpuTime, type GpuTiming } from './gpu-timing';

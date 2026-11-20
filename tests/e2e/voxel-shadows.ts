@@ -947,3 +947,121 @@ const VOLUME_GONE_SHARE = 0.12;
  * settles differ by their bounces' order; keeping half the history leaves about half).
  */
 const VOLUME_RESIDUE_SHARE = 0.2;
+
+/** The room checks' setup: the far checks' own and two cameras over the hut, one cutting rooms away, one plain. */
+export interface RoomCheckSetup extends FarLightSetup {
+  readonly roofCameras: { readonly cut: string; readonly plain: string };
+}
+
+/** The middle of a picture (the share `f` of its width and height round its centre). */
+function middle(img: Png, f: number): (x: number, y: number) => boolean {
+  const x0 = img.width * (0.5 - f / 2);
+  const x1 = img.width * (0.5 + f / 2);
+  const y0 = img.height * (0.5 - f / 2);
+  const y1 = img.height * (0.5 + f / 2);
+  return (x, y) => x >= x0 && x < x1 && y >= y0 && y < y1;
+}
+
+/** Pixels where `mask` holds and `test` does, and their mean brightness. */
+function countOver(img: Png, mask: (x: number, y: number) => boolean, test: (p: readonly number[]) => boolean): { n: number; lum: number } {
+  let n = 0;
+  let s = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    if (!mask(x, y)) continue;
+    const p = img.pixel(x, y);
+    if (!test(p)) continue;
+    n++;
+    s += lum(p);
+  }
+  return { n, lum: n === 0 ? 0 : s / n };
+}
+
+/**
+ * Rooms from open regions in Play (WebGPU, the store off: not a lighting check): the script's hut (plaster walls and
+ * roof round a 4.5 × 2.5 × 8 m room, a door of opening cells in its north wall, its floor repainted grass) read
+ * through `ctx.voxels.regionAt`: a room of 90 m³ with its surface and mean free path, one portal joining it to the
+ * pad, which is outdoors. Then cut-away: from a camera over the hut looking at the blue box on its floor (the
+ * see-through subject, the camera's target), the middle of the picture shows the roof's plaster with the camera's
+ * occlusion `none`, and the floor's green with `cutAway` (the roof and the walls over the box's top left out); the
+ * floor stays in the roof's shadow (the roof still casts: no floor pixel as bright as the sunlit pad), and once the
+ * roof is dug open the floor's sunlit patch shows. The box outside the hut: the two cameras' pictures are the same.
+ */
+export async function voxelRoomChecks(o: RoomCheckSetup): Promise<void> {
+  const { ids, away, roofCameras } = o;
+  const { control, counter, rel, place, still } = driver(o);
+  const counted = async (cmd: string, name: string, args?: Record<string, unknown>): Promise<void> => {
+    const n = await counter(name);
+    await control(cmd, args);
+    await expect.poll(() => counter(name), { timeout: 10_000 }).toBe(n + 1);
+  };
+  const t0 = Date.now();
+  await counted('hut', 'hutBuilt');
+  await counted('hutdoor', 'hutDoor');
+  await counted('hutgreen', 'hutGreen');
+  const gauges = async (): Promise<string> => {
+    const c = ((await o.api(`play/${o.psid}/observe`)).json as { counters?: Record<string, number> }).counters ?? {};
+    return ['hutKind', 'hutOut', 'hutPortals', 'hutPortalList', 'hutPortalJoins', 'hutVolume', 'hutSurface4', 'hutMfpCm'].map((k) => c[k] ?? 0).join(',');
+  };
+  // 4.5 × 2.5 × 8 m: 90 m³; 2 (4.5·2.5 + 4.5·8 + 2.5·8) = 134.5 m² less the door's 3 m² of opening (12 cell faces):
+  // 131.5 m² (526 faces); 4 V / S = 2.74 m.
+  await expect.poll(gauges, { timeout: 20_000, intervals: [100], message: 'the hut is a room with one portal to the outdoors' }).toBe('1,1,1,1,1,90,526,274');
+  const roomMs = Date.now() - t0;
+  // The box on the hut's floor, off its middle; the cameras 14 m over the hut, 3 m south, looking at it.
+  await place(ids.blue, rel(1, 0.8, 6.25));
+  const view = async (cam: string, name: string): Promise<Png> => {
+    await counted('cam', 'camLive', { id: cam, target: ids.blue });
+    const img = await still(name);
+    await counted('uncam', 'camOff', { id: cam });
+    return img;
+  };
+  const roomState = (): Promise<{ received: number; slots: ({ key: string; boxes: number[][] } | null)[] }> => o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate(() => (window as unknown as { __tlVoxelPlay: { rooms(): { received: number; slots: ({ key: string; boxes: number[][] } | null)[] } } }).__tlVoxelPlay.rooms());
+  const plain = await view(roofCameras.plain, 'rooms-roof-plain');
+  await counted('cam', 'camLive', { id: roofCameras.cut, target: ids.blue });
+  await expect.poll(async () => (await roomState()).slots[0] !== null, { timeout: 10_000, message: "the page has the subject's room" }).toBe(true);
+  const room = (await roomState()).slots[0]!;
+  const cut = await still('rooms-roof-cut');
+  await counted('uncam', 'camOff', { id: roofCameras.cut });
+  const mid = middle(plain, MIDDLE_SHARE);
+  const notBlue = (p: readonly number[]): boolean => !blueBox(p);
+  const roofGreen = countOver(plain, mid, (p) => grass(p) && notBlue(p));
+  const cutGreen = countOver(cut, mid, (p) => grass(p) && notBlue(p));
+  const midPx = countOver(plain, mid, () => true).n;
+  // The pad in the sun round the hut (the picture's edges): what a sunlit floor pixel reads.
+  const edge = (x: number, y: number): boolean => !middle(plain, 0.8)(x, y);
+  const pad = countOver(cut, edge, grass);
+  const sunlit = (img: Png): number => countOver(img, mid, (p) => grass(p) && lum(p) >= SUNLIT_SHARE * pad.lum).n;
+  // The blue box on the floor: in the roof's shadow, or in the sun once the roof is dug open.
+  const boxLum = (img: Png): number => countOver(img, mid, blueBox).lum;
+  // The roof dug open over the middle of the room (the hut is no room then: nothing is cut), from the cut-away camera.
+  await counted('hutopen', 'hutOpened');
+  const opened = await view(roofCameras.cut, 'rooms-roof-opened');
+  // Outdoors: the box on the pad 12 m east of the hut, nothing between it and the cameras (the hut out of its circle);
+  // the two cameras draw the same.
+  await place(ids.blue, rel(12, 0.8, 6.25));
+  const outPlain = await view(roofCameras.plain, 'rooms-out-plain');
+  const outCut = await view(roofCameras.cut, 'rooms-out-cut');
+  const outDiff = changedPixels(outPlain, outCut, () => true, 30);
+  await counted('unhut', 'hutDug');
+  await place(ids.blue, away);
+  console.log(`[voxel-play] rooms: the hut a room ${roomMs} ms after its build command (${await gauges()}); the page's room ${JSON.stringify(room)}; the middle's green ${roofGreen.n} of ${midPx} px with the roof drawn, ${cutGreen.n} cut away (floor lum ${cutGreen.lum.toFixed(1)}, the sunlit pad ${pad.lum.toFixed(1)}); floor pixels at least ${SUNLIT_SHARE} of the pad's: ${sunlit(cut)} under the cut roof, ${sunlit(opened)} with it dug open; the box ${boxLum(cut).toFixed(1)} under the cut roof, ${boxLum(opened).toFixed(1)} dug open; outdoors the cameras differ in ${outDiff} px`);
+  expect(roofGreen.n, 'with the roof drawn the middle is plaster').toBeLessThan(ROOF_GREEN_MAX_SHARE * midPx);
+  expect(cutGreen.n, 'with the roof cut away the middle is the floor').toBeGreaterThan(CUT_GREEN_MIN_SHARE * midPx);
+  expect(sunlit(cut), 'the cut roof still shades the floor').toBeLessThan(SUNLIT_CUT_MAX_PX);
+  expect(sunlit(opened), 'the roof dug open, the sun reaches the floor').toBeGreaterThan(SUNLIT_OPEN_MIN_PX);
+  expect(boxLum(cut), 'the box under the cut roof is in its shadow').toBeLessThan(BOX_SHADED_SHARE * boxLum(opened));
+  expect(outDiff, 'outdoors cut-away changes nothing').toBeLessThan(OUTDOORS_DIFF_MAX_PX);
+}
+
+/**
+ * Bounds of the room checks, from the first run's readings (the preview's 670 × 253 picture, its middle 15 %: 3,838
+ * px): green 8.9 % of the middle with the roof drawn, 94 % cut away; floor pixels at least 0.97 of the sunlit pad's
+ * 78 under the cut roof and 1,154 dug open; the blue box 19.1 under the cut roof and 70.1 in the sun.
+ */
+const MIDDLE_SHARE = 0.15;
+const ROOF_GREEN_MAX_SHARE = 0.3;
+const CUT_GREEN_MIN_SHARE = 0.7;
+const SUNLIT_SHARE = 0.97;
+const SUNLIT_CUT_MAX_PX = 400;
+const SUNLIT_OPEN_MIN_PX = 600;
+const BOX_SHADED_SHARE = 0.6;
+const OUTDOORS_DIFF_MAX_PX = 100;

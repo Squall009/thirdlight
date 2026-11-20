@@ -34,9 +34,9 @@ import { pageFlagOn, sha256HexAsync } from '@thirdlight/shared';
 import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, streamingBudgetBytesOf, textureBudgetBytesOf, voxelPieceSeedOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument, type QualityLevelConfig, type VoxelTextureMap } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSettingsOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
-import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughCutFromUrl, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { fineBricksFromUrl, textureUnitGuardOf, VOXEL_LIGHT_STORES, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, walkBenchRays, type GlbLoaderPort, type WalkBenchKind, type WalkGpuRay, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLightStore, type VoxelLookRecord } from '@thirdlight/three-adapter';
+import { fineBricksFromUrl, textureUnitGuardOf, VOXEL_LIGHT_STORES, VoxelFocusRooms, VoxelKitMeshes, voxelKitImageRefs, voxelKitMeshRefs, VoxelWorldDraws, walkBenchRays, type GlbLoaderPort, type WalkBenchKind, type WalkGpuRay, type VoxelKitTextures, type VoxelGridRenderer, type VoxelKitRecordLike, type VoxelLightStore, type VoxelLookRecord } from '@thirdlight/three-adapter';
 import type { ShippedVoxelWorld } from './voxel-shipped';
 import { voxelMeter } from './voxel-meter';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
@@ -801,6 +801,9 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
   let fineOffSent = false;
   // The page's walk feed goes to where the worlds run (the worker's start message carries the one it has then).
   let walkFeed: (feed: number) => void = () => undefined;
+  // Where the see-through subjects stand goes there too: the worlds answer the rooms they are in.
+  let focus: (n: number, cells: readonly number[]) => void = () => undefined;
+  const rooms = new VoxelFocusRooms((n, cells) => focus(n, cells));
   const kitMeshes = new VoxelKitMeshes();
   if (voxelKitMeshRefs(kits.records).length + voxelKitImageRefs(kits.records).length > 0) void kitMeshes.load(kits.records, (ref) => kits.bytes(ref.assetId), kits.loader(), undefined, (assetId) => kits.texture(assetId));
   const draws = new VoxelWorldDraws({
@@ -829,6 +832,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       fineOff();
     },
     walkFeed: (feed) => walkFeed(feed),
+    rooms,
     // The light volume's lamps: the clustered lights' record of them.
     lamps: () => adapter()?.localLights?.() ?? null,
   });
@@ -850,10 +854,12 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     meter: () => true,
   });
-  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws), skyHeight: (world: string, x: number, z: number) => draws.sky(world)?.heightAt(x, z) ?? null, skyColumns: (world: string) => draws.sky(world)?.count ?? 0, shadowDraws: () => staticShadowDraws(adapter()), sun: () => draws.sunStats(), setSunOff: (off: boolean) => draws.setSunOff(off), sunProbe: (p: number[]) => draws.sunProbe(p), growGrids: () => draws.growGrids(), light: voxelLightHooks(draws, adapter, materials as readonly VoxelLookRecord[]) };
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws), skyHeight: (world: string, x: number, z: number) => draws.sky(world)?.heightAt(x, z) ?? null, skyColumns: (world: string) => draws.sky(world)?.count ?? 0, shadowDraws: () => staticShadowDraws(adapter()), sun: () => draws.sunStats(), setSunOff: (off: boolean) => draws.setSunOff(off), sunProbe: (p: number[]) => draws.sunProbe(p), growGrids: () => draws.growGrids(), rooms: () => rooms.state(), light: voxelLightHooks(draws, adapter, materials as readonly VoxelLookRecord[]) };
   return {
     draws,
     kitMeshes,
+    /** The rooms the see-through subjects stand in (the adapter's see-through reads them). */
+    rooms,
     /** The worker's batches go to the draws; the drawn bytes go back to it. */
     worker(h: SimWorkerHandle | null): SimWorkerHandle | null {
       if (h === null) return null;
@@ -861,6 +867,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       farSeen = (world, seen) => h.post({ t: 'voxels.farSeen', world, seen });
       fineOff = () => h.post({ t: 'voxels.fine', on: false });
       walkFeed = (feed) => h.post({ t: 'voxels.walk', feed });
+      focus = (n, cells) => h.post({ t: 'voxels.focus', n, cells });
       return {
         ...h,
         listen: (onMessage) => h.listen((m) => (typeof m === 'object' && m !== null && (m as { t?: unknown }).t === 'voxels' ? draws.receive((m as { batch: Parameters<VoxelWorldDraws['receive']>[0] }).batch) : onMessage(m))),
@@ -873,6 +880,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       farSeen = (world, seen) => p.farSeen(world, seen);
       fineOff = () => p.setFine(false);
       walkFeed = (feed) => p.setWalkFeed(feed);
+      focus = (n, cells) => p.setFocus(n, cells);
       return p.ports;
     },
   };
@@ -1177,7 +1185,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // See-through as the project sets it (scripts change it through the view); ?seethrough=on|off pins it (a look and cost comparison).
           // With the setting on the mask is built at load (a script turning it off and on rebuilds nothing); off, nothing is built
           // and a script that turns it on anyway rebuilds every program then (reported).
-          seeThrough: ((on, st) => ({ settings: st, prebuild: st.enabled, ...(on !== null ? { pinned: on } : {}), ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}) }))(seeThroughFromUrl(pageSearch()), seeThroughSettingsOfProject(settings)),
+          seeThrough: ((on, cut, st) => ({ settings: st, prebuild: st.enabled, ...(on !== null ? { pinned: on } : {}), ...(cut !== null ? { pinnedCut: cut } : {}), ...(voxels !== null ? { rooms: voxels.rooms } : {}), ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}) }))(seeThroughFromUrl(pageSearch()), seeThroughCutFromUrl(pageSearch()), seeThroughSettingsOfProject(settings)),
           // The first frame, slow frames and scene attaches for the start timings.
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.

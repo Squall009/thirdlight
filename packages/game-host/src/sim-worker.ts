@@ -430,6 +430,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'voxels.walk':
         voxels?.setWalkFeed(m.feed);
         return;
+      case 'voxels.focus':
+        voxels?.setFocus(m.n, m.cells);
+        return;
       case 'dispose':
         dispose();
         return;

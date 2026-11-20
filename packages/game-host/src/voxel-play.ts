@@ -43,6 +43,8 @@ export interface VoxelPresentation {
    * number: the page's feed of that number, which gets every block known, then the changes; ChunkDrawBatcher.setWalkFeed).
    */
   setWalkFeed(feed: number): void;
+  /** Where the page's see-through subjects stand (world cells; `n` its number for them): every world answers their rooms (ChunkDrawBatcher.setFocus). */
+  setFocus(n: number, cells: readonly number[]): void;
 }
 
 /**
@@ -55,6 +57,8 @@ export interface VoxelPresentation {
 export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false, walkFeed = 0): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
   let walk = walkFeed;
+  // The page's last focus: a world opened later answers it too.
+  let focus: { readonly n: number; readonly cells: readonly number[] } | null = null;
   const streams = new Map<string, VoxelStreamer>();
   // The page's word over each world's own setting (undefined: the world's).
   let fine: boolean | undefined = fineBricks ? true : undefined;
@@ -86,7 +90,9 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             // The batches carry the walk's blocks for the page's GPU walk while it has a reader (levels 0 and up; the far
             // field stays the CPU's; the lit props in the light stop, each change of theirs a block's change) and the sky
             // heights the open regions found, for lighting on the page.
-            const batcher = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: { source: streamerWalkSource(stream, null, { props: props ?? null }), blocks: () => streamerWalkBlocks(stream) }, walkFeed: walk, ...(regions !== undefined ? { sky: regions } : {}) });
+            // And the rooms the page's see-through subjects stand in, as the regions answer them.
+            const batcher = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: { source: streamerWalkSource(stream, null, { props: props ?? null }), blocks: () => streamerWalkBlocks(stream) }, walkFeed: walk, ...(regions !== undefined ? { sky: regions, rooms: regions } : {}) });
+            if (focus !== null) batcher.setFocus(focus.n, focus.cells);
             props?.listen((cx, cy, cz) => batcher.walkChanged(0, cx, cy, cz));
             mine = batcher;
             batchers.set(world, mine);
@@ -114,6 +120,10 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
     setWalkFeed: (feed) => {
       walk = feed;
       for (const b of batchers.values()) b.setWalkFeed(feed);
+    },
+    setFocus: (n, cells) => {
+      focus = { n, cells: [...cells] };
+      for (const b of batchers.values()) b.setFocus(n, cells);
     },
   };
 }

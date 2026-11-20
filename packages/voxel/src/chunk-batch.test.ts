@@ -103,4 +103,44 @@ describe('ChunkDrawBatcher', () => {
     expect(sent.at(-1)!.nearCover).toBeUndefined();
     expect(sent.at(-1)!.far!.added.map((a) => [a.level, a.nx])).toEqual([[2, 5]]);
   });
+  it("answers the rooms of the page's focus points from the regions as kept: once a change, again after the regions moved, never for nothing", () => {
+    const f = feed();
+    const sent: ChunkDrawBatch[] = [];
+    let flush: () => void = () => undefined;
+    // A room (id 7, two parts) at x < 10, the outdoors past it; `changes` as the stitch bumps it.
+    let changes = 1;
+    let roomOpen = false;
+    const updated: Array<() => void> = [];
+    let summaries = 0;
+    const rooms = {
+      get changes() {
+        return changes;
+      },
+      regionAt: (x: number) => (summaries++, x < 10 ? { id: 7, enclosed: !roomOpen } : { id: 1, enclosed: false }) as never,
+      boxesOf: () => [[0, 0, 0, 4, 4, 9] as const, [5, 0, 0, 9, 4, 4] as const],
+      onUpdate: (u: () => void) => void updated.push(u),
+    };
+    const b = new ChunkDrawBatcher('w', f.feed, 16, (x) => sent.push(x), { schedule: (fn) => (flush = fn), rooms });
+    b.setFocus(1, [2, 1, 2, 20, 1, 2]);
+    flush();
+    expect(sent.map((x) => x.rooms)).toEqual([{ focus: 1, rooms: [{ id: 7, boxes: [0, 0, 0, 4, 4, 9, 5, 0, 0, 9, 4, 4] }, null] }]);
+    // The subject moved within the room: the same answer, nothing sent.
+    b.setFocus(2, [3, 1, 2, 20, 1, 2]);
+    flush();
+    expect(sent.length).toBe(1);
+    // The regions updated with no change for the room: read again, nothing sent; then the room opened (a wall dug).
+    changes++;
+    for (const u of updated) u();
+    flush();
+    expect(sent.length).toBe(1);
+    roomOpen = true;
+    changes++;
+    for (const u of updated) u();
+    flush();
+    expect(sent.at(-1)!.rooms).toEqual({ focus: 2, rooms: [null, null] });
+    // With nothing changed, a flush reads nothing.
+    const read = summaries;
+    flush();
+    expect(summaries).toBe(read);
+  });
 });

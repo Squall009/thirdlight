@@ -1288,7 +1288,7 @@ export class CameraBrain {
       letterbox: c.letterbox,
       shake: this.lastShake,
       ...(this.occl.view !== null ? { occlusion: this.occl.view } : {}),
-      ...([...this.cams.values()].some((s) => s.occlusion === 'seeThrough') ? { seeThroughLoaded: true as const } : {}),
+      ...([...this.cams.values()].some((s) => s.occlusion === 'seeThrough' || s.occlusion === 'cutAway') ? { seeThroughLoaded: true as const } : {}),
       ...(this.occl.exposure !== null ? { exposure: this.occl.exposure } : {}),
       ...([...this.cams.values()].some((s) => s.exposure !== null) ? { autoExposureLoaded: true as const } : {}),
       // The live track camera's region, while regions are loaded.
