@@ -159,6 +159,13 @@ The sun's and lamps' own light and shadows are drawn as before. A room is
 dark where no light gets in, a sunlit wall throws its colour on the floor,
 and light never passes through a half-metre wall.
 
+Past the cells the volume keeps (far from the eye) and just after the camera
+arrives somewhere new, a surface takes the flat ambient and sky light; under a
+roof (a room seen through a far house's window) only a share of it, the tier's
+`indoorShare` (0.2), so far interiors are not lit as the street is. Once the
+volume holds light there it alone lights the surface: there is no minimum
+brightness indoors.
+
 The volume follows the game: an edit, a lamp switched or moved, a look
 changed at once relight what they reach within seconds; a sun a script
 moves (`ctx.environment.blend`) is followed without starting over. Nothing

@@ -247,7 +247,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.13 | (a) done (f2bc0110…6280f957): a change restarts what it reaches (D715, D695), batch work in the slice (D708), share 6.0 ms (D690 open). (b) done 2026-11-17 (99f2526a, 9e74e084): bounces converge, refining while idle (4.2–5.3 ms GPU), a write-time filter, texture-mean colours; room blotch 0.67 → 0.27, error vs a CPU reference 0.33 → 0.16; room dark (§10 Q) |
 | 46e.14 | (a), (b) done 2026-11-18 (§8d). (c) done 2026-11-19 (40ddf31c…): the read +4.5/+3.9/+8.8 → +2.0/+2.3/+4.4 ms street/room/high (≤ 1.5 not reached: D724); the volume on at every tier (low's orbit 76–128 copies, travel ≤ 64 ms); D723 fixed (§8d 46e.14c) |
 | 46e.15 | Done 2026-11-20 (790f7ac7…b93492ce): lit props stop the walk's light (volume rays, `raycast`); sampled once, combined per chunk, sliced (D448: move among 1,600 p95 10.9 → 2.0 ms; 1.6 s arrival → ~700 steps); movers re-stamped every ⅛ m; costly with many movers (D728); thin props stop nothing (D727). Lit particles read once a vertex: 20 puffs `effects` 9.0 → 1.9 ms, room/street 0.03 |
-| 46e.16 | not started |
+| 46e.16 | Done 2026-11-20 (3983dbca…058d4470): regionAt gives a room's kind, box, surface, 4V/S (no walk; edit → 104 ms), portalsOf; see-through and cut-away (camera `cutAway`) round the subject's room only, roof still casts; far rooms' flat term at indoorShare 0.2 under a roof (sky heights); arrival not fixed (D731), L notch cut (D730); orbit near unchanged |
 | 46e.17 | not started |
 | 46e.18 | not started |
 | 46e.19 | not started |
@@ -3826,6 +3826,124 @@ loops 33.11 → 33.39 (volume) and 33.08 → 33.41 (store off); one failure unde
 document tabs, an asset upload's publish button: not Play); `gate-fast-20261120-023200` (`voxel-world.e2e.ts`) GREEN, 13
 passed, its Play tests 1.5 / 2.0 min (1.6 / 2.0 before, `gate-fast-20261119-220820`).
 
+### 46e.16 — rooms from regions
+
+**What a room is.** An enclosed open region of 46e.3 (complete, no cell under open sky, not at the world's edge),
+its portals (joined `opening` cells: doors and windows) linking it to the regions beside it; the outdoors is the
+region with sky. Everything is read from the stitched regions where the world runs (no second labelling, no
+authored volumes): the stitch now keeps each node's box of cells and its faces against solid cells (inside its chunk
+from the chunk's cells when the piece is made; across a chunk face when the chunk across is stitched, dropped when it
+goes), and a region's summary sums them. Commits 3983dbca, 8c285d85, 9f69226b, 9e444103, c8d4b797, e76f172f (bench),
+058d4470. Work folder `~/.cache/thirdlight-phase46e/work/46e.16/` (`progress.txt`, `lib.sh`, `inv*.sh`, `rooms.sh`,
+`cost.sh`, `m/` every run with its `*.log` and `*.uptime`, `pics-*.png`, `e2e-shots/`, `broken-*.log`).
+
+**1. A room for a game, and its size for audio.** One way, `ctx.voxels.regionAt` extended (not a second `roomAt`):
+`kind` (`room`, `outdoors`, `portal`, `unknown`: still loading or at the world's edge), `bounds` (metres),
+`surface` (m² against solid voxels; openings are not surface), `meanFreePath` = 4V/S (Sabine's mean distance between
+reflections: what a reverb's decay is set from; the bounds' dimensions were not chosen: an L-shaped room or two
+storeys joined by a stair read wrong by them); and `ctx.voxels.portalsOf(id)`: each door or window's box, volume and
+the regions it joins. The engine has no reverb or room notion in its audio (the runtime audio API plays sounds
+with positions and buses; nothing reads the world): the query is the capability, wiring a game's audio is the game's.
+The answers are summaries kept per change (a query is a lookup: 10,000 queries made no search, walk or summary,
+vitest). Town (Node, 6 × 3 × 6 chunks): 19 houses, 340–1,528 m³, 330–1,354 m², mean free path 3.6–5.3 m, 12–49
+portals each, every portal joining its house and one other region; cells and faces equal a flood fill. Edit → answer
+on the 8 km town: a 1 m hole through the room camera's wall changed the eye's region 104 ms after the command (4 steps;
+46e.3: 91 ms). Memory: about 100 B more a node (its six cross-face counts; 6,363 nodes at the town: ≈ 0.6 MB, not in
+the stitch's per-node estimate); simulation ms on the orbit unchanged (2.1–2.2 head, 2.3–2.5 base, second rounds).
+
+**2. Light kept indoors — what was real.** Looked for on the town (low, WebGPU, 1280 × 720, 30 Hz cap, alone):
+- (a) past the volume's finer windows a house's rooms are lit by the flat term as the street is: at 60–70 m
+  (`house-60m`, only the 4 m level reads there, and no 4 m cell inside a house is open) the windows of the row across
+  the street show their back walls white (`pics-house60-crop-before.png`). **Real.**
+- (a) a room just arrived at: the room camera at 0.5 s read a mean 29.8 against 7.6 at 2 s (`m/L1-before/room-window-
+  arrive-0.5s.png`: walls and floor lit as outdoors where the volume's bricks are not lit yet). **Real**, but it varies
+  run to run (6.6–131.6 at 0.5 s over three runs: what the street camera's load had lit before).
+- (b) coarse cells straddling walls: not separable from (a) in these pictures (no prop or particle in a small room's
+  middle read outdoor light in 46e.15's particle readings: the room panel 0.03 of the street's). Not found.
+- (c) particles and moving objects in a doorway: not measured here.
+
+**What fixed (a).** Where no level holds light for a pixel (weight w < 1) the flat ambient, sky and environment term
+stands in; under a roof it is now taken at the tier's `indoorShare` (project-model `VoxelLightVolumeSettings`,
+add-only; 0.2 at every tier): the radiance and irradiance the volume leaves (1 − w) scaled by it, nothing the volume
+holds changed (no fill, no minimum). "Under a roof": the sun field's near tops (the worlds' sky heights, 0.5 m
+columns over 512 m) over the point taken `SUN_COVER_OFFSET` (2) columns off its surface, read at each vertex from the
+tops' storage buffer and carried to the pixels (`sunCovered`, one rule for the CPU and the shader; no new texture,
+13 of 16 units as before). At 0.75 column (the lit points' offset) 47 % of the town's outer wall faces read a roof
+over them (the eaves); at 2 columns 2.4 %, every inner wall face 100 % (vitest on the town). `?voxelVolume=
+indoorShare:1` draws as before (the switch proven: `m/L2-share1/house-60m.png` is the before picture).
+
+| | before (L1) | after (L2) | after, share 1 (L2) |
+|---|---|---|---|
+| house 60 m: its windows | back walls white | dark (`pics-house60-crop-after-vs-share1.png`, right) | white (left) |
+| house 60 m picture mean, 0.5 s / 2 s | 46.9 / 97.6 | 45.8 / 96.4 | 46.8 / 98.6 |
+| far view mean, 0.5 s / 2 s | 73.0 / 107.9 | 53.7 / 106.4 | 53.6 / 108.1 |
+| room camera mean, 0.5 s / 2 s | 29.8 / 7.6 | 131.6 / 32.6 | 6.6 / 7.3 |
+
+The arrival is **not fixed** (D731): after a jump the sun field's near window is held (it reads as no window until the
+camera stays slow for the streamer's stop time), so no point is known to be under a roof then; at 2 s the near floor
+still reads the flat term (`m/L2-after/room-window-arrive-2s.png`). The room row's spread is the volume's state at
+arrival, not the change. Walking into a house the window follows: unverified in motion.
+
+**3. See-through and cut-away of enclosed air.** On see-through's path (`see-through.ts`), not a second one:
+- The page sends where its see-through subjects stand (`voxels.focus`, world cells, when a subject moves to another
+  cell); each world's batcher answers the enclosed region each stands in and its parts' boxes (one a chunk node) when
+  that answer changes, read again after each regions update (`ChunkDrawBatcher.setFocus`, `OpenRegionStitch.onUpdate`,
+  `boxesOf`); nothing is sent on the default path (no subject, no focus).
+- See-through: voxel chunks, seams and kit pieces are room draws (`SEE_THROUGH_ROOM_DRAW_KEY`): while a slot's subject
+  is in a room they fade only inside its shell (the parts' boxes grown by a cell and the padding), never as a whole;
+  the circle, depth and half-height rules are as before. Outdoors they fade as a whole, as before.
+- Cut-away: a camera's occlusion `cutAway` (project-model `CAMERA_OCCLUSION_MODES`, add-only; `?seethrough=cutaway`
+  pins it): per slot up to 6 cut boxes (the parts' columns grown the same way, from the subject's head up), packed beside
+  the occluder boxes, one cut bit a draw, the pixels inside discarded once faded in (the slot's fade time). The mask
+  never runs in the shadow pass: the cut roof casts (e2e below). No region id per voxel was needed for the house; the L
+  case is D730.
+
+Pictures (looked at; `m/R-off`, `R-see-through`, `R-cut-away`, sheets `pics-house-above.png`, `pics-lroom-above.png`:
+off | see-through | cut-away): the room house from 18 m: its roof; a dithered circle on the roof round the subject;
+the roof and the walls over the subject's head gone, the ground floor dark (the volume's light under the roof's shadow).
+The floating L-shaped room with a brick-roofed hut in its notch (one 16 m chunk): see-through thins the L's roof and
+stops at the hut's; cut-away cuts the hut's roof too (bounds of one chunk part, D730). Eaves past the grown box stay as
+thin strips (D730).
+
+**Cost** (low, 30 Hz cap, alone, `measureGpu` on the 8 km town orbit, A B A B base b3b54092 in a worktree with its own
+links, removed after; 2026-11-20 04:27–05:04 UTC, load 1.1–3.2; second rounds): `near` base 3.82, 4.34 ms, head below
+resolution (unreadable round), 3.80; `lighting` 4.20, 4.58 / —, 4.19: unchanged within the rounds' spread (the vertex
+read of the tops and the scaled flat term not resolved). Page 6.0, 5.5 / 5.3, 5.6 ms; simulation 2.27, 2.52 / 2.10,
+2.17. Cut-away over the room house (`house-above`, `light-shots --gpu`, one run each): `near` 7.14 cut-away against
+5.11 off, `lighting` 3.11 / 3.19 — the cut picture draws the ground floor's walls, floor and pieces the roof hid; the
+mask's own share not separated (near at close cameras, D660). No coverage round: nothing is sent on the default path.
+
+**Tests** (broken variants run once, logs in the work folder). vitest `packages/voxel/src/open-regions.test.ts` +5:
+the 4 × 3 × 5 m room across two chunk faces (60 m³, 94 m², 2.55 m, four parts); walls on chunk faces (faces across,
+dropped and counted again with the chunk; broken: cross-face counts off, `broken-no-across-faces.log`, 1 failed);
+every region's surface and box against a count over the cells in three arrival orders; 10,000 queries make no search,
+walk or summary; a dug wall joins the outdoors, rebuilt it is the room again. `tools/voxel-bench/open-regions-town.test.ts`:
+houses against a flood fill, sizes, portals; the cover rule (broken: the lit points' 0.75-column offset: 47 % of outer
+faces covered, fails). `packages/runtime/src/voxel-worlds.test.ts`: the answer's kind, metres, 4V/S, a portal.
+`packages/voxel/src/chunk-batch.test.ts`: rooms answered once a change, again after an update, never for nothing
+(broken: not read again after an update, `broken-rooms-not-reread.log`, 1 failed). `packages/three-adapter/src/
+see-through.test.ts` +5: room A's roof thins, the neighbour's in the circle does not, outdoors as a whole; cut-away
+cuts A's roof and walls over the head anywhere on screen, keeps walls below, floor and neighbour; an L given as two
+parts keeps the notch, as one box cuts it; outdoors no cut; cut bits by bounds (broken: room draws as whole occluders,
+`broken-room-draw-whole.log`, 2 failed; no cut, `broken-no-cut.log`, 3 failed). Playwright, the first Play test:
+the hut through `ctx.voxels.regionAt` a room of 90 m³ / 131.5 m² / 2.74 m with one portal to the pad, outdoors
+outside; from a roof camera with cut-away the middle of the picture 94 % floor green against 8.9 % with the roof
+drawn; the box on the floor 19.1 under the cut roof against 70.1 in the sun once the roof is dug (floor pixels as
+bright as the sunlit pad: 78 against 1,154): the roof still shades; outdoors the two cameras' pictures equal (0 px).
+Not run broken (one Play run is 2 min); with cut-away off its floor share falls to the roof's. Play tests 1.8 and
+2.0 min (1.5 / 2.0 before, `gate-fast-20261120-023200`); the e2e file split first (its Play script in
+`voxel-play-script.ts`).
+
+**Gates.** `gate-fast-20261120-032638` (every area: project-model) RED in vitest (the descriptors' size budget, the
+catalogue's documented skips) → fixed 9e444103 → `gate-rerun-20261120-033828` RED 3 under the all-areas load
+(block-editor paint, project-items, frame-rate-cap D659; D732) → `gate-rerun-20261120-040647` GREEN. The indoor share
+(058d4470) and docs: see §7.
+
+**Not done / unverified.** Motion: nobody has walked in and out of a house with cut-away on — watch the roof fade out
+at the door (the room answer arrives a batch after the subject's cell changes: the doorway is a portal, so the cut
+starts one cell inside), the fade back at the door, and whether the eave strips (D730) distract. The arrival fallback
+(D731). (c) of the light cases. Medium and high: the same settings, unverified on target hardware.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -4336,6 +4454,16 @@ passed, its Play tests 1.5 / 2.0 min (1.6 / 2.0 before, `gate-fast-20261119-2208
   (no browser signal exists): logged as watch row D729 so a return of the leak on a slower machine is recognised.
   Checked by the lead: the cause was the lead's hypothesis for the fix agent (Stop while the world streams), confirmed
   by its controls (settled before stop, simulation on the page, no voxel world: all flat).
+- 2026-11-20 (46e.16, default chosen, owner to confirm): **`regionAt` extended, no `roomAt`**: one query answers
+  every region, its `kind` saying room, outdoors, portal or unknown; `portalsOf` beside it. The size for audio is
+  4V/S from the faces the stitch counts, not the bounds.
+- 2026-11-20 (46e.16, default chosen, owner to confirm): **cut-away is a camera occlusion mode** (`cutAway`, beside
+  pull-in, see-through and none), not a see-through setting; it includes see-through. It cuts the room's parts'
+  columns from the subject's head up, grown by a cell and the see-through padding (no new setting); the parts are
+  the room's chunk nodes, so an L inside one chunk cuts its notch (D730).
+- 2026-11-20 (46e.16, default chosen, owner to confirm): **indoor share 0.2 at every tier**, applied only where the
+  volume holds no light and the point is under a roof by the sky heights (taken 2 columns off its surface, past the
+  eaves). Not a minimum brightness.
 
 ## 10. Open questions for the owner (asked with the plan)
 

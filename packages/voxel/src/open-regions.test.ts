@@ -502,6 +502,25 @@ describe("a region's size: its box, its surface, a mean free path", () => {
     expect(boxes.reduce((n, b) => n + (b[3] - b[0] + 1) * (b[4] - b[1] + 1) * (b[5] - b[2] + 1), 0)).toBe(r.cells);
   });
 
+  it('a room whose walls stand against chunk faces counts the faces across them (once the chunk across is stitched)', () => {
+    const w = new TestWorld();
+    ground(w);
+    // Inside cells 32–39 × 5–10 × 32–41: its −x and −z walls are cells 31, in the chunks across x = 32 and z = 32.
+    w.room([31, 4, 31, 40, 11, 42]);
+    const s = loadBox(w, [0, 0, 0], [2, 1, 2]);
+    const r = s.regionAt(35, 7, 35)!;
+    expect([r.enclosed, r.cells, r.faces]).toEqual([true, 480, 376]);
+    // The chunk holding the −x wall unloaded: those faces are not known (and the room not complete); back, counted again.
+    w.loaded.delete('0,0,1');
+    s.touch(0, 0, 1);
+    s.update();
+    expect(s.regionAt(35, 7, 35)!.faces).toBe(376 - 6 * 10);
+    w.loaded.add('0,0,1');
+    s.touch(0, 0, 1);
+    s.update();
+    expect(s.regionAt(35, 7, 35)!.faces).toBe(376);
+  });
+
   it("every region's surface and box equal a count over the cells, in any arrival order", () => {
     const w = new TestWorld();
     ground(w);
