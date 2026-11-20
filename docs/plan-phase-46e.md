@@ -249,7 +249,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.15 | Done 2026-11-20 (790f7ac7…b93492ce): lit props stop the walk's light (volume rays, `raycast`); sampled once, combined per chunk, sliced (D448: move among 1,600 p95 10.9 → 2.0 ms; 1.6 s arrival → ~700 steps); movers re-stamped every ⅛ m; costly with many movers (D728); thin props stop nothing (D727). Lit particles read once a vertex: 20 puffs `effects` 9.0 → 1.9 ms, room/street 0.03 |
 | 46e.16 | Done 2026-11-20 (3983dbca…058d4470): regionAt gives a room's kind, box, surface, 4V/S (no walk; edit → 104 ms), portalsOf; see-through and cut-away (camera `cutAway`) round the subject's room only, roof still casts; far rooms' flat term at indoorShare 0.2 under a roof (sky heights); arrival not fixed (D731), L notch cut (D730); orbit near unchanged |
 | 46e.17 | Done 2026-11-20: measured, not built. The flood (Node) keeps every level-0 draw in view at every town house, street and orbit view (cave mouth: 1 of 31 beyond the pyramid), 0 false culls (oracle, rays), 0.6–1.1 ms a run; a perfect chunk pre-filter saves 0–0.9 ms page render, within spread. Caves (no far field): it drops 25–80 % (§8c). D733 |
-| 46e.18 | not started |
+| 46e.18 | Done 2026-11-20 (ba7b489a…f6a20d81): `PathSearch` (shared A*); walk graph from derived nav (2 m walker, 0.5 m steps, pieces, exits), `ctx.voxels.findPath`/`reach` in the frame's 3.33 ms; levels = one A* in length, unknown 3–7 vs 61–69 ms; Play 2,682 chunks 7.6 MB, stitch 2.1 ms/frame filling; 100 queued ≤ 3.5 ms/frame; D734–D736 |
 | 46e.19 | not started |
 
 ## 8. Format and spec steps (owner stops)
@@ -4025,6 +4025,183 @@ staging, `run.mjs cull-page` there with the pyramid pinned on and off); doors an
 can close (door state, 47a); or a top-down camera with cut-away sees many rooms at once. As a pre-filter it would be
 a row flag of the culled-instance table, units unknown open, with a guard frame when the camera changes unit.
 
+### 46e.18 — the walk graph
+
+**What it is, in plain words.** A graph over the places a walker can stand in a voxel world, kept where the world
+runs (the simulation worker in Play and exports; the voxel world page's own thread), made from the navigation part
+every derive already produces (derived-data.ts: a blocking bit a cell and the standable cells: free, on a cell that
+supports). Nothing new is derived in the workers and nothing is stored (format spec §3.7 unchanged). Commits
+ba7b489a (core, graph, budget row), 437db0bb (bench, D734), 89e62641, 3d5797c6 (script API, overlay, Play test),
+dd38f9c0, 46c1d8d6 (the Play test's doorstep), 45cc927d, 595cbf5e, dda20aa0, f6a20d81 (fixes from the Play bench),
+52b9624e (bench). Work folder `~/.cache/thirdlight-phase46e/work/46e.18/` (`progress.txt`, `lib.sh`, `m/` every run
+with its `*.log` and `*.uptime`, `shots/`, `scripts/`, `broken-*.log`).
+
+- **A node** is a standable cell. Its clearance (free cells upward) is counted to 16 cells (8 m), on into the chunk
+  above; where that chunk is not known yet its cells count as free and the chunk is made again when it arrives.
+- **A step** goes to a standable cell of one of the eight columns round on the same level or one cell up or down (a
+  step height of 0.5 m = one cell: the stair role rises one cell a cell; terraces and kerbs are one cell), with room
+  for the walker's height at both ends and one cell more at the lower end of a step up or down (the head rises over
+  the lower column). A diagonal is taken only where both columns beside it are walked the same way (start → side →
+  end), so no corner is cut, and only inside one chunk: across a chunk face a path steps straight (at most +0.29 m a
+  face crossed, the same for every search), so a step's cells lie in two chunks at most. A drop (off a ledge onto the
+  first standable cell 2 or more cells below, the column free to the walker's head over the ledge) is taken only when
+  a query allows drops, straight only, to its `maxDrop`, one way. A step costs the distance between cell centres.
+- **The walker** is a column of cells: a height in whole cells (default 4 = 2 m, `NAV_CLEARANCE_CELLS`), a footprint
+  of one cell, so a radius up to 0.25 m (a diagonal passes the corner of four free columns, which a disc that wide
+  stays inside). A wider walker would need clearance over several columns, which the graph does not keep (D735).
+- **Not in it:** props and doors as objects (colliders are physics'; door state as portals is 47a), anything that
+  moves: a game steers round them itself. Liquid neither blocks nor supports in the derived navigation, so a cell in
+  water over ground is standable (walking under water; no swimming) and a water surface is not.
+- **The hierarchy (R100).** A chunk's cells joined by steps inside it are its **pieces** (for the default walker:
+  steps go both ways). Steps crossing from one chunk's piece into another's are grouped into **exits**: runs of
+  crossing steps side by side between the same two pieces, an exit at a run's middle and, past six cells, at its two
+  ends too, made from the side of the chunk with the smaller key (the same exits whatever arrived first). A piece
+  whose steps may go into a chunk not known yet is on the **frontier**. A chunk is made again when its results
+  change; one that comes out the same stands; a chunk made, arrived or gone has its crossings with the 14 chunks a
+  step can reach recomputed (none into a known chunk where nothing stands; only its border columns read); the chunk
+  below is made again when its clearance read into it. Made in the derive slice after the open regions (the walk
+  graph takes what they left of it, at least one chunk an update).
+- **A path** (`ctx.voxels.findPath`): one A* over the cells first, for 2,048 nodes (a path within a chunk or two ends
+  there, cheapest); a longer one over the exits (A*, the estimate the straight line to the end; crossing a piece
+  from one exit to the next counts the straight line between their cells), then one A* over the cells of the route's
+  pieces and the pieces next to them, which gives the path. Another walker (a height, drops) runs one A* over the
+  cells (bounded by the budget, no hierarchy: the pieces are the 2 m walker's). A search that runs out of graph where
+  steps may go into chunks not known answers `unknown` with the path to the frontier cell nearest the end;
+  `unreachable` only when every way out of the start is known. Queries are queued and served in order across the
+  worlds within the simulation frame's `pathfinding` share (`FRAME_BUDGET_BY_TIER`: 0.1 of the frame, 3.33 ms at
+  low's 30 Hz; shared by the steps a host's tick runs; a unit is 128 nodes, so a frame passes it by at most one
+  unit), answered in `ctx.voxels.paths` (and `reaches`) at a later step's start, as waits and saves are; a query whose
+  search read a chunk made again since starts over (0 restarts in every run below). Waypoints are the middles of
+  the cells walked, at their floor, where the way turns; corners are kept (a straight pull past a corner could come
+  closer to a wall than the cells keep, which is not checked). A reach is a Dijkstra over the cells. A point is
+  snapped to the standable cell at or under it (to 2 m), else one over it, else in a column beside it.
+
+**The A* core** (`@thirdlight/shared` `path-search.ts`, `PathSearch`): integer nodes, a steps callback with costs,
+an estimate callback, a binary heap of node ids by estimated total, then the estimate still to go, then id; typed
+arrays indexed by node reused from search to search by a generation stamp (nothing cleared, nothing allocated a node;
+grown by doubling when a graph names a node past them); `run(budget)` expands at most `budget` nodes and resumes; a
+node met again cheaper after its expansion is opened again (an admissible, inconsistent estimate still gives the
+cheapest path); Dijkstra to every node within a cost is the same loop. Registered as the owner of the `path-search`
+family in `check-redefinitions`; block layers' `block-walk.ts` keeps its own heap until it retires (the ratchet takes
+no entry added by hand, so its names are not in the family).
+
+**Where it is built.** On the simulation from the navigation it already holds, not in the derive workers: a chunk's
+part needs its 8 sections and the chunk above (clearance), which a 16³ derive job does not see, and riding the derive
+result would have meant a new derived part in the approved spec. Its cost is 5 % of the chunk's derive at the median.
+
+**Measured in Node** (`run.mjs paths`: staging's 8 km world read from its region files, a box of the town and the
+street to its far corner, x −128…32 m, z −32…144 m, y ±40 m, and the cave's hillside: 830 chunks, 227 with standable
+cells; i5-12600H; at f6a20d81, `m/paths-play12.json` `node`, load 5.1; earlier rounds `paths-node4…7`):
+
+| | |
+|---|---|
+| a chunk made (with standable cells), p50 / p95 / max | 0.32 / 1.12 / 6.5 ms (an empty one 0.004 / 0.49 ms); 5 % / 17 % of that chunk's derive (p50 / p95) |
+| crossings | 0.033 ms a chunk's (178 ms for 5,342; 333 ms before dda20aa0) |
+| the graph | 210,731 cells, 953 pieces, 4,392 exits, 3.1 MB: 13.7 KB a chunk with cells (928 cells), 96 B an empty one |
+| an edit: the room house's door walled up / dug | the streamer's 4 chunks derived again (the apron); the graph made 2 again and kept 2; 4.3 / 1.9 ms; the next query `unreachable` / `found` 14.07 m |
+| 100 queries at once (street ends), 3.33 ms a step | 101 steps of 3.37 / 3.42 / 3.74 ms (p50 / p95 / max), all `found`, 1–6 steps a query |
+
+| query (length) | default: one A* first, then the levels | the levels at once | one A* over the cells | the levels, exit costs walked: first / again |
+|---|---|---|---|---|
+| across the room (9.8 m) | 53 cells, 3.0 ms, 1 step | 9 exits + 53 cells, 1.2 ms | 53 cells, 0.3 ms | +3,344 piece cells 5.3 ms / 1.0 ms |
+| room → street through the door (14.1 m) | 186 cells, 0.5 ms | 0.8 ms | 0.4 ms | 2.2 / 0.9 ms |
+| ground floor → upper floor by the stairs (18.8 m) | 379 cells, 0.3 ms | 0.7 ms | 0.4 ms | 1.8 / 0.6 ms |
+| street → the town's far corner (189.8 m) | 475 exits + 24,696 cells, 17.2 ms, 6 steps | 17.3 ms, 6 | 35,533 cells, 21.3 ms, 7 | 518,219 piece cells, 158 ms, 46 / 6.7 ms, 2 |
+| into the dug cave, 20 m in (23.6 m) | 52 cells, 0.1 ms | 0.6 ms | 0.1 ms | 2.0 / 1.0 ms |
+| the roof → the street (`unreachable`) | 484 cells, 0.3 ms | 25 exits, 0.2 ms | 0.3 ms | 1.4 / 0.4 ms |
+| the street → the roof (`unknown`, 34.5 m to the frontier) | 2,183 exits + 7,243 cells, 6.2 ms, 2 steps | 6.9 ms, 3 | 123,840 cells, 69.1 ms, 20 | 244.5 ms, 71 / 2.9 ms (51.99 m) |
+| 2 km off, past the box (`unknown`, 33.5 m) | 4.1 ms, 2 | 2.9 ms, 1 | 61.5 ms, 19 | 2.6 / 2.5 ms |
+
+**The hierarchy's verdict.** With the straight-line costs it **matches one A* over the cells in length on every bench
+query** (and on vitest's 94 scrap pairs: worst 1.0000) and earns its keep where a search is long or must be
+exhaustive: the far corner 17 ms in 6 steps against 21 ms in 7; an answer `unknown` 3–7 ms in 1–3 steps against
+61–69 ms in 19–20 (one A* has to walk every known cell to show there is no way through; the levels walk 2,183 exits).
+Short queries end in the first A* and never use it. The exits' costs by walks over their pieces (`exitCosts: 'walk'`,
+the precomputed costs the brief asked to measure) cost half a million cell expansions the first time on the 190 m
+path (158 ms, 46 steps) and 6.7 ms once kept on the exits; working them out for every exit as chunks arrive would cost
+about 19 exits × 600 cells a chunk with cells, more than the chunk's own part: not done (kept as an option for the
+bench). R100's goal holds: an edit makes one or two chunks' parts again, and a long query is bounded.
+
+**In Play** (low, WebGPU, 1280 × 720, 30 Hz cap, staging's 8 km world from the street camera, alone; at f6a20d81,
+`m/paths-play12.json` `play`, uptime 27.8 d, load 2.4–6.0 (the browser's own start)):
+
+| | |
+|---|---|
+| the town's graph (ring settled) | 2,682 chunks, 529,433 cells, 2,016 pieces, 9,934 exits, 7.6 MB; made in 490 ms + 511 ms of crossings over the 20 s the ring takes to fill |
+| the simulation while the ring fills (400 frames) | `walk graph stitched` 2.13 ms a frame, at most 11.8 in one (a tick running several steps, each with its slice, as the regions' stitch: 1.17, at most 19.5); `voxel streaming` in all 12.1 |
+| after a jump to the cave (508 frames) | `walk graph stitched` 1.11 ms a frame, at most 14 |
+| memory, the `walkGraph` row (16 MiB) | 7.6 MB of graph + 8.8 MB of the searches' arrays after the queries (they grow to the largest search: 44 B a node) = 16.4 MB |
+| the fixed queries (answers as the bench asked them) | across the room 9.78 m (1 step, 1.2 ms), room → street 14.07 m (0.6 ms), up the stairs 18.76 m (0.7 ms), the far corner 189.77 m (25,171 places, 9 steps, 25.9 ms), roof → street `unreachable` (484, 0.4 ms), street → roof `unknown` 66.8 m (8 steps, 25.7 ms), 2 km off `unknown` 125.1 m (6 steps, 16.6 ms), into the cave 23.63 m (0.2 ms) |
+| `path finding` a frame while they ran | 0.61 ms on average, at most 3.7 (the frame's 3.33 + one unit) |
+| 100 at once | all `found`; 2.13 steps a query on average, 7 at most; `path finding` 3.30 ms a frame in 116 of 120 frames, at most 3.5 |
+
+Before 595cbf5e the share was a step's, and a tick running several steps spent 14–24 ms of path finding in one frame;
+before f6a20d81 the retired exit ids were freed by a spread, which overflowed the stack once a streaming ring had
+retired tens of thousands while queries waited (Play's simulation stopped: `tick failed: Maximum call stack size
+exceeded`; found with the bench's worker readings, a vitest holds it now).
+
+**Edit → answer.** Node: a door walled up makes 2 chunks again in 4.3 ms and the next query answers `unreachable`. In
+Play's e2e (below) the walled-up door answered `unreachable` at the first ask after the edit's command, about 0.2 s;
+nothing makes a query wait for a chunk still to be made again (D736).
+
+**Travel** (`run.mjs coverage --export --speed 150`, low, the town, one round each, base 80a0703a in a worktree with
+its own links, removed after; 2026-11-20 10:37 / 10:39, load 2.3 / 3.4): base / head longest 53.3 / 65.2 ms, 0 / 0
+over 100, missed 14.6 / 16.5 a minute, ground 0.03 / 0.03 s, full detail 3.62 / 4.33 s, nothing pending 7.43 / 8.71
+s, falls 0 / 0 of 34, holes 0 / 1 of 1,970, both exports removed. At speed no level 0 is derived, so the graph has
+nothing to make (its span 0.1 ms in the flight's long frames); after the stop it is made from the level-0 chunks as
+they arrive, in the derive slice after the regions: the settle's +0.7 s / +1.3 s is not resolved by one round each
+(earlier rounds varied 3.3–4.7 s for full detail) but has that cause if real.
+
+**Pictures** (voxel world page, `?walk=1`, staging's 8 km world, low, WebGPU, from committed code; looked at;
+`shots/`, each with an `-off` beside it): `room-street-on.png` (the red ribbon from inside the room house, seen through
+its roof, out by the door in its gable wall and along the front to the street; the ground's pieces a hue a chunk, the
+fences' cells apart, yellow exit ticks on chunk faces), `ground-upper-on.png` (the ribbon from the room to the stairs'
+strip, up them and back along the upper floor), `cave-in-on.png` (the ribbon from the valley floor straight into the
+cave's mouth; the hillside's standing cells in many pieces), `street-far-on.png` (240 m up: the 190 m ribbon a thin red
+line across the town, the pieces drawn only round the camera's target).
+
+**Tests** (broken variants run once, logs in the work folder). vitest `packages/shared/src/path-search.test.ts`: 240
+random graphs against Bellman–Ford (cost equal, ties allowed; unreachable answered `done`); Dijkstra within a cost
+against it on 200; a search cut at every 1–7 expansions and resumed gives the same path and expansions on 200; the
+closest node of an unreachable search; generations and growth; reopening under an inconsistent estimate (broken: no
+reopening, 1 fails, `broken-no-reopen.log`; no generation bump, 3 fail, `broken-no-generation.log`; a cut search
+losing its open list, 1 fails, `broken-no-resume.log`). `packages/voxel/src/walk-graph.test.ts`: the step rule on
+hand scraps (a one-cell step taken, a 1 m wall not, a stair run's five steps up, a one-cell doorway 2 m high taken
+and a 1.5 m gap not, a 1.5 m walker under it, no diagonal past a pillar's corner, straight across a chunk face, a
+ledge not walked off, walked off with a 2 m drop, not with 1.5 m, and not back up); a chunk's cells, clearances and
+pieces against a flood over the brute force's steps; one A* over the cells equal to a Dijkstra over the brute force's
+graph on 94 pairs and the levels within 8 % (worst 1.0000 straight, 1.0531 walked), unreachable pairs agreed; reach
+equal to the brute force's set; arrival in four random orders equals the graph made at once (parts and exits);
+unknown past a chunk not loaded (the path ends on the frontier) against unreachable from a sealed room; a door walled
+up: one chunk made again, unreachable; dug: one made, one kept, found; 300,000 retired exit ids freed (broken: the
+spread, `broken-release-spread.log`, RangeError); slices on a stepping clock (≤ 4 units a 1 ms slice, ≥ 6 calls, the
+same graph); a queue served in order over slices to the same path; `partial` past `maxNodes`.
+`tools/voxel-bench/walk-graph-town.test.ts`: the generated town, room → street through the door's cells, ground
+floor → upper floor up the stair's 5 steps, the levels within 8 % of one A*, the door walled up unreachable, dug
+found. `tools/voxel-bench/world-host.test.ts`: a real runtime with workers: `reach` and `findPath` answered at a later
+step in the order asked, a path to a reached place, `unknown` past the 32 m ring heading for the end, `invalid` for a
+malformed point, the `path finding` span in its category, the `walkGraph` reading gone with the world. Playwright
+(the first Play test, `voxel-shadows.ts` `hutPaths`): from inside the hut out through its door, over a doorstep the
+script lays (the hut stands past the pad's edge on the hill, a cell lower than its floor; checked in Node on the same
+cells, `scripts/hut-repro.ts`), to the pad: `found` 11.40 m, the door walled up `unreachable`, an opening again
+`found` 11.40 m, each at the first ask (0.17–0.21 s). Not run broken (one Play run is 2 min); with the door's cells
+left out of the walk it would answer `unreachable` first and time out.
+
+**Gates.** `gate-fast-20261120-073554` (every area: shared) RED in vitest: the reference pages stale (the budget
+constant) and `three-hooks.test.mjs` (D734, from before this item) → 437db0bb → `gate-rerun-20261120-074856` RED 3
+(D732 project-items, D643 terrain-cdlod, D659 frame-rate-cap: watch rows). `gate-fast-20261120-082757` (every area)
+RED 4 (D732 ×2, D659, and the Play test: its hut had no step out of the door) → dd38f9c0 →
+`gate-rerun-20261120-091157` RED (still: the pit made the doorstep an island) → 46c1d8d6 → `gate-rerun-20261120-091903`
+RED 1 (D659, beside voxel-world on the GPU), the Play test green 1.9 min → `gate-rerun-20261120-092240` GREEN
+(frame-rate-cap alone; village 0 of 360 missed). The Play tests 1.9 and 2.0 min (1.8 / 2.0 before).
+
+**Not done / unverified.** Nobody has watched a walker follow these paths (no steering exists; the points are checked
+against the cells only). A walker wider than a cell (D735). Doors and props as obstacles (47a; the game's steering).
+The clearance over a chunk's top while the chunk above is not loaded counts as free (a ceiling there is seen once it
+arrives). A query between an edit's swap and the chunk made again (D736). The walk graph's and the regions' stitching
+take a slice each step, so a tick catching up after a hitch spends several (11.8 ms at most while the town's ring
+filled). Medium and high: the same graph and budget shares, unverified on target hardware.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -4550,6 +4727,28 @@ a row flag of the culled-instance table, units unknown open, with a guard frame 
   removes nothing the depth pyramid keeps (doors and windows are open cells, units are 8 m) and its flood costs more
   than a perfect chunk pre-filter could save; the bench tools stay for a world without a far field and with sealed
   spaces (the generated caves: 25–80 % of near draws), where `auto` runs no culling today.
+
+- 2026-11-20 (46e.18, default chosen, owner to confirm): **the walk graph is made where the world runs from the
+  derived navigation**, not in the derive workers (a chunk's part reads its 8 sections and the chunk above; riding
+  the derive result would need a new derived part in the approved spec): 0.3 ms a chunk at the median, 5 % of its
+  derive, in the derive slice after the regions.
+- 2026-11-20 (46e.18, default chosen, owner to confirm): **one walker for the pieces**: 2 m tall
+  (`NAV_CLEARANCE_CELLS`), a step of one cell (0.5 m, the stair role's rise a cell), a footprint of one cell (radius
+  ≤ 0.25 m), no drops; another height or drops are query options answered by one A* over the cells. No agent
+  taxonomy. A wider walker: D735.
+- 2026-11-20 (46e.18, default chosen, owner to confirm): **diagonals only inside a chunk** (a step's cells in two
+  chunks at most); at most +0.29 m a chunk face a path crosses diagonally.
+- 2026-11-20 (46e.18, default chosen, owner to confirm): **exits at a crossing run's middle, its ends too past six
+  cells; a piece crossed at the straight line between exits; the route's pieces and their neighbours refined**; one
+  A* over the cells first for 2,048 nodes. The walked exit costs stay a bench option (`exitCosts: 'walk'`).
+- 2026-11-20 (46e.18, default chosen, owner to confirm): **answers at a later step** in `ctx.voxels.paths` and
+  `reaches` (the waits' and saves' way), ids from one counter; served in order across the worlds within the frame
+  budget table's simulation `pathfinding` share of a frame (3.33 ms at low), shared by the steps a tick runs.
+- 2026-11-20 (46e.18, default chosen, owner to confirm): **waypoints** are cell middles at the floor where the way
+  turns, corners kept (no string pulling); a point snaps to the standable cell at or under it to 2 m, else one over
+  it, else in a column beside it.
+- 2026-11-20 (46e.18, default chosen, owner to confirm): **the `walkGraph` memory row is 16 MiB** at every tier
+  (page): the town measured 7.6 MB of graph and 8.8 MB of search arrays after the bench's queries.
 
 ## 10. Open questions for the owner (asked with the plan)
 

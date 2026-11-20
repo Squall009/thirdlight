@@ -39,7 +39,8 @@ page in the same commit.
   level or one cell up or down, with room for the walker at both ends (a cell more at a step's lower end), diagonals
   only past two walkable sides and inside a chunk, drops off ledges only when a query allows them; the walker is a
   column one cell wide (radius ≤ 0.25 m). Props and doors as objects are not in it. `ctx.voxels.findPath` and `reach`
-  queue queries served in order within the simulation's `pathfinding` share (span `path finding`): one A* over the
+  queue queries served in order within the simulation frame's `pathfinding` share (span `path finding`; the steps a
+  tick runs share it): one A* over the
   cells first, a long path over the pieces' exits (straight-line costs across a piece) and then the cells of the
   route's pieces and their neighbours; past chunks not known the answer is `unknown`, never `unreachable`.
 - **Light coverage with props**: objects whose model is marked `affectsLighting` are stamped into the world's prop

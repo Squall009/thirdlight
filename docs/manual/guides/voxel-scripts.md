@@ -203,9 +203,9 @@ points; `reach(from, maxDistance, options?)` for every place it can stand
 within a walking distance. Each returns an id at once and is answered at a
 later step in `ctx.voxels.paths` (or `reaches`), like a `whenResident` wait:
 the engine serves the queries in the order asked within the path-finding
-share of each step (a tenth of a step's frame at the quality level's tier),
-so a long path or a hundred at once never stall the game; a long path can
-take a few steps. A point is where a body stands or its middle: the standing
+share of each frame (a tenth of the frame at the quality level's tier: 3.3 ms
+at 30 Hz), so a long path or a hundred at once never stall the game; a long
+path can take a few steps (a 200 m path through a town about ten). A point is where a body stands or its middle: the standing
 place under it (down to 2 m) or beside it is taken.
 
 The walk goes over **standing places**: a free 0.5 m cell on one that
