@@ -328,26 +328,31 @@ export class WalkGraph {
       nl.frontier[opposite(d)] = [];
       nl.version++;
     }
-    if (n === null) return;
+    // Outside the world, or a known chunk where nothing stands: no step lands there.
+    if (n === null || (n !== undefined && n.ys.length === 0)) return;
     const e = c.edge;
-    // Only cells on the faces the neighbour lies across can step into it.
-    const want = (i: number): boolean => {
-      const colI = c.col[i]!;
-      const lx = (colI / e) | 0;
-      const lz = colI % e;
-      const ly = c.ys[i]!;
-      return (dx === 0 || lx === (dx > 0 ? e - 1 : 0)) && (dz === 0 || lz === (dz > 0 ? e - 1 : 0)) && (dy === 0 || ly === (dy > 0 ? e - 1 : 0));
+    const ly0 = dy > 0 ? e - 1 : 0;
+    // Only cells on the faces the neighbour lies across can step into it: the columns of that side (or every column for
+    // the chunk above or below), and of them the top or bottom layer for a neighbour above or below.
+    const cols: number[] = [];
+    if (dx !== 0 && dz === 0) for (let z = 0; z < e; z++) cols.push((dx > 0 ? e - 1 : 0) * e + z);
+    else if (dz !== 0 && dx === 0) for (let x = 0; x < e; x++) cols.push(x * e + (dz > 0 ? e - 1 : 0));
+    else for (let k = 0; k < e * e; k++) cols.push(k);
+    const each = (f: (i: number) => void): void => {
+      for (const col of cols) {
+        const end = c.colStart[col + 1]!;
+        for (let i = c.colStart[col]!; i < end; i++) if (c.piece[i] !== NO_WALK_PIECE && (dy === 0 || c.ys[i] === ly0)) f(i);
+      }
     };
     if (n === undefined) {
       // Not known: the cells that may step there.
       const look: WalkChunkLookup = (x, y, z) => (x === c.cx + dx && y === c.cy + dy && z === c.cz + dz ? undefined : null);
       const cells: number[] = [];
       const none = (): void => undefined;
-      for (let i = 0; i < c.ys.length; i++) {
-        if (c.piece[i] === NO_WALK_PIECE || !want(i)) continue;
+      each((i) => {
         this.stepper.steps(look, c, i, DEFAULT_WALK_AGENT, none);
         if (this.stepper.unknown) cells.push(i);
-      }
+      });
       l.frontier[d] = cells;
       return;
     }
@@ -362,11 +367,10 @@ export class WalkGraph {
       to.push(j);
       cost.push(k);
     };
-    for (let i = 0; i < c.ys.length; i++) {
-      if (c.piece[i] === NO_WALK_PIECE || !want(i)) continue;
+    each((i) => {
       at = i;
       this.stepper.steps(look, c, i, DEFAULT_WALK_AGENT, sink);
-    }
+    });
     if (from.length === 0) return;
     const [outs, backs] = this.exitsOfCrossings(c, n, from, to, cost);
     l.out[d] = outs;
