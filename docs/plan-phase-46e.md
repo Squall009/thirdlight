@@ -1,6 +1,6 @@
 # Phase 46e — Lighting, regions and the walk graph
 
-Status: **46e-a done 2026-11-16; 46e-b done 2026-11-20 (items 46e.9–46e.19), stopped for the owner: acceptance `docs/briefs/acceptance-46e-b.md`** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
+Status: **46e-a done 2026-11-16; 46e-b done 2026-11-20 (items 46e.9–46e.19), accepted by the owner 2026-11-20 (`docs/briefs/acceptance-46e-b.md`, all five defaults stand)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
 32faf2c0; main frozen at d4053cab). Planned from `docs/roadmap.md` (order of 2026-11-12), plan 45's 46e scope and
 §5c, requirements R40, R45, R97–R104 and R110 (`docs/architecture/voxel-format-requirements.md`),
 `docs/architecture/voxel-engine.md` §6 (foundations 2 and 7) and the 46f close (`docs/plan-phase-46f.md` §10: the
@@ -4937,3 +4937,9 @@ The page with pictures and the table: `docs/briefs/acceptance-46e-a.md` (publish
    Should a scene be able to set a minimum light indoors (a floor under the volume's light, per scene), or the
    camera's default lift be larger? **Default: none** (rooms stay as dark as their openings make them; a game raises
    its camera's `exposureMax` or places lamps).
+
+### At the 46e-b close (2026-11-20): five questions
+
+The page: `docs/briefs/acceptance-46e-b.md` (published as acc46e-b). **Owner 2026-11-20: "All of the defaults are
+accepted."** 1 the two relayed notes stand; 2 the mask's volume rule as built; 3 dark rooms under cut-away left as
+they are; 4 the update's share stays 3.5 ms on low; 5 the lower-rate read waits for the performance phase after 49.

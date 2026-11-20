@@ -1,6 +1,6 @@
 # Thirdlight — Status
 
-Updated 2026-11-20. Current work: **46e-b is done and stopped for the owner** (the light volume on at every tier with every light type, glow and its mask, props in its rays, rooms, the walk graph; connectivity culling measured, not built; phase gate green, review fixed). The owner's page: `docs/briefs/acceptance-46e-b.md` (five questions). Open at the close: D740 (128-lamp near +2.4 ms since the tuning), dark rooms under cut-away (D737). 47a waits for the owner.
+Updated 2026-11-20. Current work: **46e-b is done and accepted by the owner (2026-11-20, all five defaults stand)**. Next: **47a Structures** (`docs/roadmap.md`): it has no plan yet; a fresh session plans it from `docs/briefs/handoff-47a.md` and stops for the owner's approval of its item list before building. Carried in: D740 (128-lamp near +2.4 ms), D735 (walker width), D737 (cut-away rooms dark, as decided).
 voxel light volume and set the order (remove the cache port, every light type, defects, then tuning). What the engine is now:
 `docs/architecture/voxel-engine.md`; owner decisions: `docs/decisions/owner-decisions.md`; order: `docs/roadmap.md`.
 
