@@ -4,25 +4,27 @@
  * order a slice at a time, so a script asking for many paths at once never
  * stalls the step that serves them.
  *
- * - **A path** for the default walker (2 m, no drops) is searched in two
- *   levels: first over the exits between chunks' pieces (A*: an exit's cost
- *   to each other exit of the piece it lands in is worked out once, by a
- *   walk over that piece, and kept until the piece's links change; the start
- *   and end reach their pieces' exits the same way), then over the cells of
- *   the pieces on that route (A*), which gives the path. The route through
- *   exit cells is a real path, so the second search always finds one at most
- *   as long; it can be longer than the cheapest path over every cell, by
- *   what the exits' placing costs (the tests and the bench state by how
- *   much). Without the levels (`hierarchy: false`), or for another walker
- *   (a height, drops), one A* runs over the cells.
+ * - **A path** for the default walker (2 m, no drops) is tried first by one
+ *   A* over the cells ({@link FLAT_FIRST_NODES} nodes: a path within a chunk
+ *   or two ends there, the cheapest); a longer one is searched in two levels:
+ *   first over the exits between chunks' pieces (A*; crossing a piece from
+ *   the exit it is entered by to another counts the straight line between
+ *   their cells, nothing walked, or with `exitCosts: 'walk'` a walk over the
+ *   piece, worked out once an exit and kept until the piece's links change),
+ *   then over the cells of the pieces on that route and the pieces next to
+ *   them (A*), which gives the path. The route's pieces hold a real path, so
+ *   the second search always finds one; it is longer than the cheapest over
+ *   every cell only where the cheapest leaves that corridor (the tests and
+ *   the bench state by how much). Without the levels (`hierarchy: false`),
+ *   or for another walker (a height, drops), one A* runs over the cells.
  * - **Unknown is not unreachable.** A search that runs out of graph where
  *   steps may go into chunks not known yet answers `unknown`, with the path
  *   to the place on that frontier nearest the end; `unreachable` only when
  *   every way out of where it started is known and none reaches the end.
  * - **A reach** is every cell within a cost (Dijkstra over the cells).
  * - **The graph changes under a query** (chunks arrive, edits land): a query
- *   whose search read a part since made again starts over; one whose route
- *   used an exit since gone starts over at its second level's start.
+ *   whose search read a part since made again starts over, as does one whose
+ *   route used an exit since gone.
  * - **Bounded.** A query's `maxNodes` (none by default) ends it `partial`,
  *   with the path to where it got closest.
  */
