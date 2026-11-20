@@ -246,7 +246,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.12 | (a)–(c) done 2026-11-17; (d) 2026-11-18: glow drawn, a glow word a cell, emitters (§8c). (e) done 2026-11-19 (6535b4fe…): the ORM's A masks the drawn glow (no new read or binding, 13 of 16 units); the volume's value = glow × mean(colour × mask), cracked lava 0.2745 of plain (mask 0.274); unmasked as before within run-to-run; +18.7 % file bytes on a sharp 1024² mask; D726 |
 | 46e.13 | (a) done (f2bc0110…6280f957): a change restarts what it reaches (D715, D695), batch work in the slice (D708), share 6.0 ms (D690 open). (b) done 2026-11-17 (99f2526a, 9e74e084): bounces converge, refining while idle (4.2–5.3 ms GPU), a write-time filter, texture-mean colours; room blotch 0.67 → 0.27, error vs a CPU reference 0.33 → 0.16; room dark (§10 Q) |
 | 46e.14 | (a), (b) done 2026-11-18 (§8d). (c) done 2026-11-19 (40ddf31c…): the read +4.5/+3.9/+8.8 → +2.0/+2.3/+4.4 ms street/room/high (≤ 1.5 not reached: D724); the volume on at every tier (low's orbit 76–128 copies, travel ≤ 64 ms); D723 fixed (§8d 46e.14c) |
-| 46e.15 | not started |
+| 46e.15 | Done 2026-11-20 (790f7ac7…b93492ce): lit props stop the walk's light (volume rays, `raycast`); sampled once, combined per chunk, sliced (D448: move among 1,600 p95 10.9 → 2.0 ms; 1.6 s arrival → ~700 steps); movers re-stamped every ⅛ m; costly with many movers (D728); thin props stop nothing (D727). Lit particles read once a vertex: 20 puffs `effects` 9.0 → 1.9 ms, room/street 0.03 |
 | 46e.16 | not started |
 | 46e.17 | not started |
 | 46e.18 | not started |
@@ -3661,6 +3661,125 @@ the room as the day moves for a minute (does the follow's lag show as light trai
 off in the lamp-lit room (the 6 s settle: a visible fade or a step), walking from a street into a house (the read's
 one-cell hand-over at 24 m should not show as a line), and travel at speed (the volume refilling behind the camera).
 
+### 46e.15 — props in the light's rays, particles reading the volume
+
+**What was true before** (ce325bf7). A prop marked `affectsLighting` was stamped into the world's prop coverage
+channel and read by `ctx.voxels.coverageAt` alone: the occupancy walk's light stop read the voxels' coverage only
+(`walk-sources.ts` `lightStops` joined no prop byte, and the draw batches' walk source had no channel), so no prop
+blocked the light volume's rays, the bounce's shadow walks or `ctx.voxels.raycast`'s light stop. Kit pieces stamp
+nothing either way (the voxels they dress do). Reading (`light-shots --props 2`, base code with the bench, `shots/base-*`):
+the reading cart's ground cells against their control 0.49 / 0.54 with the cart and 0.56 without; the floor under the
+reading table 1.29 / 1.30 with and 1.27 without; the same cells held light in every run (8 and 4). Lit particles
+(an effect output with `shading: lit` or a lit project material) are drawn in the scene and **already read the volume
+per pixel** (as the `prop` kind: the eight-cell read), not the flat term as the brief assumed.
+
+**What changed** (790f7ac7, fef7f597, b93492ce; bench 3ce1223d, 7f2a4641, 2ccd666b, f00651a7, 85af0b35, 138f9b3d).
+- **Stamping** (`prop-channel.ts`, `prop-coverage.ts`): each prop is sampled once into its own cells where it stands
+  (`propCoverageLocal`, the same 4³ samples a cell), a chunk's bytes are its props' coverages combined in placement
+  order (cell for cell the whole-chunk sampling, which stays as the reference), a place, move or removal recombines
+  only the box of cells the prop left and entered, and `apply` only records: `update` samples and recombines one prop
+  at a time in the simulation's derive slice (`frameSliceMs('voxelDerive')`, span `prop light stamped`), a prop
+  sampled only while a chunk it touches is resident. Moving to the job workers was not chosen: a prop's inside test is
+  a closure (its collider or bounds in its frame), not something a worker can be sent, and one prop's sampling (≤ 2 ms
+  for a 6 m canopy) is a unit the slice holds.
+- **A moving prop** is stamped again only once any point of it moved by a sample of the stamp (⅛ m: `RESTAMP_M` in
+  `voxel-worlds.ts`, from the cell and the samples a cell): stamped every step, the bench's 1,000 props with about 50
+  moving held the simulation at 19 ms a frame (stamping 8.2, walk packing 5.8–6.1; `hr/before-restamp/`).
+- **One occupancy for light**: the walk's light stop joins the props' coverage at level 0 (`propStopView`: a cell
+  stops where `lightCoverageAt(own, prop)` ≥ 128, `coverageAt`'s rule) in the page's walk blocks (the volume's rays)
+  and the host's own walk (`ctx.voxels.raycast` with `stop: 'light'`); a chunk whose prop bytes changed is packed
+  again for the page (`ChunkDrawBatcher.walkChanged`), and the volume marks what the change reaches as for an edit
+  (its walk-change rules, unchanged). No second structure; no cap on props. The mips and far nodes stay the voxels'.
+- **Lit particles** are a reader kind of their own (`particle`): their read is taken in the vertex stage at the
+  particle's centre (the billboard's and mesh particles' centre node; a ribbon's vertex), facing the eye, level 0 from
+  the one cell the centre lies in and the coarse levels from their eight cells round it, interpolated to the pixels
+  (`volumeParticleRead` is its CPU reference). The vertex stage samples the pool and the index (2 textures; the lit
+  particle's fragment stage loses them). `?surfaceRead=particlepixel` reads them per pixel as before; naming other
+  kinds (`surface,kit,prop`) leaves them on the flat term. Unlit and glowing particles are untouched.
+
+**D448, its own bench** (`run.mjs props`: the slice ring's 6,776 chunks, half 6 m canopies, half turned rocks; Node,
+i5-12600H; `props-before.json`, `props-after*.json`, load 3.7–7.1):
+
+| | before | after |
+|---|---|---|
+| one move, a canopy alone, p50 / p95 | 0.45 / 1.86 ms | 0.46–0.47 / 0.83–0.88 ms |
+| one move among 100 / 400 / 1,600, p50 | 1.72 / 1.89 / 5.36 ms | 1.9–2.0 / 0.26–0.29 / 0.29–0.30 ms |
+| the same, p95 | 1.88 / 3.92 / 10.89 ms | 2.1–2.2 / 2.1–2.2 / 2.0–2.2 ms |
+| 1,600 arriving in one step | 1,556 ms in that step | 693–796 steps; step p95 2.4–3.8 ms, longest 5.2–6.6 ms; 1.6–1.8 s in all |
+| channel at 1,600: chunks covered, bytes | 482, 15.8 MB | the same, + 1.9 MB of the props' own samples |
+
+A move among many is now one prop's sampling (≤ 2.2 ms for a canopy) wherever the others stand. The longest
+arrival steps are the slice plus one canopy (≈ 4.2 ms) and collections; the whole arrival is spread over about
+26 s of 30 Hz frames (four steps a frame: about 6.5 s).
+
+**Proof that the walk sees them** (Play, low, `shots/C1-none`, `D1-props`, 2026-11-19 22:52): the reading cart's own
+30 cells: 18 hold light without it, **0** with it (the walk's light stop holds them as a body). The vitest below counts
+the packed light bits. **The table** (a 10 cm top) stops nothing: a fifth of a cell is below the half-coverage stop
+(D727); its floor read 1.26–1.28 of its control with it and 0.81–1.27 without (`A*`, `B*`, `shots/`: not resolved).
+The cart's shaded ground read **higher** with it, 0.68–0.70 of its control against 0.55–0.61 (its lamp-lit sides
+bounce onto the ground, which the volume now sees; its direct shadow is the lamp's shadow map's, as before).
+
+**What props cost the volume** (headroom, low, WebGPU, 1280 × 720, 30 Hz cap, two rounds a run, the second read,
+`hr/`; 2026-11-19 22:53 – 11-20 00:45, uptime 27.3 d, load 2–4.5). Bench props: 1,000 (indoors and in the streets,
+about 50 carts moving); `--props-unlit` the same objects not marked (what drawing and moving them costs alone).
+
+| Town | no props (a, c, f) | 1,000 unlit (i, k) | 1,000 lit (e, g, j) |
+|---|---|---|---|
+| headroom edge (held ballast) | 60 / 128 / 120 | −1 | −1 |
+| GPU near; far; lighting (ms) | 3.3–4.0; 2.1–4.4; 4.5–5.1 | 3.4–4.0; below–3.9; 4.8–5.5 | 3.3–4.0; 4.0–4.1; 5.9–6.1 (j: unreadable, resolution 0) |
+| page ms a frame; `lighting` | 6.6–7.2; 1.06–1.10 | 11.0–12.1; 0.98–1.12 | 15.3–17.0; 4.1–4.3 |
+| simulation ms; stamping; walk packing | 2.5–2.8; —; — | 2.8–3.0; —; — | 9.3–11.3; 1.1–1.4; 3.5–4.2 |
+| the volume: ms a brick; kept | 0.07–0.09; 9,158–9,922 | 0.04–0.08; 9,194–9,405 | 0.03; 7,716–8,192 |
+| page heap / GPU process MiB | 604–614 / 959–1,011 | 835–854 / 1,038–1,047 | 763–852 / 998–1,088 |
+
+| 128 lamps | no props (b) | 1,000 lit (a, c) |
+|---|---|---|
+| edge; GPU near; lighting | 80; 8.8; 5.6 | −1; 10.9–11.4; 4.5 |
+| page; page `lighting`; simulation | 6.7; 1.9; 2.1 | 19.6–20.3; 7.9–8.3; 9.4–11.1 |
+| stamping; walk packing | — | 1.0–1.2; 3.9–4.3 |
+
+Drawing and moving 1,000 multi-mesh props already breaks the cap (unlit: page 11.0–12.1 ms). Their lighting adds
+about 7–8 ms of simulation a frame (walk packing 3.5–4.2, stamping 1.1–1.4, the streaming span +2.6) and 3.1 ms of page
+`lighting` (the volume taking in the walk blocks the movers change, `voxel light volume`); both come from the moving
+props (the static ones are stamped once): D728. The GPU's `lighting` row rises 0.4–1.3 ms against the unlit control (the restarts behind the
+movers). At 128 lamps the moving props also redraw lamp shadow faces (page `lights, shadows and environment` 4.0 ms).
+
+**Particles** (`light-shots --particles`, a grey lit panel 2.5 m before each camera; `shots/P-*`, looked at). The
+panel's mean (0–255) street at noon / the room / the dug cave / night, read once a vertex: 147.5 / 4.7 / 111 / r 17–20
+g 0 (two runs equal); per pixel (`particlepixel`): 147.7 / 11.1 / 111 / r 12; off (`surface,kit,prop`, the flat
+term): 172.5 / 150.3 / 190.5 / r 0 g 1. The room against the street: 0.032 once a vertex, 0.075 per pixel, 0.87 off
+(the off state's reading is what proves the switch off). At night the panel faces away from the red lamp 2 m behind
+it and shows only red (the lamp's bounce in the volume); off it shows the night's blue ambient. The cave's 111 sits
+between: the camera deep in the tube looking out at the bright mouth. Cost (`headroom --particles N`, orbit, one
+round, `measureGpu`): 20 smoke puffs (2,400 alpha particles) `effects` **1.92 ms once a vertex, 9.04 per pixel, 1.50
+off**; one puff below resolution either way. Page and simulation unchanged within the runs' spread.
+
+**Tests** (vitest; broken variants run once, logs in the work folder). `packages/voxel/src/prop-channel.test.ts`: 60
+random props (boxes, spheres, capsules; turned, scaled 0.6–2, across chunk faces and negative cells) combined from
+their own samples equal the whole-chunk sampling cell for cell; a move changes only cells either coverage holds; 80
+arrivals with a stepping clock (four stamps a step) take ≥ 20 steps and end equal to stamping all at once; a block of
+air packs exactly the crate's ≥ 128 cells as light bits (53) with the channel and none without (broken: the old box
+not recombined, `more()` ignored, no channel: all three fail, `broken-channel.log`).
+`packages/runtime/src/voxel-worlds.test.ts`: a cart at 1 m/s on 120 steps is stamped 7–9 times a metre, a 0.05 rad turn
+not, a 0.15 rad turn once, standing still never (broken: every change stamps, 120 stamps, `broken-restamp.log`).
+`packages/three-adapter/src/voxel-light-volume-particle.test.ts`: the particle read against the rule written out at
+600 points (level 0 one cell, coarse levels eight, the shares; > 300 points from the coarse levels alone); the kind's
+flag (broken: read off the surface with level 0's eight cells: fails, `broken-particle.log`). The GPU side is proved by
+the readings above, not by a test. `derived.test.ts` and `world-host.test.ts`: the channel's load/flush and its
+budget part each build. Playwright: no change; the Play tests 1.6 and 2.0 min (`gate-rerun-20261119-222201`).
+
+**Gates.** `gate-fast-20261119-220820` RED in vitest (the world host's prop test read a budget part a chunk build;
+far-world's byte bound under load, green alone) → fixed (fef7f597) → `gate-rerun-20261119-222201` GREEN, 61 passed.
+
+**Pictures** (looked at): `shots/P-vertex/street-noon.png`, `room-window.png`, `night-lamps.png` and
+`shots/P-off/room-window.png` (the panel lit in the sun, dark in the room, dark red at night; grey-blue in the room
+with the read off); `shots/B1-props/props-cart.png` against `shots/A1-none/props-cart.png` (the cart as the
+stretched kit log beside the fence; no soft shade on the ground behind it to see at this view, as the cells say).
+
+**Not done / unverified.** No one has watched a moving prop's light follow it (a cart rolling past a lamp at night:
+the ground behind it should not flicker as it is re-stamped every ⅛ m). A thin prop's shade (D727). The cost of many
+moving lit props (D728).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -4151,6 +4270,20 @@ one-cell hand-over at 24 m should not show as a line), and travel at speed (the 
   as the ORM's other channels; a far masked surface draws up to a tenth brighter, D726), and a set's ORM image is
   read whole: no flag says "this alpha is not a mask" (an ORM alpha authored for something else would mask the glow;
   only a glowing material shows it).
+
+- 2026-11-20 (46e.15, default chosen, owner to confirm): **prop stamping stays on the simulation's thread**, in the
+  derive slice (`frameSliceMs('voxelDerive')`), a prop at a time, not in the job workers: a prop's inside test is a
+  closure built from its collider or bounds, which a worker cannot be sent; one prop's sampling (≤ 2.2 ms for a 6 m
+  canopy) is a unit the slice holds. A scene's 1,600 props arriving at once are stamped over about 700 steps.
+- 2026-11-20 (46e.15, default chosen, owner to confirm): **a moving prop is stamped again once any point of it moved
+  ⅛ m** (a sample of the stamp: the cell over the samples a cell), not every step: its coverage lags it by at most
+  that; a cart at 1 m/s is stamped 8 times a second.
+- 2026-11-20 (46e.15, default chosen, owner to confirm): **props stop light at level 0 only**: the mips and far nodes
+  the walk reads past level 0 stay the voxels' (props are small against a 1 m cell and up); the volume's coarse levels'
+  rays see a prop only where they walk level 0.
+- 2026-11-20 (46e.15, default chosen, owner to confirm): **lit particles read the volume once a vertex** at the
+  particle's centre facing the eye (level 0's one cell there, the coarse levels' eight), not per pixel;
+  `?surfaceRead=particlepixel` keeps the per-pixel read for a comparison. No tier setting changed for props.
 
 ## 10. Open questions for the owner (asked with the plan)
 
