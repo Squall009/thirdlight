@@ -211,7 +211,7 @@ numbers 46e.9–46e.13 of the plan's first outline are replaced by these.
 | 46e.9 | **Remove the cache's voxel port and the hybrid.** The voxel tile source and charts, the faces' hashes, the chart worker, the tracer's voxel scene kind, the probes over voxel marks, the hand-over, the `cache` and `hybrid` values of `?voxelLight` (left: `off`, `volume`) and their bench flags and tests. Phase 42's own stack is not touched (it retires in 48). The rows that only described them are closed as superseded (D679, D682–D686, D699, D700, D704, D706). The e2e Play test loses their checks. |
 | 46e.10 | **The default path's cost** (owner's answer 5; shadows and the sun field stay on at every tier): fix D667 (stitching at speed), D675 (the sun field's march at speed), D701 (the later settle after a stop); trace D672 (page render +0.9–1.8 ms with no store on) and the end-of-phase round that held only 7 copies of room at the cap. Same-hour, interleaved against the 46e base. |
 | 46e.11 | **The emissive material entry: a proposal, then a stop.** The glow is a property of the voxel's material, never stored per voxel; the volume keeps it per cell as it keeps the bounce colour. This item writes the add-only entry for the material record (`voxel-render-spec.md`) and what the volume reads of it, for the owner's approval. Nothing of it is built before the owner's note. Written first so the approval can arrive while 46e.12 is built. |
-| 46e.12 | (a), (b), (c) done 2026-11-17 (§8c). (d) done 2026-11-18 (297e852e, 95e5309d): glow drawn × the pixel's colour; a glow word a cell (+4.2 MB, 35.6 of 160 MiB); glowing faces as emitters cells aim at (night blotch at 10 s 0.38 → 0.24); no cost without glow (0.023 ms a brick both), 0.051 with; mask: ORM alpha proposed (+3.4 % file, BC7 bytes same), not built |
+| 46e.12 | **Every light type in the volume.** (a) A lamp list per brick, in world space, built in compute, in place of the flat loop over every lamp in the window (`voxel-light-volume-wgsl.ts` `direct_light`); the clustered lists are per camera and cannot serve bricks off screen. (b) Spot lights bounce with their cone, not as points. (c) Area lights add bounce. (d) Emissive materials light the cells beside them, after the owner's note on 46e.11. |
 | 46e.13 | **The observed defects, fixed on the update side.** Blotches (D692), rooms too dark, the gable patches (D695), the stale texture swap (D696), the update running over its budget (D690, a pacing bug). The look is fixed where cells are written (accumulate while idle, filter as cells are written), not in the per-pixel read, so the tuning that follows cannot undo it. |
 | 46e.14 | **A many-lamps scene, then the tuning.** First an engine-owned bench scene with many lamps of every type beside the town (every figure so far is from a town with a few lamps). Then, measured on both: the per-pixel read's cost (D705), the update's share of the frame, the low tier's setting; the volume's bare constants become tier settings or table entries as they are tuned (D702, D703, D708). The volume is switched on per tier here. |
 | 46e.15 | Props through the coverage channel (D448) and particles reading the volume: what is left of the first outline's build-out. (Placement after the tuning is the lead's default, owner to confirm: props entering the volume's rays change its cost, so if it should count in the tuning it moves before 46e.14.) |
@@ -4752,6 +4752,35 @@ filled). Medium and high: the same graph and budget shares, unverified on target
   it, else in a column beside it.
 - 2026-11-20 (46e.18, default chosen, owner to confirm): **the `walkGraph` memory row is 16 MiB** at every tier
   (page): the town measured 7.6 MB of graph and 8.8 MB of search arrays after the bench's queries.
+
+- 2026-11-20 — **46e-b review (independent, a fresh agent that built none of it; `~/.cache/thirdlight-phase46e/review-46e-b.md`).**
+  Verdict: **close after fixes.** Eleven groups of headline numbers checked against their raw files: all match. The
+  scope fence held (phase 42's files as at 2ff4af22 but for the sky probe's bake count and a lamp-record getter; no
+  stored light, far-cache channel or compute cluster build; three.js 0.187.0). The glow's code came after the owner's
+  note was recorded and the mask's after its approval; both notes are recorded as relayed: the owner is asked to confirm
+  them in person. Ratchets only shrank; tier settings and budget rows hold the tuned values. Must-fix and what was
+  done: (1) §6's row 46e.12 had been overwritten with status text (84e16224): restored from f048b411 by the lead.
+  (2) an item id in a source comment and two swapped doc comments in `quality-levels.ts`: fixed by the fix agent.
+  (3) the glow mask's volume rule was built as the mean of colour × mask, not "the mask's mean" as approved, and the
+  measured file cost on a sharp mask is 18.7 % against the 3.4 % the owner saw: put to the owner as a question on the
+  acceptance page. (4) STATUS's current-work line was stale: rewritten. Logged as rows: cut-away rooms near black
+  (D737), the first read and its bench probes left in product code (D738), block-walk's own A* outside the ratchet
+  (D739); D735 raised to M (a humanoid capsule is already wider than the graph's walker). **Overstatements in plain
+  words** (the review's list, kept in its file): the lamp list is a fixed 16 a brick with the weakest dropped; "every
+  light type" is the bounce of point, spot, rect and line lamps and near glow; the tuning missed the read's goal;
+  "light kept indoors" is a 0.2 share under a roof where the volume holds no light; the walk graph's hierarchy is one
+  level, used after a flat try fails, for a walker one cell wide; a prop stops light only where it fills half a cell;
+  particles already read the volume, the change is per vertex for cost. **Weak or missing tests:** no test of the
+  GPU's per-vertex particle read, of `indoorShare` in the shader, or of cut-away's and the hut path's broken variants;
+  bounds set from measured values (a removed light may leave 12 %); the leak test's ten Plays catch D729's
+  one-in-fifteen step about half the time. Not checked by the review: anything run, the full diff, 46e.14a/b's and
+  46e.17's tables.
+- 2026-11-20 (lead): the phase gate `gate-phase-20261120-110800` (start f048b411, at e173d823; 36 min against 46e-a's
+  37): build, lint, 937 of 938 unit files (`tools/voxel-bench/stream.test.ts` failed once and passed alone: D454's
+  watch), e2e 325 of 329 in 20.7 min, the four failures passed alone in the gate's own rerun step; village perf 0 of
+  361 missed. By area: voxel 349 s (46e-a: 374), play 385 s (328: the leak test's two voxel-world loops), rendering
+  436, lighting 184. Run once. The session stopped for about 100 minutes after the gate ended; the review's fixes were
+  made after it.
 
 ## 10. Open questions for the owner (asked with the plan)
 
