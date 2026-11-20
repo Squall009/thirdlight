@@ -302,6 +302,12 @@ what it does about what stands between it and its target:
   and what stands in front of its target thins to a dither (below; the
   project's see-through settings). For interiors and fixed or isometric
   views.
+- **Cut away** (`cutAway`) — see through, and in a voxel world the room its
+  target stands in is cut open from the target's head up: the room's roof,
+  its walls above the head and every storey over it are not drawn (the
+  classic roof-off view of top-down games). The roof still casts its
+  shadow. Outdoors, or with no target, it is See through
+  ([Rendering → See-through](rendering.md#see-through)).
 - **None** (`none`) — neither.
 
 A camera without a choice takes **See through** when the project's

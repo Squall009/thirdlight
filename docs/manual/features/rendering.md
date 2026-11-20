@@ -176,6 +176,20 @@ fade time on its own. The shader holds `SEE_THROUGH_OCCLUDERS` (6) boxes per
 subject, a GPU constant, not a cap: when more pieces stand in front, the
 nearest boxes merge, so none is ever left out.
 
+**Voxel rooms.** In a voxel world a room is an enclosed open region (see
+[`regionAt`](../guides/voxel-scripts.md#regions-regionat)). While a subject
+stands in one, the world's surfaces and kit pieces thin for it only inside
+that room's shell (the room's boxes grown by a voxel and the padding): its
+walls and roof between the camera and the subject thin, the next house's
+never do; outdoors a voxel chunk in front thins as a whole, as before. With
+a camera's **Occlusion** Cut away (or the page flag `?seethrough=cutaway`)
+the shell from the subject's head up is not drawn instead: the room's
+columns, roof and storeys above, faded out over the fade time. Drawing only:
+the roof still casts its shadow, collision and the light are unchanged. The
+room's boxes are its parts, one per 16 m chunk it reaches: an L-shaped room
+inside one chunk is cut as its bounding box, so a neighbour's roof in the
+notch of the L is cut too.
+
 **A dither, never gone.** The fade stops at the max fade (below 1), so a
 wall, a door or a tree in front stays visible as a see-through pattern. All
 fades share one dither pattern: a faded wall behind another faded wall is

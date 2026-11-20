@@ -173,9 +173,27 @@ is behind it. Null where the voxel is solid, or the world is not loaded there,
 or the regions are not stitched yet: just after a chunk arrives or an edit
 lands, read again on a later step.
 
+The answer also says what the region is to a game, `kind`: `room` (enclosed),
+`outdoors` (some voxel of it under open sky), `portal` (an opening) or
+`unknown` (it reaches ground not loaded yet, or the world's edge). `bounds`
+is the box its voxels fill (`{min, max}` in metres), `surface` its area
+against solid voxels in m² (openings are not surface) and `meanFreePath`
+4 × volume / surface in metres: the mean distance sound travels between two
+reflections in it, what a reverb's decay is set from (a 4 × 3 × 5 m room:
+2.55 m). The engine has no reverb of its own; a game's audio reads these.
+`portalsOf(id)` lists a region's doors and windows, each with its `bounds`,
+`volume` and the `regions` it joins (a door between a room and the street
+names both), so a game can tell which rooms a door connects. The answers are
+kept as the regions are stitched: a query walks nothing, and an edit that
+opens a wall changes them a few steps later.
+
 ```ts
 const r = ctx.voxels.regionAt(x, y, z);
-if (r !== null && r.enclosed) ctx.game.add('indoors', 1);
+if (r !== null && r.kind === 'room') {
+  ctx.game.add('indoors', 1);
+  const reverbSeconds = 0.161 * r.volume / (r.surface * 0.3); // a game's own choice of absorption
+  for (const door of ctx.voxels.portalsOf(r.id)) ctx.game.add('doors', 1);
+}
 ```
 
 ## Materials: `materialAt`, `materialOf`
