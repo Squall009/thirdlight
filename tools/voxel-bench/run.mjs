@@ -28,6 +28,8 @@
  *   node tools/voxel-bench/run.mjs light-shots [options] # the five fixed lighting cameras' pictures on the 8 km town, refused unless settled and showing voxels (light-shots-cli.ts)
  *   node tools/voxel-bench/run.mjs walk [--play]   # the occupancy walk's rays a millisecond: CPU in Node, the simulation worker and the GPU in Play (walk-cli.ts)
  *   node tools/voxel-bench/run.mjs props [options]  # the prop lighting channel's stamping: a move, a move among N lit props, N arriving in one step (props-cli.ts)
+ *   node tools/voxel-bench/run.mjs cull-page [options]  # occlusion culling at the connectivity views in Play: draws kept by the pyramid, seen by the oracle, a perfect pre-filter's page and GPU ms (cull-page-cli.ts)
+ *   node tools/voxel-bench/run.mjs connectivity [options]  # connectivity culling measured: the flood's units and chunks against the frustum, rays and the page's lists (connectivity-cli.ts)
  *
  * Refuses to start outside a memory-capped cgroup (tools/perf/memory-cap.mjs):
  * the test worlds are generated chunk by chunk, but a dense window of a
@@ -51,7 +53,7 @@ if (why !== null) {
   console.error(`voxel-bench: not started: ${why}. Start it in a capped scope:\n  ${CAPPED_COMMAND.replace('tools/perf/run.mjs', 'tools/voxel-bench/run.mjs')}\nor pass ${NO_MEMORY_CAP_FLAG} on a host where nothing else runs.`);
   process.exit(2);
 }
-const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'join', 'collision', 'mesher', 'cases', 'mips', 'seams', 'relief', 'slice-world', 'far-world', 'slice', 'kits', 'textures', 'headroom', 'coverage', 'export-memory', 'light-shots', 'walk', 'props'].includes(args[0]) ? args[0] : null;
+const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'join', 'collision', 'mesher', 'cases', 'mips', 'seams', 'relief', 'slice-world', 'far-world', 'slice', 'kits', 'textures', 'headroom', 'coverage', 'export-memory', 'light-shots', 'walk', 'props', 'connectivity', 'cull-page'].includes(args[0]) ? args[0] : null;
 const entry = mode === null ? 'cli' : `${mode}-cli`;
 const rest = (mode === null ? args : args.slice(1)).filter((a) => a !== NO_MEMORY_CAP_FLAG);
 const out = join(REPO, 'dist', 'voxel-bench', `${entry}.mjs`);

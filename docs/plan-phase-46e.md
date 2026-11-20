@@ -248,7 +248,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.14 | (a), (b) done 2026-11-18 (§8d). (c) done 2026-11-19 (40ddf31c…): the read +4.5/+3.9/+8.8 → +2.0/+2.3/+4.4 ms street/room/high (≤ 1.5 not reached: D724); the volume on at every tier (low's orbit 76–128 copies, travel ≤ 64 ms); D723 fixed (§8d 46e.14c) |
 | 46e.15 | Done 2026-11-20 (790f7ac7…b93492ce): lit props stop the walk's light (volume rays, `raycast`); sampled once, combined per chunk, sliced (D448: move among 1,600 p95 10.9 → 2.0 ms; 1.6 s arrival → ~700 steps); movers re-stamped every ⅛ m; costly with many movers (D728); thin props stop nothing (D727). Lit particles read once a vertex: 20 puffs `effects` 9.0 → 1.9 ms, room/street 0.03 |
 | 46e.16 | Done 2026-11-20 (3983dbca…058d4470): regionAt gives a room's kind, box, surface, 4V/S (no walk; edit → 104 ms), portalsOf; see-through and cut-away (camera `cutAway`) round the subject's room only, roof still casts; far rooms' flat term at indoorShare 0.2 under a roof (sky heights); arrival not fixed (D731), L notch cut (D730); orbit near unchanged |
-| 46e.17 | not started |
+| 46e.17 | Done 2026-11-20: measured, not built. The flood (Node) keeps every level-0 draw in view at every town house, street and orbit view (cave mouth: 1 of 31 beyond the pyramid), 0 false culls (oracle, rays), 0.6–1.1 ms a run; a perfect chunk pre-filter saves 0–0.9 ms page render, within spread. Caves (no far field): it drops 25–80 % (§8c). D733 |
 | 46e.18 | not started |
 | 46e.19 | not started |
 
@@ -3945,6 +3945,86 @@ at the door (the room answer arrives a batch after the subject's cell changes: t
 starts one cell inside), the fade back at the door, and whether the eave strips (D730) distract. The arrival fallback
 (D731). (c) of the light cases. Medium and high: the same settings, unverified on target hardware.
 
+### 46e.17 — connectivity culling against the depth pyramid
+
+**Verdict: it does not win on the town; nothing is built in the product.** Measured as a prototype that changes
+nothing drawn: the flood in Node over the units' derived face connectivity (bench `connectivity-flood.ts`), joined
+by chunk with what Play drew, what the depth pyramid kept and what the occlusion oracle saw. Work folder
+`~/.cache/thirdlight-phase46e/work/46e.17/` (`progress.txt`, `page/run1/` the Play run: `cull-page.json`,
+`views.json`, a picture per view, `run1.log`, `*.uptime`; `node/far`, `node/caves`, `node/vertical`: the flood's
+`connectivity.json` and logs).
+
+**The baseline (what ships).** A voxel world with a far field turns the depth pyramid on by `auto`
+(`occlusionPathOf`: `wanted` = a far field draws; staging's project sets nothing), WebGPU only. Near voxel draws are
+rows of the culled-instance table: each level-0 chunk's surface, each level 1–2 node's and each seam is a draw
+`single`, tested whole as its world box (`occlusion-whole.ts`, only when it draws ≥ `OCCLUSION_MIN_TRIANGLES` and is
+not too large on screen: at the room 28 of 50 level-0 draws in view were listed); kit pieces are instanced draws
+across chunks, tested copy by copy as spheres; far nodes copy by copy as boxes in the far depth mapping. Diagnostics
+at the room camera: 350 occludees, 18,232 copies tested, 1,937 drawn. Its cost: the pyramid has no `measureGpu`
+category (it is not a hideable pass), so it was read as a whole against culling pinned off in the same session: page
+`render` **+0.6 to +1.2 ms** at every view (table, H against O), even in the cave with two draws in view (D733);
+`measureGpu` `near` was below resolution at the room and the upper floor in every state (D660), `far` 0.9–2.2 ms.
+
+**Views** (cull-views.ts, cameras added to the bench): the room camera's room (ground floor, its window wall with the
+town behind), the same house's upper floor, the street along the row, the dug cave 22 m in looking out and in, a walk
+through that house (street, 2 m before the door, the doorway, the room, the stairs' foot, half way up, the top, the
+upper floor) and the town orbit's 8 poses; on the generated caves world (256 m, tunnels and caverns) three tunnels
+found by a search (rock over them, the longest free run) and on the vertical world three deep caverns and one more
+cavern 250 m under the tower's column (the search meant the tower's ground storey and missed it). The generated
+worlds are not in staging (only `far`, `town`, `slice`, `features`): they were measured in Node only, generated in
+memory, nothing written.
+
+**The flood.** From the camera's unit, left only by the faces its own open component (with the portals it touches)
+reaches; each unit entered by one face and left by another its `connect` joins; never against a direction already
+stepped; only through units the frustum touches, within 96 m (past the farthest level-0 chunk Play draws at low);
+a unit not derived is open; a state (unit, face, directions) is dropped when a smaller direction set reached it by
+the same face. A chunk is kept when any of its 8 units is.
+
+| view | level-0 draws in view (draws/triangles) | pyramid kept | flood kept | seen (oracle) | kit copies tested → drawn | page render ms H (pyramid), 2 rounds | C (pyramid + every unseen level-0 draw left out) | O (culling off) | flood ms |
+|---|---|---|---|---|---|---|---|---|---|
+| room-window | 50/104k | 35/68k | 50/104k | 19/40k | 18,232 → 1,937 | 4.89/4.15 | 4.00/3.87 | 3.92/2.98 | 0.66 |
+| house-upper | 48/100k | 34/65k | 48/100k | 22/46k | 18,232 → 2,159 | 3.82/3.88 | 3.38/3.68 | 2.93/2.71 | 0.68 |
+| street-row | 46/93k | 45/91k | 46/93k | 24/48k | 16,812 → 4,454 | 4.12/4.22 | 3.71/4.02 | 3.18/3.14 | 0.58 |
+| cave-out | 31/47k | 29/42k | 30/44k | 4/15k | 1,171 → 812 | 2.49/2.40 | 2.00/2.22 | 2.08/1.93 | 1.11 |
+| cave-in | 2/8k | 2/8k | 2/8k | 2/8k | 1,171 → 707 | 1.52/1.61 | 1.53/1.55 | 1.21/1.18 | 0.003 |
+| walk 1–8 | 25–46 / 53–95k | 20–37 / 38–75k | all of them | 4–22 / 8–42k | 10,921–18,750 → 1,286–2,224 | 3.35–3.90 | 3.00–3.56 | 2.50–3.01 | 0.60–0.95 |
+| orbit 0–7 | 32–38 / 62–80k | all of them | all of them | 29–32 / 58–65k | 13,076–16,847 → 2,253–4,102 | 3.52–4.12 | 3.42–4.13 | 2.73–3.14 | 1.04–1.15 |
+
+Low, WebGPU, 1280 × 720, the 30 Hz cap, render scale pinned to the tier's, alone (gate inactive), built at 22279a85
+(code as HEAD); 2026-11-20 06:17–06:47 UTC, uptime 27.6 d, load 0.9–1.9; 5 s windows in the order H O I C twice a
+view (I: every unseen draw left out; its numbers are in `cull-page.json` and are not used: it follows O, and at the
+cave it read 0.6 ms below H with only two 14-triangle draws hidden).
+
+**False culls: none.** Against the oracle (a draw with a pixel that the flood dropped): 0 at all 21 views. Against
+the rays (320 × 180 sight lines walked over the occupancy, every unit each crosses before it stops): 0 units at all 28
+views. Not exercised: half-covered cells (rays stop at the occupancy's solid as the flood does), units unknown while
+streaming (Node knows every unit), kit pieces overhanging a neighbour unit (no per-copy truth).
+
+**Why it removes nothing on the town.** Doors and windows are `opening` cells, which are open: the flood leaves every
+room through them and spreads round the houses, and an 8 m unit beside a 0.5 m wall holds both the room and the street,
+so a unit is shut only where it is solid all through (ground, the hill). At every house view the flood keeps every
+level-0 draw the frustum holds; at the cave mouth one draw (2k triangles) beyond the pyramid; looking into the cave the
+frustum already holds only the tube. Even a perfect chunk-level pre-filter (C: every unseen level-0 draw left out
+before the pyramid runs) gains 0.0–0.9 ms of page render, mostly inside the rounds' own spread (H's two rounds differ
+by up to 0.74 ms), and the GPU's `near` cannot read it at close cameras. The flood's own time, 0.6–1.1 ms a run over
+1.6–2.9k states (Node; it would run on the simulation thread), is larger than what it could save.
+
+**What the caves show that the town does not.** In the generated caves the flood keeps 111–156 of 149–203 chunks in
+view (rays see 7–44; 0.6–1.1 ms); in the vertical world's sealed caverns 35–88 of 135–172 (rays 20–23; 0.2–0.4 ms):
+there it removes half to four fifths of the near draws. These worlds have **no far field**, so `auto` leaves the
+pyramid off there and nothing culls those draws today. Their GPU and page cost were not measured (not in staging).
+
+**Built: nothing in the product**; no prototype hook was added to product code (the page side reads the existing
+occlusion switch and oracle). Kept in the bench (small, for the revisit): `connectivity-flood.ts` (the flood, the
+rays' units, the frustum), `connectivity-cli.ts` (`run.mjs connectivity`), `cull-page-cli.ts` (`run.mjs cull-page`:
+the per-view lists, the oracle's truth, the H O I C rounds, `--gpu-at` for `measureGpu`), `cull-views.ts`.
+
+**Worth revisiting when:** a world without a far field and with large enclosed spaces (caves, mines, dungeons, deep
+interiors with doors as solid voxels) is played on the low tier, measured in Play first (write a caves world into
+staging, `run.mjs cull-page` there with the pyramid pinned on and off); doors and windows become portals the flood
+can close (door state, 47a); or a top-down camera with cut-away sees many rooms at once. As a pre-filter it would be
+a row flag of the culled-instance table, units unknown open, with a guard frame when the camera changes unit.
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
@@ -4465,6 +4545,11 @@ starts one cell inside), the fade back at the door, and whether the eave strips 
 - 2026-11-20 (46e.16, default chosen, owner to confirm): **indoor share 0.2 at every tier**, applied only where the
   volume holds no light and the point is under a roof by the sky heights (taken 2 columns off its surface, past the
   eaves). Not a minimum brightness.
+
+- 2026-11-20 (46e.17, default chosen, owner to confirm): **connectivity culling is not built.** On the town it
+  removes nothing the depth pyramid keeps (doors and windows are open cells, units are 8 m) and its flood costs more
+  than a perfect chunk pre-filter could save; the bench tools stay for a world without a far field and with sealed
+  spaces (the generated caves: 25–80 % of near draws), where `auto` runs no culling today.
 
 ## 10. Open questions for the owner (asked with the plan)
 
