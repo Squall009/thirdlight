@@ -88,9 +88,12 @@ export function playScriptSource(at: readonly number[]): string {
     "      put('hutKind', h === null ? 0 : h.kind === 'room' ? 1 : 2); put('hutVolume', h !== null ? Math.round(h.volume) : 0); put('hutSurface4', h !== null ? Math.round(h.surface * 4) : 0); put('hutMfpCm', h !== null ? Math.round(h.meanFreePath * 100) : 0);",
     "      put('hutPortals', h?.portals ?? -1); put('hutPortalList', list.length); put('hutPortalJoins', list.length === 1 && o !== null && list[0].regions.includes(h.id) && list[0].regions.includes(o.id) ? 1 : 0); put('hutOut', o?.kind === 'outdoors' ? 1 : 0);",
     '    }',
-    // A path from inside the hut (1 m off its middle) to the pad 3 m before its door: its status (1 found, 2 partial,
-    // 3 unreachable, 4 unknown) and length (cm) once answered; the door walled up (and opened again with `hutdoor`).
-    "    for (const _ of ctx.debug.command('hutpath')) state.path = v.findPath([A[0] + 1, A[1] + 0.75, A[2] + 6.25], [A[0] + 1, A[1] + 0.25, A[2] - 3]);",
+    // A path from inside the hut (1 m off its middle) out of its door to the pad west of the pit: its status (1 found,
+    // 2 partial, 3 unreachable, 4 unknown) and length (cm) once answered; the door walled up (and opened again with
+    // `hutdoor`). The hut stands past the pad's edge on the hill: a doorstep slab at the pad's height in the three cell
+    // rows before its north wall (the hill above it dug away, the wall and its door left) takes a walker onto the pad.
+    `    for (const _ of ctx.debug.command('hutstep')) { const r = [v.set(box(-1, 0, 0.5, 1, 0.5, 1.7), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }), v.dig(box(-1, 0.5, 0.5, 1, 3, 1.7))]; ctx.game.add(r.every((e: any) => e.ok) ? 'hutStep' : 'hutRefused', 1); }`,
+    "    for (const _ of ctx.debug.command('hutpath')) state.path = v.findPath([A[0] + 1, A[1] + 0.75, A[2] + 6.25], [A[0] - 2.5, A[1] + 0.25, A[2] - 1]);",
     "    for (const a of v.paths) if (a.path === state.path) { put('pathStatus', ['found', 'partial', 'unreachable', 'unknown'].indexOf(a.status) + 1); put('pathCm', Math.round(a.length * 100)); put('pathPoints', a.points.length); ctx.game.add('pathAnswers', 1); }",
     `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(box(-0.5, 0.5, 2, 0.5, 2.5, 2.2), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
     '    if (state.rooms) {',
