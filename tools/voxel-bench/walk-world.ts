@@ -47,6 +47,8 @@ export interface WalkWorld {
   source(opts?: { readonly known?: (sx: number, sy: number, sz: number) => boolean; readonly far?: boolean }): WalkSource;
   /** Whether a level-0 cell is a body drawn (the derived occupancy), read cell by cell. */
   solidAt(x: number, y: number, z: number): boolean;
+  /** A chunk's sections derived again from the store (after an edit written into it). */
+  rederive(cx: number, cy: number, cz: number): void;
 }
 
 /**
@@ -64,13 +66,14 @@ export function walkWorld(world: TestWorld, min: readonly [number, number, numbe
   }
   const sections = new Map<string, DerivedData | null>();
   const R = jobRadius(WORLD_RULES);
-  for (let cx = min[0]; cx <= max[0]; cx++) for (let cy = min[1]; cy <= max[1]; cy++) for (let cz = min[2]; cz <= max[2]; cz++) {
+  const derive = (cx: number, cy: number, cz: number): void => {
     const results = deriveSectionsWithApron(grid, WORLD_RULES, buildApron(store, cx, cy, cz, R), (out) => store.exportChunk(cx, cy, cz, out), SECTION, IDS);
     for (const r of results) {
       const [lx, ly, lz] = sectionLocalOrigin(grid.edge, SECTION, r.id);
       sections.set(`${cx * 2 + lx / SECTION},${cy * 2 + ly / SECTION},${cz * 2 + lz / SECTION}`, r.assembly);
     }
-  }
+  };
+  for (let cx = min[0]; cx <= max[0]; cx++) for (let cy = min[1]; cy <= max[1]; cy++) for (let cz = min[2]; cz <= max[2]; cz++) derive(cx, cy, cz);
   const far = new FarWalkNodes(grid.edge, false);
   if (farLevel > 0) {
     const span = 2 ** farLevel;
@@ -102,6 +105,7 @@ export function walkWorld(world: TestWorld, min: readonly [number, number, numbe
     far,
     view,
     source: (opts = {}) => streamerWalkSource(view(opts.known), opts.far === true ? far : null),
+    rederive: derive,
     solidAt(x, y, z) {
       const a = sections.get(`${x >> 4},${y >> 4},${z >> 4}`);
       if (a == null) return false;

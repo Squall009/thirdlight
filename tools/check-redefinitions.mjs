@@ -124,6 +124,10 @@ export const OWNED_FAMILIES = Object.freeze([
     names: ['isPlainObject', 'isPlainObjectStrict', 'isPlainRecord', 'isRecord', 'isObject', 'isObj', 'isPlain', 'isRow', 'isMap', 'deepFreeze', 'deepFreezeAll', 'deepFreezeExceptViews', 'deepFreezeForTest'],
   },
   { family: 'lru', owner: 'packages/shared/src/lru.ts', names: ['LruCache', 'LRUCache', 'LruMap', 'BoundedLru'] },
+  // One search core (A*, Dijkstra) and its open list. Block layers' walk (project-model block-walk.ts: its `Heap`,
+  // `findWalkPath`, `walkReach`) keeps its own until it retires with them; the ratchet takes no entry added by hand,
+  // so its names are not listed here.
+  { family: 'path-search', owner: 'packages/shared/src/path-search.ts', names: ['PathSearch', 'MinHeap', 'BinaryHeap', 'PriorityQueue', 'aStar', 'astar', 'dijkstra'] },
   // A stamp comparable across a page's threads (time origin + monotonic clock).
   { family: 'wall-clock', owner: 'packages/shared/src/clock.ts', names: ['wallClock'] },
   // The frame profiler's spans and the one frame arbiter every per-frame time slice comes from.

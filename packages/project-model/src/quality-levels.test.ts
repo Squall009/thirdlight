@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModelErrorV2 } from './errors';
 import { canonicalEnvironment, validateEnvironment, type PostConfig } from './materials';
 import { TEXTURE_BUDGET_DEFAULT_MB } from './texture-streaming';
-import { DEFAULT_QUALITY_LEVELS, FRAME_BUDGET_BY_TIER, GPU_PASS_BUDGET, GPU_PASS_CATEGORIES, gpuPassBudgetMs, gpuPassIdleBudgetMs, LIGHT_VOLUME_BUDGET_BYTES_BY_TIER, MEMORY_BUDGET_BY_TIER, PHYSICS_MEMORY_CAP_BYTES, PROBE_RESIDENT_BYTES, REGION_STITCH_BUDGET_BYTES, SUN_FIELD_BUDGET_BYTES, VOXEL_WALK_GPU_BUDGET_BYTES, voxelLightVolumeSettingsProblems, frameBudgetMs, levelFrameBudget, LIGHTING_TIERS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_BUDGET_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
+import { DEFAULT_QUALITY_LEVELS, FRAME_BUDGET_BY_TIER, GPU_PASS_BUDGET, GPU_PASS_CATEGORIES, gpuPassBudgetMs, gpuPassIdleBudgetMs, LIGHT_VOLUME_BUDGET_BYTES_BY_TIER, MEMORY_BUDGET_BY_TIER, PHYSICS_MEMORY_CAP_BYTES, PROBE_RESIDENT_BYTES, REGION_STITCH_BUDGET_BYTES, SUN_FIELD_BUDGET_BYTES, WALK_GRAPH_BUDGET_BYTES, VOXEL_WALK_GPU_BUDGET_BYTES, voxelLightVolumeSettingsProblems, frameBudgetMs, levelFrameBudget, LIGHTING_TIERS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, levelVoxels, LOW_FRAME_RATE_CAP, LOW_MEMORY_BUDGET_MIB, qualityLevelOf, UPSCALED_RENDER_SCALE, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
 import { validateQualityBindings } from './save-schema';
 import { FRAME_SLICE_DEFAULTS, MEMORY_BUDGET_IDS, SPAN_CATEGORIES } from '@thirdlight/shared';
 import { FAR_BUDGET_BYTES, FAR_GPU_BUDGET_BYTES_BY_TIER, UNDO_MEMORY_BUDGET_BYTES, VOXEL_STREAM_BUDGET_BYTES } from '@thirdlight/voxel';
@@ -234,6 +234,7 @@ describe('the memory budget per tier', () => {
     expect(MEMORY_BUDGET_BY_TIER.low.entries.map((e) => e.id)).toEqual([...MEMORY_BUDGET_IDS]);
     expect(at('voxelStream')).toEqual([768, 768, 1024]);
     expect(at('regionStitch')).toEqual([8, 8, 8]);
+    expect(at('walkGraph')).toEqual([16, 16, 16]);
     expect(at('lightVolume')).toEqual([36, 36, 48]);
     expect(at('sunField')).toEqual([64, 64, 64]);
     expect(at('voxelWalk')).toEqual([16, 16, 16]);
@@ -252,6 +253,7 @@ describe('the memory budget per tier', () => {
       expect(b).toEqual({
         voxelStream: VOXEL_STREAM_BUDGET_BYTES[t],
         regionStitch: REGION_STITCH_BUDGET_BYTES,
+        walkGraph: WALK_GRAPH_BUDGET_BYTES,
         physics: PHYSICS_MEMORY_CAP_BYTES,
         farSelection: FAR_BUDGET_BYTES,
         sceneObjects: SCENE_OBJECT_BUDGET_BYTES,
@@ -272,13 +274,13 @@ describe('the memory budget per tier', () => {
 
   it("sums the page's and the GPU's entries against the low tier's hardware target (the undo is the backend's); medium and high have none of their own", () => {
     const low = MEMORY_BUDGET_BY_TIER.low;
-    // The page: the stream, the regions' stitch, physics, far nodes, a scene; the GPU: the far field, textures, the
+    // The page: the stream, the regions' stitch, the walk graph, physics, far nodes, a scene; the GPU: the far field, textures, the
     // world's cells, the surface cache and probes (the old scene kinds), the light volume, the sun field, the walk.
-    expect(low.sums).toEqual({ page: (768 + 8 + 512 + 48 + 32) * MIB, gpu: (384 + 512 + 768 + 32 + 128 + 36 + 64 + 16) * MIB });
+    expect(low.sums).toEqual({ page: (768 + 8 + 16 + 512 + 48 + 32) * MIB, gpu: (384 + 512 + 768 + 32 + 128 + 36 + 64 + 16) * MIB });
     expect(low.target).toEqual({ page: LOW_MEMORY_BUDGET_MIB.pageHeap * MIB, gpu: LOW_MEMORY_BUDGET_MIB.gpu * MIB });
     expect(low.sums.page).toBeLessThanOrEqual(low.target!.page);
     expect(low.sums.gpu).toBeLessThanOrEqual(low.target!.gpu);
-    expect(MEMORY_BUDGET_BY_TIER.high.sums).toEqual({ page: (1024 + 8 + 512 + 48 + 32) * MIB, gpu: (384 + 512 + 768 + 128 + 128 + 48 + 64 + 16) * MIB });
+    expect(MEMORY_BUDGET_BY_TIER.high.sums).toEqual({ page: (1024 + 8 + 16 + 512 + 48 + 32) * MIB, gpu: (384 + 512 + 768 + 128 + 128 + 48 + 64 + 16) * MIB });
     expect([MEMORY_BUDGET_BY_TIER.medium.target, MEMORY_BUDGET_BY_TIER.high.target]).toEqual([null, null]);
   });
 });

@@ -27,8 +27,8 @@ describe('the resident-bytes report', () => {
     expect(row.probes!.resident).toBe(4 * MIB);
     expect(row.surfaceCache!.use).toBe(1.25);
     expect([row.lightVolume!.resident, row.regionStitch!.resident]).toEqual([30 * MIB, 4 * MIB]);
-    for (const id of ['farSelection', 'sceneObjects', 'sunField', 'voxelWalk', 'undo'] as const) expect([row[id]!.resident, row[id]!.use]).toEqual([null, null]);
-    expect(m.page).toEqual({ resident: (392 + 4) * MIB, budget: (768 + 8 + 512 + 48 + 32) * MIB, target: MEMORY_BUDGET_BY_TIER.low.target!.page });
+    for (const id of ['walkGraph', 'farSelection', 'sceneObjects', 'sunField', 'voxelWalk', 'undo'] as const) expect([row[id]!.resident, row[id]!.use]).toEqual([null, null]);
+    expect(m.page).toEqual({ resident: (392 + 4) * MIB, budget: (768 + 8 + 16 + 512 + 48 + 32) * MIB, target: MEMORY_BUDGET_BY_TIER.low.target!.page });
     expect(m.gpu).toEqual({ resident: (96 + 100 + 10 + 40 + 4 + 30) * MIB, budget: (384 + 256 + 768 + 32 + 128 + 36 + 64 + 16) * MIB, target: MEMORY_BUDGET_BY_TIER.low.target!.gpu });
     // JSON-safe (the capture file holds it).
     expect(JSON.parse(JSON.stringify(m))).toEqual(m);

@@ -663,6 +663,15 @@ export const VOXEL_WALK_GPU_BUDGET_BYTES = 16 * MIB;
 export const REGION_STITCH_BUDGET_BYTES = 8 * MIB;
 
 /**
+ * Memory a voxel world's walk graph holds where the world runs (bytes): every resident chunk's standable cells with
+ * their clearance and pieces (about 6 bytes a cell and a column table of 2 KB a chunk that has any), the exits between
+ * pieces and the path searches' arrays. 0.64 MB over the generated town's 108 chunks (6 × 3 × 6, 58,000 cells, 994
+ * exits) in the phase plan's measurement; a budget the profiler weighs it against, with room above that, not a cap the
+ * graph keeps to.
+ */
+export const WALK_GRAPH_BUDGET_BYTES = 16 * MIB;
+
+/**
  * One entry of a tier's memory budget: what it holds, where (`page`: the
  * page's and its workers' heaps; `gpu`: GPU memory; `backend`: the editor's
  * backend, not part of a game's memory), its bytes, and the constant (or
@@ -695,6 +704,7 @@ function memoryEntries(tier: LightingTier): readonly MemoryBudgetEntry[] {
   const all: Readonly<Record<MemoryBudgetId, MemoryBudgetEntry>> = {
     voxelStream: e('voxelStream', 'voxel streaming (chunks, derived parts, overlay, tables, mips, kits)', 'page', VOXEL_STREAM_BUDGET_BYTES[tier], 'VOXEL_STREAM_BUDGET_BYTES'),
     regionStitch: e('regionStitch', 'voxel open regions stitched across chunks', 'page', REGION_STITCH_BUDGET_BYTES, 'REGION_STITCH_BUDGET_BYTES'),
+    walkGraph: e('walkGraph', "voxel walk graph (standable cells, pieces, exits, the path searches' arrays)", 'page', WALK_GRAPH_BUDGET_BYTES, 'WALK_GRAPH_BUDGET_BYTES'),
     physics: e('physics', 'physics memory (the simulation stops past it)', 'page', PHYSICS_MEMORY_CAP_BYTES, 'PHYSICS_MEMORY_CAP_BYTES'),
     farSelection: e('farSelection', 'far nodes drawn at once (their stored bytes)', 'page', FAR_BUDGET_BYTES, 'FAR_BUDGET_BYTES'),
     sceneObjects: e('sceneObjects', "a scene's objects (each scene)", 'page', SCENE_OBJECT_BUDGET_BYTES, 'SCENE_OBJECT_BUDGET_BYTES'),

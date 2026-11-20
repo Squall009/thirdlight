@@ -12,7 +12,7 @@
  */
 
 /** The memory budgets the report knows, in the table's order. */
-export const MEMORY_BUDGET_IDS = ['voxelStream', 'regionStitch', 'physics', 'farSelection', 'sceneObjects', 'farGpu', 'textures', 'worldStream', 'surfaceCache', 'probes', 'lightVolume', 'sunField', 'voxelWalk', 'undo'] as const;
+export const MEMORY_BUDGET_IDS = ['voxelStream', 'regionStitch', 'walkGraph', 'physics', 'farSelection', 'sceneObjects', 'farGpu', 'textures', 'worldStream', 'surfaceCache', 'probes', 'lightVolume', 'sunField', 'voxelWalk', 'undo'] as const;
 export type MemoryBudgetId = (typeof MEMORY_BUDGET_IDS)[number];
 
 /** Bytes a system holds now (null: not known now). */
