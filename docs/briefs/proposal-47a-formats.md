@@ -1,6 +1,6 @@
 # 47a — what structures and water bodies store: seven proposed entries (owner's note needed on each)
 
-**Status: proposed 2026-11-20. Nothing is built.** Each entry below is add-only: it adds a field, a component or a
+**Status: approved by the owner 2026-11-20, all seven as proposed ("Everything as proposed is fine").** One question of the owner's is open on F1 (whether a structure can also be defined by simple shapes, wall by wall: `docs/plan-phase-47a.md` §10); an answer could add a `pieces` list to F1, add-only. As first published: Each entry below is add-only: it adds a field, a component or a
 file; it changes nothing an existing project, region file, save or export holds. Answer each with **yes / no /
 change**. An item that needs an entry waits for its note (`docs/plan-phase-47a.md` §6, §8); the others go on.
 

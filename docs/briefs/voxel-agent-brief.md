@@ -9,9 +9,8 @@ branch code. Nothing is merged or deployed in phase 46 (the merge is 48c). tools
 folder with main, so one gate at a time still holds.
 Main at the freeze: d4053cab. Phase 46 base on the branch: aeb8114a (phase 45 done, format spec v1 APPROVED by the owner 2026-11-02).
 46a DONE at ac283f22 (2026-11-03); 46b DONE at 6ffc2031 (2026-11-04). Last D-row used: D499; NEW BLOCK D500–D599 (continue at D500).
-CURRENT PHASE: 46e-b, the voxel light volume built out, then rooms, culling and the walk graph (see the "46e-b"
-section at the end: it takes precedence over older sections where they differ; the lead's prompt names your item).
-46e-a is DONE (34253940). NEVER start 47a.
+CURRENT PHASE: 47a, structures and water bodies (see the "47a" section at the end: it takes precedence over older
+sections where they differ; the lead's prompt names your item). 46e-b is DONE and accepted (6eab7d86). NEVER start 47b.
 Code agents run one at a time (they share the worktree's dist/); a docs-only agent may run beside you.
 
 Read AGENTS.md; then the current sub-phase plan (docs/plan-phase-46a.md, 46b, 46c) IN FULL; then from
@@ -352,3 +351,57 @@ DONE = works in a real browser on WebGPU, a test at the boundary it changes, the
 and results written (§6 untouched), pictures you looked at listed by path. You commit and push your own green slices;
 the lead reads the diff, the gate log and the pictures before the item counts.
 Commit trailer: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Scratch: ~/.cache/thirdlight-phase46e/work/<item>/.
+
+47a (owner 2026-11-20). CURRENT PHASE = 47a: docs/plan-phase-47a.md §6 is the item table (the CONTRACT: never write
+status into it; status goes in §7's row, at most 400 characters, results in §8a under a heading for your item, decisions
+in §9). 47a start commit b5093d11. D-rows continue at D742 (block D700–D799; grep both audit files for the next free
+number before you take one; tell the lead if fewer than ten are left).
+READ, in this order, instead of the older lists above: AGENTS.md; docs/architecture/voxel-engine.md;
+docs/decisions/owner-decisions.md; docs/plan-phase-47a.md in full; docs/briefs/proposal-47a-formats.md (the approved
+entries F1–F7: build exactly what an entry says); the 46e-b section above for how anything that draws or lights is
+measured and for its lessons (they all still hold); then only what your brief points at.
+OWNER DECISIONS (do not re-litigate): voxels are the single source of truth: a structure, a spline or a water body is
+a definition that WRITES voxels (plus overrides); nothing keeps a second authored copy and derived data is never
+stored. One structure = one scene object = one grid of its world, placed by the object's position and yaw (floors
+level). Definitions and overrides are authoring data and are never exported. Doors and windows are props; open or shut
+is portal state, never voxels. Water regenerates in the editor only; nothing settles at run time. A building leaves
+the ground alone. Rooms under cut-away stay dark and there is no minimum brightness indoors (D737: not a defect to fix).
+SCOPE FENCE (owner; do not cross):
+- Nothing inside block layers, heightfield terrain, generated architecture or terrain-splines (they retire in 48):
+  read them as patterns, never extend them. Phase 42's stack is not touched.
+- Not 47a: the world edit mode on the brush kit, the fill as a brush stroke, the fog role, dressing, scatter (47b); the
+  world map (47c); converters (48); the liquid's flow, surface shader, far water, queries, buoyancy, settle (49).
+- A stored thing not written in an approved entry (a new field, file or manifest key), or any change to the voxel
+  value, chunk codec, region file bytes, edit command, undo record, save file, far cache, kit, role or render spec:
+  STOP and report to the lead. An approved entry's text goes into its spec in the commit that builds it.
+- three.js stays at 0.187.0 (checked 2026-11-20). No new private three hook where a public API does the job.
+- WebGPU only for new work; WebGL 2 keeps what it draws and tests/e2e/webgl2-smoke.e2e.ts stays green.
+- One mutation path: the commands. The editor and MCP send the same ops; one undo line (workspace undo-timeline.ts).
+- Generic capability only; no per-project count caps; no game behaviour (how a door swings is a game's).
+- Reuse before building (plan §5; voxel-engine.md §6): name the module you extend. Time slices from `frameSliceMs`,
+  budgets from FRAME_BUDGET_BY_TIER / MEMORY_BUDGET_BY_TIER; a tuned constant becomes a tier setting or a table entry.
+HOW YOU WORK:
+- Work folder ~/.cache/thirdlight-phase47a/work/<item>/ with a `progress.txt`: append a dated line after EVERY step
+  (what you did, what is next, any commit). The lead reads it every ten minutes; if you die you are resumed from it.
+- Commit and push each green slice at once (never leave green work uncommitted). Commit trailer:
+  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
+- Gates: `TL_GATE_MEM=12G TL_VITEST_WORKERS=6 tools/gate.sh start fast [e2e files]`, then `tools/gate.sh wait`; one
+  gate at a time; `rerun` while fixing; no hand-run Playwright between a red gate and its rerun. A change in
+  project-model or shared runs every area (about 40 minutes): put it in ONE commit. Anything that adds a worker, buffer
+  or texture living with the adapter or the simulation also runs `tools/gate.sh start area play` (the leak test), and
+  ends its workers before the page reports Play stopped (D729). Never run a `phase` or `full` gate: the lead's.
+- NEVER pipe `node tools/check-docs.mjs` and never chain anything after it; run it alone and read its exit code.
+- Never write to /tmp (`export TMPDIR=~/.cache/tmp`); heavy runs in a memory-capped scope, one at a time; `df -h ~`
+  before a heavy run, clean under 10 GB free; delete exports, Playwright outputs and traces you made, keep pictures,
+  JSON and logs. Leave nothing running when you finish: no staging backend, no browser, no waiter.
+- After an item that touches a lit program or the default path: the town orbit and `run.mjs headroom --quality low
+  --lamps 128` against the reading before your item (same hour, A B A B), reported with the spread.
+- Editor work needs a Playwright test that drives the real page against a real backend. Nothing visual is "verified"
+  without a picture you opened and looked at; say "unverified" for anything you did not observe; nobody has seen
+  anything in motion. A defect found and not fixed gets a D-row.
+- A base worktree for an A/B needs its own @thirdlight links (a symlinked node_modules builds the head's packages).
+  Prove a switch is off before you use it as a comparison.
+REPORT to the lead at the end: commits, the gate's log name and result, numbers with how to reproduce them, pictures
+by path, D-rows opened or closed, what is unverified, what you left out and why.
+DONE = works in a real browser on WebGPU, a test at the boundary it changes, the gate green, §7's row and §8a's results
+written (§6 untouched), pushed.

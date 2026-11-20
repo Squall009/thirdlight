@@ -1,6 +1,6 @@
 # Phase 47a — Structures and water bodies
 
-Status: **planned 2026-11-20, waiting for the owner's approval of the item list and order (§6). Nothing is built.**
+Status: **the item list, its order, the seven format entries and the five defaults were approved by the owner on 2026-11-20** ("Everything as proposed is fine"); one question on how a structure is defined is open (§10, 47a.3 waits for its answer). Building started with 47a.0.
 Branch `phase-45` (worktree `~/projects/thirdlight-p45`); start commit b5093d11 (the handoff's commit, for
 `tools/gate.sh start phase b5093d11` at the close). Planned from `docs/roadmap.md` (voxel order, item 3), plan 45
 §1b, §1d, §1e and its 47a line, requirements R30–R45 (`docs/architecture/voxel-format-requirements.md`),
@@ -168,7 +168,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 |---|---|
 | 47a.0 | not started |
 | 47a.1 | not started |
-| 47a.2 | proposals written and published with the plan 2026-11-20; no note yet |
+| 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | not started |
 | 47a.4 | not started |
 | 47a.5 | not started |
@@ -219,6 +219,11 @@ a stop.
 - 2026-11-20 (default chosen, owner to confirm): **a building does not change the ground under it** in 47a
   (question 4); **hand edits on a structure are dig, add and paint** in its mode, the full brush kit comes with
   47b's world edit mode (question 5).
+- 2026-11-20 (**owner**): "Everything as proposed is fine": the item list and order (§6), the entries F1–F7 (§8) and
+  the five defaults (§10) stand. The owner asked whether structures are defined by simple shapes that dictate the
+  voxel fill, as in Enshrouded (a wall is a box; a wall with a window is the same box with a cut-out), and whether
+  that is how edits are preserved. Answered by the lead (§10, "The owner's question"); 47a.0 and 47a.1 do not
+  depend on the answer and start now.
 - 2026-11-20: the measurement (47a.1) is built on bench data and the draft formats only; what it adds to
   `packages/` is the per-grid plumbing 47a.5 keeps if the design stands.
 
@@ -240,3 +245,18 @@ a stop.
    building clear and fill its site itself, put back when it moves. **Default: leave the ground alone in 47a.**
 5. **Hand edits before the world edit mode exists.** 47a gives dig, add and paint on a selected structure; the
    full brushes arrive with 47b. **Default: accept.**
+
+### Answered 2026-11-20
+
+All five defaults stand (owner: "Everything as proposed is fine"): D741 is 47a.12 and the first thing cut; the lead
+chooses the rotated buildings' light by 47a.1's numbers and shows the page; water is drawn near only until 49; a
+building leaves the ground alone; hand edits are dig, add and paint until 47b.
+
+### The owner's question (2026-11-20), open
+
+"In Enshrouded, structures are defined by simple mesh geometry that dictates voxel fill. Is that the plan here as
+well? … Is that how we are preserving the edits or some other planned way?" As planned: no. A structure is defined
+by its outline and numbers (F1), the generator fills the whole building from them, and hand edits are kept as a
+per-cell delta over what the generator makes (F3). The lead's offer: an add-only `pieces` list on F1 (boxes that
+add or cut, each with a role and a material, replayed in order after the outline), so a building can also be made
+and changed wall by wall. **Default if unanswered: as proposed, no piece list.**

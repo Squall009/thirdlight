@@ -34,6 +34,7 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | 2026-11-17 | Emissive voxel materials (46e.11), approved with changes (relayed by the owner's other session): reuse `params.emissive` × `params.emissiveIntensity`; without a mask the surface draws glow × the material's colour texture and the volume uses glow × the material's mean colour; a glow mask affects only the drawn pixel, packed in a spare channel of a map already read (no new array, no 14th binding; none free = stop), the volume using the mask's mean computed by the engine; the mask's entry text goes to the owner before it is built; no far-field glow in 46e-b. | `briefs/proposal-46e.11-emissive.md` |
 | 2026-11-18 | The glow mask in the ORM map's alpha is approved as proposed on acc46e-11 (relayed by the owner's other session): it affects only the drawn pixel; the volume uses the mask's mean, computed by the engine. Dark rooms: no default minimum brightness and no per-scene minimum. | `briefs/proposal-46e.11-emissive.md`, `plan-phase-46e.md` §10 |
 | 2026-11-20 | 46e-b accepted; its five defaults stand: the relayed notes of 11-17 and 11-18 confirmed in person; the glow mask's volume rule as built (the mean of colour × mask); rooms under cut-away stay dark (no light let in, no minimum); the update's share stays 3.5 ms on low; the lower-rate read waits for the performance phase after 49. Every "default chosen, owner to confirm" of plan-46e §9 stands. | `briefs/acceptance-46e-b.md`, `plan-phase-46e.md` §10 |
+| 2026-11-20 | 47a's item list and order, its seven format entries F1–F7 and its five defaults are approved as proposed: D741 is 47a's last build item and the first cut; the lead chooses rotated buildings' light by the measurement; water is drawn near only until 49; a building leaves the ground alone; hand edits on a structure are dig, add and paint until 47b. | `plan-phase-47a.md` §6, §8, §10; `briefs/proposal-47a-formats.md` |
 
 ## Dropped, superseded or deferred (do not rebuild without the owner's word)
 
@@ -62,7 +63,7 @@ Each is a hard stop when its phase arrives: a `gas` role (value 10) with shape a
 liquid's (47b); a fill stroke kind in the edit command (47b); narrowed feeds for liquid edits (47a); a liquid
 derived part per chunk (49); a medium channel (liquid and fog) on far-cache nodes (49).
 
-**47a's entries, proposed 2026-11-20** (`briefs/proposal-47a-formats.md`; each waits for its own note): F1 the
+**47a's entries, proposed and approved 2026-11-20** (`briefs/proposal-47a-formats.md`; no longer waiting): F1 the
 structure record; F2 a structure's grid (the manifest's grid list, the transform on the object, the anchor); F3
 overrides (`TLVO` 2 from draft to used); F4 opening props and portal state; F5 spline sections that write voxels and
 the record of what a world-grid structure replaced; F6 the water body record; F7 narrowed feeds for liquid edits
