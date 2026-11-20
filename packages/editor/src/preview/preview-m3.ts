@@ -334,11 +334,10 @@ export function bootstrapPreviewM3(): void {
   /** The running play's handle (read where a parameter shadows it: a wait ends when the play went). */
   const current = (): M3PreviewHandle | null => handle;
   let expectedBuildId = '';
-  const disposePlay = (): void => {
-    if (handle !== null) {
-      handle.dispose();
-      handle = null;
-    }
+  const disposePlay = (): Promise<void> => {
+    const h = handle;
+    handle = null;
+    return h?.disposeAndWait() ?? Promise.resolve();
   };
 
   // The handshake records the expected build (the bridge records the nonce,
@@ -363,7 +362,7 @@ export function bootstrapPreviewM3(): void {
     const gen = ++generation;
     // A re-snapshot for the same play disposes the previous composition first
     // (the single active composition).
-    disposePlay();
+    void disposePlay();
     void startM3Preview({
       contentRoot,
       cacheRoot,
@@ -677,10 +676,10 @@ export function bootstrapPreviewM3(): void {
     });
   };
 
+  let stopping: Promise<void> | null = null; // `tl.stopped` once the simulation worker is gone: the editor removes this page then
   bridge.on('tl.play.stop', () => {
     generation += 1; // fence any in-flight composition
-    disposePlay();
-    bridge.sendStopped(playId);
+    stopping ??= disposePlay().then(() => bridge.sendStopped(playId), () => bridge.sendStopped(playId));
   });
   bridge.on('tl.ping', () => bridge.sendPong());
 

@@ -98,9 +98,7 @@ export function useEditorMount(deps: EditorMountDeps): void {
           contentPath: r.playContent?.path ?? p?.contentPath ?? null,
         }));
       },
-      onPlayStopRequested: (playSessionId) => {
-        bridgeRef.current?.requestStop(playSessionId);
-      },
+      onPlayStopRequested: (playSessionId) => bridgeRef.current?.stop(playSessionId),
       onPlayStopped: () => {
         setPlaying(false);
         // Back to the Scene from the (now empty) Game view; an editor window stays in front.

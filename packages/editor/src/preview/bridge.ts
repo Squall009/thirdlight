@@ -152,6 +152,11 @@ export class Bridge {
   private previewPlayId: string | null = null;
 
   readonly drops: DropStats = { total: 0, byReason: {} };
+  /** Plays whose preview reported `tl.stopped` (editor side), and the stops waiting for that report. */
+  private readonly stoppedPlays = new Set<string>();
+  private readonly stopWaits = new Map<string, (() => void)[]>();
+  /** Has the peer answered at all (editor side: a preview that never booted has nothing to tear down)? */
+  private peerSeen = false;
 
   constructor(opts: BridgeOptions) {
     this.direction = opts.direction;
@@ -280,6 +285,21 @@ export class Bridge {
   requestStop(playSessionId: string): void {
     if (this.direction !== 'editor') throw new Error('requestStop is editor-side only');
     this.postLocal({ v: 2, type: 'tl.play.stop', playSessionId });
+  }
+
+  /**
+   * Ask the preview to stop (editor side) and resolve once it reports `tl.stopped` for this play: its teardown is
+   * done, its simulation worker gone. The page is removed only after that (a page removed while its worker still
+   * streams can leave the worker running and the page in memory); the backend's stop wait bounds it.
+   */
+  stop(playSessionId: string): Promise<void> {
+    this.requestStop(playSessionId);
+    if (!this.peerSeen || this.stoppedPlays.has(playSessionId)) return Promise.resolve();
+    return new Promise((resolve) => {
+      const waits = this.stopWaits.get(playSessionId) ?? [];
+      waits.push(resolve);
+      this.stopWaits.set(playSessionId, waits);
+    });
   }
 
   /** Acknowledge the handshake (preview side; echoes the editor's nonce). */
@@ -468,6 +488,13 @@ export class Bridge {
   }
 
   private dispatch(type: string, body: unknown, event: BridgeMessageEvent): void {
+    this.peerSeen = true;
+    if (type === 'tl.stopped' && this.direction === 'editor') {
+      const id = String((body as { playSessionId?: unknown }).playSessionId ?? '');
+      this.stoppedPlays.add(id);
+      for (const done of this.stopWaits.get(id) ?? []) done();
+      this.stopWaits.delete(id);
+    }
     const arr = this.handlers.get(type);
     if (!arr) return;
     for (const h of arr) h(body, event);

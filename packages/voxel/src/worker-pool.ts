@@ -114,6 +114,22 @@ export interface PoolQueues {
 /** The pools of this thread not yet closed. */
 const openPools = new Set<WorkerPool>();
 
+/**
+ * How long a thread that closed a pool waits before it may itself be terminated. Chrome lets a worker that is
+ * terminated while the workers it started are still ending outlive its page (and keep that page in memory: Play
+ * stopped while a voxel world streamed in); the web gives no signal that a worker has ended, and this gap
+ * measured clean where none or the jobs' answers alone were not.
+ */
+export const POOL_END_GRACE_MS = 250;
+/** When this thread last closed a pool. */
+let lastPoolClose = Number.NEGATIVE_INFINITY;
+
+/** Resolves once the workers of this thread's closed pools have had {@link POOL_END_GRACE_MS} to end. */
+export function poolWorkersEnded(): Promise<void> {
+  const wait = lastPoolClose + POOL_END_GRACE_MS - performance.now();
+  return wait > 0 ? new Promise((resolve) => setTimeout(resolve, wait)) : Promise.resolve();
+}
+
 /** The open pools' queues summed (null: no pool open). */
 export function livePoolQueues(): PoolQueues | null {
   if (openPools.size === 0) return null;
@@ -453,5 +469,6 @@ export class WorkerPool {
     }
     this.live.clear();
     for (const s of this.slots) s.worker.terminate();
+    lastPoolClose = performance.now();
   }
 }

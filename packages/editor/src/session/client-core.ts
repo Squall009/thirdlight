@@ -119,8 +119,11 @@ export interface ClientCallbacks {
   onSceneChanged: () => void;
   onPlayStarted: (r: PlayStartResult & { snapshot: unknown }) => void;
   onPlayStopped: (reason: string) => void;
-  /** The backend asks the editor to stop the play (a tool or the TTL); the editor tears the preview down and acks. */
-  onPlayStopRequested?: (playSessionId: string) => void;
+  /**
+   * The backend asks the editor to stop the play (a tool, the Stop button or the TTL); the editor acks once the
+   * preview's teardown is done (a returned promise settled; the backend's stop wait bounds it).
+   */
+  onPlayStopRequested?: (playSessionId: string) => void | Promise<void>;
   /** A backend relay request for the running play (screenshot, diagnostics, input, game control/observe). */
   onRelayRequest?: (request: Record<string, unknown>) => void;
   /** The backend asks for "Bake lighting" of a scene (an agent's tl_bake_lighting); the editor answers with `lighting.bake.ack`. */
@@ -630,8 +633,8 @@ export class SessionClientCore extends SessionProjectState {
         break;
       case 'play.stop.request': {
         const psid = String(m.playSessionId ?? '');
-        this.cb.onPlayStopRequested?.(psid);
-        this.socket.send({ type: 'play.stopped.ack', playSessionId: psid });
+        const ack = (): void => void this.socket.send({ type: 'play.stopped.ack', playSessionId: psid });
+        void Promise.resolve(this.cb.onPlayStopRequested?.(psid)).then(ack, ack);
         break;
       }
       case 'play.stopped':

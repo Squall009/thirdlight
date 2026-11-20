@@ -285,3 +285,36 @@ describe('Bridge — no wildcard, no credentials', () => {
     expect(serialized).not.toContain('/api/v1/');
   });
 });
+
+describe('Bridge — stop waits for the preview\'s teardown', () => {
+  const STOPPED = { v: 2, type: 'tl.stopped', playSessionId: PLAY_ID };
+  const settledYet = async (p: Promise<void>): Promise<boolean> => {
+    let done = false;
+    void p.then(() => (done = true));
+    await new Promise((r) => setTimeout(r, 0));
+    return done;
+  };
+
+  it('asks the preview to stop and resolves only once it reports tl.stopped for that play', async () => {
+    const { editor, postedEditorToPreview } = makePair();
+    deliver(editor, { origin: PREVIEW_ORIGIN, source: { tag: 'preview-window' }, data: READY });
+    const stop = editor.stop(PLAY_ID);
+    expect(postedEditorToPreview.map((p) => (p.data as { type: string }).type)).toContain('tl.play.stop');
+    expect(await settledYet(stop)).toBe(false);
+    deliver(editor, { origin: PREVIEW_ORIGIN, source: { tag: 'preview-window' }, data: { ...STOPPED, playSessionId: 'play-' + 'f'.repeat(32) } });
+    expect(await settledYet(stop)).toBe(false);
+    deliver(editor, { origin: PREVIEW_ORIGIN, source: { tag: 'preview-window' }, data: STOPPED });
+    expect(await settledYet(stop)).toBe(true);
+  });
+
+  it('a preview that never answered (not booted) has nothing to wait for', async () => {
+    const { editor } = makePair();
+    expect(await settledYet(editor.stop(PLAY_ID))).toBe(true);
+  });
+
+  it('a stop asked after the preview already reported tl.stopped resolves at once', async () => {
+    const { editor } = makePair();
+    deliver(editor, { origin: PREVIEW_ORIGIN, source: { tag: 'preview-window' }, data: STOPPED });
+    expect(await settledYet(editor.stop(PLAY_ID))).toBe(true);
+  });
+});

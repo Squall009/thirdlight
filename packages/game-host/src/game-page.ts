@@ -290,6 +290,12 @@ export interface GamePageHandle {
   /** A captured frame (PNG data URL) with the page's UI and overlays drawn over it, as the player sees it. */
   withOverlay(frame: { readonly dataUrl: string; readonly width: number; readonly height: number }): Promise<string>;
   dispose(): void;
+  /**
+   * Dispose, then resolve once the simulation worker is gone: it answered its dispose (its own voxel workers ended
+   * with it) or its wait ran out, and was terminated (single thread: at once). A page about to be removed waits for
+   * it: a worker still streaming when its page goes can outlive the page in the browser and keep it in memory.
+   */
+  disposeAndWait(): Promise<void>;
 }
 
 const sha256Hex = sha256HexAsync;
@@ -1058,11 +1064,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       }
     }
     console.info(threadingLogLine(threadMode, threadReason, remote?.transport ?? null, isolated));
-    if (remote !== null) {
-      const r = remote;
-      // Until the host owns it (its runtime is the mirror, disposed with the host): released on failure.
-      releases.push(() => void r.dispose());
-    }
+    const started = remote;
+    // Until the host owns it (its runtime is the mirror, disposed with the host): released on failure.
+    if (started !== null) releases.push(() => void started.dispose());
 
     // The physics port in single-thread mode (in worker mode the worker has its own).
     let physics: PhysicsPort3D | undefined;
@@ -1365,6 +1369,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       // The host disposes its runtime (in worker mode the mirror, which ends the worker);
       // then the physics port, the audio owner, the input and the page listeners; the resources last.
       dispose: () => releaseAll(),
+      disposeAndWait: () => (releaseAll(), remote?.dispose() ?? Promise.resolve()),
     };
   } catch (e) {
     releaseAll();

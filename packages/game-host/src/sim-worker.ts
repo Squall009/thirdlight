@@ -20,7 +20,7 @@
  */
 import { createRecordedActionSource, DEFAULT_FIXED_STEP_HZ, fixedStepHzOf, type ActionSource, type PhysicsPort3D, type Runtime, type SimulationModuleSpec, type VoxelWorldPorts } from '@thirdlight/runtime';
 import { residentBytes, threadProfiler } from '@thirdlight/shared';
-import { chunkDrawBatchTransfer, livePoolQueues, type ShippedVoxelWorld } from '@thirdlight/voxel';
+import { chunkDrawBatchTransfer, livePoolQueues, poolWorkersEnded, type ShippedVoxelWorld } from '@thirdlight/voxel';
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
@@ -343,7 +343,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     physics = null;
     encoder = null;
     debug = null;
-    post({ t: 'disposed' });
+    // The page terminates this worker on `disposed`: the voxel workers it started get their time to end first (a worker
+    // terminated while its own workers are still ending can outlive the page), within the page's wait for the answer.
+    void poolWorkersEnded().then(() => post({ t: 'disposed' }));
   };
 
   const handle = (m: MainToWorker): void => {
