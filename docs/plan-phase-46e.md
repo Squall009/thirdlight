@@ -4205,6 +4205,91 @@ arrives). A query between an edit's swap and the chunk made again (D736). The wa
 take a slice each step, so a tick catching up after a hitch spends several (11.8 ms at most while the town's ring
 filled). Medium and high: the same graph and budget shares, unverified on target hardware.
 
+### 46e.19 — the end-of-phase reading
+
+One reading with everything of 46e-b in (the glow mask, props in the light's rays, rooms, the walk graph), at
+**760c2aa0** (built with `npm run build` in the 10G scope, clean tree), 2026-11-20 14:17–15:56 UTC, uptime 27.9 d,
+1-minute load 0.74–3.0; low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone (gate inactive, no build or other agent,
+`*.uptime` beside each raw file), `measureGpu` readings only. Work folder `~/.cache/thirdlight-phase46e/work/46e.19-end/`
+(`lib.sh` from 46e.14c's with a `bare` runner for the export, `orbits.sh`, `travel.sh`, `shots.sh`, `summ.py`,
+`progress.txt`, `m/` every raw run with its `.log` and `.uptime`). Commands (each in the 10G scope):
+`run.mjs headroom --quality low --rounds 2 [--lamps 128] [--query '&voxelLight=off']` as off, default, off, default
+(`O-{town,128}-{off,def}-r{1,2}.json`); `… --lamps 128 --props 200` (`O-worst.json`); `run.mjs coverage --export
+--keep-export --quality low` then `coverage --dir <export> --quality low --speed 150 [--query '&voxelLight=off']` with
+staging stopped, default, off, default (`G-*.json`; the export removed after, `exports/` empty: one export for three
+flights, as 46e.14c); `run.mjs light-shots --quality low --arrival-shots --arrival-at 60 --edits 0 [--lamps 128]`
+(`S-town/`, `S-128/`). Readings are the second rounds (D711: the first rounds after Play start held −1–30 copies at
+the town and 15–88 at 128, as in every orbit since 46e.14a); "no store" is this hour's off runs. The off travel run
+is proven off: its profile has no `voxel light volume` span, the default runs' do.
+
+| | no store (this hour) | 46e.14c (the tuning's end) | end of the phase | raw |
+|---|---|---|---|---|
+| orbit room, town: copies × ms a copy | 176 × 0.127, 176 × 0.126 | 120, 128 × 0.124 (off 176, 176) | 128 × 0.129, 128 × 0.132 | `O-town-*` |
+| orbit room, 128 lamps | 176 × 0.134, 160 × 0.135 | 104 × 0.101, 76 × 0.124 (off 176, 152) | **68 × 0.143, 68 × 0.142** | `O-128-*` |
+| missed at no load (of 89), town; 128 | 0, 1; 0, 0 | 0; 0 | 0, 1; 0, 0 | |
+| GPU `near`, town; 128 | 2.10, 1.89; 3.98, 4.22 | below, 3.76; 6.34, 6.48 (off 1.9–2.4; 4.1–4.6) | 5.07, 4.77; **8.42, 9.24** | |
+| GPU `far`, town; 128 | 3.41, 3.26; 3.60, 3.75 | below, 3.14; 3.39, 3.26 | 2.82, below; 3.46, 3.07 | |
+| GPU `shadows`, town; 128 | 0.58, 0.66; below, below | below; below | below, below; 1.37, below | |
+| GPU `lighting` (row 6.67), town; 128 | — | below, 4.36; 5.18, 4.49 | 4.98, 5.44; 5.25, 5.54 | |
+| page ms a frame; `render`; `lighting` (of 2.0), town | 4.95, 5.22; 4.33, 4.52; 0.07, 0.07 | 5.29, 5.47; 4.02, 4.08; 0.87, 0.98 (off 4.77, 4.82) | 5.83, 6.85; 4.48, 5.06; 0.88, 1.13 | |
+| the same, 128 | 5.56, 5.25; 4.49, 4.29; 0.46, 0.41 | 6.98, 6.72; 4.44, 4.46; 1.92, 1.78 | 6.90, 6.86; 4.40, 4.41; 2.01, 1.86 | |
+| simulation ms; `voxelStream`, town | 2.03, 2.51; 1.58, 2.03 | 2.14, 2.13; 1.74, 1.75 | 2.29, 2.60; 1.85, 2.13 | |
+| the same, 128 | 2.22, 2.21; 1.77, 1.75 | 2.37, 2.22; 1.90, 1.81 | 2.28, 2.14; 1.82, 1.69 | |
+| `walk graph stitched`; `path finding` (no queries) | not in the top 15 spans (< 0.005 ms); 0 | (not built) | not in the top 15; 0. First rounds (streaming settling): 0.14–0.31 ms mean, 7–7.8 ms worst | |
+| job workers ms a frame (profile `jobs`), town; 128 | 0.09, 0.09; 0.05, 0.06 | 0.002, 0; 0.06, 0.001 | 0.001, 0.10; 0.03, 0.07 | |
+| page heap / GPU process MiB, town; 128 (low's 1,536 / 2,560) | 612, 599 / 963, 961; 641, 623 / 984, 1,022 | 621, 699 / 1,017, 1,031; 672, 722 / 1,128, 1,043 | 571, 607 / 1,013, 1,025; 608, 653 / 1,108, 1,061 | |
+| memory rows MiB at the eight cameras (budget): voxel streaming (768); far GPU (384); light volume (36); sun field (64); walk (16); stitch (8); walk graph (16) | — | 98.6–144.7; 76.9–92.2; 34.8–35.0; 40.0; 8.1; 2.0–4.3; — (`F-*-vol`) | 98.6–144.7; 76.9–92.2; 34.8–35.0 (36.45 / 36.57 MB on the orbit); 40.0; 8.1; 2.0–4.3; **5.1–10.0** | `S-*` |
+| lamp lists over (bricks, 128 orbit) | — | 27–31 | 31 (356 lamps dropped) | |
+| travel 150 m/s, town: longest ms; > 100; missed a minute | 47.5; 0; 19.2 | 51.3, 56.1; 0; 9.1, 16.5 (off 53.7, 77.2; 0; 14.6, 16.5) | 48.6, 57.9; 0; 16.5, 11.0 | `G-*` |
+| … ground s; full detail s; nothing pending s | 0.03; 4.25; 8.58 | —; 3.3–3.8; 7.1–7.5 (off 6.7–6.9) | 0.03, 0.03; 4.21, 4.37; **8.59, 8.45** | |
+| … falls (of 34 drops), holes | 0, 0 | 0, 0 | through 0, 0 (r1: one `lower` landing, the body on the fine ground 33 m under the far surface at 4.2 s, then standing); holes 0, 0 | |
+| pictures 60 s after arriving: mean; cell blotch (room, town; 128) | — | 9.51, 0.317; 10.66, 0.311 | 9.34, **0.371**; 10.04, 0.346 | `S-*` |
+| … street, cave, night, far, lamp cameras | — | street 124.8 / 0.132, cave 66.4 / 0.505, night 22.95 / 0.164, lamps-street 62.3 / 0.152, lamps-room 126.7 / 0.182 | 124.8 / 0.131, 67.7 / 0.326, 23.0 / 0.166, 62.2 / 0.147, 126.7 / 0.184 | |
+
+The worst sensible case (one orbit, default store; `O-worst.json`): what combined is `--lamps 128` (the many-lamps
+scene, its glowing strips and blocks painted by its camera behaviour) with `--props 200` (lit bench props, every fifth
+cart moving). What did not: the light-shots `--glow` scene (the masked lava; light-shots only, not an orbit option)
+and path queries (the orbit cannot queue them). For those: the walk graph's span on the orbit is the row above; with
+queries, 46e.18's Play reading (`46e.18/m/paths-play12.json`): `path finding` 0.61 ms a frame on average (at most 3.7)
+while the fixed queries ran, 3.30 ms a frame while 100 waited (the frame's share), so 10 a second sits inside the share.
+
+| 128 lamps + 200 lit props | round 1 (second) | round 0 |
+|---|---|---|
+| room; missed at no load | **48 × 0.098**; 0 / 89 | 0; 6 / 89 |
+| GPU `near`; `far`; `shadows`; `lighting` | 9.57; 4.36; **4.24**; 4.93 | 10.74; below; 3.84; 4.23 |
+| page ms; `render`; `lighting` (volume 3.91, lights and shadows 1.98); `props` | **11.84**; 4.68; **6.02**; 1.03 | 16.64; 7.02; 7.88; 1.54 |
+| simulation ms; `voxelStream` (walk blocks packed 0.58, props stamped 0.18) | 3.38; 2.92 | 8.06; 7.31 (walk graph 0.34, worst 9.9) |
+| page heap / GPU process MiB; lists over | 619 / 1,053; 5 | |
+
+It keeps the 30 Hz cap at no load with 48 copies of room; page `lighting` is three times its 2.0 ms (the volume taking
+in the walk blocks the movers change, D728, and the lamps' shadow faces the movers redraw: GPU `shadows` 4.2 against
+below without props).
+
+**Worse than at 46e.14c, beyond the spread.** (1) **128 lamps, the volume on: `near` +2.0–2.8 ms (8.4, 9.2 against
+6.3, 6.5) and 68, 68 copies against 104, 76**, while the store-off runs are unchanged (near 4.0–4.2 against 4.1–4.6,
+176 / 160 copies). 46e.15's orbit had it already (128 lamps without props: near 8.8, 80 copies), so it landed between
+3b4ae4e8 and that run: the glow mask (46e.12e, 6535b4fe: every near program multiplies each material's glow by its
+mask, and the 128 scene paints glowing materials; its A/B was on the town only) or 46e.15's prop and particle read
+(790f7ac7). Not bisected. (2) **Travel: nothing pending 8.5–8.6 s against 7.1–7.5**, and the off run equally (8.58
+against 6.7–6.9), so it is not the store; it matches 46e.18's own round (8.71 against base 7.43): the walk graph made
+from the level-0 chunks after the stop, in the derive slice after the regions. Full detail 4.2–4.4 s against 3.3–3.8.
+Ground, longest frame, frames over 100 ms and holes are as before.
+
+**Not resolved** (inside the spread or one run each): the town's page +0.4–1.4 ms (the off runs +0.2–0.4 too), its
+`near` +0.5–1.3 and GPU `lighting` +0.6–1.1 (resolution 0.8–1.0 ms); the room's cell blotch 0.371 / 0.346 against
+0.317 / 0.311 (one run each; `final-room-window.png` shows lighter grey patches on the left wall beside the windows that
+46e.14c's picture does not: if real, 46e.16's flat term indoors, 058d4470, is where to look); the cave's blotch is
+lower (0.326 against 0.505). The memory rows are equal to the tenth; the walk graph's row is new and within its budget.
+The runs took 99 min (four orbit runs a scene, as 46e.14c).
+
+**Pictures** (default store, 60 s after arriving, looked at; the work folder's `final-<camera>.png`): `street-noon`
+(the street in sun, soft shade under the brick house, as 46e.14c); `room-window` (the room dark, the windows bright,
+grey patches on the walls, see above); `cave` (the tube's walls dark toward the back, the valley bright through the
+mouth); `night-lamps` (warm lamp light on the grass and fences, the house fronts lit); `far-view` (the town, the
+valley and the massif in daylight); `lamps-street` (the 128-lamp street: lit gables still blocky with cell-sized
+patches, the glowing strip on the ground, the same as 46e.14c's); `lamps-room` (the lamp-lit room bright and even);
+`lamps-high` (the lamp-lit town from above, a cyan glow patch at the left).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
