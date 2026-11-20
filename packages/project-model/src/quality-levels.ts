@@ -224,20 +224,20 @@ export interface LightingTierSettings {
 }
 
 /**
- * The light volume by tier (default chosen, owner to confirm; measured in the phase plan): on at every tier (WebGPU);
- * low measured on its target; medium and high from it (unverified on target hardware): high refines twice as far and
- * lists 24 lamps (both cost memory or idle time only); more rays or a longer reach cost every edit's settle and were
- * not measured where they would run, so they stay low's (the Play test runs at high on the integrated GPU). The read:
- * every face toward the normal (a face floor measured no cheaper), the eight cells blended to 24 m on low (past it one
- * cell: about half the read's cost at a view over the town, nothing seen at that distance), farther on medium and high.
- */
-/**
- * The flat term's share under a roof where the volume holds no light (default chosen, owner to confirm): the town's
- * room camera read about a fifth as bright settled as at its first half-second, lit then by the flat term (plan-46e
- * 46e.16). The same at every tier: it is a look, not a cost.
+ * The flat term's share under a roof where the volume holds no light: the town's room camera read about a fifth as
+ * bright settled as at its first half-second, lit then by the flat term. The same at every tier: it is a look, not a
+ * cost.
  */
 const INDOOR_SHARE = 0.2;
 
+/**
+ * The light volume by tier: on at every tier (WebGPU); low measured on its target; medium and high from it (unverified
+ * on target hardware): high refines twice as far and lists 24 lamps (both cost memory or idle time only); more rays or
+ * a longer reach cost every edit's settle and were not measured where they would run, so they stay low's (the Play test
+ * runs at high on the integrated GPU). The read: every face toward the normal (a face floor measured no cheaper), the
+ * eight cells blended to 24 m on low (past it one cell: about half the read's cost at a view over the town, nothing
+ * seen at that distance), farther on medium and high.
+ */
 const VOXEL_LIGHT_VOLUME_BY_TIER: Readonly<Record<LightingTier, Readonly<VoxelLightVolumeSettings>>> = Object.freeze({
   low: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 24, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48, indoorShare: INDOOR_SHARE }),
   medium: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 32, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48, indoorShare: INDOOR_SHARE }),
@@ -551,8 +551,7 @@ const FRAME_SHARES: Readonly<{ page: FrameBudgetShares; sim: FrameBudgetShares; 
 const UNCAPPED_TIER_HZ = 60;
 
 /**
- * The measured GPU passes' own shares within their rows (default chosen, owner to confirm): the shadow maps keep a
- * fiftieth of the frame (0.67 ms at 30 Hz; the town measured 0.6–0.7 ms at the low tier); the live light (the light
+ * The measured GPU passes' own shares within their rows: the shadow maps keep a fiftieth of the frame (0.67 ms at 30 Hz; the town measured 0.6–0.7 ms at the low tier); the live light (the light
  * volume's update) what keeps the row's measured total within it. Its own timestamps read 1.2–1.4× short of what the
  * frame pays for it (the read of a pool being written, the rest of the frame waiting), so its
  * share is set from the measured row, not the row less the shadows. Medium and high keep the row less the shadow
@@ -567,8 +566,7 @@ const GPU_PASS_SHARES: Readonly<Record<LightingTier, Readonly<Partial<Record<Gpu
 });
 
 /**
- * The passes' shares while they only refine (default chosen, owner to confirm): the live light's, set as its live
- * share is from what the row measures, so a view standing still converges in a minute or so and keeps most of the
+ * The passes' shares while they only refine: the live light's, set as its live share is from what the row measures, so a view standing still converges in a minute or so and keeps most of the
  * light's row free.
  */
 const GPU_IDLE_SHARES: Readonly<Record<LightingTier, Readonly<Partial<Record<GpuPassCategory, number>>>>> = Object.freeze({
