@@ -3937,7 +3937,8 @@ Not run broken (one Play run is 2 min); with cut-away off its floor share falls 
 **Gates.** `gate-fast-20261120-032638` (every area: project-model) RED in vitest (the descriptors' size budget, the
 catalogue's documented skips) → fixed 9e444103 → `gate-rerun-20261120-033828` RED 3 under the all-areas load
 (block-editor paint, project-items, frame-rate-cap D659; D732) → `gate-rerun-20261120-040647` GREEN. The indoor share
-(058d4470) and docs: see §7.
+and docs (058d4470…): `gate-fast-20261120-051522` (every area) RED 1 (frame-rate-cap, D659; collision-ready vitest
+failed once under load, passed alone) → `gate-rerun-20261120-055223` GREEN; Play tests 1.8 / 2.0 min.
 
 **Not done / unverified.** Motion: nobody has walked in and out of a house with cut-away on — watch the roof fade out
 at the door (the room answer arrives a batch after the subject's cell changes: the doorway is a portal, so the cut
