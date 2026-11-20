@@ -10,7 +10,7 @@ list and order; then run 47a to its close without asking, unless you hit a stop 
   handoff's commit is the start commit of 47a (use it for `tools/gate.sh start phase <commit>` at the close).
 - Work only in the worktree `/home/dadmin/projects/thirdlight-p45` (branch `phase-45`). Never touch
   `/home/dadmin/projects/thirdlight` (main, frozen, production) or any game repo.
-- Next free D-number: **D741** (D700–D799 is reserved for the branch; reserve D800–D899 in the audit file before it
+- Next free D-number: **D742** (D700–D799 is reserved for the branch; reserve D800–D899 in the audit file before it
   runs out). three.js is 0.187.0 = the pin (checked 2026-11-16): check again at the start, assess and record, never
   update.
 - The previous lead's running notes and lessons: memory file `phase46e-b-autonomous-run.md`. Start your own
@@ -66,7 +66,9 @@ five, each with a default). In particular:
   +2.4 ms since the tuning, cause not found: compare the generated WGSL of the surface programs at 481e0491 and the
   head); D735 (the walk graph's walker is 0.25 m wide: structures and doors need an ordinary humanoid to pass, so
   size the fix with the door work); D736; D727 (thin props block no light: a door leaf is thin); D728 (moving lit
-  props are costly: doors move); D729 (watch). Open and decided, not to be "fixed": rooms under cut-away stay dark
+  props are costly: doors move); D729 (watch); **D741** (light passes or stops whole at half coverage: the owner's
+  coverage-fraction decision, R93, is in the data but not in the light's rays; put its placement to the owner in the
+  plan's questions, since 47a's doors, shutters and panes are where it first shows). Open and decided, not to be "fixed": rooms under cut-away stay dark
   (D737), no minimum brightness indoors.
 - An interim look for the owner after the first structure can be made and edited in the editor.
 
