@@ -1040,6 +1040,8 @@ export class RuntimeInstance implements Runtime {
     if (typeof nowSeconds !== 'number' || !Number.isFinite(nowSeconds)) {
       return { ok: false, error: fail('config_invalid', 'tick requires a finite number of seconds') };
     }
+    // A tick is one frame of the host: the steps it runs share the frame's budgets (the worlds' path finding).
+    this.entities.voxels.beginFrame();
     this.frame.run(nowSeconds);
     return { ok: true };
   }

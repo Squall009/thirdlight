@@ -13,9 +13,11 @@
  * Until it does, a world streams at its scene's own distances.
  *
  * Path and reach queries are served at a step's start, after streaming, in
- * the order asked across the worlds, within the step's path-finding budget
+ * the order asked across the worlds, within the frame's path-finding budget
  * (the frame budget table's `pathfinding` share of the simulation's frame at
- * the quality level's tier): a query not done carries over to the next step.
+ * the quality level's tier), shared by the steps a frame runs (a host's tick:
+ * at a 30 Hz frame two 60 Hz steps, more while catching up): a query not done
+ * carries over to the next step, or the next frame once the frame's is spent.
  *
  * Props whose model is marked `affectsLighting` are stamped into every
  * loaded world's lighting occupancy: their shape (collider, else model
@@ -111,6 +113,8 @@ export class RuntimeVoxels {
   private reachAnswers: VoxelReachAnswer[] = [];
   private stepReaches: readonly VoxelReachAnswer[] = Object.freeze([]);
   private querySeq = 0;
+  /** Ms the worlds' queries have taken in this frame (a host's tick): its steps share the frame's budget. */
+  private pathFrameMs = 0;
   /** Props marked `affectsLighting`, by object, in arrival order. */
   private readonly props = new Map<string, LitProp>();
   private editSeq = 0;
@@ -270,17 +274,24 @@ export class RuntimeVoxels {
     this.reachAnswers = [];
   }
 
-  /** The worlds' queued path and reach queries, in turn, within the step's path-finding budget (a span of its own). */
+  /** A host's tick begins: its steps share one frame's path-finding budget. */
+  beginFrame(): void {
+    this.pathFrameMs = 0;
+  }
+
+  /** The worlds' queued path and reach queries, in turn, within what is left of the frame's path-finding budget (a span of its own). */
   private servePaths(): void {
     let any = false;
     for (const held of this.worlds.values()) any ||= held.host.pathsQueued > 0;
     if (!any) return;
-    const budget = frameBudgetMs(levelFrameBudget(this.level ?? {}), 'sim', 'pathfinding');
+    const left = frameBudgetMs(levelFrameBudget(this.level ?? {}), 'sim', 'pathfinding') - this.pathFrameMs;
+    if (left <= 0) return;
     threadProfiler.begin(PATH_SPAN);
+    const t0 = performance.now();
     try {
-      const t0 = performance.now();
-      for (const held of this.worlds.values()) held.host.servePaths(budget - (performance.now() - t0));
+      for (const held of this.worlds.values()) held.host.servePaths(left - (performance.now() - t0));
     } finally {
+      this.pathFrameMs += performance.now() - t0;
       threadProfiler.end(PATH_SPAN);
     }
   }
