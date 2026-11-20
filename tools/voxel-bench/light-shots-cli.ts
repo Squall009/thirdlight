@@ -65,6 +65,8 @@
  *                 without them, the light volume's cells of the two readings (`propShade`: the cart's shaded ground and
  *                 its control west of the lamp, the floor under the table and a control beside it) are read at every
  *                 camera, and each shot keeps the simulation's stamping and walk packing spans (`propSpans`)
+ *   --rooms MODE  off|see-through|cut-away: the bench subject (bench-rooms.ts) in the room cameras' rooms, the camera's
+ *                 occlusion that mode, and the floating L-shaped room built (cameras house-above, lroom-above)
  *   --particles   a lit particle panel (bench-particles.ts) 2.5 m in front of each of the four near cameras and a red
  *                 lamp 2 m behind the night camera's panel, made before Play and deleted after; each shot keeps the
  *                 picture's middle colour (`panel`): the panel as it is lit
@@ -98,6 +100,7 @@ import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, MANY_LAMPS_COMMAND
 import { dayBehaviour, DAY_ARC_DEG, DAY_COMMANDS, DAY_SPEEDS } from './day-cycle';
 import { crackGlowMask, placeholderPng, withAlpha } from './texture-sets';
 import { benchProps, parsePropsOption, placeBenchProps, PROP_READINGS, volumeBoxLight } from './bench-props';
+import { L_ROOM_COMMAND, parseRoomsOption, placeBenchRooms, roomsBehaviour } from './bench-rooms';
 import { BENCH_PANEL_EFFECT, BENCH_RED_LAMP, middleColour, panelPlace, particleEntities, placeBenchParticles } from './bench-particles';
 
 const O = parseLightShotsArgs(process.argv.slice(2));
@@ -106,6 +109,8 @@ const LAMPS = parseLampsOption(process.argv.slice(2));
 const SCENE = LAMPS === 0 ? null : manyLampsScene(LAMPS);
 /** `--props N`: the lit props scene (bench-props.ts) of N props. */
 const PROPS = parsePropsOption(process.argv.slice(2));
+/** `--rooms MODE`: the bench subject and the L-shaped room, the camera's occlusion that mode. */
+const ROOMS = parseRoomsOption(process.argv.slice(2));
 /** `--particles`: the lit panels in front of the near cameras. */
 const PARTICLES = process.argv.includes('--particles');
 const ONLY: readonly string[] = SCENE !== null && !process.argv.includes('--only') ? [...O.only, ...MANY_LAMP_SHOT_NAMES] : O.only;
@@ -361,8 +366,9 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   const unprop = PROPS === 0 ? null : await placeBenchProps(benchProps(PROPS), PROJECT_DIR, (op, args) => b.command(op, args), sceneEntities);
   const panels = LIGHTING_CAMERAS.filter((c) => ['street-noon', 'room-window', 'cave', 'night-lamps'].includes(c.name));
   const unparticle = !PARTICLES ? null : await placeBenchParticles(particleEntities(BENCH_PANEL_EFFECT, panels.map(panelPlace), 'panel'), (op, args) => b.command(op, args), sceneEntities);
+  const rooms = ROOMS === null ? null : await placeBenchRooms(ROOMS, (op, args) => b.command(op, args), sceneEntities as never);
   const before = cameraBehaviour(PROJECT_DIR);
-  await publishCameraBehaviour(b, PROJECT_DIR, BEHAVIOR, lightShotsSource(CAMERAS, [...(SCENE !== null ? [manyLampsBehaviour(SCENE)] : []), dayBehaviour()], O.glowMask));
+  await publishCameraBehaviour(b, PROJECT_DIR, BEHAVIOR, lightShotsSource(CAMERAS, [...(SCENE !== null ? [manyLampsBehaviour(SCENE)] : []), dayBehaviour(), ...(rooms !== null ? [roomsBehaviour(rooms.subject, CAMERAS)] : [])], O.glowMask));
   // The camera's own exposure (as a game runs it), set back after.
   const camEntity = sceneEntities().find((e) => e.name === 'Perf far camera') as { id: string; components?: { virtualCamera?: Record<string, unknown> } } | undefined;
   const camWas = camEntity?.components?.virtualCamera ?? null;
@@ -376,6 +382,7 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
     await unplace?.().catch((err: unknown) => console.error(`many lamps not taken out: ${String(err)}`));
     await unprop?.().catch((err: unknown) => console.error(`bench props not taken out: ${String(err)}`));
     await unparticle?.().catch((err: unknown) => console.error(`bench particles not taken out: ${String(err)}`));
+    await rooms?.undo();
     await unmask?.();
     if (glowMaterials) for (const m of BENCH_GLOW_MATERIALS) await b.command('deleteMaterial', { materialId: m.materialId }).catch((err: unknown) => console.error(`${m.materialId} not deleted: ${String(err)}`));
     const cam = sceneEntities().find((e) => e.name === 'Perf far camera');
@@ -605,6 +612,13 @@ async function main(): Promise<void> {
       // The masked lava's parts only where it is made; the ground height is a reading, not a part.
       const painted = Object.entries(parts).filter(([k]) => k !== 'glow_ground_cm' && (O.glowMask || !k.includes('masked')));
       if (painted.some(([, n]) => n === 0)) problems.push(`glow: a part was not painted (${JSON.stringify(parts)})`);
+    }
+    if (ROOMS !== null) {
+      // The L-shaped room, built once the street camera's view (round it) has settled.
+      await settle(game);
+      await game.debug(L_ROOM_COMMAND);
+      for (let i = 0; i < 40 && ((await game.observe().catch(() => null))?.counters?.['lroom_built'] ?? 0) === 0; i++) await page.waitForTimeout(250);
+      out['rooms'] = { mode: ROOMS, built: (await game.observe().catch(() => null))?.counters?.['lroom_built'] ?? 0 };
     }
     await page.waitForTimeout(4000);
     out['loadingSpans'] = regionSpans((await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null)) as ProfileReport | null);
