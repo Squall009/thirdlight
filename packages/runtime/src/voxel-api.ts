@@ -40,7 +40,13 @@
  * Regions: `regionAt` names the open region a cell is in (connected open
  * cells, stitched across chunks as they load), whether it is enclosed, its
  * volume and whether the cell is under open sky; door and window openings
- * are portals between regions, so a house's room is its own region.
+ * are portals between regions, so a house's room is its own region. A room
+ * is an enclosed region (its openings are its only ways out); the outdoors
+ * is the region under the sky. Its box, its surface against solid voxels and
+ * a mean free path (4 V / S, the mean distance between two reflections in a
+ * room, what a reverb's decay is set from) size it for sound; `portalsOf`
+ * lists its doors and windows and the regions each leads to. The answers are
+ * kept as the regions are stitched: a query reads them, it walks nothing.
  *
  * Materials: a voxel names its material by id; `materialOf(id)` and
  * `materialAt(x, y, z)` answer with the material record that id is (its name,
@@ -51,7 +57,7 @@
  * triangle).
  */
 import type { VoxelMaterialInfo } from '@thirdlight/project-model';
-import { cellInWorld, MATERIAL_ID_MAX, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE_COUNT, VOXEL_SIZE_M, WETNESS_MAX, type VoxelRecord, type WalkHit, type WalkRay } from '@thirdlight/voxel';
+import { cellInWorld, MATERIAL_ID_MAX, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE_COUNT, VOXEL_SIZE_M, WETNESS_MAX, type OpenPortalInfo, type OpenRegionInfo, type VoxelRecord, type WalkHit, type WalkRay } from '@thirdlight/voxel';
 
 export type { VoxelMaterialInfo };
 
@@ -139,6 +145,13 @@ export interface VoxelRayHit {
 }
 
 /**
+ * What a region is to a game: a `room` (enclosed: complete, nothing of it under open sky, not at the world's edge),
+ * the `outdoors` (some cell of it under open sky), a `portal` (a door or window opening between regions), or
+ * `unknown` (it reaches space not loaded yet, or the world's edge: not a room, not known to be outdoors).
+ */
+export type VoxelRegionKind = 'room' | 'outdoors' | 'portal' | 'unknown';
+
+/**
  * The open region a cell is in (`regionAt`): connected open cells (not drawn as a body: air, liquid, rails and
  * posts; joined across cell faces, never by an edge alone), or a portal (the cells of a door or window opening,
  * which separate the regions either side of it).
@@ -163,6 +176,29 @@ export interface VoxelRegionInfo {
   readonly seesSky: boolean;
   /** A region: the portals (openings) on its boundary; a portal: the regions it joins. */
   readonly portals: number;
+  /** A room, the outdoors, a portal, or not known yet ({@link VoxelRegionKind}). */
+  readonly kind: VoxelRegionKind;
+  /** The box its cells fill (world metres; the loaded part while not complete). */
+  readonly bounds: VoxelBox;
+  /** Its surface against solid voxels in m² (cell faces of 0.25 m²; door and window openings are not surface). */
+  readonly surface: number;
+  /**
+   * Its mean free path in metres, 4 × volume / surface: the mean distance sound travels between two reflections in
+   * it (Sabine's room estimate; 0 with no surface). A 4 × 3 × 5 m room: 2.55 m.
+   */
+  readonly meanFreePath: number;
+}
+
+/** A door or window opening (`portalsOf`): its box and the regions it joins. */
+export interface VoxelPortalInfo {
+  /** The portal's id (its cells read as this in `regionAt`, with `portal` true). */
+  readonly id: number;
+  /** The box its opening cells fill (world metres). */
+  readonly bounds: VoxelBox;
+  /** Its opening's area across: the cells it holds × 0.125 m³ (its volume, m³). */
+  readonly volume: number;
+  /** The regions it joins (ids, ascending): a door between a room and the outdoors names both. */
+  readonly regions: readonly number[];
 }
 
 /** A walk's hit as scripts read it. */
@@ -179,6 +215,27 @@ export function voxelRayHit(ray: WalkRay, hit: WalkHit): VoxelRayHit {
 export interface VoxelBox {
   readonly min: readonly [number, number, number];
   readonly max: readonly [number, number, number];
+}
+
+/** A box of cells (min and max inclusive) in world metres. */
+export function cellBoxMetres(min: readonly number[], max: readonly number[]): VoxelBox {
+  const s = VOXEL_SIZE_M;
+  return Object.freeze({ min: Object.freeze([min[0]! * s, min[1]! * s, min[2]! * s] as [number, number, number]), max: Object.freeze([(max[0]! + 1) * s, (max[1]! + 1) * s, (max[2]! + 1) * s] as [number, number, number]) });
+}
+
+/** A stitched region's summary as scripts read it (`cellSky`: the queried cell is under open sky). */
+export function voxelRegionInfo(info: OpenRegionInfo, cellSky: boolean): VoxelRegionInfo {
+  const s = VOXEL_SIZE_M;
+  const volume = info.cells * s * s * s;
+  const surface = info.faces * s * s;
+  const kind: VoxelRegionKind = info.portal ? 'portal' : info.enclosed ? 'room' : info.sky ? 'outdoors' : 'unknown';
+  return Object.freeze({ id: info.id, portal: info.portal, enclosed: info.enclosed, complete: info.complete, volume, sky: cellSky, seesSky: info.sky, portals: info.portals, kind, bounds: cellBoxMetres(info.min, info.max), surface, meanFreePath: surface > 0 ? (4 * volume) / surface : 0 });
+}
+
+/** A stitched portal as scripts read it. */
+export function voxelPortalInfo(p: OpenPortalInfo): VoxelPortalInfo {
+  const s = VOXEL_SIZE_M;
+  return Object.freeze({ id: p.id, bounds: cellBoxMetres(p.min, p.max), volume: p.cells * s * s * s, regions: p.regions });
 }
 
 /** A change whose meshes, colliders and shader data were swapped in. */
@@ -253,6 +310,12 @@ export interface BehaviorVoxelWorld {
    * @graphNode skip a region is an object, which a graph output cannot take yet
    */
   regionAt(x: number, y: number, z: number): VoxelRegionInfo | null;
+  /**
+   * The portals (door and window openings) of a region by its id (`regionAt`'s), each with its box and the regions
+   * it joins; of a portal's id, that portal. Empty when the id is not a region now (an edit split or joined it).
+   * @graphNode skip a portal list is a list of objects, which a graph output cannot take yet
+   */
+  portalsOf(regionId: number): readonly VoxelPortalInfo[];
   /**
    * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
    * or its id has no material record in the build).

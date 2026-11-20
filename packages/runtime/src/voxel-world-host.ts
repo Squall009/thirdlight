@@ -88,9 +88,12 @@ import {
   regionCellList,
   regionCells,
   validPaint,
+  voxelPortalInfo,
   voxelRayHit,
+  voxelRegionInfo,
   writeRecord,
   type BehaviorVoxelWorld,
+  type VoxelPortalInfo,
   type VoxelRayHit,
   type VoxelRayOptions,
   type VoxelRegionInfo,
@@ -344,6 +347,7 @@ export class VoxelWorldHost {
       coverageAt: (x: number, y: number, z: number) => this.coverageAt(x, y, z),
       raycast: (origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions) => this.raycast(origin, direction, maxDistance, options),
       regionAt: (x: number, y: number, z: number) => this.regionAt(x, y, z),
+      portalsOf: (id: number) => this.portalsOf(id),
       materialAt: (x: number, y: number, z: number) => {
         const v = this.get(x, y, z);
         return v === null ? null : (this.materials.get(v.material) ?? null);
@@ -803,7 +807,14 @@ export class VoxelWorldHost {
     const cz = Math.floor(z / s);
     const info = r.regionAt(cx, cy, cz);
     if (info === null) return null;
-    return Object.freeze({ id: info.id, portal: info.portal, enclosed: info.enclosed, complete: info.complete, volume: info.cells * s * s * s, sky: r.skyAt(cx, cy, cz) ?? true, seesSky: info.sky, portals: info.portals });
+    return voxelRegionInfo(info, r.skyAt(cx, cy, cz) ?? true);
+  }
+
+  /** A region's portals (open-region-stitch.ts), in metres. */
+  portalsOf(id: number): readonly VoxelPortalInfo[] {
+    const r = this.regions;
+    if (r === null || !Number.isInteger(id)) return [];
+    return r.portalsOf(id).map(voxelPortalInfo);
   }
 
   /** The world's open regions as stitched (null: no world open): what lighting and benches read beside `regionAt`. */

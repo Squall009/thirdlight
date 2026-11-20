@@ -789,6 +789,12 @@ export interface BehaviorVoxelWorld {
    */
   regionAt(x: number, y: number, z: number): VoxelRegionInfo | null;
   /**
+   * The portals (door and window openings) of a region by its id (`regionAt`'s), each with its box and the regions
+   * it joins; of a portal's id, that portal. Empty when the id is not a region now (an edit split or joined it).
+   * @graphNode skip a portal list is a list of objects, which a graph output cannot take yet
+   */
+  portalsOf(regionId: number): readonly VoxelPortalInfo[];
+  /**
    * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
    * or its id has no material record in the build).
    * @graphNode skip a material record is an object, which a graph output cannot take yet
@@ -1336,27 +1342,4 @@ export interface BehaviorStatsOcclusion {
   /** Draws left out of the view because something in front hides them. */
   readonly culled: number;
 }
-```
-
-<a id="script-type-behavior-stats-lighting"></a>
-## `BehaviorStatsLighting`
-
-```ts
-/** The lighting the page draws, as `ctx.stats.lighting` reports it. */
-export interface BehaviorStatsLighting {
-  /** The quality level's lighting tier: low (saved light only, always on WebGL 2), medium or high (live). */
-  readonly tier: 'low' | 'medium' | 'high';
-  /** Whether the static surfaces' light is computed live on this device. */
-  readonly live: boolean;
-  /** Whether it has caught up: live, nothing left to light again; saved, the saved light read. */
-  readonly settled: boolean;
-}
-```
-
-<a id="script-type-dialogue-variable-value"></a>
-## `DialogueVariableValue`
-
-```ts
-/** A value of a dialogue variable or binding. */
-export type DialogueVariableValue = number | string | boolean | null;
 ```

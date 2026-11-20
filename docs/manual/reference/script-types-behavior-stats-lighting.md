@@ -1,8 +1,31 @@
-# Script API types (from `BehaviorDialogueState`)
+# Script API types (from `BehaviorStatsLighting`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-stats-lighting"></a>
+## `BehaviorStatsLighting`
+
+```ts
+/** The lighting the page draws, as `ctx.stats.lighting` reports it. */
+export interface BehaviorStatsLighting {
+  /** The quality level's lighting tier: low (saved light only, always on WebGL 2), medium or high (live). */
+  readonly tier: 'low' | 'medium' | 'high';
+  /** Whether the static surfaces' light is computed live on this device. */
+  readonly live: boolean;
+  /** Whether it has caught up: live, nothing left to light again; saved, the saved light read. */
+  readonly settled: boolean;
+}
+```
+
+<a id="script-type-dialogue-variable-value"></a>
+## `DialogueVariableValue`
+
+```ts
+/** A value of a dialogue variable or binding. */
+export type DialogueVariableValue = number | string | boolean | null;
+```
 
 <a id="script-type-behavior-dialogue-state"></a>
 ## `BehaviorDialogueState`
@@ -490,6 +513,34 @@ export interface VoxelRegionInfo {
   readonly seesSky: boolean;
   /** A region: the portals (openings) on its boundary; a portal: the regions it joins. */
   readonly portals: number;
+  /** A room, the outdoors, a portal, or not known yet ({@link VoxelRegionKind}). */
+  readonly kind: VoxelRegionKind;
+  /** The box its cells fill (world metres; the loaded part while not complete). */
+  readonly bounds: VoxelBox;
+  /** Its surface against solid voxels in m² (cell faces of 0.25 m²; door and window openings are not surface). */
+  readonly surface: number;
+  /**
+   * Its mean free path in metres, 4 × volume / surface: the mean distance sound travels between two reflections in
+   * it (Sabine's room estimate; 0 with no surface). A 4 × 3 × 5 m room: 2.55 m.
+   */
+  readonly meanFreePath: number;
+}
+```
+
+<a id="script-type-voxel-portal-info"></a>
+## `VoxelPortalInfo`
+
+```ts
+/** A door or window opening (`portalsOf`): its box and the regions it joins. */
+export interface VoxelPortalInfo {
+  /** The portal's id (its cells read as this in `regionAt`, with `portal` true). */
+  readonly id: number;
+  /** The box its opening cells fill (world metres). */
+  readonly bounds: VoxelBox;
+  /** Its opening's area across: the cells it holds × 0.125 m³ (its volume, m³). */
+  readonly volume: number;
+  /** The regions it joins (ids, ascending): a door between a room and the outdoors names both. */
+  readonly regions: readonly number[];
 }
 ```
 
@@ -765,6 +816,18 @@ export type DebugCommandArgType = 'number' | 'string' | 'boolean';
 ```ts
 /** A metadata value: bool, number (int/float) or string. */
 export type CellMetaValue = boolean | number | string;
+```
+
+<a id="script-type-voxel-region-kind"></a>
+## `VoxelRegionKind`
+
+```ts
+/**
+ * What a region is to a game: a `room` (enclosed: complete, nothing of it under open sky, not at the world's edge),
+ * the `outdoors` (some cell of it under open sky), a `portal` (a door or window opening between regions), or
+ * `unknown` (it reaches space not loaded yet, or the world's edge: not a room, not known to be outdoors).
+ */
+export type VoxelRegionKind = 'room' | 'outdoors' | 'portal' | 'unknown';
 ```
 
 <a id="script-type-voxel-material-use"></a>

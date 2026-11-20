@@ -67,6 +67,14 @@ export interface OpenRegionInfo {
   readonly enclosed: boolean;
   /** A region: the portals on its boundary; a portal: the regions it joins. */
   readonly portals: number;
+  /** The box of its cells (world cells, inclusive; over the loaded part while not complete). */
+  readonly min: readonly [number, number, number];
+  readonly max: readonly [number, number, number];
+  /**
+   * Cell faces between its cells and solid cells (each a cell's face): its surface, as far as the chunks it reaches
+   * are stitched (a face on a chunk face counts once the chunk across is).
+   */
+  readonly faces: number;
 }
 
 /** A portal's extent (cells, inclusive) and the regions it joins. */
@@ -93,6 +101,8 @@ export interface OpenRegionStats {
   readonly columns: number;
   /** Regions whose search after a loss is still under way. */
   readonly searching: number;
+  /** Region and portal summaries worked out since the stitching began (a query reads one already worked out). */
+  readonly summaries: number;
 }
 
 interface Group {
@@ -102,7 +112,14 @@ interface Group {
   info: OpenRegionInfo | null;
   /** The stitching's {@link OpenRegionStitch.changes} the summary was read at (a neighbour's change can move it). */
   infoAt: number;
+  /** Its portals' summaries and its nodes' boxes, read at the same change as `info` (null: not read since). */
+  portalList: OpenPortalInfo[] | null;
+  boxes: Box[] | null;
 }
+
+/** A box of cells (world, inclusive): min x y z, max x y z. */
+export type OpenRegionBox = readonly [number, number, number, number, number, number];
+type Box = OpenRegionBox;
 
 interface Node {
   readonly piece: Piece;
@@ -110,9 +127,13 @@ interface Node {
   readonly cells: number;
   /** Chunk faces its cells reach ({@link REGION_FACE} bits). */
   readonly faces: number;
-  /** Bounds (cells, world) of a portal node: its extent. */
+  /** Bounds (cells, world) of its cells. */
   readonly min: [number, number, number];
   readonly max: [number, number, number];
+  /** Faces between its cells and solid cells inside the piece. */
+  inner: number;
+  /** Per chunk face (the order of {@link FACES}): faces between its cells there and solid cells of the piece across. */
+  readonly across: Int32Array;
   readonly adj: Set<Node>;
   readonly links: Set<Node>;
   group: Group | null;
@@ -222,6 +243,7 @@ export class OpenRegionStitch {
   private walked = 0;
   private searched = 0;
   private columnsDone = 0;
+  private summaries = 0;
   /** The stage the next update starts with. */
   private turn = 0;
   private nodeCount = 0;
@@ -350,10 +372,13 @@ export class OpenRegionStitch {
     }
     this.nodeCount -= p.nodes.length;
     this.arrayBytes -= pieceBytes(p);
-    for (const [dx, dy, dz, , opp] of FACES) {
+    for (let f = 0; f < FACES.length; f++) {
+      const [dx, dy, dz, , opp] = FACES[f]!;
       const q = this.pieces.get(chunkKey(this.view.grid, p.cx + dx, p.cy + dy, p.cz + dz));
       if (q === undefined) continue;
       q.known &= ~opp;
+      // Its faces against the piece that went are not known until a piece comes there again.
+      for (const n of q.nodes) n.across[f ^ 1] = 0;
     }
     const ck = this.columnKey(p.cx, p.cz);
     const col = this.columns.get(ck);
@@ -388,7 +413,8 @@ export class OpenRegionStitch {
     const uniform = units.every((u) => u.labels === null && u.count === 0) ? 0 : units.every((u) => u.labels === null && u.count === 1 && (u.flags[0]! & REGION_PORTAL) === 0) ? 1 : -1;
     if (uniform >= 0) {
       const piece: Piece = { cx, cy, cz, key, units, maps: units.map((u) => (u.count === 0 ? NO_MAP : ONE_MAP)), nodes: [], top: uniform === 0 ? this.topSolid : this.topAir, known: 0, outside, uniform };
-      if (uniform === 1) piece.nodes.push({ piece, portal: false, cells: g.edge ** 3, faces: ALL_REGION_FACES, min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity], adj: new Set(), links: new Set(), group: null, sky: false, dead: false });
+      const [x0, y0, z0] = [cx * g.edge, cy * g.edge, cz * g.edge];
+      if (uniform === 1) piece.nodes.push({ piece, portal: false, cells: g.edge ** 3, faces: ALL_REGION_FACES, min: [x0, y0, z0], max: [x0 + g.edge - 1, y0 + g.edge - 1, z0 + g.edge - 1], inner: 0, across: new Int32Array(6), adj: new Set(), links: new Set(), group: null, sky: false, dead: false });
       return piece;
     }
     // Union-find over every unit's labels.
@@ -452,7 +478,7 @@ export class OpenRegionStitch {
         let c = compOf[root]!;
         if (c === 0) {
           const portal = portalOf(u, l);
-          nodes.push({ piece, portal, cells: 0, faces: 0, min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity], adj: new Set(), links: new Set(), group: null, sky: false, dead: false });
+          nodes.push({ piece, portal, cells: 0, faces: 0, min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity], inner: 0, across: new Int32Array(6), adj: new Set(), links: new Set(), group: null, sky: false, dead: false });
           c = compOf[root] = nodes.length;
         }
         piece.maps[u]![l] = c;
@@ -461,28 +487,41 @@ export class OpenRegionStitch {
         node.faces |= un.flags[l - 1]! & keep;
       }
     }
-    // A portal node's extent (portals are few and small: their cells are read).
-    if (nodes.some((nd) => nd.portal)) {
-      for (let u = 0; u < units.length; u++) {
-        const un = units[u]!;
-        if (un.labels === null) continue;
-        const sy = u % per;
-        const sz = Math.floor(u / per) % per;
-        const sx = Math.floor(u / (per * per));
-        for (let i = 0; i < un.labels.length; i++) {
-          const l = un.labels[i]!;
-          if (l === 0 || (un.flags[l - 1]! & REGION_PORTAL) === 0) continue;
-          const nd = nodes[piece.maps[u]![l]! - 1]!;
-          const x = ox + sx * se + Math.floor(i / (se * se));
-          const z = oz + sz * se + (Math.floor(i / se) % se);
-          const y = oy + sy * se + (i % se);
-          nd.min[0] = Math.min(nd.min[0], x);
-          nd.min[1] = Math.min(nd.min[1], y);
-          nd.min[2] = Math.min(nd.min[2], z);
-          nd.max[0] = Math.max(nd.max[0], x);
-          nd.max[1] = Math.max(nd.max[1], y);
-          nd.max[2] = Math.max(nd.max[2], z);
+    // Each node's box and the faces between its cells and solid cells inside the chunk, from the chunk's cells' components.
+    const E = g.edge;
+    const comp = compScratch(E * E * E);
+    for (let u = 0; u < units.length; u++) {
+      const un = units[u]!;
+      const map = piece.maps[u]!;
+      const sy = u % per;
+      const sz = Math.floor(u / per) % per;
+      const sx = Math.floor(u / (per * per));
+      const all = un.labels === null ? (un.count === 0 ? 0 : map[un.count]!) : -1;
+      for (let i = 0; i < se * se * se; i++) {
+        const x = sx * se + Math.floor(i / (se * se));
+        const z = sz * se + (Math.floor(i / se) % se);
+        const y = sy * se + (i % se);
+        comp[(x * E + z) * E + y] = all >= 0 ? all : map[un.labels![i]!]!;
+      }
+    }
+    for (let x = 0; x < E; x++) for (let z = 0; z < E; z++) {
+      const row = (x * E + z) * E;
+      for (let y = 0; y < E; y++) {
+        const i = row + y;
+        const c = comp[i]!;
+        if (c !== 0) {
+          const nd = nodes[c - 1]!;
+          if (ox + x < nd.min[0]) nd.min[0] = ox + x;
+          if (oy + y < nd.min[1]) nd.min[1] = oy + y;
+          if (oz + z < nd.min[2]) nd.min[2] = oz + z;
+          if (ox + x > nd.max[0]) nd.max[0] = ox + x;
+          if (oy + y > nd.max[1]) nd.max[1] = oy + y;
+          if (oz + z > nd.max[2]) nd.max[2] = oz + z;
         }
+        // The faces toward +x, +z and +y inside the chunk: one open side and one solid is a face of the open one's.
+        if (x + 1 < E) countFace(nodes, c, comp[i + E * E]!);
+        if (z + 1 < E) countFace(nodes, c, comp[i + E]!);
+        if (y + 1 < E) countFace(nodes, c, comp[i + 1]!);
       }
     }
     for (const [a, b] of linkPairs) {
@@ -525,20 +564,26 @@ export class OpenRegionStitch {
     this.arrayBytes += pieceBytes(p);
     for (const nd of p.nodes) this.fresh.add(nd);
     p.known = p.outside;
-    for (const [dx, dy, dz, bit, opp] of FACES) {
+    for (let f = 0; f < FACES.length; f++) {
+      const [dx, dy, dz, bit, opp] = FACES[f]!;
       const q = this.pieces.get(chunkKey(g, p.cx + dx, p.cy + dy, p.cz + dz));
       if (q === undefined) continue;
       p.known |= bit;
       q.known |= opp;
-      // Two uniform chunks meet in one value each: one cell pair says it all.
+      // Two uniform chunks meet in one value each: one cell pair says it all (for E² faces).
       const span = p.uniform >= 0 && q.uniform >= 0 ? 1 : E;
+      const per = span === 1 ? E * E : 1;
       for (let i = 0; i < span; i++) for (let j = 0; j < span; j++) {
         // The cell of p on the face, and the cell of q against it.
         const [ax, ay, az] = dx < 0 ? [0, i, j] : dx > 0 ? [E - 1, i, j] : dy < 0 ? [i, 0, j] : dy > 0 ? [i, E - 1, j] : dz < 0 ? [i, j, 0] : [i, j, E - 1];
         const ca = this.compAt(p, ax, ay, az);
-        if (ca === 0) continue;
         const cb = this.compAt(q, dx === 0 ? ax : E - 1 - ax, dy === 0 ? ay : E - 1 - ay, dz === 0 ? az : E - 1 - az);
-        if (cb === 0) continue;
+        // An open cell against a solid one across the chunk face: a face of the open one's surface.
+        if (ca === 0 || cb === 0) {
+          if (ca !== 0) p.nodes[ca - 1]!.across[f]! += per;
+          else if (cb !== 0) q.nodes[cb - 1]!.across[f ^ 1]! += per;
+          continue;
+        }
         const na = p.nodes[ca - 1]!;
         const nb = q.nodes[cb - 1]!;
         const set = na.portal === nb.portal ? na.adj : na.links;
@@ -630,7 +675,7 @@ export class OpenRegionStitch {
         if (into === null || og.nodes.length > into.nodes.length) into = og;
       }
       if (into === null) {
-        this.place({ id: this.nextId++, portal: n.portal, nodes: [n], info: null, infoAt: -1 });
+        this.place({ id: this.nextId++, portal: n.portal, nodes: [n], info: null, infoAt: -1, portalList: null, boxes: null });
         continue;
       }
       into.nodes.push(n);
@@ -792,7 +837,7 @@ export class OpenRegionStitch {
     }
     const order = [...parts.values()].sort((a, b) => b.nodes.length - a.nodes.length || a.first - b.first);
     if (this.groups.get(g.id) === g) this.groups.delete(g.id);
-    order.forEach((p, i) => this.place({ id: i === 0 ? g.id : this.nextId++, portal: g.portal, nodes: p.nodes, info: null, infoAt: -1 }));
+    order.forEach((p, i) => this.place({ id: i === 0 ? g.id : this.nextId++, portal: g.portal, nodes: p.nodes, info: null, infoAt: -1, portalList: null, boxes: null }));
   }
 
   private place(g: Group): void {
@@ -803,14 +848,23 @@ export class OpenRegionStitch {
   private summary(g: Group): OpenRegionInfo {
     if (g.info !== null && g.infoAt === this.version) return g.info;
     let cells = 0;
+    let faces = 0;
     let sky = false;
     let unknown = false;
     let edge = false;
+    const min: [number, number, number] = [Infinity, Infinity, Infinity];
+    const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
     const other = new Set<number>();
+    this.summaries++;
     for (const n of g.nodes) {
       // A region under search still lists the nodes it lost until the search ends.
       if (n.dead) continue;
       cells += n.cells;
+      faces += n.inner + n.across[0]! + n.across[1]! + n.across[2]! + n.across[3]! + n.across[4]! + n.across[5]!;
+      for (let k = 0; k < 3; k++) {
+        if (n.min[k]! < min[k]!) min[k] = n.min[k]!;
+        if (n.max[k]! > max[k]!) max[k] = n.max[k]!;
+      }
       sky ||= n.sky;
       unknown ||= (n.faces & ~n.piece.known) !== 0;
       edge ||= (n.faces & n.piece.outside) !== 0;
@@ -818,9 +872,11 @@ export class OpenRegionStitch {
     }
     // A region whose search is under way may be in parts already: not known whole, so never complete or enclosed yet.
     if (this.broken.has(g)) unknown = true;
-    const info: OpenRegionInfo = Object.freeze({ id: g.id, portal: g.portal, cells, sky, complete: !unknown, enclosed: !g.portal && !unknown && !sky && !edge, portals: other.size });
+    const info: OpenRegionInfo = Object.freeze({ id: g.id, portal: g.portal, cells, sky, complete: !unknown, enclosed: !g.portal && !unknown && !sky && !edge, portals: other.size, min: Object.freeze(min), max: Object.freeze(max), faces });
     g.info = info;
     g.infoAt = this.version;
+    g.portalList = null;
+    g.boxes = null;
     return info;
   }
 
@@ -849,10 +905,29 @@ export class OpenRegionStitch {
     return g === undefined ? null : this.summary(g);
   }
 
-  /** The portals on a region's boundary, or a portal itself, with their extents and the regions they join. */
-  portalsOf(id: number): OpenPortalInfo[] {
+  /**
+   * The portals on a region's boundary, or a portal itself, with their extents and the regions they join: read once
+   * after each change that moved anything (with the region's summary), then as kept.
+   */
+  portalsOf(id: number): readonly OpenPortalInfo[] {
     const g = this.groups.get(id);
     if (g === undefined) return [];
+    this.summary(g);
+    return (g.portalList ??= this.readPortals(g));
+  }
+
+  /**
+   * The boxes of a region's parts (world cells, inclusive), one a chunk it reaches: what a view cutting or thinning a
+   * room's shell reads, read once after each change that moved anything, then as kept.
+   */
+  boxesOf(id: number): readonly OpenRegionBox[] {
+    const g = this.groups.get(id);
+    if (g === undefined) return [];
+    this.summary(g);
+    return (g.boxes ??= g.nodes.filter((n) => !n.dead).map((n) => Object.freeze([n.min[0], n.min[1], n.min[2], n.max[0], n.max[1], n.max[2]] as const)));
+  }
+
+  private readPortals(g: Group): OpenPortalInfo[] {
     const portals = new Set<Group>();
     if (g.portal) portals.add(g);
     else for (const n of g.nodes) if (!n.dead) for (const o of n.links) if (o.group !== null) portals.add(o.group);
@@ -969,7 +1044,7 @@ export class OpenRegionStitch {
         if (r.enclosed) enclosed++;
       }
     }
-    return { pieces: this.pieces.size, nodes: this.nodeCount, regions, enclosed, portals, built: this.built, walked: this.walked, searched: this.searched, columns: this.columnsDone, searching: this.broken.size };
+    return { pieces: this.pieces.size, nodes: this.nodeCount, regions, enclosed, portals, built: this.built, walked: this.walked, searched: this.searched, columns: this.columnsDone, searching: this.broken.size, summaries: this.summaries };
   }
 
   /** Bytes held (the pieces' maps and tops, the columns' sky heights, and an estimate per node and contact). */
@@ -1014,6 +1089,20 @@ function sameRegions(a: OpenRegionsOut, b: OpenRegionsOut): boolean {
     for (let k = 0; k < u.length; k++) if (u[k] !== v[k]) return false;
   }
   return true;
+}
+
+/** Per thread: the chunk's cells' components while a piece is made (a chunk's cells, reused). */
+let compCells = new Uint16Array(0);
+
+function compScratch(n: number): Uint16Array {
+  if (compCells.length < n) compCells = new Uint16Array(n);
+  return compCells;
+}
+
+/** One cell face between components `a` and `b` (0: solid): a face of the open one's when the other is solid. */
+function countFace(nodes: readonly Node[], a: number, b: number): void {
+  if (a === 0 && b !== 0) nodes[b - 1]!.inner++;
+  else if (b === 0 && a !== 0) nodes[a - 1]!.inner++;
 }
 
 function pieceBytes(p: Piece): number {

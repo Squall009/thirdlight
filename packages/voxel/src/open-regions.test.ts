@@ -451,6 +451,136 @@ describe('open regions stitched across chunks', () => {
   });
 });
 
+/** Per brute label, the cell faces between its cells and solid cells inside the loaded box, and its box of cells. */
+function bruteShells(w: TestWorld, brute: Map<string, number>, lo: readonly number[], hi: readonly number[]): Map<number, { faces: number; min: number[]; max: number[] }> {
+  const out = new Map<number, { faces: number; min: number[]; max: number[] }>();
+  const min = lo.map((c) => c * 32);
+  const max = hi.map((c) => c * 32 + 31);
+  for (const [k, label] of brute) {
+    const p = k.split(',').map(Number);
+    let e = out.get(label);
+    if (e === undefined) out.set(label, (e = { faces: 0, min: [...p], max: [...p] }));
+    for (let a = 0; a < 3; a++) {
+      e.min[a] = Math.min(e.min[a]!, p[a]!);
+      e.max[a] = Math.max(e.max[a]!, p[a]!);
+    }
+    for (const d of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      const q = p.map((v, a) => v + d[a]!);
+      if (q.some((v, a) => v < min[a]! || v > max[a]!)) continue;
+      if (w.solid(q[0]!, q[1]!, q[2]!)) e.faces++;
+    }
+  }
+  return out;
+}
+
+describe("a region's size: its box, its surface, a mean free path", () => {
+  function ground(w: TestWorld): void {
+    w.fill([0, 0, 0, 95, 3, 95], ROCK);
+  }
+
+  it('a 4 × 3 × 5 m room across two chunk faces has the closed forms: 60 m³, 94 m², a mean free path 4V/S of 2.55 m', () => {
+    const w = new TestWorld();
+    ground(w);
+    // Inside cells 28–35 × 5–10 × 26–35: the chunk faces x = 32 and z = 32 run through it.
+    w.room([27, 4, 25, 36, 11, 36]);
+    const s = loadBox(w, [0, 0, 0], [2, 1, 2]);
+    const r = s.regionAt(30, 7, 30)!;
+    expect(r.enclosed).toBe(true);
+    expect(r.cells).toBe(8 * 6 * 10);
+    expect(r.min).toEqual([28, 5, 26]);
+    expect(r.max).toEqual([35, 10, 35]);
+    // 2 (8·6 + 8·10 + 6·10) cell faces.
+    expect(r.faces).toBe(376);
+    const v = r.cells * 0.5 ** 3;
+    const area = r.faces * 0.5 ** 2;
+    expect(v).toBeCloseTo(4 * 3 * 5, 9);
+    expect(area).toBeCloseTo(2 * (4 * 3 + 4 * 5 + 3 * 5), 9);
+    expect((4 * v) / area).toBeCloseTo((4 * 60) / 94, 9);
+    // Its parts: one box a chunk it reaches (four), together its box.
+    const boxes = s.boxesOf(r.id);
+    expect(boxes.length).toBe(4);
+    expect(boxes.reduce((n, b) => n + (b[3] - b[0] + 1) * (b[4] - b[1] + 1) * (b[5] - b[2] + 1), 0)).toBe(r.cells);
+  });
+
+  it("every region's surface and box equal a count over the cells, in any arrival order", () => {
+    const w = new TestWorld();
+    ground(w);
+    w.room([20, 4, 20, 30, 12, 34]);
+    w.room([30, 4, 20, 44, 12, 34]);
+    w.fill([30, 5, 26, 30, 8, 27], OPENING);
+    w.fill([24, 5, 20, 25, 8, 20], OPENING);
+    w.fill([60, 0, 60, 90, 50, 90], ROCK);
+    w.fill([70, 20, 70, 80, 30, 80], AIR);
+    // The chunks derived first (the brute force reads their occupancy).
+    loadBox(w, [0, 0, 0], [2, 1, 2]);
+    const brute = bruteRegions(w, [0, 0, 0], [2, 1, 2]);
+    const shells = bruteShells(w, brute, [0, 0, 0], [2, 1, 2]);
+    let seed = 5;
+    const rnd = (): number => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+    for (let k = 0; k < 3; k++) {
+      const s = loadBox(w, [0, 0, 0], [2, 1, 2], k === 0 ? undefined : (l) => l.map((c) => [rnd(), c] as const).sort((a, b) => a[0] - b[0]).map((x) => x[1]));
+      let checked = 0;
+      const seen = new Set<number>();
+      for (const [key, label] of brute) {
+        if (seen.has(label)) continue;
+        seen.add(label);
+        const [x, y, z] = key.split(',').map(Number) as [number, number, number];
+        const r = s.regionAt(x, y, z)!;
+        const b = shells.get(label)!;
+        expect([r.faces, ...r.min, ...r.max]).toEqual([b.faces, ...b.min, ...b.max]);
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(4);
+    }
+  });
+
+  it('answers 10,000 queries without a search or a summary worked out again', () => {
+    const w = new TestWorld();
+    ground(w);
+    w.room([20, 4, 20, 30, 12, 34]);
+    w.fill([24, 5, 20, 25, 8, 20], OPENING);
+    const s = loadBox(w, [0, 0, 0], [2, 1, 2]);
+    const room = s.regionAt(25, 6, 25)!;
+    s.portalsOf(room.id);
+    s.boxesOf(room.id);
+    s.regionAt(50, 6, 50);
+    const before = s.stats();
+    let ok = 0;
+    for (let i = 0; i < 10_000; i++) {
+      const r = s.regionAt(21 + (i % 9), 5 + (i % 7), 21 + (i % 13));
+      const o = s.regionAt(50 + (i % 30), 6, 50);
+      if (r?.id === room.id && s.portalsOf(r.id).length === 1 && s.boxesOf(r.id).length > 0 && o?.sky === true) ok++;
+    }
+    const after = s.stats();
+    expect(ok).toBe(10_000);
+    expect(before.summaries).toBeGreaterThan(0);
+    expect([after.searched - before.searched, after.walked - before.walked, after.summaries - before.summaries]).toEqual([0, 0, 0]);
+  });
+
+  it('a wall dug makes the room part of the outdoors; built again, the room and its surface are back', () => {
+    const w = new TestWorld();
+    ground(w);
+    w.room([27, 4, 25, 36, 11, 36]);
+    const s = loadBox(w, [0, 0, 0], [2, 1, 2]);
+    const room = s.regionAt(30, 7, 30)!;
+    w.fill([27, 6, 30, 27, 7, 31], AIR);
+    w.derive(0, 0, 0);
+    s.touch(0, 0, 0);
+    s.update();
+    const open = s.regionAt(30, 7, 30)!;
+    expect(open.enclosed).toBe(false);
+    expect(open.sky).toBe(true);
+    expect(open.id).toBe(s.regionAt(50, 6, 50)!.id);
+    w.fill([27, 6, 30, 27, 7, 31], WALL);
+    w.derive(0, 0, 0);
+    s.touch(0, 0, 0);
+    s.update();
+    const again = s.regionAt(30, 7, 30)!;
+    expect(again.enclosed).toBe(true);
+    expect([again.cells, again.faces, ...again.min, ...again.max]).toEqual([room.cells, room.faces, ...room.min, ...room.max]);
+  });
+});
+
 /**
  * Uniform chunks (what most of a ring is: rock below, open air above), as the derive gives them: a chunk is open air
  * when `air` says so, else solid. Loaded chunks are what the stitch sees.

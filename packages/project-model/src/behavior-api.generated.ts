@@ -408,6 +408,7 @@ export const BEHAVIOR_API_SKIPPED: readonly { path: string; reason: string }[] =
   {"path":"voxels.world","reason":"a world handle; the voxel nodes act on the first world loaded"},
   {"path":"voxels.raycast","reason":"a ray's origin and direction are points, which a graph input cannot take yet"},
   {"path":"voxels.regionAt","reason":"a region is an object, which a graph output cannot take yet"},
+  {"path":"voxels.portalsOf","reason":"a portal list is a list of objects, which a graph output cannot take yet"},
   {"path":"voxels.materialAt","reason":"a material record is an object, which a graph output cannot take yet"},
   {"path":"voxels.materialOf","reason":"a material record is an object, which a graph output cannot take yet"},
   {"path":"voxels.set","reason":"a region is a point, a box or a ball, which a graph input cannot take yet"},

@@ -5,7 +5,7 @@
  * under the sky. The houses are counted from the generator's own lots, not from the labels.
  */
 import { describe, expect, it } from 'vitest';
-import { OpenRegionStitch, type RegionStreamerView } from '@thirdlight/voxel';
+import { OpenRegionStitch, voxel, VOXEL_ROLE, type RegionStreamerView } from '@thirdlight/voxel';
 
 import { walkWorld, WALK_GRID } from './walk-world';
 import { townWorld } from './worlds';
@@ -38,5 +38,55 @@ describe('open regions on the town', () => {
     expect(enclosed.length).toBeGreaterThanOrEqual(15);
     for (const r of enclosed) expect(r.cells / 8).toBeGreaterThan(190);
     for (const r of enclosed) expect(r.cells / 8).toBeLessThan(2000);
+    // Each house as a room for a game: its cells and surface against a flood fill from one of its cells (open cells,
+    // openings apart), its box inside a lot, a mean free path 4V/S of a few metres, its portals (its doors and windows)
+    // each joining it to another region.
+    const opening = (x: number, y: number, z: number): boolean => {
+      const v = voxel();
+      w.store.voxelAt(x, y, z, v);
+      return v.role === VOXEL_ROLE.opening;
+    };
+    const sizes: string[] = [];
+    for (const r of enclosed) {
+      const fill = floodFrom(r, w.solidAt.bind(w), opening);
+      expect([fill.cells, fill.faces]).toEqual([r.cells, r.faces]);
+      const span = r.max.map((v, a) => (v - r.min[a]! + 1) / 2);
+      expect(Math.max(span[0]!, span[2]!)).toBeLessThan(16);
+      const mfp = (4 * r.cells * 0.125) / (r.faces * 0.25);
+      expect(mfp).toBeGreaterThan(1);
+      expect(mfp).toBeLessThan(6);
+      const ports = s.portalsOf(r.id);
+      expect(ports.length).toBe(r.portals);
+      for (const p of ports) {
+        expect(p.regions).toContain(r.id);
+        expect(p.regions.length).toBe(2);
+      }
+      sizes.push(`${(r.cells / 8).toFixed(0)} m³ ${(r.faces / 4).toFixed(0)} m² mfp ${mfp.toFixed(2)} m box ${span.join('×')} m portals ${ports.length}`);
+    }
+    console.log(`[open-regions town] rooms: ${sizes.join('; ')}`);
   });
 });
+
+/** A 6-connected flood fill of a region's open cells from a cell inside it (openings apart), within its box: its cells and the faces against solid cells. */
+function floodFrom(r: { readonly min: readonly number[]; readonly max: readonly number[] }, solid: (x: number, y: number, z: number) => boolean, opening: (x: number, y: number, z: number) => boolean): { cells: number; faces: number } {
+  let start: number[] | null = null;
+  for (let x = r.min[0]!; x <= r.max[0]! && start === null; x++) for (let y = r.min[1]!; y <= r.max[1]! && start === null; y++) for (let z = r.min[2]!; z <= r.max[2]! && start === null; z++) if (!solid(x, y, z) && !opening(x, y, z)) start = [x, y, z];
+  const seen = new Set<string>([start!.join(',')]);
+  const stack = [start!];
+  let faces = 0;
+  while (stack.length > 0) {
+    const p = stack.pop()!;
+    for (const d of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      const q = p.map((v, a) => v + d[a]!);
+      if (solid(q[0]!, q[1]!, q[2]!)) {
+        faces++;
+        continue;
+      }
+      const k = q.join(',');
+      if (seen.has(k) || opening(q[0]!, q[1]!, q[2]!)) continue;
+      seen.add(k);
+      stack.push(q);
+    }
+  }
+  return { cells: seen.size, faces };
+}

@@ -135,6 +135,7 @@ export class RuntimeVoxels {
       coverageAt: (x: number, y: number, z: number) => first()?.coverageAt(x, y, z) ?? null,
       raycast: (origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions) => first()?.raycast(origin, direction, maxDistance, options) ?? null,
       regionAt: (x: number, y: number, z: number) => first()?.regionAt(x, y, z) ?? null,
+      portalsOf: (id: number) => first()?.portalsOf(id) ?? [],
       materialAt: (x: number, y: number, z: number) => first()?.materialAt(x, y, z) ?? null,
       // Materials are the game's, not a world's: answered with no world loaded too.
       materialOf: (id: number) => this.materials.get(id) ?? null,

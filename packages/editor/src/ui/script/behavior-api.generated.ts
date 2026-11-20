@@ -3201,6 +3201,12 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the cell is under open sky, and its portals (door and window openings). Null where the cell is solid, or the world is not loaded th"
     },
     {
+      "name": "portalsOf",
+      "kind": "method",
+      "detail": "(regionId: number): readonly VoxelPortalInfo[]",
+      "doc": "The portals (door and window openings) of a region by its id (`regionAt`'s), each with its box and the regions it joins; of a portal's id, that portal. Empty when the id is not a region now (an edit split or joined it)."
+    },
+    {
       "name": "materialAt",
       "kind": "method",
       "detail": "(x: number, y: number, z: number): VoxelMaterialInfo | null",
@@ -3340,6 +3346,12 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "(x: number, y: number, z: number): VoxelRegionInfo | null",
       "returns": "VoxelRegionInfo",
       "doc": "The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the cell is under open sky, and its portals (door and window openings). Null where the cell is solid, or the world is not loaded th"
+    },
+    {
+      "name": "portalsOf",
+      "kind": "method",
+      "detail": "(regionId: number): readonly VoxelPortalInfo[]",
+      "doc": "The portals (door and window openings) of a region by its id (`regionAt`'s), each with its box and the regions it joins; of a portal's id, that portal. Empty when the id is not a region now (an edit split or joined it)."
     },
     {
       "name": "materialAt",
@@ -5046,6 +5058,18 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "number"
     }
   ],
+  "VoxelBox": [
+    {
+      "name": "min",
+      "kind": "property",
+      "detail": "readonly [number, number, number]"
+    },
+    {
+      "name": "max",
+      "kind": "property",
+      "detail": "readonly [number, number, number]"
+    }
+  ],
   "VoxelMaterialInfo": [
     {
       "name": "id",
@@ -5174,6 +5198,31 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "number",
       "doc": "A region: the portals (openings) on its boundary; a portal: the regions it joins."
+    },
+    {
+      "name": "kind",
+      "kind": "property",
+      "detail": "VoxelRegionKind",
+      "doc": "A room, the outdoors, a portal, or not known yet ({@link VoxelRegionKind})."
+    },
+    {
+      "name": "bounds",
+      "kind": "property",
+      "detail": "VoxelBox",
+      "type": "VoxelBox",
+      "doc": "The box its cells fill (world metres; the loaded part while not complete)."
+    },
+    {
+      "name": "surface",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Its surface against solid voxels in m² (cell faces of 0.25 m²; door and window openings are not surface)."
+    },
+    {
+      "name": "meanFreePath",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Its mean free path in metres, 4 × volume / surface: the mean distance sound travels between two reflections in it (Sabine's room estimate; 0 with no surface). A 4 × 3 × 5 m room: 2.55 m."
     }
   ],
   "VoxelRings": [

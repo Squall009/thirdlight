@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EntityV3 } from '@thirdlight/project-model';
 import { PROP_SAMPLES_PER_AXIS, VOXEL_SIZE_M, type PropShape } from '@thirdlight/voxel';
+import { voxelPortalInfo, voxelRegionInfo } from './voxel-api';
 import { RuntimeVoxels } from './voxel-worlds';
 import type { WorldTransform } from './world-transform';
 
@@ -47,5 +48,27 @@ describe('lit props stamped as they move', () => {
     for (let i = 0; i < 30; i++) rv.beginStep();
     expect(shapes).toBe(turned + 1);
     rv.dispose();
+  });
+});
+
+describe('a region as scripts read it', () => {
+  const base = { id: 7, portal: false, cells: 480, sky: false, complete: true, enclosed: true, portals: 2, min: [28, 5, 26] as const, max: [35, 10, 35] as const, faces: 376 };
+
+  it('a 4 × 3 × 5 m room: kind room, its box in metres, 60 m³, 94 m², a mean free path of 4V/S = 2.55 m', () => {
+    const r = voxelRegionInfo(base, false);
+    expect(r.kind).toBe('room');
+    expect(r.bounds).toEqual({ min: [14, 2.5, 13], max: [18, 5.5, 18] });
+    expect(r.volume).toBeCloseTo(60, 9);
+    expect(r.surface).toBeCloseTo(94, 9);
+    expect(r.meanFreePath).toBeCloseTo(240 / 94, 9);
+    expect([r.enclosed, r.sky, r.seesSky, r.portals]).toEqual([true, false, false, 2]);
+  });
+
+  it('the outdoors, a portal and a region still loading are told apart', () => {
+    expect(voxelRegionInfo({ ...base, enclosed: false, sky: true }, true).kind).toBe('outdoors');
+    expect(voxelRegionInfo({ ...base, enclosed: false, complete: false }, false).kind).toBe('unknown');
+    expect(voxelRegionInfo({ ...base, portal: true, enclosed: false }, false).kind).toBe('portal');
+    expect(voxelRegionInfo({ ...base, faces: 0 }, false).meanFreePath).toBe(0);
+    expect(voxelPortalInfo({ id: 3, min: [24, 5, 20], max: [25, 8, 20], cells: 8, regions: [1, 7] })).toEqual({ id: 3, bounds: { min: [12, 2.5, 10], max: [13, 4.5, 10.5] }, volume: 1, regions: [1, 7] });
   });
 });
