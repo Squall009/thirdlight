@@ -3788,6 +3788,44 @@ stretched kit log beside the fence; no soft shade on the ground behind it to see
 the ground behind it should not flicker as it is re-stamped every ⅛ m). A thin prop's shade (D727). The cost of many
 moving lit props (D728).
 
+### D725 — the Play leak over a voxel world
+
+**Cause.** Not a cache and not the store: the store-off loop stops each Play about 1.3 s after it starts, while the
+256-cell slice world still streams in (the volume's loop waits until the world is lit, ~9 s, by when streaming has
+settled). In that state the play page's simulation worker sometimes outlived its iframe in Chrome: a heap snapshot of a
+high state against a low one (+25 MiB `ExternalStringData` of the play build's scripts, +16 MiB `JSArrayBufferData`)
+put a detached Play `Window` under `C++ Persistent roots` → `ThreadedMessagingProxyBase` → `DedicatedWorkerMessagingProxy`
+→ `Window`, the `Worker` being `createBrowserSimWorker`'s; `Target.getTargets` still listed `thirdlight-simulation` after
+its page was gone, and it answered no CDP command. One kept page is +15 MiB heap, +28 MiB buffers; it came in steps, about
+one Play in fifteen, and a later Play could free one (the gate's "1.4–2 MiB a Play" were one or two steps over ten).
+Two things raced: the editor acked the backend's `play.stop.request` at once, so the iframe went while the page's
+dispose still waited for the worker; and the worker was terminated while the voxel workers it had started (its world's
+pool) were still ending.
+
+**What was varied** (`~/.cache/thirdlight-phase46e/work/d725/`: `d725-repro.e2e.ts`, `run.sh`, `snapdiff.mjs`, logs;
+each loop a fresh backend and page, store off unless named, per-cycle heap after GC, MiB): stop at once, 25–30 cycles,
+seven runs: 0–5 steps each; wait until the world's draws are still: 32.90 → 33.53 over 25, no step; `&threads=off`
+(the pool on the page, no nesting): 32.92 → 33.67 over 30; no voxel world: 25.9 → 26.7 over 30. Ruled out: workers
+terminated before they started (all four pool workers had answered at every close), the dispose answer timing out
+(it came in 8–125 ms in leaking runs too), waiting only for the page's teardown (1, 0, 5 steps over 3 × 25), and the
+pool ending only idle workers (busy ones at their answer: 1, 2, 1 steps over 3 × 30). A 1 s gap between the pool's close
+and the worker's termination: 0 over 3 × 30; 250 ms: 0 over 3 × 30.
+
+**Fix** (b30c378b). The preview answers `tl.stopped` once its simulation worker is gone
+(`GamePageHandle.disposeAndWait`); the editor acks the backend's stop after that answer (`Bridge.stop`; a preview that
+never answered has nothing to wait for; the backend's 5 s stop wait bounds it). The worker answers `disposed`
+`POOL_END_GRACE_MS` (250 ms, `@thirdlight/voxel`) after it closed its pools (`poolWorkersEnded`): the web gives no signal
+that a worker has ended, so this is a measured gap, not a proof; a Stop over a voxel world takes that much longer.
+Not covered: a Stop during the page's composition (before `tl.ready`) still drops the late composition when it lands.
+
+**Curves after the fix** (25 Plays, MiB): store off, stopped at once 32.89 → 33.45 (flat, +0.02 a Play); the tier's
+volume, stopped once lit 32.86 → 33.51. The leak test's twelve warm-up Plays are removed (`leakCheck`'s two remain):
+they hid nothing but this. Vitest: `bridge.test.ts` (a stop resolves only on `tl.stopped` for its play),
+`worker-pool-end.test.ts` (the gap after a close). Gates: `gate-area-20261120-022643` (play, the leak test) GREEN, its
+loops 33.11 → 33.39 (volume) and 33.08 → 33.41 (store off); one failure under load passed alone (the leak test's
+document tabs, an asset upload's publish button: not Play); `gate-fast-20261120-023200` (`voxel-world.e2e.ts`) GREEN, 13
+passed, its Play tests 1.5 / 2.0 min (1.6 / 2.0 before, `gate-fast-20261119-220820`).
+
 ## 9. Decision log
 
 - 2026-11-14 (OWNER): the A/B runs **both stores on voxels, on the same scene**: "we had at one point wondered if
