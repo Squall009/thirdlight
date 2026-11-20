@@ -3768,6 +3768,11 @@ flag (broken: read off the surface with level 0's eight cells: fails, `broken-pa
 the readings above, not by a test. `derived.test.ts` and `world-host.test.ts`: the channel's load/flush and its
 budget part each build. Playwright: no change; the Play tests 1.6 and 2.0 min (`gate-rerun-20261119-222201`).
 
+**Travel** (`run.mjs coverage --export --speed 150`, low, town, the volume on, no props: what the default path pays;
+base ce325bf7 in a scratch worktree with its own links, removed after; 2026-11-20 00:45 / 00:47, load 0.8 / 2.3):
+base / head longest 52.9 / 48.5 ms, 0 / 0 over 100, missed 15.5 / 12.8 a minute, full detail 3.85 / 3.31 s, nothing
+pending 7.56 / 7.29 s, ground 0.03 s, falls 0 of 34, both exports removed: alike within a run's spread.
+
 **Gates.** `gate-fast-20261119-220820` RED in vitest (the world host's prop test read a budget part a chunk build;
 far-world's byte bound under load, green alone) → fixed (fef7f597) → `gate-rerun-20261119-222201` GREEN, 61 passed.
 
