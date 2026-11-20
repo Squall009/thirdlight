@@ -550,6 +550,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'voxels.materialAt',
       'voxels.materialOf',
       'voxels.paint',
+      // A portal list is a list of objects: not a graph output yet.
+      'voxels.portalsOf',
       // A ray's origin and direction are points (no graph input yet), a region an object (no graph output yet).
       'voxels.raycast',
       'voxels.regionAt',
