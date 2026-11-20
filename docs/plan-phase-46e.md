@@ -4331,6 +4331,12 @@ passed, its Play tests 1.5 / 2.0 min (1.6 / 2.0 before, `gate-fast-20261119-2208
   particle's centre facing the eye (level 0's one cell there, the coarse levels' eight), not per pixel;
   `?surfaceRead=particlepixel` keeps the per-pixel read for a comparison. No tier setting changed for props.
 
+- 2026-11-20 (lead): 46e.15 counts as done with D725 fixed (b30c378b; `gate-area-20261120-022643` green, the leak
+  loops flat, the twelve warm-up Plays removed). The fix waits a measured 250 ms for the voxel worker pools to end
+  (no browser signal exists): logged as watch row D729 so a return of the leak on a slower machine is recognised.
+  Checked by the lead: the cause was the lead's hypothesis for the fix agent (Stop while the world streams), confirmed
+  by its controls (settled before stop, simulation on the page, no voxel world: all flat).
+
 ## 10. Open questions for the owner (asked with the plan)
 
 1. The two parts with a stop at the lighting choice. **Owner 2026-11-14: yes.**
