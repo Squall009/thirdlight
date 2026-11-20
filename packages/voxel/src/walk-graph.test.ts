@@ -575,6 +575,14 @@ describe('walk graph: stitching', () => {
     expect(path(g, s, t).status).toBe('found');
   });
 
+  it('frees any number of exit ids retired while queries waited (a streaming ring retires tens of thousands)', () => {
+    const g = new WalkGraph(new TestWorld().view(), M);
+    const held = g as unknown as { retiredIds: number[]; freeIds: number[] };
+    for (let i = 0; i < 300_000; i++) held.retiredIds.push(i);
+    expect(() => g.releaseIds()).not.toThrow();
+    expect([held.retiredIds.length, held.freeIds.length]).toEqual([0, 300_000]);
+  });
+
   it('spreads its work over slices on a stepping clock, never past a slice by more than one unit, to the same graph', () => {
     const w = scrap(61);
     const whole = loadAll(w, [0, -1, 0], [1, 1, 1]);

@@ -291,7 +291,8 @@ export class WalkGraph {
   /** Exit ids gone are free again (called when no search holds one). */
   releaseIds(): void {
     if (this.retiredIds.length === 0) return;
-    this.freeIds.push(...this.retiredIds);
+    // One at a time: a ring streaming while queries wait retires tens of thousands, past what a spread's arguments hold.
+    for (const id of this.retiredIds) this.freeIds.push(id);
     this.retiredIds.length = 0;
   }
 

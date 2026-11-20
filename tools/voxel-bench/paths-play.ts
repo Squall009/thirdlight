@@ -22,7 +22,7 @@ const BEHAVIOR = 'paths-bench-camera';
 const STATUS = ['found', 'partial', 'unreachable', 'unknown'] as const;
 
 /** The bench's camera script: the camera at a place; the queries asked on commands, their answers as counters. */
-function benchSource(queries: readonly PathQuery[]): string {
+export function benchSource(queries: readonly PathQuery[]): string {
   const street = LIGHTING_CAMERAS.find((c) => c.name === 'street-noon')!;
   const cave = LIGHTING_CAMERAS.find((c) => c.name === 'cave')!;
   const town = queries.filter((q) => q.town).flatMap((q) => [q.from, q.to]);
@@ -104,6 +104,10 @@ export async function pathsPlay(opt: (name: string, d: string) => string, querie
   const browser = await launchGpuBrowser({ vsync: true });
   try {
     const page = await (await browser.newContext({ viewport, deviceScaleFactor: 1 })).newPage();
+    const pageErrors: string[] = [];
+    page.on('console', (m) => void (m.type() === 'error' && pageErrors.push(m.text().slice(0, 1500))));
+    page.on('pageerror', (e) => void pageErrors.push(`pageerror ${String(e.stack ?? e).slice(0, 2500)}`));
+    out['pageErrors'] = pageErrors;
     const game = await openPlay(b, page, { viewport, query: '', quality, world });
     const profile = async (): Promise<ProfileReport> => (await game.frame.evaluate(() => (window as unknown as { __tlProfiler: { read(): unknown } }).__tlProfiler.read())) as ProfileReport;
     const counters = async (): Promise<Record<string, number>> => (await game.observe())?.counters ?? {};
@@ -137,6 +141,23 @@ export async function pathsPlay(opt: (name: string, d: string) => string, querie
       const sum = reads.reduce((k, r) => k + r[n]!.perFrame * r[n]!.frames, 0);
       return [n, { perFrame: Number((sum / Math.max(1, frames)).toFixed(3)), max: Math.max(0, ...reads.map((r) => r[n]!.max)), frames }];
     }));
+    // The simulation worker over CDP: its exceptions and console errors while the queries run (a stalled step shows here).
+    const cdp = await browser.newBrowserCDPSession();
+    const workerMsgs: Array<Record<string, unknown>> = [];
+    let cdpSend: ((method: string, params?: Record<string, unknown>) => Promise<unknown>) | null = null;
+    try {
+      const { targetInfos } = (await cdp.send('Target.getTargets')) as { targetInfos: Array<{ targetId: string; type: string; title: string; url: string }> };
+      const simT = targetInfos.find((t) => t.type === 'worker' && /simulation/.test(t.title + t.url));
+      if (simT !== undefined) {
+        const { sessionId } = (await cdp.send('Target.attachToTarget', { targetId: simT.targetId, flatten: false })) as { sessionId: string };
+        cdp.on('Target.receivedMessageFromTarget' as never, (e: { message: string }) => void workerMsgs.push(JSON.parse(e.message)));
+        let id = 1;
+        cdpSend = (method, params = {}) => cdp.send('Target.sendMessageToTarget' as never, { sessionId, message: JSON.stringify({ id: id++, method, params }) } as never);
+        await cdpSend('Runtime.enable');
+      }
+    } catch (e) {
+      out['cdpError'] = String(e).slice(0, 300);
+    }
     const t0 = Date.now();
     const arrived = await settle();
     let sim = arrived.sim;
@@ -156,8 +177,25 @@ export async function pathsPlay(opt: (name: string, d: string) => string, querie
       return want.map(([q, k]) => ({ name: q.name, status: STATUS[Math.floor(a(k) / 1e7) - 1] ?? null, lengthM: (a(k) % 1e7) / 100, points: c[`q${k}_points`] ?? 0, searched: b(k) % 1e8, steps: Math.floor(b(k) / 1e8), ms: (c[`q${k}_us`] ?? 0) / 1000, spans: spansMs(p, SPANS), walk: sim?.['walk'] ?? null, counters: Object.fromEntries(Object.entries(c).filter(([n]) => n.startsWith(`q${k}_`))) }));
     };
     out['street'] = await ask('street');
+    out['afterStreet'] = [];
+    for (let i = 0; i < 4; i++) {
+      await page.waitForTimeout(1500);
+      (out['afterStreet'] as number[]).push(((await game.observe()) as { stepIndex?: number }).stepIndex ?? -1);
+    }
+    out['workerErrors'] = workerMsgs.filter((m) => m['method'] === 'Runtime.exceptionThrown' || (m['method'] === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes((m['params'] as { type: string }).type))).map((m) => JSON.stringify(m['params']).slice(0, 4000));
+    if (cdpSend !== null && (out['afterStreet'] as number[])[0] === (out['afterStreet'] as number[])[3]) {
+      // Stalled: where the worker is.
+      await cdpSend('Debugger.enable');
+      await cdpSend('Debugger.pause');
+      for (let i = 0; i < 40 && !workerMsgs.some((m) => m['method'] === 'Debugger.paused'); i++) await page.waitForTimeout(250);
+      const pz = workerMsgs.find((m) => m['method'] === 'Debugger.paused') as { params?: { callFrames?: Array<{ functionName: string; location: { lineNumber: number; columnNumber: number } }> } } | undefined;
+      out['stalledAt'] = (pz?.params?.callFrames ?? []).map((f) => `${f.functionName}@${f.location.lineNumber}:${f.location.columnNumber}`);
+      await cdpSend('Debugger.resume');
+    }
+    console.log(`play after street: ${JSON.stringify({ steps: out['afterStreet'], errors: out['workerErrors'], stalledAt: out['stalledAt'], pageErrors }).slice(0, 6000)}`);
     console.log(`play street: ${JSON.stringify(out['street'])}`);
     // A hundred at once.
+    out['beforeHundred'] = await game.observe();
     await profile();
     await game.debug('paths-100');
     for (let i = 0; i < 480 && ((await counters())['h_done'] ?? 0) < 100; i++) await page.waitForTimeout(250);
@@ -171,6 +209,11 @@ export async function pathsPlay(opt: (name: string, d: string) => string, querie
     sim = moved.sim;
     out['cave'] = { walk: sim?.['walk'] ?? null, travel: pooled(moved.reads), answers: await ask('cave') };
     console.log(`play cave: ${JSON.stringify(out['cave'])}`);
+    // What the run reported beside the answers (a script's faults, the runtime's warnings): the diagnostics' failure part.
+    const diag = (await b.api(`play/${game.psid}/diagnostics`, {})).json['diagnostics'] as Record<string, unknown> | undefined;
+    out['faults'] = diag === undefined ? null : Object.fromEntries(Object.entries(diag).filter(([k]) => /fault|fail|error|warn|log/i.test(k)));
+    out['diagnostics'] = JSON.stringify(diag ?? null).slice(0, 20000);
+    out['observe'] = await game.observe();
     await game.stop();
   } finally {
     await browser.close().catch(() => undefined);
