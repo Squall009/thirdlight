@@ -3775,6 +3775,9 @@ pending 7.56 / 7.29 s, ground 0.03 s, falls 0 of 34, both exports removed: alike
 
 **Gates.** `gate-fast-20261119-220820` RED in vitest (the world host's prop test read a budget part a chunk build;
 far-world's byte bound under load, green alone) → fixed (fef7f597) → `gate-rerun-20261119-222201` GREEN, 61 passed.
+`gate-area-20261120-004959` (play, the leak test) RED 1 → `gate-rerun-20261120-005807` RED 1: the store-off Play loop
+grows the editor page's heap 1.4 MiB a Play (D725 again, its numbers of 46e.14c to the tenth); the volume's loop holds.
+Not traced to this item (nothing of it runs on the page with the store off but the particle kind), not ruled out.
 
 **Pictures** (looked at): `shots/P-vertex/street-noon.png`, `room-window.png`, `night-lamps.png` and
 `shots/P-off/room-window.png` (the panel lit in the sun, dark in the room, dark red at night; grey-blue in the room
