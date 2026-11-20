@@ -244,7 +244,9 @@ export class WalkStepper {
     const z = c.cz * e + lz;
     const s = this.cellM;
     for (let d = 0; d < 4; d++) {
-      const [dx, dz] = ORTHO[d]!;
+      const o = ORTHO[d]!;
+      const dx = o[0];
+      const dz = o[1];
       this.orthoTo[d] = null;
       let found = false;
       for (let k = 0; k < 3 && !found; k++) {
@@ -269,7 +271,12 @@ export class WalkStepper {
       if (!found && agent.maxDrop >= 2) this.drop(look, c, x, y, z, dx, dz, agent, sink);
     }
     // Diagonals inside the chunk only, with both straight neighbours walked the same way.
-    for (const [dx, dz, oa, ob] of DIAG) {
+    for (let q = 0; q < 4; q++) {
+      const dd = DIAG[q]!;
+      const dx = dd[0];
+      const dz = dd[1];
+      const oa = dd[2];
+      const ob = dd[3];
       if (lx + dx < 0 || lx + dx >= e || lz + dz < 0 || lz + dz >= e) continue;
       const pa = this.orthoTo[oa];
       const pb = this.orthoTo[ob];

@@ -46,8 +46,9 @@ export default {
       for (const a of v.paths) {
         const k = s.asked[a.path];
         if (k !== undefined) {
-          put('q' + k + '_status', STATUS.indexOf(a.status) + 1); put('q' + k + '_cm', Math.round(a.length * 100)); put('q' + k + '_points', a.points.length);
-          put('q' + k + '_searched', a.searched); put('q' + k + '_steps', a.steps); put('q' + k + '_us', Math.round(a.ms * 1000));
+          // Two counters a query: its status and length (status × 10⁷ + cm), and what it cost (steps × 10⁸ + places searched).
+          put('q' + k + '_a', (STATUS.indexOf(a.status) + 1) * 1e7 + Math.round(a.length * 100)); put('q' + k + '_b', a.steps * 1e8 + a.searched);
+          put('q' + k + '_us', Math.round(a.ms * 1000)); put('q' + k + '_points', a.points.length);
           ctx.game.add('answered', 1);
         }
         if (s.hundred[a.path] !== undefined) {
@@ -131,7 +132,10 @@ export async function pathsPlay(opt: (name: string, d: string) => string, querie
       for (let i = 0; i < 240 && ((await counters())['answered'] ?? 0) < c0 + want.length; i++) await page.waitForTimeout(250);
       const p = await profile();
       const c = await counters();
-      return want.map(([q, k]) => ({ name: q.name, status: STATUS[(c[`q${k}_status`] ?? 0) - 1] ?? null, lengthM: (c[`q${k}_cm`] ?? 0) / 100, points: c[`q${k}_points`] ?? 0, searched: c[`q${k}_searched`] ?? 0, steps: c[`q${k}_steps`] ?? 0, ms: (c[`q${k}_us`] ?? 0) / 1000, spans: spansMs(p, SPANS) }));
+      const a = (k: number): number => c[`q${k}_a`] ?? 0;
+      const b = (k: number): number => c[`q${k}_b`] ?? 0;
+      const sim = await game.sim();
+      return want.map(([q, k]) => ({ name: q.name, status: STATUS[Math.floor(a(k) / 1e7) - 1] ?? null, lengthM: (a(k) % 1e7) / 100, points: c[`q${k}_points`] ?? 0, searched: b(k) % 1e8, steps: Math.floor(b(k) / 1e8), ms: (c[`q${k}_us`] ?? 0) / 1000, spans: spansMs(p, SPANS), walk: sim?.['walk'] ?? null, counters: Object.fromEntries(Object.entries(c).filter(([n]) => n.startsWith(`q${k}_`))) }));
     };
     out['street'] = await ask('street');
     console.log(`play street: ${JSON.stringify(out['street'])}`);

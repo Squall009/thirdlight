@@ -139,10 +139,13 @@ class CellSpace implements SearchGraph {
   frontierCost = Infinity;
   costOf: ((node: number) => number) | null = null;
 
+  private readonly cellM: number;
+
   constructor(
     private readonly graph: WalkGraph,
     private readonly stepper: WalkStepper,
   ) {
+    this.cellM = graph.cellM;
     this.sink = (t, j, cost) => {
       const c = this.corridor;
       if (c !== null && c.get(t)?.has(t.piece[j]!) !== true) return;
@@ -174,8 +177,8 @@ class CellSpace implements SearchGraph {
     return b + i;
   }
 
-  /** The part and cell of an id. */
-  spotOf(id: number): Spot {
+  /** The part and cell of an id into {@link atChunk} and {@link atCell} (nothing allocated: searches call it a node). */
+  locate(id: number): void {
     let lo = 0;
     let hi = this.starts.length - 1;
     while (lo < hi) {
@@ -183,12 +186,30 @@ class CellSpace implements SearchGraph {
       if (this.starts[m]! <= id) lo = m;
       else hi = m - 1;
     }
-    return { chunk: this.list[lo]!, cell: id - this.starts[lo]! };
+    this.atChunk = this.list[lo]!;
+    this.atCell = id - this.starts[lo]!;
   }
+
+  atChunk: WalkChunk | null = null;
+  atCell = 0;
+
+  /** The part and cell of an id, as an object (for an answer's path). */
+  spotOf(id: number): Spot {
+    this.locate(id);
+    return { chunk: this.atChunk!, cell: this.atCell };
+  }
+
+  /** The straight line from a node to the end (metres): a search's estimate. */
+  readonly estimate = (n: number): number => {
+    this.locate(n);
+    return distCells(this.atChunk!, this.atCell, this.end) * this.cellM;
+  };
 
   steps(node: number, step: (to: number, cost: number) => void): void {
     this.relay = step;
-    const { chunk, cell } = this.spotOf(node);
+    this.locate(node);
+    const chunk = this.atChunk!;
+    const cell = this.atCell;
     this.stepper.steps(this.graph.lookup, chunk, cell, this.agent, this.sink);
     if (this.stepper.unknown && (this.costOf === null || this.costOf(node) <= this.frontierCost)) {
       const d = distCells(chunk, cell, this.end);
@@ -258,6 +279,8 @@ export class WalkQueries {
   private readonly queue: Job[] = [];
   private servedNodes = 0;
   private servedJobs = 0;
+  private restartCount = 0;
+  private longestUnit = 0;
 
   constructor(readonly graph: WalkGraph) {
     this.cells = new CellSpace(graph, new WalkStepper(graph.cellM));
@@ -286,8 +309,13 @@ export class WalkQueries {
   }
 
   /** Nodes expanded and queries answered since the start. */
-  get served(): { readonly nodes: number; readonly queries: number } {
-    return { nodes: this.servedNodes, queries: this.servedJobs };
+  get served(): { readonly nodes: number; readonly queries: number; readonly restarts: number; readonly longestUnitMs: number } {
+    return { nodes: this.servedNodes, queries: this.servedJobs, restarts: this.restartCount, longestUnitMs: Number(this.longestUnit.toFixed(2)) };
+  }
+
+  /** @internal a query started over (the graph changed under it). */
+  restarted(): void {
+    this.restartCount++;
   }
 
   /** @internal a job's expansions, for the counters. */
@@ -314,7 +342,11 @@ export class WalkQueries {
         head.slices++;
       }
       units++;
-      if (head.step(SERVE_NODES)) {
+      const u0 = performance.now();
+      const done = head.step(SERVE_NODES);
+      const u = performance.now() - u0;
+      if (u > this.longestUnit) this.longestUnit = u;
+      if (done) {
         job = null;
         this.queue.shift();
         answered++;
@@ -460,6 +492,7 @@ class PathJob implements Job {
 
   private restart(): void {
     this.restarts++;
+    this.q.restarted();
     this.phase = 'snap';
     this.leveled = false;
     this.innerBefore += this.coarse?.innerExpanded ?? 0;
@@ -496,13 +529,7 @@ class PathJob implements Job {
     cells.end = this.endAt;
     const from = cells.idOf(this.start!.chunk, this.start!.cell);
     const end = to === null ? undefined : cells.idOf(to.chunk, to.cell);
-    const g = this.endAt;
-    const m = this.q.graph.cellM;
-    const estimate = (n: number): number => {
-      const sp = cells.spotOf(n);
-      return distCells(sp.chunk, sp.cell, g) * m;
-    };
-    this.q.cellSearch.start(cells, { from, ...(end !== undefined ? { target: end } : {}), estimate });
+    this.q.cellSearch.start(cells, { from, ...(end !== undefined ? { target: end } : {}), estimate: cells.estimate });
   }
 
   /** The first level ended: refine along its route (to the end, the frontier, or where it got closest). */
@@ -752,6 +779,7 @@ class ReachJob implements Job {
     const q = this.q;
     if (this.started && q.cells.list.some((c) => !c.alive)) {
       this.restarts++;
+      this.q.restarted();
       this.started = false;
     }
     if (!this.started) {
