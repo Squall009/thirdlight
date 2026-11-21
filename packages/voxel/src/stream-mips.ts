@@ -60,6 +60,7 @@ import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, type ChunkCoord, type ChunkGrid } from './coords';
 import { derivedBytes, type DerivedData } from './derived-data';
 import { levelDrawsPieces } from './derived-mesh';
+import type { ChunkBox } from './grid-place';
 import type { PieceTable } from './piece-table';
 import type { DirtyTracker } from './dirty-tracker';
 import { createWorldStore, type PaletteStore } from './palette-store';
@@ -102,6 +103,8 @@ export interface MipHost {
   focus(): Focus;
   /** The load ring (the level choice covers its unload bounds). */
   readonly ring: StreamRing;
+  /** The only chunks the streamer reads (absent or null: any): the level choice covers no node past them. */
+  readonly extent?: ChunkBox | null;
   /** A level-0 chunk's drawn derive-section surfaces near a plane, for the seams (undefined: one has no result yet). */
   chunkSurfaces(cx: number, cy: number, cz: number, axis: number, plane: number): SeamSurface[] | undefined;
   /** Whether every derive section of a resident chunk has a result (it can be drawn). */
@@ -235,6 +238,7 @@ export class StreamMips {
         get ring() {
           return host.ring;
         },
+        extent: host.extent ?? null,
         seams: this.seams,
         focus: () => host.focus(),
         ready: (l, nx, ny, nz) => (l === 0 ? host.isResident(nx, ny, nz) && host.chunkReady(nx, ny, nz) : this.drawnResult(l, nx, ny, nz) !== undefined),

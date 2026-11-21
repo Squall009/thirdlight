@@ -295,6 +295,11 @@ export class StreamReadPlan<Held> {
     return this.base;
   }
 
+  /** Nothing waits on time: level 0 is not held for speed and the ring is not narrowed for it (both change only as time passes). */
+  get atRest(): boolean {
+    return !this.detailHeld && this.current.loadRadius === this.base.loadRadius && this.current.loadHeight === this.base.loadHeight;
+  }
+
   /** Half-width (cells) of the way to the lead point that is read: {@link STREAM_LEAD_CORRIDOR} while the ring is narrowed for speed, else the load radius. */
   get leadRadius(): number {
     return this.current.loadRadius < this.base.loadRadius ? Math.min(STREAM_LEAD_CORRIDOR, this.current.loadRadius) : this.current.loadRadius;

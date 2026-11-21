@@ -1115,7 +1115,7 @@ export interface GridCheckSetup extends ShadowCheckSetup {
   /** The grid's draws on the page (`gridDrawName`). */
   readonly drawName: string;
   /** The page's draw stats (`__tlVoxelPlay.stats().worlds`). */
-  drawn(): Promise<Record<string, { chunks: number; kitInstances: number } | undefined>>;
+  drawn(): Promise<Record<string, { chunks: number; kitInstances: number; pieceDraws?: number } | undefined>>;
   readonly player: () => Promise<{ x: number; y: number; z: number } | null>;
 }
 
@@ -1134,7 +1134,7 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
     await control(cmd, args);
     await expect.poll(() => counter(name), { timeout: 10_000 }).toBe(n + 1);
   };
-  type Grids = { count: number; bodies: number; shapes: number; resident: number; bytes: number; bodyBuilds: number; bodyBuildMs: number };
+  type Grids = { count: number; bodies: number; shapes: number; resident: number; bytes: number; bodyBuilds: number; bodyBuildMs: number; updates: number; skipped: number };
   const grids = async (): Promise<Grids | null> => ((((await o.api(`play/${o.psid}/diagnostics`)).json as { diagnostics?: { runtime?: { voxelWorlds?: Array<{ world: string; grids?: Grids }> } } }).diagnostics?.runtime?.voxelWorlds ?? []).find((w) => w.world === 'far')?.grids ?? null);
   await expect.poll(async () => { const w = (await o.drawn())[o.drawName]; return (w?.chunks ?? 0) > 0 && (w?.kitInstances ?? 0) > 0; }, { timeout: 20_000, message: "the structure grid's house is drawn with its kit pieces" }).toBe(true).catch(async (e: unknown) => {
     console.log(`[voxel-play] structure grid (failed): drawn ${JSON.stringify(Object.keys(await o.drawn()))} ${JSON.stringify((await o.drawn())[o.drawName] ?? null)}; host ${JSON.stringify(await grids())}; pool ${JSON.stringify((((await o.api(`play/${o.psid}/diagnostics`)).json as { diagnostics?: { runtime?: { voxelWorlds?: Array<{ world: string; pool?: unknown }> } } }).diagnostics?.runtime?.voxelWorlds ?? []).find((w) => w.world === 'far')?.pool ?? null)}`);
@@ -1166,6 +1166,13 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   };
   const wallStopZ = await walkAt(1.5);
   const doorInZ = await walkAt(o.house.doorX);
+  // The grid's kit pieces draw in its world's batches (no draw a kind of its own; the world's count holds its copies),
+  // and its streamer is left alone on the steps that have nothing for it.
+  const worlds = await o.drawn();
+  const g = (await grids())!;
+  expect(worlds[o.drawName]?.pieceDraws, "the grid's pieces take no draws of their own").toBe(0);
+  expect(worlds['far']?.kitInstances ?? 0, "the world's piece draws hold the grid's copies").toBeGreaterThanOrEqual(worlds[o.drawName]?.kitInstances ?? 0);
+  expect(g.skipped, 'steps with nothing for the grid skip it').toBeGreaterThan(0);
   const out = { magenta: boards, wallStopZ, doorInZ, ms: Date.now() - t0 };
   console.log(`[voxel-play] structure grid (30°): ${JSON.stringify({ ...out, grids: await grids(), drawn: (await o.drawn())[o.drawName] })}`);
   expect(boards, "the house's kit boards in the picture").toBeGreaterThan(100);

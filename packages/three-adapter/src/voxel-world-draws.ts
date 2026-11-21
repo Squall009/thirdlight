@@ -237,6 +237,8 @@ export interface VoxelWorldDrawStats {
 interface WorldDraw {
   readonly view: VoxelChunkView;
   readonly surface: VoxelSurface;
+  /** A structure grid's draws: its surface and piece batches are its world's (never set up, framed or disposed here). */
+  readonly shared: boolean;
   /** The nodes' and seams' GPU bytes last reported, and the kits'. */
   coarse: number;
   kits: number;
@@ -363,7 +365,7 @@ export class VoxelWorldDraws {
     if (key === this.looksKey) return false;
     this.looksKey = key;
     this.looks = voxelRecordLooks(materials);
-    for (const w of this.worlds.values()) w.surface.setLooks(this.looks);
+    for (const w of this.worlds.values()) if (!w.shared) w.surface.setLooks(this.looks);
     // The light volume's cells beside a material whose bounce colour or glow changed are written again.
     this.volume?.looksChanged();
     this.loadTextures(materials);
@@ -403,7 +405,7 @@ export class VoxelWorldDraws {
   private drawArrays(next: typeof this.arrays): void {
     const old = this.arrays;
     this.arrays = next;
-    for (const w of this.worlds.values()) this.giveArrays(w.surface);
+    for (const w of this.worlds.values()) if (!w.shared) this.giveArrays(w.surface);
     this.volumeBounce();
     if (old !== null) for (const t of Object.values(old.textures)) if (t !== undefined && !Object.values(next?.textures ?? {}).includes(t)) this.opts.release?.(t);
     this.density = null;
@@ -430,7 +432,7 @@ export class VoxelWorldDraws {
   /** Relief vertices move (true, the default) or draw flat in every world (a view's switch; the meshes are the same). */
   setRelief(s: { readonly displace: boolean }): void {
     this.displace = s.displace;
-    for (const w of this.worlds.values()) w.surface.setRelief({ displace: s.displace });
+    for (const w of this.worlds.values()) if (!w.shared) w.surface.setRelief({ displace: s.displace });
     this.opts.applied?.();
   }
 
@@ -464,6 +466,8 @@ export class VoxelWorldDraws {
 
   /** A world's surface displaces by the ring as told: its steps, and the fade over the metres before where it displaces now. */
   private giveRelief(w: WorldDraw, r: ChunkReliefWire): void {
+    // A structure grid's ring is in its own frame; the surface it shares is placed by its world's.
+    if (w.shared) return;
     w.relief = r;
     const f = reliefFade(r.radius);
     w.surface.setRelief({ n: Math.max(1, r.n), focus: this.focus.set(r.focus[0] * VOXEL_SIZE_M, r.focus[1] * VOXEL_SIZE_M, r.focus[2] * VOXEL_SIZE_M), fadeStartM: f.start * VOXEL_SIZE_M, fadeEndM: f.end * VOXEL_SIZE_M });
@@ -561,7 +565,7 @@ export class VoxelWorldDraws {
       this.spent = 0;
       this.pump();
       threadProfiler.begin(VOXEL_GRIDS_SPAN);
-      for (const w of this.worlds.values()) w.surface.grids.frame();
+      for (const w of this.worlds.values()) if (!w.shared) w.surface.grids.frame();
       threadProfiler.end(VOXEL_GRIDS_SPAN);
       this.sunFrame();
       this.volumeFrame();
@@ -624,6 +628,7 @@ export class VoxelWorldDraws {
     const out: Record<string, number> = {};
     if (r === null) return out;
     for (const [name, w] of this.worlds) {
+      if (w.shared) continue;
       w.surface.grids.grow(r as unknown as VoxelGridRenderer);
       out[name] = w.surface.grids.capacity;
     }
@@ -653,17 +658,42 @@ export class VoxelWorldDraws {
   }
 
   /**
-   * A world's draws, made with its first batch. A structure grid's (`place`) hang under a root at its place, turned by
-   * its yaw: everything the view places below it (chunks, seams, kit pieces) is in the grid's frame, and what reads
-   * the world (the cull tests, the shadow casters' reports, the GPU culler's spheres) reads through that root. Its
-   * decal layers and blend are its world object's.
+   * A world's draws, made with its first batch. A structure grid's (`place`) are a view under a root at its place,
+   * turned by its yaw (its chunks and seams placed below it in the grid's frame; what reads the world, the cull tests
+   * and the shadow casters' reports, reads through it), drawing with its world's surface (one material set and grid
+   * store for every grid) and putting its kit pieces into its world's piece batches, turned and placed there: grids add
+   * their chunks' surfaces to the frame's draws, never a draw a kind a grid. Its world's draws are made first.
    */
   private world(name: string, edge: number, scene: THREE.Scene, renderer: VoxelGridRenderer, place?: GridPlaceWire): WorldDraw {
     let w = this.worlds.get(name);
     if (w !== undefined) return w;
-    const own = place?.world ?? name;
+    if (place !== undefined) {
+      const base = this.world(place.world, edge, scene, renderer);
+      const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
+      const shadows = this.opts.shadows === true && voxelShadowsFromUrl(pageSearch());
+      const link = shadows ? sceneShadowsOf(scene) : null;
+      const grid = chunkGrid(edge as ChunkEdge);
+      const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface: base.surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), sharedPieces: base.view.pieces });
+      view.rebuilt = () => this.rebuilt(name);
+      view.root.name = `voxel-world ${name}`;
+      view.root.position.set(place.position[0], place.position[1], place.position[2]);
+      view.root.quaternion.setFromAxisAngle(GRID_UP, place.yawRad);
+      scene.add(view.root);
+      // Placed before any draw reports where it stands.
+      view.root.updateMatrixWorld(true);
+      const decals = voxelWorldDecalsOf(scene);
+      view.setDecalLayers(decals?.layersOf(place.world));
+      view.setDecalSurfaces(decals?.surfaces ?? null);
+      const unlink = decals?.onChange((world) => {
+        if (world !== place.world) return;
+        view.setDecalLayers(decals.layersOf(place.world));
+        this.opts.applied?.();
+      }) ?? ((): void => undefined);
+      this.worlds.set(name, (w = { view, surface: base.surface, shared: true, coarse: 0, kits: 0, relief: null, unlink }));
+      return w;
+    }
     const grid = chunkGrid(edge as ChunkEdge);
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: voxelWorldDecalsOf(scene)?.blendOf(own) ?? voxelWorldBlendMetres(null), relief: true });
+    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: voxelWorldDecalsOf(scene)?.blendOf(name) ?? voxelWorldBlendMetres(null), relief: true });
     // Nothing is displaced until the ring is told (a relief mesh arrives only with or after it).
     surface.setRelief({ displace: this.displace, fadeStartM: 0, fadeEndM: 0 });
     if (this.arrays !== null) this.giveArrays(surface);
@@ -694,24 +724,19 @@ export class VoxelWorldDraws {
       };
     }
     view.root.name = `voxel-world ${name}`;
-    if (place !== undefined) {
-      view.root.position.set(place.position[0], place.position[1], place.position[2]);
-      view.root.quaternion.setFromAxisAngle(GRID_UP, place.yawRad);
-    }
     scene.add(view.root);
-    // Placed before any draw reports where it stands.
     view.root.updateMatrixWorld(true);
     const decals = voxelWorldDecalsOf(scene);
-    view.setDecalLayers(decals?.layersOf(own));
+    view.setDecalLayers(decals?.layersOf(name));
     view.setDecalSurfaces(decals?.surfaces ?? null);
     // The world's object changed its layers or blend: both are draw data (no remesh; the blend a uniform).
     const unlink = decals?.onChange((world) => {
-      if (world !== own) return;
-      view.setDecalLayers(decals.layersOf(own));
-      surface.setBlendMetres(decals.blendOf(own));
+      if (world !== name) return;
+      view.setDecalLayers(decals.layersOf(name));
+      surface.setBlendMetres(decals.blendOf(name));
       this.opts.applied?.();
     }) ?? ((): void => undefined);
-    this.worlds.set(name, (w = { view, surface, coarse: 0, kits: 0, relief: null, unlink }));
+    this.worlds.set(name, (w = { view, surface, shared: false, coarse: 0, kits: 0, relief: null, unlink }));
     return w;
   }
 
@@ -817,7 +842,7 @@ export class VoxelWorldDraws {
     w.unlink();
     w.view.root.removeFromParent();
     w.view.dispose();
-    w.surface.dispose();
+    if (!w.shared) w.surface.dispose();
   }
 
   /**
@@ -874,7 +899,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number; staging: VoxelWorldDraws['staging'] } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieces.drawsInView, piecesInView: view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes, cover: { hidden: view.far.coverState.covered, edge: view.far.coverState.edge }, pass: view.far.brickPass, visibilityBytes: view.far.visibilityBytes, feedback: view.far.feedbackStats, fine: view.far.fineState, fineBaked: { drawn: [...view.far.fineDrawn], read: view.far.fineBakedIn } } };
+    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieceDraws === 0 ? 0 : view.pieces.drawsInView, piecesInView: view.pieceDraws === 0 ? 0 : view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes, cover: { hidden: view.far.coverState.covered, edge: view.far.coverState.edge }, pass: view.far.brickPass, visibilityBytes: view.far.visibilityBytes, feedback: view.far.feedbackStats, fine: view.far.fineState, fineBaked: { drawn: [...view.far.fineDrawn], read: view.far.fineBakedIn } } };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length, staging: { ...this.staging } };
   }
 

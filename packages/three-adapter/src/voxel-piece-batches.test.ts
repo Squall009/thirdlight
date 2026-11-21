@@ -36,7 +36,7 @@ import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { applyChunkDrawBatch } from './voxel-batch-stage';
 import { VoxelKitMeshes, type VoxelKitRecordLike } from './voxel-kit-pieces';
 import { PIECE_ANCHOR_REACH_CELLS, PIECE_SOURCE_KEY } from './voxel-piece-batches';
-import { createVoxelSurface, type VoxelGridRenderer } from './voxel-surface';
+import { createVoxelSurface, type VoxelGridRenderer, type VoxelSurface as VoxelChunkViewSurface } from './voxel-surface';
 
 const grid = chunkGrid(32);
 const R = jobRadius(WORLD_RULES);
@@ -83,8 +83,8 @@ const countOf = copiesOf;
 const matrixAt = copyMatrixAt;
 const dataAt = copyDataAt;
 
-/** Every drawn instance as the GPU reads it: its world matrix (rounded to 0.1 mm) and its data quad, by draw, sorted. */
-function drawn(v: VoxelChunkView): string[] {
+/** Every drawn instance as the GPU reads it: its world matrix (rounded to 0.1 mm, or `scale`) and its data quad, by draw, sorted. */
+function drawn(v: VoxelChunkView, scale = 1e4): string[] {
   v.root.updateMatrixWorld(true);
   const out: string[] = [];
   const m = new THREE.Matrix4();
@@ -93,7 +93,7 @@ function drawn(v: VoxelChunkView): string[] {
       matrixAt(mesh, i, m).premultiply(mesh.matrixWorld);
       const q = dataAt(mesh, i);
       const kind = JSON.stringify((mesh.userData[PIECE_SOURCE_KEY] as THREE.BoxGeometry).parameters);
-      out.push(`${kind}|${m.elements.map((e) => Math.round(e * 1e4)).join(',')}|${q.join(',')}`);
+      out.push(`${kind}|${m.elements.map((e) => Math.round(e * scale)).join(',')}|${q.join(',')}`);
     }
   }
   return out.sort();
@@ -143,6 +143,56 @@ describe('kit pieces drawn across chunks', () => {
     expect([v.instances, v.pieceDraws, v.pieces.root.children.length]).toEqual([0, 0, 0]);
     v.dispose();
     fresh.dispose();
+  });
+
+  it("structure grids' views draw in their world's batches: each copy turned by its grid's yaw and moved to its place, no draw of their own", () => {
+    const { v, meshes, table } = view();
+    const d = derive(world(), table);
+    draw(v, d, 0);
+    const alone = drawn(v, 1e3);
+    // Chunk 0's copies (to the millimetre: the turned ones are rounded in 32 bits) as the GPU reads them, each placed by `t` (what a grid's root at that place would do to them).
+    const placedBy = (t: THREE.Matrix4): string[] => {
+      const out: string[] = [];
+      const m = new THREE.Matrix4();
+      for (const mesh of draws(v)) {
+        mesh.updateMatrixWorld(true);
+        for (let i = 0; i < countOf(mesh); i++) {
+          matrixAt(mesh, i, m).premultiply(mesh.matrixWorld).premultiply(t);
+          const kind = JSON.stringify((mesh.userData[PIECE_SOURCE_KEY] as THREE.BoxGeometry).parameters);
+          out.push(`${kind}|${m.elements.map((e) => Math.round(e * 1e3)).join(',')}|${dataAt(mesh, i).join(',')}`);
+        }
+      }
+      return out;
+    };
+    const along = placedBy(new THREE.Matrix4().makeTranslation(32, 0, 0));
+    const turnedM = new THREE.Matrix4().compose(new THREE.Vector3(100, 2, -40), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 6), new THREE.Vector3(1, 1, 1));
+    const turned = placedBy(turnedM);
+    // Two grids sharing the world view's batches and surface: one at yaw 0 two chunks along +x, one turned 30°.
+    const place = (position: [number, number, number], yawRad: number): VoxelChunkView => {
+      const g = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid, rebaseDistanceM: 1e9 }), surface: (v as unknown as { shading: VoxelChunkViewSurface }).shading, renderer: renderer(), kits: meshes.set(table, KITS), sharedPieces: v.pieces });
+      g.root.position.set(...position);
+      g.root.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawRad);
+      return g;
+    };
+    const g0 = place([32, 0, 0], 0);
+    const g30 = place([100, 2, -40], Math.PI / 6);
+    draw(g0, d, 0);
+    draw(g30, d, 0);
+    // Still two draws (coping, corner) for three chunks of three views; each grid's own count is its chunk's.
+    expect(v.pieceDraws).toBe(2);
+    expect(draws(v).length).toBe(2);
+    expect([g0.pieceDraws, g30.pieceDraws, g0.root.children.some(isPieceDraw)]).toEqual([0, 0, false]);
+    const per = v.piecesOf(0, 0, 0);
+    expect([g0.instances, g30.instances, v.pieces.instances]).toEqual([per, per, 3 * per]);
+    expect(drawn(v, 1e3)).toEqual([...alone, ...along, ...turned].sort());
+    // A grid's chunk leaving takes only its copies; a grid view going leaves the world's draws.
+    g30.remove(0, 0, 0);
+    expect(drawn(v, 1e3)).toEqual([...alone, ...along].sort());
+    g0.dispose();
+    expect(drawn(v, 1e3)).toEqual(alone);
+    expect(v.pieceDraws).toBe(2);
+    g30.dispose();
+    v.dispose();
   });
 
   it('a batch changes its chunks\' pieces together, at its end; a chunk past the anchor\'s reach moves it and nothing moves on screen', () => {

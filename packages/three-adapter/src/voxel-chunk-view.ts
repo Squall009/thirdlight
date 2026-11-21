@@ -95,7 +95,7 @@ import type { SurfaceListener } from './render-graph';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { PIECE_DATA_FLOATS, PIECE_WET_FLOAT, pieceU, runAxisOf } from './voxel-trim-u';
-import { VoxelPieceBatches, type PieceRun } from './voxel-piece-batches';
+import { VoxelPieceBatches, type PiecePlace, type PieceRun } from './voxel-piece-batches';
 import type { FarFineTexture } from './voxel-far-fine-shade';
 import { VoxelFarView } from './voxel-far-mesh';
 import { cubeRotationMatrix, pieceMatrix, pieceTurn, type PiecePlacement } from './voxel-piece-placement';
@@ -349,6 +349,12 @@ export interface VoxelChunkViewOptions {
    * kept to compare).
    */
   readonly reliefCasters?: 'plain' | 'relief';
+  /**
+   * A structure grid's view: its kit pieces go into its world's view's batches, turned and moved to where the view's
+   * root stands (the grid's place and yaw, set before its first draw), so the grids' pieces take no draws of their
+   * own; the view never disposes them.
+   */
+  readonly sharedPieces?: VoxelPieceBatches;
 }
 
 /** GPU bytes an instance takes in a piece draw: its matrix and its `pieceU` (voxel-trim-u.ts). */
@@ -364,7 +370,7 @@ export class VoxelChunkView {
   /** Drawn objects by level, by key within the level. */
   private readonly levels: Array<Map<number, ChunkDraw>> = [];
   private readonly seams = new Map<string, SeamDraw>();
-  /** The kit pieces of every chunk, drawn per kind across them. */
+  /** The kit pieces of every chunk, drawn per kind across them (a structure grid's: its world's, not under its root). */
   readonly pieces: VoxelPieceBatches;
   /** The far field's draws (voxel-far-mesh.ts): past the near rings, under them. */
   readonly far: VoxelFarView;
@@ -419,8 +425,11 @@ export class VoxelChunkView {
     this.fastPaths = opts.fastPaths !== false;
     this.plainCasters = opts.reliefCasters !== 'relief';
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
-    this.pieces = new VoxelPieceBatches({ origin: opts.origin, shadows: this.shadows, staticCasters: this.statics !== null });
-    this.root.add(this.pieces.root);
+    if (opts.sharedPieces !== undefined) this.pieces = opts.sharedPieces;
+    else {
+      this.pieces = new VoxelPieceBatches({ origin: opts.origin, shadows: this.shadows, staticCasters: this.statics !== null });
+      this.root.add(this.pieces.root);
+    }
     // Its chunk, node and seam surfaces are occlusion culling's draws, though they sit below this root.
     markOccludeeGroup(this.root);
     this.far = new VoxelFarView({ grid: opts.grid, origin: opts.origin, surface: opts.surface, renderer: opts.renderer, visibility: opts.farVisibility !== false, ...(opts.onFarSeen !== undefined ? { onSeen: opts.onFarSeen } : {}), ...(opts.onFineUnavailable !== undefined ? { onFineUnavailable: opts.onFineUnavailable } : {}), ...(opts.fineTexture !== undefined ? { fineTexture: opts.fineTexture } : {}) });
@@ -429,18 +438,21 @@ export class VoxelChunkView {
     this.setKits(opts.kits ?? null);
   }
 
-  /** Piece instances drawn (every chunk's), and the draws they take (one a kind across the chunks). */
+  /** Piece instances drawn (every chunk's), and the draws they take (one a kind across the chunks; none of a grid's own, its world's carry them). */
   get instances(): number {
-    return this.pieces.instances;
+    if (this.pieces.root.parent === this.root) return this.pieces.instances;
+    let n = 0;
+    for (const map of this.levels) for (const m of map?.values() ?? []) n += this.pieces.countOf(m);
+    return n;
   }
 
   get pieceDraws(): number {
-    return this.pieces.draws;
+    return this.pieces.root.parent === this.root ? this.pieces.draws : 0;
   }
 
   /** Of the instances drawn, the kit pieces (every instance drawn is one). */
   get piecesDrawn(): { readonly kit: number } {
-    return { kit: this.pieces.instances };
+    return { kit: this.instances };
   }
 
   /** Piece instances a chunk (or a node of `level`) draws. */
@@ -857,7 +869,10 @@ export class VoxelChunkView {
       return;
     }
     const e = this.grid.edge * 2 ** m.level;
-    this.pieces.set(m, [m.cell[0]!, m.cell[1]!, m.cell[2]!], e * VOXEL_SIZE_M, r.runs);
+    // Pieces drawn in another view's batches stand where this view's root does (a grid's place and yaw).
+    const q = this.root.quaternion;
+    const place: PiecePlace | undefined = this.pieces.root.parent === this.root ? undefined : { position: [this.root.position.x, this.root.position.y, this.root.position.z], yawRad: 2 * Math.atan2(q.y, q.w) };
+    this.pieces.set(m, [m.cell[0]!, m.cell[1]!, m.cell[2]!], e * VOXEL_SIZE_M, r.runs, place);
     m.pieceBytes = r.instances * PIECE_INSTANCE_BYTES;
     m.bytes += m.pieceBytes;
   }
@@ -1040,7 +1055,8 @@ export class VoxelChunkView {
       m.clear();
     }
     for (const s of [...this.seams.values()]) this.removeSeam(s.level, ...s.node);
-    this.pieces.dispose();
+    if (this.pieces.root.parent === this.root) this.pieces.dispose();
+    else this.pieces.flush();
     this.far.dispose();
     this.caster?.dispose();
     this.caster = null;

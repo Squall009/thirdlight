@@ -13,6 +13,13 @@
  * the grid holds (their box from its files' tables, a margin of air round
  * them), not the whole load ring of an empty frame.
  *
+ * A town holds many such grids, so a grid costs nothing while it has nothing to do: a step moves its streamer only
+ * when the focus has moved a cell in its frame, something landed or changed in it since its last update
+ * (the streamer's `counters.activity`), or that update left work (`idle(true)`); a grid whose box (its chunks and their margin) lies
+ * past the load ring's unload bounds is not stepped at all once it has let go of what it held; the collision foci it
+ * is given are only those whose keep bounds reach its box. What it holds counts against its world's one budget (the
+ * world's host sets each grid's share every step).
+ *
  * Collision is one compound body a grid: each storage chunk the collision
  * ring keeps gives its parts (placed at the chunk's corner, in the grid's
  * metres), and the body is built again from every kept chunk's parts at the
@@ -172,7 +179,7 @@ export function streamerCollisionFeed(streamer: VoxelStreamer): CollisionRingFee
 }
 
 /** The grids' stats summed for the diagnostics (bytes a grid: the least and the most). */
-export function gridStats(list: readonly ReturnType<VoxelGridHost['stats']>[]): { count: number; resident: number; reading: number; decoding: number; deriving: number; bytes: number; bodies: number; shapes: number; bodyBuilds: number; bodyBuildMs: number; bytesPerGrid: { min: number; max: number }; nearest: ReturnType<VoxelGridHost['stats']> | null } {
+export function gridStats(list: readonly ReturnType<VoxelGridHost['stats']>[]): { count: number; resident: number; reading: number; decoding: number; deriving: number; bytes: number; bodies: number; shapes: number; bodyBuilds: number; bodyBuildMs: number; updates: number; skipped: number; bytesPerGrid: { min: number; max: number }; nearest: ReturnType<VoxelGridHost['stats']> | null } {
   const sum = (f: (g: ReturnType<VoxelGridHost['stats']>) => number): number => list.reduce((n, g) => n + f(g), 0);
   return {
     count: list.length,
@@ -185,6 +192,8 @@ export function gridStats(list: readonly ReturnType<VoxelGridHost['stats']>[]): 
     shapes: sum((g) => g.body?.shapes ?? 0),
     bodyBuilds: sum((g) => g.body?.builds ?? 0),
     bodyBuildMs: Math.round(sum((g) => g.body?.buildMs ?? 0) * 100) / 100,
+    updates: sum((g) => g.updates),
+    skipped: sum((g) => g.skipped),
     bytesPerGrid: { min: Math.min(...list.map((g) => g.bytes)), max: Math.max(...list.map((g) => g.bytes)) },
     // The grid nearest the stream focus, as its streamer sees it (diagnostics: its frame, level choice, held detail).
     nearest: [...list].sort((a, b) => Math.hypot(...a.focusM) - Math.hypot(...b.focusM))[0] ?? null,
@@ -192,6 +201,13 @@ export function gridStats(list: readonly ReturnType<VoxelGridHost['stats']>[]): 
 }
 
 const toCells = (p: readonly number[]): Focus => ({ x: p[0]! / VOXEL_SIZE_M, y: p[1]! / VOXEL_SIZE_M, z: p[2]! / VOXEL_SIZE_M });
+
+/**
+ * How far the stream focus moves, as a share of its gap to a grid's box, before that grid's streamer is told: a cell
+ * at least, and at most half its level rings' hysteresis, inside which a choice made from the focus a little back is
+ * one the hysteresis could have made anyway. A grid 100 m off then plans every 4 m of travel, not every 0.5 m.
+ */
+const GRID_REFOCUS_SHARE = 1 / 8;
 
 export class VoxelGridHost {
   readonly frame: GridFrame;
@@ -204,6 +220,27 @@ export class VoxelGridHost {
   private focusM: readonly [number, number, number] = [0, 0, 0];
   /** The chunks the grid's files hold (null: none). */
   private readonly extent: ChunkBox | null;
+  /** The box its streamer reads (the extent and its margin), metres in its frame. */
+  private readonly box: { readonly min: readonly number[]; readonly max: readonly number[] } | null;
+  /** The stream focus (grid metres) and collision foci (cells) its streamer was last updated with, and its activity then. */
+  private steppedAt: readonly number[] | null = null;
+  private steppedFoci: readonly Focus[] = [];
+  private steppedActivity = -1;
+  private steppedWorld: readonly number[] | null = null;
+  /** Where the stream focus was when the grid last looked (world metres), and how far it may move before it looks again. */
+  private skipAt: readonly number[] | null = null;
+  private skipM = 0;
+  /** The collision ring's bounds for the settings last stepped with (made again when they change). */
+  private boundsOf: ResolvedVoxelWorld | null = null;
+  private bounds: ReturnType<typeof collisionRingBounds> | null = null;
+  /** The box's bounding sphere in the world (metres). */
+  private readonly sphere: { readonly x: number; readonly y: number; readonly z: number; readonly r: number } | null;
+  /** Its last update left nothing to do (`VoxelStreamer.idle(true)`); and whether the box was in reach then. */
+  private quiet = false;
+  private inReach = false;
+  /** Updates run and steps that skipped one (diagnostics). */
+  updates = 0;
+  skipped = 0;
 
   constructor(
     world: string,
@@ -215,8 +252,17 @@ export class VoxelGridHost {
   ) {
     this.frame = new GridFrame(g.place);
     this.extent = g.extent;
+    const m = grid.edge * VOXEL_SIZE_M;
+    const read = g.extent === null ? null : grownChunkBox(g.extent, GRID_EXTENT_MARGIN_CHUNKS);
+    this.box = read === null ? null : { min: read.min.map((v) => v * m), max: read.max.map((v) => (v + 1) * m) };
+    const b = this.box;
+    if (b === null) this.sphere = null;
+    else {
+      const c = this.frame.toWorld((b.min[0]! + b.max[0]!) / 2, (b.min[1]! + b.max[1]!) / 2, (b.min[2]! + b.max[2]!) / 2);
+      this.sphere = { x: c[0], y: c[1], z: c[2], r: Math.hypot(b.max[0]! - b.min[0]!, b.max[1]! - b.min[1]!, b.max[2]! - b.min[2]!) / 2 };
+    }
     // No far cache and no fine bricks: a structure grid's far field is not built yet (its world's far cache holds the world grid alone).
-    this.streamer = worldStreamer({ grid, source: g.source, pool: shared.pool, gridId: g.place.gridId, tracker: shared.tracker, extent: g.extent === null ? null : grownChunkBox(g.extent, GRID_EXTENT_MARGIN_CHUNKS), ...(shared.budgetBytes !== undefined ? { budgetBytes: shared.budgetBytes } : {}), ...(shared.pieces !== undefined ? { pieces: shared.pieces } : {}), fineBricks: false }, settings);
+    this.streamer = worldStreamer({ grid, source: g.source, pool: shared.pool, gridId: g.place.gridId, tracker: shared.tracker, extent: read, ...(shared.budgetBytes !== undefined ? { budgetBytes: shared.budgetBytes } : {}), ...(shared.pieces !== undefined ? { pieces: shared.pieces } : {}), fineBricks: false }, settings);
     const streamer = this.streamer;
     this.unresident = residentBytes.register('voxelStream', () => streamer.held.total);
     if (physics !== undefined && typeof physics.addStaticColliders === 'function' && typeof physics.removeStaticColliders === 'function') {
@@ -241,38 +287,117 @@ export class VoxelGridHost {
   /** New distances (a quality level or a script's rings): as the world grid's. */
   setRings(settings: ResolvedVoxelWorld): void {
     if (this.disposed) return;
+    this.quiet = false;
+    this.skipAt = null;
     applyWorldRings(this.streamer, settings);
     const b = this.collisionBounds(settings);
     this.ring?.setBounds(b);
     if (this.streamer.collision !== null) this.streamer.collision.bounds = b;
   }
 
-  /** A step: the world's foci (world metres) moved into the grid's frame, streaming and its bodies planned there. */
+  /** Horizontal and vertical gaps (metres) from a grid point to its box (0 inside). */
+  private gaps(p: readonly number[]): [number, number] {
+    const b = this.box!;
+    const gap = (a: number): number => Math.max(0, b.min[a]! - p[a]!, p[a]! - b.max[a]!);
+    return [Math.hypot(gap(0), gap(2)), gap(1)];
+  }
+
+  /**
+   * A step: the world's foci (world metres) moved into the grid's frame, streaming and its bodies planned there, when
+   * there is anything to do (see the file's note). Else nothing but a distance test: while its streamer is quiet and
+   * nothing landed, the stream focus may move {@link skipM} from {@link skipAt} before the grid looks again, and a
+   * body is looked at only once it comes within the grid's sphere and its collision's keep bounds.
+   */
   step(stream: readonly [number, number, number], collide: readonly (readonly [number, number, number])[], velocity: readonly (readonly [number, number, number])[] | undefined, settings: ResolvedVoxelWorld): void {
-    if (this.disposed) return;
+    if (this.disposed || this.box === null) return;
     const s = this.streamer;
-    this.focusM = this.frame.toGrid(stream[0], stream[1], stream[2]);
-    const f = toCells(this.focusM);
-    s.setFocus(f.x, f.y, f.z);
-    const bodies = collide.map((p) => toCells(this.frame.toGrid(p[0]!, p[1]!, p[2]!)));
-    s.mips?.lod.setFoci(bodies);
-    const radius = this.collisionBounds(settings).radius;
-    const ahead = bodies.flatMap((b, i) => {
-      const v = velocity?.[i];
-      return v === undefined ? [] : collisionLeadPoints(b, toCells(this.frame.directionToGrid(v[0]!, v[1]!, v[2]!)), radius);
+    if (this.boundsOf !== settings) {
+      this.boundsOf = settings;
+      this.bounds = this.collisionBounds(settings);
+    }
+    const cb = this.bounds!;
+    const slack = s.grid.edge * VOXEL_SIZE_M * Math.SQRT2;
+    if (this.quiet && s.counters.activity === this.steppedActivity && this.skipAt !== null && this.steppedFoci.length === 0) {
+      const d = [stream[0] - this.skipAt[0]!, stream[1] - this.skipAt[1]!, stream[2] - this.skipAt[2]!];
+      const c = this.sphere!;
+      const touch = (c.r + Math.max(cb.keepRadius, cb.keepHeight) * VOXEL_SIZE_M + slack) ** 2;
+      if (d[0]! * d[0]! + d[1]! * d[1]! + d[2]! * d[2]! < this.skipM * this.skipM && collide.every((p) => (p[0]! - c.x) ** 2 + (p[1]! - c.y) ** 2 + (p[2]! - c.z) ** 2 >= touch)) {
+        this.skipped++;
+        return;
+      }
+    }
+    const at = this.frame.toGrid(stream[0], stream[1], stream[2]);
+    this.focusM = at;
+    // In reach while any chunk it reads could be inside the unload bounds (one chunk's diagonal of slack).
+    const ring = s.ring;
+    const [h, v] = this.gaps(at);
+    const outH = h - (ring.unloadRadius * VOXEL_SIZE_M + slack);
+    const outV = v - (ring.unloadHeight * VOXEL_SIZE_M + slack);
+    const inReach = outH < 0 && outV < 0;
+    // Bodies whose collision could reach its box (the keep bounds, metres); the camera's own ground likewise.
+    const near = (gh: number, gv: number): boolean => gh < cb.keepRadius * VOXEL_SIZE_M + slack && gv < cb.keepHeight * VOXEL_SIZE_M + slack;
+    const nearIndex: number[] = [];
+    const bodies: Focus[] = [];
+    collide.forEach((p, i) => {
+      const q = this.frame.toGrid(p[0]!, p[1]!, p[2]!);
+      const [gh, gv] = this.gaps(q);
+      if (!near(gh, gv)) return;
+      nearIndex.push(i);
+      bodies.push(toCells(q));
     });
-    const foci = [...(s.detail.fast ? [] : [f]), ...bodies, ...ahead];
+    if (this.quiet && !inReach && !this.inReach && bodies.length === 0 && this.steppedFoci.length === 0) {
+      // Out of reach and holding nothing: looked at again once the focus may have come within reach.
+      this.skipAt = stream;
+      this.skipM = Math.max(VOXEL_SIZE_M, outH, outV);
+      this.skipped++;
+      return;
+    }
+    const within = (a: Focus, b: Focus, d: number): boolean => Math.abs(a.x - b.x) < d && Math.abs(a.y - b.y) < d && Math.abs(a.z - b.z) < d;
+    const f = toCells(at);
+    // Bodies are told every cell they move (what they touch); the stream focus by its share of the gap.
+    const refocus = Math.min((s.mips?.lod.levelRings.hysteresis ?? 2) / 2, Math.max(1, (Math.hypot(h, v) / VOXEL_SIZE_M) * GRID_REFOCUS_SHARE));
+    const still = this.steppedAt !== null && within(f, toCells(this.steppedAt), refocus) && bodies.length === this.steppedFoci.length && bodies.every((b, i) => within(b, this.steppedFoci[i]!, 1));
+    if (this.quiet && still && s.counters.activity === this.steppedActivity && inReach === this.inReach) {
+      // Measured from where it was last told, by a distance a turn cannot stretch (each axis is within it then).
+      this.skipAt = this.steppedWorld;
+      this.skipM = refocus * VOXEL_SIZE_M;
+      this.skipped++;
+      return;
+    }
+    s.setFocus(f.x, f.y, f.z);
+    s.mips?.lod.setFoci(bodies);
+    const ahead = bodies.flatMap((b, k) => {
+      const vel = velocity?.[nearIndex[k]!];
+      return vel === undefined ? [] : collisionLeadPoints(b, toCells(this.frame.directionToGrid(vel[0]!, vel[1]!, vel[2]!)), cb.radius);
+    });
+    const foci = [...(s.detail.fast || !near(h, v) ? [] : [f]), ...bodies, ...ahead];
     s.collision?.setFoci(foci);
     s.update();
     if (this.ring !== null) {
       this.ring.setFoci(foci);
       this.ring.update();
     }
+    this.updates++;
+    this.steppedAt = at;
+    this.steppedWorld = stream;
+    this.steppedFoci = bodies;
+    this.inReach = inReach;
+    this.quiet = s.idle(true);
+    this.steppedActivity = s.counters.activity;
+    this.skipAt = stream;
+    this.skipM = refocus * VOXEL_SIZE_M;
+  }
+
+  /** The grid's share of its world's budget from now on (bytes; its streamer evicts down to it at its next update). */
+  setBudget(bytes: number): void {
+    this.streamer.budgetBytes = Math.max(1, bytes);
   }
 
   /** A new run: the game's changes dropped (none reach a structure grid yet). */
   reset(): void {
     this.streamer.clearOverlay();
+    this.quiet = false;
+    this.skipAt = null;
   }
 
   /** The world unloads: the body out of the port (the pool is the world's, closed with it). */
@@ -284,7 +409,7 @@ export class VoxelGridHost {
   }
 
   /** What the grid holds (diagnostics): its id, resident chunks and bytes, its body. */
-  stats(): { readonly grid: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly body: VoxelGridBodyStats | null; readonly focusM: readonly number[]; readonly detailHeld: boolean; readonly lod: Readonly<Record<string, number>> | null; readonly drawnAt: readonly number[] } {
+  stats(): { readonly grid: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly body: VoxelGridBodyStats | null; readonly focusM: readonly number[]; readonly detailHeld: boolean; readonly lod: Readonly<Record<string, number>> | null; readonly drawnAt: readonly number[]; readonly updates: number; readonly skipped: number } {
     const m = this.streamer.metrics();
     // Of the chunks the grid holds, those drawn at level 0, and the level-1 nodes over them drawn.
     const drawnAt = [0, 0];
@@ -294,6 +419,6 @@ export class VoxelGridHost {
       if (lod.drawn(0, x, y, z)) drawnAt[0]!++;
       if (lod.drawn(1, x >> 1, y >> 1, z >> 1)) drawnAt[1]!++;
     }
-    return { grid: this.frame.gridId, resident: m.resident, reading: m.reading, decoding: m.decoding, deriving: m.deriving, bytes: m.bytes.total, body: this.body?.stats() ?? null, focusM: this.focusM.map((v) => Math.round(v * 100) / 100), detailHeld: this.streamer.detail.held, lod: this.streamer.mips?.lod.counters ?? null, drawnAt };
+    return { grid: this.frame.gridId, resident: m.resident, reading: m.reading, decoding: m.decoding, deriving: m.deriving, bytes: m.bytes.total, body: this.body?.stats() ?? null, focusM: this.focusM.map((v) => Math.round(v * 100) / 100), detailHeld: this.streamer.detail.held, lod: this.streamer.mips?.lod.counters ?? null, drawnAt, updates: this.updates, skipped: this.skipped };
   }
 }

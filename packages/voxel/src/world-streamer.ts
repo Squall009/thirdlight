@@ -119,6 +119,11 @@ export function applyWorldRings(streamer: VoxelStreamer, settings: WorldRingSett
   fineLevelsChanged(streamer);
 }
 
+/** A world's memory budget (bytes): its settings', else its connection's, else the low tier's. Its grids share it. */
+export function worldBudgetBytes(settings: Pick<WorldRingSettings, 'budgetBytes'>, connBudget?: number): number {
+  return settings.budgetBytes ?? connBudget ?? VOXEL_STREAM_BUDGET_BYTES.low;
+}
+
 /**
  * A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces
  * chosen from `pieces` (absent: no kit, plain voxel faces). A structure grid's names its `gridId`, the world's
@@ -135,7 +140,7 @@ export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source:
     source: conn.source,
     pool: conn.pool,
     ring: worldStreamRing(settings.ring),
-    budgetBytes: settings.budgetBytes ?? conn.budgetBytes ?? VOXEL_STREAM_BUDGET_BYTES.low,
+    budgetBytes: worldBudgetBytes(settings, conn.budgetBytes),
     dependencyRadius: jobRadius(WORLD_RULES),
     derive: true,
     rules: WORLD_RULES,

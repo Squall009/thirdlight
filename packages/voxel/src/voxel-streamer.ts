@@ -327,6 +327,8 @@ export interface StreamCounters {
   collisionDerives: number;
   collisionAir: number;
   collisionRefused: number;
+  /** Bumped by whatever may give an update something new to do: a read or a job ending, an event, a changed ring ({@link VoxelStreamer.idle}). */
+  activity: number;
 }
 
 export interface StreamMetrics {
@@ -394,7 +396,7 @@ export class VoxelStreamer {
   readonly tracker: DirtyTracker;
   readonly radius: number;
   budgetBytes: number;
-  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, airDerives: 0, cancelledDerives: 0, detailHolds: 0, collisionDerives: 0, collisionAir: 0, collisionRefused: 0, ground: emptyCoverage() };
+  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, airDerives: 0, cancelledDerives: 0, detailHolds: 0, collisionDerives: 0, collisionAir: 0, collisionRefused: 0, activity: 0, ground: emptyCoverage() };
   /** Main-thread milliseconds: planning per update, adopting a chunk, building an apron. */
   readonly planMs = new SampleRing();
   readonly adoptMs = new SampleRing();
@@ -588,6 +590,7 @@ export class VoxelStreamer {
               get ring() {
                 return streamer.ring;
               },
+              extent: opts.extent ?? null,
               focus: () => this.focus,
               emit: (e) => this.emit(e),
               poke: () => this.poke(),
@@ -649,6 +652,7 @@ export class VoxelStreamer {
   }
 
   private emit(e: StreamEvent): void {
+    this.counters.activity++;
     // Where the near field draws decides where fine far nodes open (a node it draws whole stays closed).
     if (e.type === 'levels') this.far?.fineNodes.residency();
     for (const l of this.listeners) l(e);
@@ -931,7 +935,14 @@ export class VoxelStreamer {
     throw new Error('streamer did not settle');
   }
 
-  private idle(): boolean {
+  /**
+   * Whether nothing is being read, decoded or derived and nothing more can be requested (what
+   * {@link settle} waits for). `quiet`: also that nothing waits on time passing (level 0 held or the ring narrowed for
+   * speed), so an update now, with the focus where it was, would do nothing until `counters.activity` or the focus
+   * moves: how a host streaming many grids skips a grid's update.
+   */
+  idle(quiet = false): boolean {
+    if (quiet && !this.plan.atRest) return false;
     if (this.reads > 0 || this.refreshes.live > 0) return false;
     for (const c of this.chunks.values()) if (c.phase === 'reading' || c.phase === 'decoding') return false;
     if (this.derives?.pending() === true || this.mips?.pending() === true || this.collision?.pending() === true) return false;
@@ -944,6 +955,7 @@ export class VoxelStreamer {
   }
 
   private poke(): void {
+    this.counters.activity++;
     const w = this.wake;
     this.wake = null;
     w?.();

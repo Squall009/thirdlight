@@ -23,6 +23,7 @@
  *   its chunks are derived, nearest the focus first.
  */
 import type { ChunkGrid } from './coords';
+import type { ChunkBox } from './grid-place';
 import { checkLevelRings, chooseLevels, DrawnLevels, levelNodeDistance, type LevelNode, type LevelRings } from './lod-select';
 import type { Focus, StreamRing } from './stream-ring';
 import type { StreamSeams } from './stream-seams';
@@ -44,6 +45,8 @@ export interface LodHost {
   readonly maxLevel: number;
   /** The load ring (its unload bounds hold every resident chunk). */
   readonly ring: StreamRing;
+  /** The only chunks the streamer reads (a structure grid's; absent or null: any): the choice covers no node past them. */
+  readonly extent?: ChunkBox | null;
   readonly seams: StreamSeams;
   focus(): Focus;
   /** Whether a node (level 0: a chunk) has what it is drawn from. */
@@ -239,17 +242,21 @@ export class StreamLod {
     });
   }
 
-  /** The top level's nodes over the unload bounds round the stream focus (they hold every resident chunk). */
+  /**
+   * The top level's nodes over the unload bounds round the stream focus (they hold every resident chunk), and over
+   * the streamer's extent where it has one: a small grid's choice covers its own few nodes, not the ring's.
+   */
   private *roots(f: Focus): IterableIterator<LevelNode> {
     const g = this.host.grid;
     const r = this.host.ring;
-    const size = g.edge * 2 ** this.host.maxLevel;
-    const lo = (v: number, d: number): number => Math.floor((v - d) / size);
-    const hi = (v: number, d: number): number => Math.floor((v + d) / size);
     const level = this.host.maxLevel;
-    for (let nx = lo(f.x, r.unloadRadius); nx <= hi(f.x, r.unloadRadius); nx++) {
-      for (let nz = lo(f.z, r.unloadRadius); nz <= hi(f.z, r.unloadRadius); nz++) {
-        for (let ny = lo(f.y, r.unloadHeight); ny <= hi(f.y, r.unloadHeight); ny++) yield { level, nx, ny, nz };
+    const size = g.edge * 2 ** level;
+    const e = this.host.extent ?? null;
+    const lo = (v: number, d: number, a: number): number => Math.max(Math.floor((v - d) / size), e === null ? -Infinity : e.min[a]! >> level);
+    const hi = (v: number, d: number, a: number): number => Math.min(Math.floor((v + d) / size), e === null ? Infinity : e.max[a]! >> level);
+    for (let nx = lo(f.x, r.unloadRadius, 0); nx <= hi(f.x, r.unloadRadius, 0); nx++) {
+      for (let nz = lo(f.z, r.unloadRadius, 2); nz <= hi(f.z, r.unloadRadius, 2); nz++) {
+        for (let ny = lo(f.y, r.unloadHeight, 1); ny <= hi(f.y, r.unloadHeight, 1); ny++) yield { level, nx, ny, nz };
       }
     }
   }

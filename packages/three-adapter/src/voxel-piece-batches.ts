@@ -37,6 +37,11 @@
  *   (camera-relative draws), and a chunk further than
  *   {@link PIECE_ANCHOR_REACH_CELLS} from it moves the anchor (every buffer
  *   written again, as rarely as the world is crossed).
+ * - **Structure grids** draw in their world's batches: a grid's chunk is set
+ *   with where its grid stands ({@link PiecePlace}), each copy's matrix
+ *   turned by the grid's yaw and moved to its place, so a town of grids takes
+ *   a draw a kind, as the world grid does, and the spheres the culling tests
+ *   (by chunk and, on the GPU, by copy) are where the turned copies stand.
  */
 import * as THREE from 'three';
 import { VOXEL_SIZE_M, type FloatingOrigin } from '@thirdlight/voxel';
@@ -95,6 +100,12 @@ export interface PieceRun {
   readonly n: number;
   readonly matrices: Float32Array;
   readonly data: Float32Array;
+}
+
+/** Where a structure grid stands: its cell (0, 0, 0)'s corner in world metres and its yaw about +y (radians). */
+export interface PiecePlace {
+  readonly position: readonly [number, number, number];
+  readonly yawRad: number;
 }
 
 interface Chunk {
@@ -203,19 +214,42 @@ export class VoxelPieceBatches {
 
   /**
    * Replaces chunk `id`'s pieces (its corner `cell` in level-0 cells, `sizeM` metres a side) with `runs`, whose
-   * matrices are metres from that corner (none: it draws no piece). Written at the next {@link flush}.
+   * matrices are metres from that corner (none: it draws no piece). A structure grid's chunk names where its grid
+   * stands (`place`; `cell` is then the grid's cell): its copies are turned by the yaw and moved to the place.
+   * Written at the next {@link flush}.
    */
-  set(id: object, cell: readonly [number, number, number], sizeM: number, runs: readonly PieceRun[]): void {
+  set(id: object, cell: readonly [number, number, number], sizeM: number, runs: readonly PieceRun[], place?: PiecePlace): void {
     this.remove(id);
     if (runs.length === 0) return;
-    if (cell.some((c, a) => Math.abs(c - this.anchor[a]!) > PIECE_ANCHOR_REACH_CELLS)) this.moveAnchor(cell);
     const half = sizeM / 2;
-    const at = cell.map((c, a) => (c - this.anchor[a]!) * VOXEL_SIZE_M) as [number, number, number];
+    const c = place === undefined ? 1 : Math.cos(place.yawRad);
+    const sn = place === undefined ? 0 : Math.sin(place.yawRad);
+    // A grid point (metres) in the world: turned about +y (+x toward −z for a positive yaw, as three turns) and moved.
+    const toWorld = (x: number, y: number, z: number): [number, number, number] => (place === undefined ? [x, y, z] : [c * x + sn * z + place.position[0], y + place.position[1], -sn * x + c * z + place.position[2]]);
+    const corner = toWorld(cell[0] * VOXEL_SIZE_M, cell[1] * VOXEL_SIZE_M, cell[2] * VOXEL_SIZE_M);
+    const near = corner.map((v) => Math.floor(v / VOXEL_SIZE_M));
+    if (near.some((v, a) => Math.abs(v - this.anchor[a]!) > PIECE_ANCHOR_REACH_CELLS)) this.moveAnchor(near);
+    const at = corner.map((v, a) => v - this.anchor[a]! * VOXEL_SIZE_M) as [number, number, number];
     for (const r of runs) {
-      for (let i = 0; i < r.n; i++) for (let a = 0; a < 3; a++) r.matrices[i * INSTANCE_MATRIX_FLOATS + 12 + a]! += at[a]!;
+      const m = r.matrices;
+      for (let i = 0; i < r.n; i++) {
+        const o = i * INSTANCE_MATRIX_FLOATS;
+        // Each column (the three axes and the place in the chunk) turned; then the chunk's corner added.
+        if (place !== undefined) {
+          for (let col = 0; col < 4; col++) {
+            const k = o + col * 4;
+            const x = m[k]!;
+            const z = m[k + 2]!;
+            m[k] = c * x + sn * z;
+            m[k + 2] = -sn * x + c * z;
+          }
+        }
+        for (let a = 0; a < 3; a++) m[o + 12 + a]! += at[a]!;
+      }
     }
     const spheres = runs.map((r) => pieceSpheres(r));
-    const chunk: Chunk = { cell: [cell[0], cell[1], cell[2]], sizeM, runs, spheres, cls: REST, depth: 0, centre: [at[0] + half, at[1] + half, at[2] + half], radius: half * Math.sqrt(3) + PIECE_REACH_M };
+    const mid = toWorld((cell[0] * VOXEL_SIZE_M) + half, cell[1] * VOXEL_SIZE_M + half, cell[2] * VOXEL_SIZE_M + half).map((v, a) => v - this.anchor[a]! * VOXEL_SIZE_M) as [number, number, number];
+    const chunk: Chunk = { cell: [cell[0], cell[1], cell[2]], sizeM, runs, spheres, cls: REST, depth: 0, centre: mid, radius: half * Math.sqrt(3) + PIECE_REACH_M };
     chunk.cls = this.classOf(chunk);
     this.chunks.set(id, chunk);
     for (const r of runs) {

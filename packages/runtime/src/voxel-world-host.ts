@@ -71,6 +71,7 @@ import {
   VOXEL_PLANES,
   VOXEL_SIZE_M,
   VoxelStreamer,
+  worldBudgetBytes,
   worldStreamer,
   writeSave,
   type ChunkGrid,
@@ -320,7 +321,7 @@ export interface VoxelHostStats {
    */
   readonly readRing?: { readonly setM: number; readonly nowM: number; readonly reachM: number | null };
   /** The structure grids streamed beside the world grid: how many, their resident chunks and bytes, their bodies (absent: none). */
-  readonly grids?: { readonly count: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly bodies: number; readonly shapes: number; readonly bodyBuilds: number; readonly bodyBuildMs: number; readonly bytesPerGrid: { readonly min: number; readonly max: number }; readonly nearest: Readonly<Record<string, unknown>> | null };
+  readonly grids?: { readonly count: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly bodies: number; readonly shapes: number; readonly bodyBuilds: number; readonly bodyBuildMs: number; readonly updates: number; readonly skipped: number; readonly bytesPerGrid: { readonly min: number; readonly max: number }; readonly nearest: Readonly<Record<string, unknown>> | null };
 }
 
 export class VoxelWorldHost {
@@ -626,6 +627,7 @@ export class VoxelWorldHost {
       // grid that keeps the pool's queue full never starves them.
       threadProfiler.begin(GRIDS_SPAN);
       try {
+        this.shareBudget(s);
         for (const g of this.grids) g.step(foci.stream, foci.collide, foci.collideVelocity, this.settings);
       } finally {
         threadProfiler.end(GRIDS_SPAN);
@@ -694,6 +696,20 @@ export class VoxelWorldHost {
       this.waits.splice(i, 1);
       this.events.answered(w.id, true);
     }
+  }
+
+  /**
+   * One budget for the world grid and its structure grids. The grids come first: the world grid's share is the
+   * budget less what the grids hold, so past it the world grid evicts its own farthest chunks (its ring's far edge,
+   * farther than anything a grid in reach holds); a grid's is the budget less the other grids', so grids evict only
+   * when they alone would fill it.
+   */
+  private shareBudget(s: VoxelStreamer): void {
+    const budget = worldBudgetBytes(this.settings, this.conn?.budgetBytes);
+    let grids = 0;
+    for (const g of this.grids) grids += g.streamer.held.total;
+    s.budgetBytes = Math.max(1, budget - grids);
+    for (const g of this.grids) g.setBudget(budget - (grids - g.streamer.held.total));
   }
 
   /**
