@@ -166,7 +166,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 
 | Item | Status |
 |---|---|
-| 47a.0 | not started |
+| 47a.0 | Done 2026-11-21 (docs only, no gate): baseline at 58fac9ba (§8a; page ms at 128 lamps +2 ms against 46e.19, the 128-lamp room unusable). D740 not fixed: the surface WGSL equal in loads, samples, loops; `level0` equal at both commits, so the extra is the coarse levels' read meeting other data; D740 rewritten |
 | 47a.1 | not started |
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | not started |
@@ -204,6 +204,103 @@ a stop.
 ## 8a. Results
 
 (Each item's results go here as it closes.)
+
+### 47a.0 — the baseline
+
+At **58fac9ba** (code equal to 760c2aa0, the 46e.19 reading's commit; rebuilt with `node tools/build.mjs` in the 10G
+scope first), 2026-11-20 22:42–23:36 UTC, uptime 28.3 d, 1-minute load **1.5–4.3** (46e.19: 0.74–3.0; another
+session's process was seen on the host during the runs); low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone
+(gate inactive, no build or other run, `*.uptime` beside each raw file), `measureGpu` readings only, the second rounds
+read (as 46e.19). Work folder `~/.cache/thirdlight-phase47a/work/47a.0/` (`lib.sh` and `summ.py` from 46e.19-end's,
+`baseline.sh`, `progress.txt`, `m/` every raw run with its `.log` and `.uptime`). Commands, each in the 10G scope:
+`run.mjs headroom --quality low --rounds 2 [--query '&voxelLight=off']` off, default, then `--lamps 128` default, the
+three twice interleaved (`O-{town-off,town-def,128-def}-r{1,2}.json`); `run.mjs coverage --export --keep-export
+--quality low`, then with staging stopped `coverage --dir <export> --quality low --speed 150` (`G-def-r1.json`; the
+export deleted after, `exports/` empty). The off runs are proven off: their rounds hold no volume state, the default
+runs' do.
+
+| | 47a.0 | 46e.19 end of phase | raw |
+|---|---|---|---|
+| orbit room, town off (copies × ms a copy) | 176 × 0.129, 176 × 0.126 | 176 × 0.127, 176 × 0.126 | `O-town-off-*` |
+| orbit room, town default | 128 × 0.126, 120 × 0.113 | 128 × 0.129, 128 × 0.132 | `O-town-def-*` |
+| orbit room, 128 lamps default | 88 × 0.050, **3 × 0.125** | 68 × 0.143, 68 × 0.142 | `O-128-def-*` |
+| missed at no load (of 89): town off; default; 128 | 0, 0; 0, 0; 0, 0 | 0, 1; 0, 1; 0, 0 | |
+| GPU `near`: town off; default; 128 | 2.35, 2.05; 3.47, 3.63; **7.70, 6.55** | 2.10, 1.89; 5.07, 4.77; 8.42, 9.24 | |
+| GPU `far`: town default; 128 | 3.15, 3.54; 2.81, 3.81 | 2.82, below; 3.46, 3.07 | |
+| GPU `lighting` (row 6.67): town default; 128 | 5.64, 5.68; 5.11, 4.19 | 4.98, 5.44; 5.25, 5.54 | |
+| resolution of the GPU reading: town default; 128 | 2.20, 2.82; 1.07, 1.00 | — | |
+| page ms a frame; `render`; `lighting` (of 2.0): town off | 5.39, 5.62; 4.83, 4.95; 0.06, 0.14 | 4.95, 5.22; 4.33, 4.52; 0.07, 0.07 | |
+| the same, town default | **7.40**, 6.71; **5.63**, 5.17; 1.07, 1.00 | 5.83, 6.85; 4.48, 5.06; 0.88, 1.13 | |
+| the same, 128 | **8.95, 8.73; 5.84, 5.84; 2.43, 2.34** | 6.90, 6.86; 4.40, 4.41; 2.01, 1.86 | |
+| simulation `voxelStream` ms: town default; 128 | 2.42, 2.14; 2.24, 2.40 | 1.85, 2.13; 1.82, 1.69 | |
+| page heap / GPU process MiB (low's 1,536 / 2,560): off; default; 128 | 596, 621 / 939, 927; 603, 563 / 966, 965; 696, 621 / 1,006, 1,091 | 612, 599 / 963, 961; 571, 607 / 1,013, 1,025; 608, 653 / 1,108, 1,061 | |
+| light volume MB (town; 128) | 36.45; 36.51, 36.57 | 36.45; 36.57 | |
+| lamp lists over (bricks); lamps dropped (128) | 31, **0**; 356, **0** | 31; 356 | |
+| travel 150 m/s, export: longest ms; > 100; missed a minute | 60.4; 0; 18.3 | 48.6, 57.9; 0; 16.5, 11.0 | `G-def-r1` |
+| … ground s; full detail s; nothing pending s | 0.03; **4.77; 9.33** | 0.03, 0.03; 4.21, 4.37; 8.59, 8.45 | |
+| … falls (of 34 drops); holes | through 0, one `lower` (drop 14, events in the raw file); 0 / 1,970 | through 0, one `lower` (r1); 0 | |
+
+**Different from 46e.19 by more than its spread:** (1) **page ms a frame at 128 lamps, +1.9–2.1 ms** (8.95, 8.73
+against 6.90, 6.86; `render` +1.4, `lighting` +0.4–0.5), and the town default's first run +1.6 ms (`render` +1.2);
+the off runs +0.4. (2) The **128-lamp room readings are not usable**: the first run's ballast measured 0.050 ms a copy
+(every other run 0.11–0.15), the second's edge search stopped at 3 copies after one window missed 3 of 89 frames at 4.
+(3) The second 128-lamp run's lamp lists were never over (0 bricks, 0 lamps dropped; `mostReaching` 30 against 59)
+with the same 112 lamps placed: not explained. (4) Travel: full detail 4.77 s and nothing pending 9.33 s against
+4.2–4.4 and 8.5–8.6 (one run; 46e.19's two runs were 0.15 s apart). GPU `near` at the town default is 1.1–1.6 ms
+lower and at 128 lamps 0.7–2.7 lower, but this hour's resolution at the town is 2.2–2.8 ms: not resolved. The
+host's load was higher than in 46e.19's hour (above); that is recorded, not offered as the cause. Memory is within
+the budget and equal to 46e.19's within its own spread.
+
+### 47a.0 — D740
+
+In a 2 h box (2026-11-20 23:36 – 2026-11-21 01:36 UTC; the work ended 00:55), at 58fac9ba against 481e0491, the
+`--lamps 128` orbit, low, the same conditions as the baseline (load 0.8–4.0). 481e0491 built with `node tools/build.mjs`
+in a scratch worktree with its own `@thirdlight` links (near128's `mkbase.sh`; `tlSunCovered` absent from its bundle,
+present in the head's), served by staging from it, the head's bench driving both; the worktree removed after.
+
+**The generated WGSL.** A scratch bench (`wgsl-dump.ts`, never committed: headroom's set-up and Play, with an init
+script wrapping `GPUDevice.prototype.createShaderModule` so every module's code the page makes is kept; no product
+change) dumped every module after 60 s of the 128-lamp orbit: 116 at 481e0491, 112 at the head. The voxel surface's
+fragment program (the module with the `texture_3d` material grid and the read's `tlVolume*` variables) and its
+vertex program, kit pieces' program and the second surface variant, copied to `wgsl-diff/` (`surface-481e0491.wgsl`,
+`surface-head.wgsl`, `surface-vert-*.wgsl`, `kit-*.wgsl`, `surface2-*.wgsl`; `*.norm.diff` the diffs with the
+generated names numbered out):
+
+| surface fragment | bytes | lines | `textureLoad` | `textureSample` | loops | `if` |
+|---|---|---|---|---|---|---|
+| 481e0491 | 149,984 | 5,321 | 91 | 40 | 5 | 314 |
+| head | 147,869 | 5,316 | 91 | 40 | 5 | 316 |
+| head, `?surfaceRead=index` | 132,627 | 4,725 | 76 | 40 | 5 | 271 |
+| head, `?surfaceRead=level0` | 125,836 | 4,622 | 76 | 40 | 2 | 268 |
+
+The volume read's code is the same text at both (180 `tlVolume` names each, no line of it differs). What differs: the
+ORM's projection-weighted blend is computed once at the head where 481e0491 repeated it in eight branches (`toVar` in
+`textureSetAt`: less work, not more); the glow mask multiply; the indoor cover (`tlSunCovered`: one more interpolant,
+one storage-buffer read a vertex, a `mix` with the indoor share). Kit pieces: 63 loads, 27 samples, 5 loops at both;
+only the indoor cover differs. **No local cause in the program**: no duplicated read, no read moved out of a shared
+node, no uniform turned into a per-pixel load. The two flag dumps prove the flags reach Play's programs (`index`: the
+15 face loads gone; `level0`: the three coarse levels' loops gone).
+
+**A B A B at the head, then 481e0491 in the same hour** (second rounds; `A-{def,index,level0}-r{1,2}.json`,
+`B481-{level0,def}.json`):
+
+| `--lamps 128` | GPU `near` ms | room (copies) |
+|---|---|---|
+| head, default | 8.40, 7.95 | 68, 80 |
+| head, `surfaceRead=index` (no face loads, no decode) | 7.77, 8.24 | 76, 68 |
+| head, `surfaceRead=level0` (level 0 alone) | no reading (r1: the ballast never passed the cap; its round 0 4.94), 5.99 (round 0 5.77) | 112, 112 |
+| 481e0491, `level0` | 5.46 (round 0 5.17) | 128 |
+| 481e0491, default | 7.00 (round 0 6.54) | 88 |
+
+Read: the face loads and their decode cost nothing measurable (`index` = default). With level 0 alone the head and
+481e0491 read the same (5.5–6.0 against 5.2–5.5, inside the 1–2.5 ms spread of a reading) and near the read-off 4.1 of
+46e.19: **the head's extra is in the coarse levels' read** (levels 1–3: their window test, index loads and loops),
+about 2.0–2.5 ms at the head against about 1.5 ms at 481e0491 this hour. Since that code is the same text at both,
+what differs is how many pixels go on to the coarse levels (level 0 leaving more than `VOLUME_LEFT_MIN` of its weight)
+or how many find coarse bricks: the data, not the program. This hour's gap between the commits' defaults is 1.0–1.9 ms
+(7.95–8.40 against 6.54–7.00), smaller than 46e.19's 2.4 (481e0491 read 5.0–6.5 then). **Not fixed; nothing changed
+in the product**; no gate (docs only). D740 rewritten with what is ruled out and the next step (a count, per pixel or
+by a page counter, of the pixels that read each coarse level at both commits).
 
 ## 9. Decision log
 
