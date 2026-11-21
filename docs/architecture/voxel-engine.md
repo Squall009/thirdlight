@@ -56,6 +56,15 @@ page in the same commit.
   `redo` steps scene edits and strokes on one line in the order they were made (workspace `undo-timeline.ts`,
   in the backend, per project); a stroke's undo and redo write back the records its world's undo store keeps
   (redo exact, the same byte budget); a stroke whose world dropped it is skipped and named.
+- **Structure grids**: a world may hold structure grids beside the world grid (manifest format 3: `grids`, each
+  grid's region files in `grid-<id>/`), each the same 0.5 m cells in a frame of its own, placed by a position and a
+  yaw that are not stored with the voxels (the structure object's, 47a.4; until then Play takes them as the world
+  connection's `grids` host option, fed by a bench's `?voxelGrids=`). In Play each is streamed by its own streamer in
+  the world's pool under its job ids, reading only round the chunks its files hold, the foci moved into its frame;
+  drawn under its place (surfaces, kit pieces, shadows: `voxel-world-draws.ts` hangs its chunk view under a turned
+  root) and collided as one compound static body (runtime `voxel-grid-host.ts`). The light volume, sun heights,
+  open regions and rooms, the walk graph, the far field, `ctx.voxels`, the Scene view and exports see the world
+  grid alone (plan-47a §8a, 47a.1a).
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
   water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); `liquid` is
   excluded by scattered checks, not one predicate; a liquid edit re-derives mesh, collision, navigation and

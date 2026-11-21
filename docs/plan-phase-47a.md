@@ -167,7 +167,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | Item | Status |
 |---|---|
 | 47a.0 | Done 2026-11-21 (docs only, no gate): baseline at 58fac9ba (§8a; page ms at 128 lamps +2 ms against 46e.19, the 128-lamp room unusable). D740 not fixed: the surface WGSL equal in loads, samples, loops; `level0` equal at both commits, so the extra is the coarse levels' read meeting other data; D740 rewritten |
-| 47a.1 | not started |
+| 47a.1 | (a) done 2026-11-21 (0980318c, 185114b6): grids in the manifest (F2), streamed, drawn turned, one body a grid; town 4 ways: turn costs nothing, a streamer a grid does (131 grids: sim 127–154 ms on the orbit, W 2; draw calls 8–17 ×), D743; recommendation in §8a. b–d not started |
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | not started |
 | 47a.4 | not started |
@@ -302,6 +302,109 @@ or how many find coarse bricks: the data, not the program. This hour's gap betwe
 in the product**; no gate (docs only). D740 rewritten with what is ruled out and the next step (a count, per pixel or
 by a page counter, of the pixels that read each coarse level at both commits).
 
+### 47a.1a — several grids in one world, drawn and solid
+
+**Built** (0980318c, 185114b6, b565d54f; F2 as approved). The world manifest is format 3: `grids: [{ id, regions }]`
+sorted by id, each grid's files in `grid-<id>/`, a listed file missing or of another grid damaged; format 2 reads as no
+grids (add-only step). The backend serves a grid's files by range (`…/voxels/<world>/grids/<id>/regions/<file>`, editor
+API and Play's locator) and lists their tags in the world's info. Where a grid stands is NOT stored: Play takes the
+placements as one host option, `VoxelWorldConnection.grids` (`{ gridId, position, yawRad }` with the grid's source and
+the chunks its files hold), which the presentation (`presentVoxelWorlds`) makes from the page's `?voxelGrids=` bench
+switch until structure objects (47a.4) feed it. Per grid (runtime `voxel-grid-host.ts`, voxel `grid-place.ts`): its own
+streamer (`worldStreamer` with `gridId`, the world's pool and job ids, an `extent`: the box of the chunks its region
+tables name plus two chunks of air, so it never reads the empty load ring round it), the foci moved into its frame
+(`GridFrame`), its own draw batches carrying where it stands; the page hangs its chunk view under a root at its position
+turned by its yaw (surfaces, kit pieces, shadow casters reported where they stand), the GPU culler's piece spheres turned
+with it; one compound static body a grid, built again at the end of the task a chunk's body changed in. Fixes found on
+the way: a section waiting on a chunk past the extent waits for one never coming (`VoxelStreamer` `coming`), and row
+neighbours of a read are clipped to the extent. The world grid alone is as before: the same fill on the orbit (158
+chunks, 280,349 triangles, 8,686 kit instances at both commits) and the A B below.
+
+**Bench** (`run.mjs town-grids --variant w|g0|g30|g45|restore`, staging stopped): the 8 km world's town four ways from the
+same lots: W all 131 houses in the world grid at yaw 0 (the 11 turned lots of the storage benches included), G0 each in
+its own grid at the same cells, G30 and G45 turned about their footprints' middles; ground, fences and ponds in the
+world grid always. Only the town's four region columns of the world grid and the grids' folders are written, the
+manifest keeps revision 0, so the far cache built for the world as first written stays current (it draws that town past
+the mesh rings in every variant: aligned houses, turned lots empty). Placements go to the benches as `--query` (the JSON's
+`query`, 3.4 kB). Anchor (F2): cell (0, 0, 0) at the minimum corner of the house's plan box (eaves, beams and balcony
+included) at its foundation's row: **every house is one region file, 347–562 bytes (mean 427), 1–2 stored chunks**.
+
+**Measured** 2026-11-21 04:30–06:18 UTC at 185114b6 (b565d54f's bench snapshot for the variants), low, WebGPU, 1280 × 720,
+the 30 Hz cap, each run alone (`uptime` beside each, 1-minute load 0.9–2.5), `run.mjs headroom --quality low --rounds 2`,
+second rounds read, two runs interleaved per variant (W G0 G30 G45, W G0 G30 G45). Work folder
+`~/.cache/thirdlight-phase47a/work/47a.1a/` (`measure.sh`, `lib.sh`, `summ1a.py`, `m/` every raw run). The world-only A B
+(head, base 0980318c built in a scratch worktree, the bench files with no placements): room 128, 128 against 128, 136;
+GPU `near` 3.56, 4.05 against 4.27, 3.77; page ms 3.79, 3.87 against 4.39, 4.52 (lower at the head: not resolved); sim
+2.17, 2.13 against 2.19, 2.31.
+
+| town orbit, two runs | W | G0 | G30 | G45 |
+|---|---|---|---|---|
+| room (copies) | 128, 128 | −1, −1 (misses 7/89, 7/88 at no load) | −1, −1 (4/89, 3/89) | −1, −1 (4/89, 8/89) |
+| GPU near / far / lighting ms | 5.27, 4.56 / 4.04, 2.82 / 4.71, 5.08 | below, 4.83 / below, 4.01 / below, 4.98 | 5.97, 5.90 / 2.76, 3.44 / 4.58, 4.59 | 5.98, 7.61 / 3.39, 4.49 / 4.57, 4.74 |
+| page ms a frame; `render` | 6.49, 5.77; 4.78, 4.49 | 15.80, 16.14; 13.32, 13.84 | 15.24, 15.00; 13.14, 12.85 | 15.85, 16.56; 13.73, 14.21 |
+| simulation ms a frame (`voxelStream`) | 2.22, 2.13 (1.80, 1.76) | 132.5, 132.2 (130.5, 130.1) | 142.3, 135.2 (140.1, 133.2) | 133.7, 128.7 (132.0, 126.8) |
+| draw calls; triangles (a frame) | 80, 80; 117 k | 647, 589; 420 k, 396 k | 640, 679; 441 k, 464 k | 1,403, 632; 991 k, 436 k |
+| grid draws: piece draws; kit instances | — (world: 49; 38,883) | 1,045, 907; 37.8 k, 34.2 k | 1,017, 1,057; 38.1 k, 39.4 k | 1,233, 1,050; 44.3 k, 39.0 k |
+| page heap / GPU MiB | 602, 637 / 1,023, 1,038 | 661, 611 / 1,309, 1,221 | 671, 626 / 1,477, 1,250 | 608, 684 / 1,400, 1,481 |
+| voxel streaming: world grid; grids (bytes a grid) | 69.5, 69.0 MB | 0.72 MB; 60.7, 51.2 MB (15 kB – 1.29 MB) | 0.72; 55.9, 55.5 | 0.72; 62.6, 60.6 |
+| grids' resident chunks | — | 16,509, 16,495 | 16,499, 16,498 | 16,481, 16,472 |
+| far field settled after Play (s) | 9.9, 8.1 | 24.0, 19.5 | 21.3, 20.0 | 21.3, 20.5 |
+
+Light shots with the camera still (`light-shots --only street-noon,house-above,house-60m --edits 0`): simulation 18–25 ms
+a frame in G0–G45 against 1.7–2.8 in W, page 10.7–13.2 against 4.0–7.1; G45's street picture was taken with the world
+grid's near field not drawn yet (0 chunks). **Bodies**: the orbit and the shots stay above the collision ring's height, so
+no body was made in any variant (0); the Play test's one grid house: one body, 11 collider parts, 3 builds in 7 ms.
+**Derive of one house** (Node, `scratch/derive-house.ts`, `deriveFromStore` of every chunk of its box, median of 15, 12
+houses): 12–26 ms in its own grid against 21–32 ms for the same house with the ground in the world grid.
+Readings: the frame's cost is the grids' **count**, not their turn: G0, G30 and G45 are equal within their spread. A
+streamer a grid costs about 1 ms of simulation a step while the camera moves (its plan, budget and coverage passes run
+whatever it holds) and is the whole of the 130–150 ms; piece batches a grid multiply the draw calls (8–17 ×) and the
+page's `render` (2–3 ×); the grids' 16.5 k resident chunks are their margins of air (125 a house).
+
+**Pictures** (looked at; `m/S-<variant>/`, and `S-g30/` before the runs): `street-noon.png`, `house-60m.png`,
+`house-above.png` of each variant; the Play test's `grid-house.png` (Playwright output, a 30° stone house in grid 1
+seen square from its porch camera). Walls meet the flat ground: the grey foundation strip sits on the grass with no gap
+or z-fight seen at the street camera in G30 and G45; the kit pieces (eave steps, window frames, fence-like beams; in the
+test house the magenta boards at the door's jambs and front corners) sit on the turned edges; shadows fall from the turned
+houses onto the grass (`house-above`). Plan 45 §1e's "foundation pieces skirt into the terrain and hide the seam": no
+foundation piece exists, the seam is the foundation's bottom face on flat ground, not looked at on a slope. Seen wrong:
+in G variants the windows show lit interiors where W's are dark (the light volume and the indoor cover see the world
+grid alone); specks on the roof eaves of several grid houses at 60 m, at yaw 0 too (D744); the far field draws the
+original aligned town past the mesh rings (the bench's far cache). **Collision** (Play test, pixels and positions): the
+character pushed at the 30° house's front wall stopped at grid z 2.69 (its face at 3.0); pushed at its door it went
+through to z 7.19 (the back wall's inside at 7.5).
+
+**With a turned grid today** (each recorded, nothing guarded beyond the world grid; none crashed or drew garbage in the
+runs except the specks):
+- light volume, sun heights, indoor cover: walk the world grid's blocks alone; a grid house neither stops nor bounces
+  light, its rooms are lit as open air, its roof covers nothing; the key light's maps and the atlas do see its casters;
+- open regions, rooms, see-through and cut-away: the world grid's; `regionAt` in a grid house answers the outdoors, a
+  camera's cut-away never cuts a grid house (its pieces are marked as room draws, the rooms never name them);
+- the walk graph and `findPath`: the world grid's; a path goes through a grid house as through air (a walker then meets
+  its body);
+- the far field and far cache: the world grid's; a grid has no far nodes: past its own mesh rings (its levels 1–2, chosen
+  in its frame) and its load ring it is not drawn; mips and mesh rings work per grid;
+- `ctx.voxels` reads, rays, edits and saves: the world grid's; rays pass through grid houses; no edit reaches a grid;
+- the coarse floor and `collisionReadyAt`: the world grid's;
+- the editor's Scene view: the world grid alone; exports: ship the world grid alone (a shipped world has no grids);
+- memory: each grid streamer has the world's budget (no shared budget); the resident-bytes row sums them.
+
+**Unverified:** a turned house on a slope; bodies of the town's grids in Play (none made); anything in motion beyond
+the orbit numbers; medium and high tiers; WebGL 2 (only its smoke test ran); the cause of D744. Gates: the manifest
+commit's every-area fast gate (gate-fast-20261121-010349, RED on load flakes, gate-rerun-20261121-013806 GREEN), the
+grids' fast gate with `voxel-world.e2e.ts` (gate-fast-20261121-040232 GREEN; `far-world.test.ts` D599 failed once and
+passed alone), the Play test 1.8 min before, 1.9 min after (the first Play's checks 102.8 s alone), `area play` with the leak test (gate-area-20261121-062956, 24 passed, GREEN).
+
+**D-rows** opened: D742 (an observation's counters cut at 32), D743 (a streamer a grid), D744 (specks on grid houses' eaves).
+
+**Recommendation for 47a.5** (and slices b–d): keep the stored design (F2) and the frame arithmetic; do NOT keep a
+streamer a grid: one streamer a world over all its grids (chunk keys by grid and chunk, as spec §3.6 plans), planning
+only the grids whose boxes reach the ring; one set of piece batches a world with each copy's matrix carrying its grid's
+transform, so the draws stay as W's; bodies a grid as built. Slice b: stamp each grid into the world's light and region
+occupancy (the turn costs nothing measurable here, the count does); slice c: stitch the grids' walk graphs at doorsteps;
+slice d: far nodes of grids from the same far cache runner, keyed by grid. The orbit numbers here are the cost of 131
+streamers, not of turned grids.
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -323,6 +426,13 @@ by a page counter, of the pixels that read each coarse level at both commits).
   depend on the answer and start now.
 - 2026-11-20: the measurement (47a.1) is built on bench data and the draft formats only; what it adds to
   `packages/` is the per-grid plumbing 47a.5 keeps if the design stands.
+
+- 2026-11-21 (47a.1a; default chosen, owner to confirm): **the anchor's "footprint box" is the house's whole plan
+  box** (eaves, beams and balcony included) at its foundation's row, so nothing of a house lies below cell 0 and it is one
+  region file; F2's "ground floor's top" read as the ground floor's row.
+- 2026-11-21 (47a.1a; default chosen, owner to confirm): until structure objects exist, **placements reach Play as a
+  host option** (`VoxelWorldConnection.grids`) fed only by the page's `?voxelGrids=` bench switch; nothing a project
+  stores. Each grid streamer gets the world's memory budget (no shared budget yet).
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
