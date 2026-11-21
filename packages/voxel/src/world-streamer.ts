@@ -25,6 +25,8 @@ import { WORLD_RULES } from './rule-registry';
 import type { ReliefRingSettings } from './relief-ring';
 import { fineLevelsChanged, VoxelStreamer } from './voxel-streamer';
 import type { WorkerPool } from './worker-pool';
+import type { DirtyTracker } from './dirty-tracker';
+import type { ChunkBox } from './grid-place';
 import { buildPieceTable, type PieceKitSource, type PieceTable } from './piece-table';
 import { FAR_FIELD_BY_TIER, farViewOf, type FarFieldMode, type FarNodeSource } from './far-field';
 
@@ -117,12 +119,19 @@ export function applyWorldRings(streamer: VoxelStreamer, settings: WorldRingSett
   fineLevelsChanged(streamer);
 }
 
-/** A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces chosen from `pieces` (absent: no kit, plain voxel faces). */
-export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source: ChunkSource; readonly pool: WorkerPool; readonly budgetBytes?: number; readonly pieces?: PieceTable | null; readonly far?: FarNodeSource; readonly fineBricks?: boolean }, settings: WorldRingSettings & { readonly sectionEdge: SectionEdge }): VoxelStreamer {
+/**
+ * A streamer for a world: the chunks around its focus read from `source`, decoded and derived in `pool`, its pieces
+ * chosen from `pieces` (absent: no kit, plain voxel faces). A structure grid's names its `gridId`, the world's
+ * `tracker` (one id space for every job of the pool they share) and the chunks it reads (`extent`).
+ */
+export function worldStreamer(conn: { readonly grid: ChunkGrid; readonly source: ChunkSource; readonly pool: WorkerPool; readonly budgetBytes?: number; readonly pieces?: PieceTable | null; readonly far?: FarNodeSource; readonly fineBricks?: boolean; readonly gridId?: number; readonly tracker?: DirtyTracker; readonly extent?: ChunkBox | null }, settings: WorldRingSettings & { readonly sectionEdge: SectionEdge }): VoxelStreamer {
   // The connection's word (the page's: a bench's switch, or a renderer that cannot build) over the world's setting.
   const fine = conn.fineBricks ?? settings.fineBricks === true;
   return new VoxelStreamer({
     store: createWorldStore(conn.grid),
+    ...(conn.gridId !== undefined ? { gridId: conn.gridId } : {}),
+    ...(conn.tracker !== undefined ? { tracker: conn.tracker } : {}),
+    ...(conn.extent != null ? { extent: conn.extent } : {}),
     source: conn.source,
     pool: conn.pool,
     ring: worldStreamRing(settings.ring),

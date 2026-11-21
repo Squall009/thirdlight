@@ -237,6 +237,7 @@ export { deriveNow, jobRelief, streamJobHandlers, type StreamHandlerOptions } fr
 export { JobQueue } from './job-queue';
 export { defaultVoxelWorkers, eventTargetWorker, livePoolQueues, POOL_END_GRACE_MS, poolWorkersEnded, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolQueues, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
+export { GRID_EXTENT_MARGIN_CHUNKS, GridFrame, gridChunkExtent, gridDrawName, gridPlacementProblem, gridPlacementsText, grownChunkBox, parseGridPlacements, VOXEL_GRIDS_URL_PARAM, type ChunkBox, type GridPlacement, type GridPlaceWire } from './grid-place';
 export { StreamDetail } from './stream-detail';
 export { FAR_GROUND_CACHE_BYTES, FAR_GROUND_LEVEL, FarGround, farGroundTops, type FarGroundField, type FarGroundHost, type FarGroundInput, type FarGroundOutput } from './far-ground';
 export { COLLISION_ALONE_PART, CollisionDerives, type CollisionDeriveHost, type CollisionEvent } from './stream-collision';

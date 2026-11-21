@@ -35,6 +35,9 @@ function identityOrder(n: number): Uint32Array {
   return identity;
 }
 
+/** The matrix entries of an affine transform (three's column-major order; the bottom row left out). */
+const AFFINE = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14] as const;
+
 const rayProbe = new THREE.Mesh();
 const raySphere = new THREE.Sphere();
 const rayMatrix = new THREE.Matrix4();
@@ -59,7 +62,8 @@ export class PieceDraw implements CullableCopies {
   private readonly world: Float32Array;
   private version = 0;
   private packedFor = -1;
-  private readonly placedAt = new Float64Array(3);
+  /** The group's matrix the world spheres were made with (its 3 × 4 affine part). */
+  private readonly placedAt = new Float64Array(12);
   private drawnOnce = false;
   /** Places written (what a raycast tests). */
   private count = 0;
@@ -134,23 +138,32 @@ export class PieceDraw implements CullableCopies {
   viewDraw(): InstanceViewDraw | null {
     const n = this.host.viewCount();
     if (n === null) return null;
-    // The anchor's group as placed now (it moves with the floating origin): the spheres in the world again.
+    // The anchor's group as placed now (it moves with the floating origin; a structure grid's view turns it by the
+    // grid's yaw): the spheres in the world again.
     this.mesh.updateWorldMatrix(true, false);
     const w = this.mesh.matrixWorld.elements;
-    if (w[12] !== this.placedAt[0] || w[13] !== this.placedAt[1] || w[14] !== this.placedAt[2]) {
-      this.placedAt[0] = w[12]!;
-      this.placedAt[1] = w[13]!;
-      this.placedAt[2] = w[14]!;
-      this.version++;
+    let moved = false;
+    for (let i = 0; i < 12; i++) {
+      const e = w[AFFINE[i]!]!;
+      if (e !== this.placedAt[i]) {
+        this.placedAt[i] = e;
+        moved = true;
+      }
     }
+    if (moved) this.version++;
     if (this.packedFor !== this.version || this.view.count !== n) {
       const s = this.local;
       const out = this.world;
+      // Turned and moved, never scaled (a grid's place is a yaw and a position): the radius stands. Unturned, the
+      // products are exact (× 1, + 0), so the world grid's spheres are what a translation alone gives.
       for (let p = 0; p < n; p++) {
         const o = p * 4;
-        out[o] = s[o]! + w[12]!;
-        out[o + 1] = s[o + 1]! + w[13]!;
-        out[o + 2] = s[o + 2]! + w[14]!;
+        const x = s[o]!;
+        const y = s[o + 1]!;
+        const z = s[o + 2]!;
+        out[o] = x * w[0]! + y * w[4]! + z * w[8]! + w[12]!;
+        out[o + 1] = x * w[1]! + y * w[5]! + z * w[9]! + w[13]!;
+        out[o + 2] = x * w[2]! + y * w[6]! + z * w[10]! + w[14]!;
         out[o + 3] = s[o + 3]!;
       }
       this.packedFor = this.version;

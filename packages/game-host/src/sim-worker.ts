@@ -30,7 +30,7 @@ import { FrameEncoder } from './sim-state';
 import { PHYSICS_MEMORY_CAP_BYTES, type MainToWorker, type SimCommand, type SimEndpoint, type SimInitMessage, type SimQuery, type WorkerToMain } from './sim-protocol';
 import { stepDigest } from './step-digest';
 import { TickInputSource } from './tick-input';
-import { presentVoxelWorlds, type VoxelPresentation } from './voxel-play';
+import { gridPlacementsOf, presentVoxelWorlds, type VoxelPresentation } from './voxel-play';
 
 /** The tick's work outside the runtime's steps: the frame's state for the page, and the scene requests handed out. */
 const STATE_SPAN = threadProfiler.span('frame state encoded', 'other');
@@ -204,7 +204,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       relay.setUiHit((x, y) => hitUiTargets(uiTargets, x, y)?.key ?? null);
       relay.setEffectSink((effect) => post({ t: 'relay.effect', effect }));
       // Each swap's chunk draws go to the page in one message, their buffers handed over.
-      if (m.voxels !== undefined && deps.voxelPorts !== undefined) voxels = presentVoxelWorlds(deps.voxelPorts(m.voxels.root, m.voxels.worlds ?? []), (batch) => post({ t: 'voxels', batch }, chunkDrawBatchTransfer(batch)), m.voxels.kits ?? [], m.voxels.pieceSeed ?? 0, m.voxels.qualityLevels, m.voxels.materials, m.voxels.fineBricks === true, m.voxels.walkFeed ?? 0);
+      if (m.voxels !== undefined && deps.voxelPorts !== undefined) voxels = presentVoxelWorlds(deps.voxelPorts(m.voxels.root, m.voxels.worlds ?? []), (batch) => post({ t: 'voxels', batch }, chunkDrawBatchTransfer(batch)), m.voxels.kits ?? [], m.voxels.pieceSeed ?? 0, m.voxels.qualityLevels, m.voxels.materials, m.voxels.fineBricks === true, m.voxels.walkFeed ?? 0, gridPlacementsOf(m.voxels.grids));
       const composed = composeGameRuntime({
         snapshot: m.snapshot,
         settings: m.settings,

@@ -96,10 +96,11 @@ import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-sets';
 import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
-import { canonicalEditCommand, chunkGrid, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, gridDrawName, gridPlacementsText, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
-import { GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelRoomChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
+import { GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelGridChecks, voxelRoomChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 import { playScriptSource } from './voxel-play-script';
+import { GRID_HOUSE_M, gridHousePlacement, siteTop, writeGridHouse } from './voxel-grid-house';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -107,12 +108,24 @@ let scene: Cell;
 /** The same world 8 km out on x and z (512 chunks), for Play: a world far from the origin. */
 const FAR_CHUNKS = 512;
 let farScene: Cell;
+/**
+ * The Play world's structure grid: a stone house with a porch in grid 1, turned 30° about its middle, 20 m east of
+ * the pad (where the pad's shadow checks never reach), its slab on the highest ground under it; its placement goes to
+ * the Play test as `?voxelGrids=` (a structure grid's place is not stored).
+ */
+const HOUSE_GRID = 1;
+let house: ReturnType<typeof gridHousePlacement>;
 
 test.beforeAll(async () => {
   be = await startBackend('e2e-voxel');
   // 128 m square: enough ground around the scene for the ring, quick to write.
   scene = [...writeSliceWorld(be.projectDir, 'slice', 256).scene] as Cell;
-  farScene = [...writeSliceWorld(be.projectDir, 'far', 256, { x: FAR_CHUNKS, z: FAR_CHUNKS }).scene] as Cell;
+  const far = writeSliceWorld(be.projectDir, 'far', 256, { x: FAR_CHUNKS, z: FAR_CHUNKS });
+  farScene = [...far.scene] as Cell;
+  const pad = [(farScene[0] + 9.5) / 2, farScene[1] / 2, (farScene[2] + 10.5) / 2];
+  const mid: [number, number] = [pad[0]! + 20, pad[2]!];
+  house = gridHousePlacement(HOUSE_GRID, [mid[0], siteTop(far.store, mid[0], mid[1], 8), mid[1]], 30);
+  writeGridHouse(join(be.projectDir, 'voxels', 'far'), HOUSE_GRID, MAT.stone);
   await addStoneKit();
   // The stone's material record: a voxel material bound to the test kit (so the binding, and every picture, is as
   // the kit's own list made it); and a material for meshes only, which voxel tools never list.
@@ -938,8 +951,12 @@ let standAt: [number, number, number] | null = null;
 let playWorld: string | null = null;
 /** The Play project's camera (moved by the far-light checks). */
 let pitCamera = '';
+/** The camera on the structure grid's house and the point it looks at. */
+let houseCamera = '';
+let houseTarget = '';
 
 /** The Play camera (metres, as `playProject` places it): over the pad, 35° down. */
+const housePlacementQuery = (): string => `&voxelGrids=${encodeURIComponent(gridPlacementsText('far', [house.place]))}`;
 const playCamera = (at: readonly number[]): { position: number[]; rotation: number[] } => ({ position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(PLAY_PITCH / 2), 0, 0, Math.cos(PLAY_PITCH / 2)] });
 /** The decal marks on the far world's stone wall (metres: its front face, above the banister). */
 const DECAL_SIDE = 1.2;
@@ -982,6 +999,10 @@ async function playProject(): Promise<[number, number, number]> {
     await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: `Wall mark (${mode})`, transform: { position: marks[mode] }, components: { decal: { size: [DECAL_SIDE, DECAL_SIDE, 0.6], mode, material } } });
   }
   const player = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [at[0], at[1] + 1.5, at[2]] } }))['createdId']);
+  // A camera on the structure grid's house (off until the test makes it live) and the point it looks at.
+  const f = house.frame;
+  houseCamera = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'House camera', transform: { position: f.toWorld(GRID_HOUSE_M.doorX, 3.5, -6) }, components: { virtualCamera: { rig: 'fixed', priority: 40, enabled: false, blend: 'cut', fovY: PLAY_FOV_Y_DEG, near: 0.1, far: 300, occlusion: 'none' } } }))['createdId']);
+  houseTarget = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'House middle', transform: { position: f.toWorld(GRID_HOUSE_M.doorX, 1.5, GRID_HOUSE_M.doorWallZ + 2) } }))['createdId']);
   await playCmd('setComponent', { entityId: player, component: 'controller', value: {} });
   // One save slot for the game's own save document (the voxel save rides in it as text).
   await playCmd('setSaveSchema', { schema: { version: 1, slots: 1, legacyWorld: false } });
@@ -1358,7 +1379,8 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     const hutAt = await playProject();
     const roofCam = async (name: string, occlusion: string): Promise<string> => String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name, transform: { position: [hutAt[0], hutAt[1] + 14, hutAt[2] + 9.25] }, components: { virtualCamera: { rig: 'fixed', priority: 40, enabled: false, blend: 'cut', fovY: PLAY_FOV_Y_DEG, near: 0.1, far: 300, occlusion } } }))['createdId']);
     const roofCameras = { cut: await roofCam('Roof camera (cut away)', 'cutAway'), plain: await roofCam('Roof camera', 'none') };
-    const { at, psid, answer, canvas, errors, shadowObjects, away, observe, drawn } = await startPlay(page, renderer, '&voxelLight=off');
+    const playT0 = Date.now();
+    const { at, psid, answer, canvas, errors, shadowObjects, away, observe, drawn } = await startPlay(page, renderer, `&voxelLight=off${housePlacementQuery()}`);
     // The play's locator serves the world its scenes name, not the project's other worlds.
     const preview = new URL((await page.locator('iframe.tl-app__preview-frame').getAttribute('src'))!, be.origin).origin;
     const voxelStatus = async (world: string): Promise<number> => (await fetch(`${preview}${answer.playContent.path}voxels/${world}`)).status;
@@ -1512,6 +1534,7 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     console.log(`[voxel-play] ${renderer} open regions: the shaft's dig to the room's answer changed ${Date.now() - shaftAt} ms (command round trip and polls included)`);
     expect(await counter('otherEnclosed'), 'the room behind the door stays enclosed').toBe(1);
     await voxelRoomChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position, roofCameras });
+    await voxelGridChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, frame: house.frame, house: GRID_HOUSE_M, camera: houseCamera, target: houseTarget, drawName: gridDrawName('far', HOUSE_GRID), drawn: async () => (await drawn()).worlds, player: async () => (await observe()).player ?? null });
     // The relief ring of the high tier is read in the export below (it plays the same way).
     // The far field at the low tier (the world's own short load ring there): ray-marched bricks draw the ground past
     // the near field.
@@ -1520,6 +1543,7 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     console.log(`[voxel-play] ${renderer} far bricks: ${await farBeyondNear(canvas, playShot, `play-${renderer}`)} px of ground past the near field`);
     expect((await observe()).state).toBe('running');
     expect(errors).toEqual([]);
+    console.log(`[voxel-play] ${renderer} the first Play's checks: ${((Date.now() - playT0) / 1000).toFixed(1)} s`);
 
     // The world baked to 0.5 m (its object's bake level, one command): the bake starts with the command, the voxel
     // world's Inspector section shows it through to done, and a new Play draws baked fine bricks past the detail ring

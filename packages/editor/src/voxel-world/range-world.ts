@@ -12,7 +12,7 @@
  * missed, files restored) is read again whole (`readAgain`).
  */
 import { hexToBytes } from '@thirdlight/shared';
-import { chunkGrid, defaultVoxelWorkers, FAR_BAKED_LEVELS, eventTargetWorker, OPEN_REGION_FILES, regionFarSource, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type FarNodeSource, type VoxelStreamer } from '@thirdlight/voxel';
+import { chunkGrid, defaultVoxelWorkers, FAR_BAKED_LEVELS, eventTargetWorker, gridChunkExtent, OPEN_REGION_FILES, regionFarSource, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type FarNodeSource, type VoxelStreamer } from '@thirdlight/voxel';
 import { rangeByteSource, type RangeReadStats } from './range-reads';
 
 export interface VoxelWorldManifest {
@@ -28,6 +28,8 @@ interface WorldInfo {
   ok: boolean;
   manifest?: VoxelWorldManifest;
   files?: Array<{ name: string; etag: string | null }>;
+  /** The structure grids' region files (format 3 worlds). */
+  grids?: Array<{ id: number; files: Array<{ name: string; etag: string | null }> }>;
   error?: { message: string };
 }
 
@@ -114,11 +116,11 @@ function rangeFarSource(url: string, grid: ChunkGrid, worldId: Uint8Array, footp
   };
 }
 
-async function readInfo(url: string, headers: Readonly<Record<string, string>>): Promise<{ manifest: VoxelWorldManifest; files: NonNullable<WorldInfo['files']> }> {
+async function readInfo(url: string, headers: Readonly<Record<string, string>>): Promise<{ manifest: VoxelWorldManifest; files: NonNullable<WorldInfo['files']>; grids: NonNullable<WorldInfo['grids']> }> {
   const res = await fetch(url, { headers });
   const info = (await res.json()) as WorldInfo;
   if (!info.ok || info.manifest === undefined) throw new Error(info.error?.message ?? `HTTP ${res.status}`);
-  return { manifest: info.manifest, files: info.files ?? [] };
+  return { manifest: info.manifest, files: info.files ?? [], grids: info.grids ?? [] };
 }
 
 export class RangeWorld {
@@ -130,14 +132,18 @@ export class RangeWorld {
   readonly pool: WorkerPool;
   /** The listed region files and their tags (null: listed but unreadable, so its chunks are damaged). */
   readonly files = new Map<string, string | null>();
+  /** Each structure grid's listed region files and their tags, by grid id. */
+  readonly gridFiles = new Map<number, Map<string, string | null>>();
   revision: number;
 
   private constructor(
     private readonly o: RangeWorldOptions,
     readonly manifest: VoxelWorldManifest,
     files: ReadonlyArray<{ name: string; etag: string | null }>,
+    grids: NonNullable<WorldInfo['grids']>,
   ) {
     for (const f of files) this.files.set(f.name, f.etag);
+    for (const g of grids) this.gridFiles.set(g.id, new Map(g.files.map((f) => [f.name, f.etag])));
     this.revision = manifest.revision;
     this.grid = chunkGrid(manifest.edge as ChunkEdge);
     this.worldId = hexToBytes(manifest.worldId);
@@ -150,8 +156,22 @@ export class RangeWorld {
   }
 
   static async open(o: RangeWorldOptions): Promise<RangeWorld> {
-    const { manifest, files } = await readInfo(o.url, o.headers ?? {});
-    return new RangeWorld(o, manifest, files);
+    const { manifest, files, grids } = await readInfo(o.url, o.headers ?? {});
+    return new RangeWorld(o, manifest, files, grids);
+  }
+
+  /**
+   * A structure grid of the world read by range from its route (`<url>/grids/<id>/regions/<file>`; a file the grid
+   * does not list holds only air), and the chunks its files hold (from their tables); null: the world lists no such
+   * grid. The grid's files are as the world was opened: an edit reaches the world grid alone.
+   */
+  async openGrid(gridId: number): Promise<{ source: RegionChunkSource; extent: ChunkBox | null } | null> {
+    const listed = this.gridFiles.get(gridId);
+    if (listed === undefined) return null;
+    const headers = this.o.headers ?? {};
+    const open = (name: string): ReturnType<typeof rangeByteSource> | null => (listed.has(name) ? rangeByteSource(`${this.o.url}/grids/${gridId}/regions/${encodeURIComponent(name)}`, headers, this.o.stats) : null);
+    const source = new RegionChunkSource({ worldId: this.worldId, gridId, grid: this.grid, layout: this.manifest.layout, footprint: this.manifest.footprint, open, maxOpen: OPEN_REGION_FILES });
+    return { source, extent: await gridChunkExtent(source, this.manifest.layout, [...listed.keys()]) };
   }
 
   /**

@@ -72,6 +72,7 @@ import { StreamRelief, type ReliefEvent } from './stream-relief';
 import { chunkInWorld, chunkKey, DEFAULT_SECTION_EDGE, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { DirtyTracker } from './dirty-tracker';
+import type { ChunkBox } from './grid-place';
 import { applyEdit, editBounds, editChunks, EditRefused, type ChunkUndo, type EditOutcome } from './edit-apply';
 import type { VoxelEditCommand } from './edit-command';
 import { createWorldStore, type PaletteStore } from './palette-store';
@@ -104,6 +105,11 @@ export interface VoxelStreamerOptions {
   readonly store: PaletteStore;
   /** Which grid this streamer serves (0: the world grid). */
   readonly gridId?: number;
+  /**
+   * The only chunks it reads (a structure grid's: the chunks its files hold with a margin round them; absent: any in
+   * the load ring). A chunk outside is never asked of the source.
+   */
+  readonly extent?: ChunkBox | null;
   readonly source: ChunkSource;
   readonly pool: WorkerPool;
   /** Shared with saves (one id space for jobs and saves); a new one when absent. */
@@ -269,6 +275,11 @@ export const STREAM_DERIVE_RESERVE_SHARE = 0.25;
  * without the reserve its decodes would fill the queue ahead of a stopped body's ground. Held back always, the
  * reserve slowed the refill itself: the level-0 ring after a stop waits for the chunks round it to load.
  */
+/** Whether a chunk lies in a box of chunks (absent: every chunk does). */
+function inBox(b: ChunkBox | null | undefined, cx: number, cy: number, cz: number): boolean {
+  return b == null || (cx >= b.min[0] && cx <= b.max[0] && cy >= b.min[1] && cy <= b.max[1] && cz >= b.min[2] && cz <= b.max[2]);
+}
+
 function loadRoom(pool: WorkerPool, reserve: boolean): number {
   return pool.room() - (reserve ? Math.floor(pool.capacity * STREAM_DERIVE_RESERVE_SHARE) : 0);
 }
@@ -502,7 +513,8 @@ export class VoxelStreamer {
               coming: (cx, cy, cz) => {
                 const c = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
                 if (c !== undefined) return c.phase === 'reading' || c.phase === 'decoding';
-                return this.plan.wants(this.focus, cx, cy, cz) && chunkDistance2(this.grid, this.focus, cx, cy, cz) < this.horizon;
+                // A chunk outside the grid's extent is never read: a section waiting on it waits for nothing.
+                return inBox(this.opts.extent, cx, cy, cz) && this.plan.wants(this.focus, cx, cy, cz) && chunkDistance2(this.grid, this.focus, cx, cy, cz) < this.horizon;
               },
               lane: (cx, cy, cz) => laneOf(this.plan, this.focus, cx, cz),
               distance2: (cx, cy, cz) => motionDistance2(this.grid, this.focus, this.plan.lead, cx, cy, cz),
@@ -829,7 +841,7 @@ export class VoxelStreamer {
         this.mips?.lod.changed();
         this.counters.speedRings++;
       }
-      this.wanted = readOrder(g, this.ring, this.focus, this.plan.lead, this.plan.leadRadius);
+      this.wanted = readOrder(g, this.ring, this.focus, this.plan.lead, this.plan.leadRadius, this.opts.extent ?? null);
       this.cursor = 0;
       for (const w of this.wanted) {
         const c = this.chunks.get(chunkKey(g, w.cx, w.cy, w.cz));
@@ -1028,7 +1040,7 @@ export class VoxelStreamer {
         for (const n of this.plan.rowNeighbours(this.focus, axis, list)) {
           const key = chunkKey(this.grid, n.cx, n.cy, n.cz);
           const d2 = chunkDistance2(this.grid, this.focus, n.cx, n.cy, n.cz);
-          if (this.chunks.has(key) || d2 >= this.horizon) continue;
+          if (this.chunks.has(key) || d2 >= this.horizon || !inBox(this.opts.extent, n.cx, n.cy, n.cz)) continue;
           const c = newChunk(n.cx, n.cy, n.cz, key, d2, this.tick);
           this.chunks.set(key, c);
           list.push(c);

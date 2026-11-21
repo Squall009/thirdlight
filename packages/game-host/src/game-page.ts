@@ -81,6 +81,7 @@ import {
   createGameHost,
   type AudioReport,
   createLocalSimAccess,
+  gridPlacementsFromUrl,
   presentVoxelWorlds,
   createScenePreloader,
   createVerifiedAssetReader,
@@ -875,7 +876,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     /** The page's own simulation opens its worlds through these ports. */
     single(): VoxelWorldPorts {
-      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels, materials, fineBricksFromUrl(pageSearch()), draws.walkFeed);
+      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels, materials, fineBricksFromUrl(pageSearch()), draws.walkFeed, gridPlacementsFromUrl(pageSearch()));
       report = (world, bytes, coarse, kitBytes) => p.drawn(world, bytes, coarse, kitBytes);
       farSeen = (world, seen) => p.farSeen(world, seen);
       fineOff = () => p.setFine(false);
@@ -1008,7 +1009,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             ...(o.start?.options?.mode !== undefined && modeRows !== undefined ? { startMode: o.start.options.mode } : {}),
             // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, o.saveNamespace) } : {}),
-            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), pieceSeed: voxelPieceSeedOf(manifest.settings), qualityLevels, materials: voxelMaterialsOf(manifest), ...(fineBricksFromUrl(pageSearch()) ? { fineBricks: true } : {}), ...(voxels !== null && voxels.draws.walkFeed > 0 ? { walkFeed: voxels.draws.walkFeed } : {}) } } : {}),
+            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), pieceSeed: voxelPieceSeedOf(manifest.settings), qualityLevels, materials: voxelMaterialsOf(manifest), ...(fineBricksFromUrl(pageSearch()) ? { fineBricks: true } : {}), ...(voxels !== null && voxels.draws.walkFeed > 0 ? { walkFeed: voxels.draws.walkFeed } : {}), ...((g) => (g.size > 0 ? { grids: [...g].map(([world, places]) => ({ world, places })) } : {}))(gridPlacementsFromUrl(pageSearch())) } } : {}),
           },
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),

@@ -2,7 +2,8 @@
  * The Play project's script (voxel-world.e2e.ts's Play tests drive it by debug commands): it digs once the test asks
  * after the pit's ground is resident; on further commands it wets the ground beside the pit, saves the world into
  * the game's save slot 1 and restores it from there; casts rays; builds and reads rooms; builds the walls, the hut
- * and the other shapes the shadow and light checks read; asks for a path out of the hut; moves objects by id. `at`: where the character stands
+ * and the other shapes the shadow and light checks read; asks for a path out of the hut; moves objects by id; places
+ * and walks the character. `at`: where the character stands
  * (metres), the pad's middle.
  */
 import { VOXEL_ROLE } from '@thirdlight/voxel';
@@ -78,6 +79,12 @@ export function playScriptSource(at: readonly number[]): string {
     // A camera made live, looking at a target (and back): the cut-away and plain views of the hut.
     "    for (const c of ctx.debug.command('cam', { description: 'Make a camera live on a target', args: [{ name: 'id', type: 'string' }, { name: 'target', type: 'string' }] })) ctx.game.add(ctx.camera.setTarget(String(c.id), String(c.target)) && ctx.camera.activate(String(c.id)) ? 'camLive' : 'camRefused', 1);",
     "    for (const c of ctx.debug.command('uncam', { description: 'Take a camera off', args: [{ name: 'id', type: 'string' }] })) ctx.game.add(ctx.camera.deactivate(String(c.id)) ? 'camOff' : 'camRefused', 1);",
+    // The character placed (from rest) and pushed along a world direction for some steps: what a structure grid's
+    // walls stop and its door lets through.
+    "    for (const c of ctx.debug.command('cplace', { description: 'Place the character', args: [{ name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) { ctx.emit({ kind: 'character_place', position: [Number(c.x), Number(c.y), Number(c.z)] }); state.walk = null; ctx.game.add('cplaced', 1); }",
+    "    for (const c of ctx.debug.command('walk', { description: 'Push the character a step at a time', args: [{ name: 'x', type: 'number' }, { name: 'z', type: 'number' }, { name: 'steps', type: 'number' }] })) state.walk = { x: Number(c.x), z: Number(c.z), left: Number(c.steps) };",
+    // A push a step (the character's own braking toward no input against it): a walk without taking the move input.
+    "    if (state.walk && state.walk.left > 0) { state.walk.left--; ctx.character?.impulse([state.walk.x, 0, state.walk.z]); }",
     "    for (const c of ctx.debug.command('place', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
     "    const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));",
     // The hut as a room for a game: its kind, size (m³; m² × 4; mean free path in cm) and portals, and the pad outside it.

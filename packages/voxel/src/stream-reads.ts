@@ -16,6 +16,7 @@
  *   respawn, a test moving the focus) is not motion: it resets the velocity.
  */
 import { chunkKeyOrNone, type ChunkGrid } from './coords';
+import type { ChunkBox } from './grid-place';
 import { chunkDistance2, inLoadRing, inNearRing, pastUnloadRing, speedRing, STREAM_DETAIL_SPEED, type Focus, type StreamRing } from './stream-ring';
 
 /** How far ahead of the focus's motion chunks are read (seconds of travel). */
@@ -193,7 +194,7 @@ export function motionDistance2(grid: ChunkGrid, focus: Focus, lead: Focus, cx: 
  * thousands of chunks), since it is rebuilt each time the focus or the lead
  * point crosses a chunk.
  */
-export function readOrder(grid: ChunkGrid, ring: StreamRing, focus: Focus, lead: Focus, leadRadius = ring.loadRadius): WantedChunk[] {
+export function readOrder(grid: ChunkGrid, ring: StreamRing, focus: Focus, lead: Focus, leadRadius = ring.loadRadius, extent: ChunkBox | null = null): WantedChunk[] {
   // At speed (the way read narrower than the ring) columns go by the pool's key instead (under the focus, then
   // along the way, the sides after): the way ahead was read as the lead point passed, so what is left unread is what
   // the focus has come to, and read last it held up the ground under the focus.
@@ -203,13 +204,16 @@ export function readOrder(grid: ChunkGrid, ring: StreamRing, focus: Focus, lead:
   const r2 = ring.loadRadius * ring.loadRadius;
   const l2 = leadRadius * leadRadius;
   // Chunk rows whose centre is within the load height of a point.
-  const rows = (y: number): [number, number] => [Math.max(grid.chunkMinY, Math.ceil((y - ring.loadHeight - h) / e)), Math.min(grid.chunkMinY + grid.chunkSpanY - 1, Math.floor((y + ring.loadHeight - h) / e))];
+  // A grid that holds only some chunks (a structure's: `extent`) reads no chunk outside them.
+  const yLo = Math.max(grid.chunkMinY, extent?.min[1] ?? -Infinity);
+  const yHi = Math.min(grid.chunkMinY + grid.chunkSpanY - 1, extent?.max[1] ?? Infinity);
+  const rows = (y: number): [number, number] => [Math.max(yLo, Math.ceil((y - ring.loadHeight - h) / e)), Math.min(yHi, Math.floor((y + ring.loadHeight - h) / e))];
   const [fy0, fy1] = rows(focus.y);
   const reach = Math.max(ring.loadRadius, leadRadius);
-  const x0 = Math.max(grid.chunkMinXZ, Math.floor((Math.min(focus.x, lead.x) - reach) / e));
-  const x1 = Math.min(grid.chunkMinXZ + grid.chunkSpanXZ - 1, Math.floor((Math.max(focus.x, lead.x) + reach) / e));
-  const z0 = Math.max(grid.chunkMinXZ, Math.floor((Math.min(focus.z, lead.z) - reach) / e));
-  const z1 = Math.min(grid.chunkMinXZ + grid.chunkSpanXZ - 1, Math.floor((Math.max(focus.z, lead.z) + reach) / e));
+  const x0 = Math.max(grid.chunkMinXZ, extent?.min[0] ?? -Infinity, Math.floor((Math.min(focus.x, lead.x) - reach) / e));
+  const x1 = Math.min(grid.chunkMinXZ + grid.chunkSpanXZ - 1, extent?.max[0] ?? Infinity, Math.floor((Math.max(focus.x, lead.x) + reach) / e));
+  const z0 = Math.max(grid.chunkMinXZ, extent?.min[2] ?? -Infinity, Math.floor((Math.min(focus.z, lead.z) - reach) / e));
+  const z1 = Math.min(grid.chunkMinXZ + grid.chunkSpanXZ - 1, extent?.max[2] ?? Infinity, Math.floor((Math.max(focus.z, lead.z) + reach) / e));
   const cols: Array<{ cx: number; cz: number; h2: number; inFocus: boolean; lead: [number, number] | null }> = [];
   for (let cx = x0; cx <= x1; cx++) {
     const px = (cx << grid.shift) + h;

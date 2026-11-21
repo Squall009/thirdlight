@@ -293,6 +293,7 @@ export { TERRAIN_COLLIDER_PATCH_CELLS, TerrainColliders, terrainColliderId, terr
 export { RuntimeSurface, type BehaviorSurface, type SurfaceInfo } from './surface';
 export type { BehaviorVoxels, BehaviorVoxelWorld, VoxelBox, VoxelChange, VoxelEditResult, VoxelField, VoxelMaterialInfo, VoxelMismatch, VoxelMismatchChoice, VoxelPaint, VoxelRayHit, VoxelRayOptions, VoxelRefusal, VoxelRefused, VoxelRegion, VoxelPortalInfo, VoxelRegionInfo, VoxelRegionKind, VoxelRestoreResult, VoxelRingChange, VoxelRings, VoxelRingsResult, VoxelSaveAnswer, VoxelValue, VoxelWaitAnswer, VoxelWrite } from './voxel-api';
 export { VoxelWorldHost, type VoxelFoci, type VoxelHostEvents, type VoxelWorldConnection, type VoxelMaterialSources, type VoxelWorldPorts } from './voxel-world-host';
+export { gridStats, streamerCollisionFeed, VoxelGridHost, type VoxelGridBodyStats, type VoxelGridConnection } from './voxel-grid-host';
 export { RuntimeVoxels, type VoxelWorldsView } from './voxel-worlds';
 export { RuntimeArchitecture, type ArchitectureCollisionDiagnostics, type ArchitectureLayerRooms } from './architecture';
 // Generated architecture: the generator the page's workers run, its blob and keys (made at load from parameters).

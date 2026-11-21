@@ -45,6 +45,7 @@ import type { WalkSource } from './occupancy-walk';
 import { WalkBlockFeed, type WalkBlockWire } from './walk-pages';
 import type { OpenRegionStitch } from './open-region-stitch';
 import type { SkyColumnWire } from './sky-columns';
+import type { GridPlaceWire } from './grid-place';
 
 /** Packing the walk's blocks a batch carries, as a span of the thread the world runs on. */
 const WALK_PACK_SPAN = threadProfiler.span('walk blocks packed', 'voxelStream');
@@ -155,6 +156,8 @@ export interface ChunkDrawBatch {
   readonly edge: number;
   /** The world closed (its scene unloaded): every draw of it goes. */
   readonly closed?: true;
+  /** A structure grid's draws (`world` its draw name): where they stand, in every batch (absent: the world grid's, at the world's origin). */
+  readonly place?: GridPlaceWire;
   readonly chunks: readonly ChunkDrawWire[];
   /** Seams drawn or removed (applied after `chunks`). */
   readonly seams?: readonly SeamDrawWire[];
@@ -245,6 +248,8 @@ export interface ChunkDrawBatcherOptions {
   readonly sky?: Pick<OpenRegionStitch, 'onSky' | 'takeSky'>;
   /** The same regions read for the rooms of the page's focus points ({@link ChunkDrawBatcher.setFocus}; absent: none answered). */
   readonly rooms?: Pick<OpenRegionStitch, 'regionAt' | 'boxesOf' | 'changes' | 'onUpdate'>;
+  /** A structure grid's batcher: where its draws stand, sent with every batch (absent: the world grid's). */
+  readonly place?: GridPlaceWire;
 }
 
 /** The buffers a batch can hand over (each once). */
@@ -613,7 +618,7 @@ export class ChunkDrawBatcher {
     const rooms = !this.closed && this.readRooms() ? this.roomsDue : null;
     this.roomsDue = null;
     if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null && walk.length === 0 && sky.length === 0 && rooms === null)) return;
-    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk, walkFeed: this.walkOn } : {}), ...(sky.length > 0 ? { sky } : {}), ...(rooms !== null ? { rooms } : {}), sentAt: wallClock(), joinMs: this.joinMs };
+    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, ...(this.opts.place !== undefined ? { place: this.opts.place } : {}), chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk, walkFeed: this.walkOn } : {}), ...(sky.length > 0 ? { sky } : {}), ...(rooms !== null ? { rooms } : {}), sentAt: wallClock(), joinMs: this.joinMs };
     this.farAdded = [];
     this.farRemoved = [];
     this.relief = null;
@@ -728,7 +733,7 @@ export class ChunkDrawBatcher {
     this.reliefSent.clear();
     this.nodesSent.clear();
     this.seamsSent.clear();
-    this.send({ world: this.world, edge: this.grid.edge, closed: true, chunks: [], swaps: [], sentAt: wallClock(), joinMs: 0 });
+    this.send({ world: this.world, edge: this.grid.edge, ...(this.opts.place !== undefined ? { place: this.opts.place } : {}), closed: true, chunks: [], swaps: [], sentAt: wallClock(), joinMs: 0 });
   }
 }
 

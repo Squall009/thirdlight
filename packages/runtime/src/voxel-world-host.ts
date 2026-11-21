@@ -88,10 +88,13 @@ import {
   type VoxelRecord,
   type WorkerPool,
   type PieceTable,
+  type GridPlacement,
+  type ChunkBox,
 } from '@thirdlight/voxel';
 import { frameSliceMs, residentBytes, threadProfiler } from '@thirdlight/shared';
 
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
+import { gridStats, streamerCollisionFeed, VoxelGridHost, type VoxelGridConnection } from './voxel-grid-host';
 import { floorColumns, VoxelFloors } from './voxel-floor';
 import { noPathAnswer, noReachAnswer, voxelPathAnswer, voxelReachAnswer, walkCellAt, walkOptionsOf } from './voxel-paths';
 import {
@@ -141,6 +144,8 @@ const FAR_WALK_SPAN = threadProfiler.span('far walk nodes kept', 'voxelStream');
 /** Stamping the lit props into the lighting occupancy (prop-channel.ts), in the derive's slice. */
 const PROP_STAMP_SPAN = threadProfiler.span('prop light stamped', 'voxelStream');
 /** A world's stats for the diagnostics: the streamer's, the open regions' and the far field's counts. */
+/** The structure grids' streaming and bodies a step (each grid's foci moved into its frame), as streaming work of this thread. */
+const GRIDS_SPAN = threadProfiler.span('structure grids streamed', 'voxelStream');
 const STATS_SPAN = { stream: threadProfiler.span('voxel stats: streamer', 'other'), regions: threadProfiler.span('voxel stats: open regions', 'other'), far: threadProfiler.span('voxel stats: far field', 'other'), rest: threadProfiler.span('voxel stats: the rest', 'other') };
 
 /** A world's chunk source and the workers its jobs run on, as the host (Play, an export, a test) provides them. */
@@ -174,6 +179,19 @@ export interface VoxelWorldConnection {
    * walk's light stop joins it, and its changes are walk changes).
    */
   present?(stream: VoxelStreamer, sectionEdge: number, regions?: OpenRegionStitch, props?: PropLightChannel): void;
+  /**
+   * Structure grids streamed beside the world grid, each where it stands: until structure objects carry their
+   * transforms this is a host option given when the world is opened (a bench's placements), the one way a grid's
+   * place reaches the runtime. Absent or empty: the world grid alone, as before.
+   */
+  readonly grids?: readonly VoxelGridConnection[];
+  /**
+   * Opens one of the world's structure grids by id (null: the world lists no such grid): its chunk source and the
+   * chunks its files hold. What a presentation reads to make {@link grids} from placements.
+   */
+  openGrid?(gridId: number): Promise<{ readonly source: ChunkSource; readonly extent: ChunkBox | null } | null>;
+  /** A structure grid's streamer once it is made, for what draws it (its draws stand where `place` says). */
+  presentGrid?(place: GridPlacement, stream: VoxelStreamer, sectionEdge: number): void;
 }
 
 /** How the runtime reaches a project's voxel worlds (absent: a game's voxel worlds stream nothing and read null). */
@@ -301,6 +319,8 @@ export interface VoxelHostStats {
    * the detail ring's reach where the fine far levels are baked round the focus), and that reach (null: none).
    */
   readonly readRing?: { readonly setM: number; readonly nowM: number; readonly reachM: number | null };
+  /** The structure grids streamed beside the world grid: how many, their resident chunks and bytes, their bodies (absent: none). */
+  readonly grids?: { readonly count: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly bodies: number; readonly shapes: number; readonly bodyBuilds: number; readonly bodyBuildMs: number; readonly bytesPerGrid: { readonly min: number; readonly max: number }; readonly nearest: Readonly<Record<string, unknown>> | null };
 }
 
 export class VoxelWorldHost {
@@ -332,6 +352,8 @@ export class VoxelWorldHost {
   private unresidentWalkGraph: (() => void) | null = null;
   /** The props stamped into the world, by object: kept while the world opens, placed into the channel when it is. */
   private readonly props = new Map<string, PropShape>();
+  /** The structure grids opened with the world (empty: the world grid alone). */
+  private grids: VoxelGridHost[] = [];
   private disposed = false;
   private readonly waits: { readonly cells: RegionCells; readonly id: number }[] = [];
   /** Changes by their edit groups, until their swaps. */
@@ -458,6 +480,13 @@ export class VoxelWorldHost {
     this.unresidentWalkGraph = residentBytes.register('walkGraph', () => walk.bytes + paths.bytes);
     streamer.on((e) => this.onStream(e));
     conn.present?.(streamer, s.sectionEdge, regions, channel);
+    // The structure grids: their own streamers in the world's pool under its job ids, a body each.
+    for (const g of conn.grids ?? []) {
+      if (g.extent === null) continue;
+      const host = new VoxelGridHost(this.name, conn.grid, g, s, { pool: conn.pool, tracker: streamer.tracker, ...(conn.pieces !== undefined ? { pieces: conn.pieces } : {}), ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}) }, this.physics);
+      this.grids.push(host);
+      conn.presentGrid?.(g.place, host.streamer, s.sectionEdge);
+    }
   }
 
   /**
@@ -466,15 +495,7 @@ export class VoxelWorldHost {
    * collision-only join it has, else the full sections it has.
    */
   private collisionFeed(streamer: VoxelStreamer): CollisionRingFeed {
-    return {
-      isResident: (cx, cy, cz) => streamer.isResident(cx, cy, cz),
-      setPart: (cx, cy, cz, part, bytes) => streamer.setPart(cx, cy, cz, part, bytes),
-      joinedChunk: (cx, cy, cz) => {
-        const alone = streamer.collision?.source(cx, cy, cz) ?? null;
-        if (alone !== null && (streamer.collision!.fresh(cx, cy, cz) || !streamer.chunkReady(cx, cy, cz))) return alone;
-        return streamer.joinedChunk(cx, cy, cz);
-      },
-    };
+    return streamerCollisionFeed(streamer);
   }
 
   /** Whether a chunk's body is its ground: its full result arrived whole, or its collision-only one did. */
@@ -505,6 +526,7 @@ export class VoxelWorldHost {
     if (this.streamer.far !== null && this.streamer.far.fineNodes.wanted !== fine) setFineBricks(this.streamer, fine);
     this.ring?.setBounds(this.collisionBounds());
     if (this.streamer.collision !== null) this.streamer.collision.bounds = this.collisionBounds();
+    for (const g of this.grids) g.setRings(this.settings);
   }
 
   private ringsInUse(): VoxelRings {
@@ -599,6 +621,16 @@ export class VoxelWorldHost {
     if (s === null || this.disposed) return;
     const f = toCells(foci.stream);
     s.setFocus(f.x, f.y, f.z);
+    if (this.grids.length > 0) {
+      // Before the world grid's: a structure grid's few chunks take their room in the shared pool first, so a world
+      // grid that keeps the pool's queue full never starves them.
+      threadProfiler.begin(GRIDS_SPAN);
+      try {
+        for (const g of this.grids) g.step(foci.stream, foci.collide, foci.collideVelocity, this.settings);
+      } finally {
+        threadProfiler.end(GRIDS_SPAN);
+      }
+    }
     const bodies = foci.collide.map(toCells);
     // Level 0 is drawn round every collision focus too: what a character touches is what is drawn.
     s.mips?.lod.setFoci(bodies);
@@ -697,6 +729,7 @@ export class VoxelWorldHost {
     // Queries of the run before are answered (unknown) and dropped with its answers.
     this.paths?.clear();
     this.streamer?.clearOverlay();
+    for (const g of this.grids) g.reset();
     this.pending.clear();
     this.savedFields = this.settings.savedFields;
     this.run++;
@@ -708,6 +741,8 @@ export class VoxelWorldHost {
     this.disposed = true;
     this.floors?.clear();
     this.bodies?.clear();
+    for (const g of this.grids) g.dispose();
+    this.grids = [];
     this.conn?.pool.close();
     this.conn?.close?.();
     for (const w of this.waits.splice(0)) this.events.answered(w.id, false);
@@ -780,6 +815,7 @@ export class VoxelWorldHost {
       propChannelBytes: this.channel?.stats().bytes ?? 0,
       ...(pool !== undefined ? { pool: { workers: pool.size, queued: pool.queued, inFlight: pool.inFlight, done: pool.stats.done, queueFull: pool.stats.queueFull, cancelledQueued: pool.stats.cancelledQueued, cancelledSent: pool.stats.cancelledSent, runMs: { p50: pool.stats.runMs.quantile(0.5), p95: pool.stats.runMs.quantile(0.95) }, workerMs: { p50: pool.stats.workerUs.quantile(0.5) / 1000 } } } : {}),
       ...(m !== undefined ? { coverage: m.coverage } : {}),
+      ...(this.grids.length > 0 ? { grids: gridStats(this.grids.map((g) => g.stats())) } : {}),
       ...(this.streamer !== null ? { readRing: { setM: this.streamer.readReach.sceneRing.loadRadius * VOXEL_SIZE_M, nowM: this.streamer.ring.loadRadius * VOXEL_SIZE_M, reachM: this.streamer.readReach.cells === null ? null : this.streamer.readReach.cells * VOXEL_SIZE_M } } : {}),
       ...(m !== undefined ? { stream: { reading: m.reading, decoding: m.decoding, deriving: m.deriving, damaged: m.damaged, derivedBytes: m.bytes.derived, counters: m.counters, lod: this.streamer?.mips?.lod.counters ?? null } } : {}),
       ...(regions !== null ? { regions } : {}),

@@ -13,7 +13,7 @@
  * the arrangement, which is exactly what the storage must carry cheaply.
  */
 import { latticeHash } from '@thirdlight/shared';
-import { type ChunkGrid, type DenseChunk, localIndex, SHAPE_FULL, VOXEL_ROLE, type VoxelRecord } from '@thirdlight/voxel';
+import { GridFrame, type ChunkGrid, type DenseChunk, type GridPlacement, localIndex, SHAPE_FULL, VOXEL_ROLE, type VoxelRecord } from '@thirdlight/voxel';
 import { MAT, fillGroundColumn, shapeByte, type GroundColumn, type TestGrid, type TestWorld } from './world-kit';
 
 /** Lot pitch in cells (20 m). */
@@ -123,6 +123,81 @@ function houseBounds(h: House): { min: [number, number, number]; max: [number, n
   return { min: [-1, 0, -3], max: [h.w + 1, roofRow(h, h.d >> 1) + 1, h.d + 1] };
 }
 
+/**
+ * Where a house's own grid starts (house-local cells): the minimum corner of its plan box (eaves, beams and
+ * balcony included, so nothing of it lies below cell 0) at its ground-floor row (the foundation's), so a house is
+ * one region file.
+ */
+export function houseAnchor(h: House): [number, number, number] {
+  const b = houseBounds(h);
+  return [b.min[0], 0, b.min[2]];
+}
+
+/** A house in a grid of its own by {@link houseAnchor}: its cells from (0, 0, 0) up. */
+export function houseGrid(h: House, name: string): TestGrid {
+  const a = houseAnchor(h);
+  const b = houseBounds(h);
+  const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+  return {
+    name,
+    yawDeg: 0,
+    originM: [0, 0, 0],
+    bounds: { min: [0, 0, 0], max: [b.max[0] - a[0], b.max[1] - a[1], b.max[2] - a[2]] },
+    fill(grid, cx, cy, cz, out) {
+      const e = grid.edge;
+      let any = false;
+      for (let lx = 0; lx < e; lx++) for (let lz = 0; lz < e; lz++) for (let ly = 0; ly < e; ly++) {
+        const idx = localIndex(grid, lx, ly, lz);
+        const hit = houseVoxel(h, (cx << grid.shift) + lx + a[0], (cy << grid.shift) + ly + a[1], (cz << grid.shift) + lz + a[2], v);
+        out.material[idx] = hit ? v.material : 0;
+        out.role[idx] = hit ? v.role : 0;
+        out.shape[idx] = hit ? v.shape : 0;
+        out.wetness[idx] = hit ? v.wetness : 0;
+        any = hit || any;
+      }
+      return any;
+    },
+  };
+}
+
+/** A lot of the town holding a house: the lot, the house, and the yaw its lot gives it in the storage benches. */
+export interface TownHouse {
+  readonly i: number;
+  readonly j: number;
+  readonly house: House;
+  readonly lotYaw: number;
+}
+
+/** Every house of the town of `seed` (`footprint` cells a side), lot by lot. */
+export function townHouses(seed = TOWN_SEED, footprint = 512): TownHouse[] {
+  const lots = Math.floor(footprint / LOT);
+  const out: TownHouse[] = [];
+  for (let i = 0; i < lots; i++) for (let j = 0; j < lots; j++) {
+    const l = lotOf(i, j, seed);
+    if (l.house !== null) out.push({ i, j, house: l.house, lotYaw: l.yaw });
+  }
+  return out;
+}
+
+/**
+ * Where a house's own grid (id `gridId`, {@link houseGrid}) stands when the house is turned `yawDeg` about its
+ * footprint's middle, the footprint where the world grid's town has it; `shiftCells` the town's cell 0 in the world
+ * (world cell = town cell − shift). At yaw 0 every cell lands on the world grid's cell for it.
+ */
+export function housePlacement(t: TownHouse, yawDeg: number, gridId: number, shiftCells: number): GridPlacement {
+  const s = 0.5;
+  const at = [t.i * LOT + HOUSE_AT_X - shiftCells, 0, t.j * LOT + HOUSE_AT_Z - shiftCells];
+  const a = houseAnchor(t.house);
+  const mid = [t.house.w / 2, 0, t.house.d / 2];
+  const yawRad = (yawDeg * Math.PI) / 180;
+  // The anchor's offset from the middle, turned: position = middle + R(yaw)(anchor − middle), in metres.
+  const off = new GridFrame({ gridId, position: [0, 0, 0], yawRad }).toWorld((a[0] - mid[0]!) * s, (a[1] - mid[1]!) * s, (a[2] - mid[2]!) * s);
+  return { gridId, position: [(at[0]! + mid[0]!) * s + off[0], (at[1]! + mid[1]!) * s + off[1], (at[2]! + mid[2]!) * s + off[2]], yawRad };
+}
+
+/** Where the town's houses are: the storage benches' lots (`lots`: turned lots in grids of their own), all in the world grid, or none. */
+export type TownHouses = 'lots' | 'world' | 'none';
+
 /** A fence along the lot's edge: posts two cells tall every fourth cell, one rail at the top, a gap at the front. */
 function fenceVoxel(x: number, y: number, z: number, out: VoxelRecord): boolean {
   const onEdge = (x === 1 || x === LOT - 2) && z >= 1 && z <= LOT - 2 ? true : (z === 1 || z === LOT - 2) && x >= 1 && x <= LOT - 2;
@@ -142,7 +217,8 @@ function pondVoxel(x: number, y: number, z: number, out: VoxelRecord): boolean {
 }
 
 /** The dense town: one 256 m tile of 20 m lots by default (12 × 12 lots). */
-export function townWorld(opts: { seed?: number; footprint?: number } = {}): TestWorld {
+export function townWorld(opts: { seed?: number; footprint?: number; houses?: TownHouses } = {}): TestWorld {
+  const houses = opts.houses ?? 'lots';
   const seed = opts.seed ?? TOWN_SEED;
   const footprint = opts.footprint ?? 512;
   const lots = Math.floor(footprint / LOT);
@@ -188,7 +264,7 @@ export function townWorld(opts: { seed?: number; footprint?: number } = {}): Tes
           if (y < -3 || y > tallest) continue;
           let hit = false;
           if (lot.pond) hit = pondVoxel(ax, y, az, v);
-          else if (lot.house !== null && lot.yaw === 0) hit = houseVoxel(lot.house, ax - HOUSE_AT_X, y, az - HOUSE_AT_Z, v);
+          else if (lot.house !== null && (houses === 'world' || (houses === 'lots' && lot.yaw === 0))) hit = houseVoxel(lot.house, ax - HOUSE_AT_X, y, az - HOUSE_AT_Z, v);
           if (!hit && lot.fence) hit = fenceVoxel(ax, y, az, v);
           if (!hit) continue;
           const idx = localIndex(grid, lx, ly, lz);
@@ -206,7 +282,7 @@ export function townWorld(opts: { seed?: number; footprint?: number } = {}): Tes
   const grids: TestGrid[] = [world];
   for (let i = 0; i < lots; i++) for (let j = 0; j < lots; j++) {
     const lot = lotAt(i, j)!;
-    if (lot.house === null || lot.yaw === 0) continue;
+    if (lot.house === null || lot.yaw === 0 || houses !== 'lots') continue;
     const house = lot.house;
     const b = houseBounds(house);
     const hv: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };

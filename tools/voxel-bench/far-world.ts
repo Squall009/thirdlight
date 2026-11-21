@@ -43,7 +43,7 @@ import {
 } from '@thirdlight/voxel';
 import { gridFolder, pickStore, VOXEL_WORLDS_FOLDER, writeVoxelWorldManifest, zstdCompress } from '@thirdlight/workspace';
 import { TEST_WORLD_ID } from './test-world-id';
-import { townWorld } from './town';
+import { townWorld, type TownHouses } from './town';
 import { CoarseField, MAT, fillGroundColumn, shapeByte, smoothstep, type GroundColumn } from './world-kit';
 import { FLAT_RADIUS, RISEN_RADIUS } from './far-drainage';
 import { FarLandscape, LANDSCAPE_BASE } from './far-landscape';
@@ -60,6 +60,8 @@ const BASE = LANDSCAPE_BASE;
 /** Town footprint (cells) and the chunks it is moved by so its middle is the world's origin. */
 const TOWN_CELLS = 512;
 const TOWN_SHIFT_CHUNKS = TOWN_CELLS / 2 / grid.edge;
+/** The town's cell 0 in the world: world cell = town cell − this. */
+export const FAR_TOWN_SHIFT_CELLS = TOWN_CELLS / 2;
 /** Height (cells) of the mountains' tallest peaks: ~1.5 km. */
 const PEAK = 3000;
 /** Terraced cliffs: the step (cells) and the share of each step its riser takes. */
@@ -84,6 +86,8 @@ export interface FarWorldOptions {
   readonly sizeKm?: number;
   /** Default `realistic`. */
   readonly style?: FarWorldStyle;
+  /** Where the town's houses are (town.ts; default `lots`: the world grid's lots, turned lots left empty). */
+  readonly townHouses?: TownHouses;
 }
 
 /** The world's cell span on x and z: [−half, half), half a whole number of regions. */
@@ -180,7 +184,7 @@ export function writeFarWorldColumn(gridDir: string, rx: number, rz: number, opt
   const side = chunksPerRegionSide(grid, FAR_WORLD_FOOTPRINT);
   const e = grid.edge;
   const store = pickStore(grid);
-  const town = townWorld({ footprint: TOWN_CELLS }).grids[0]!;
+  const town = townWorld({ footprint: TOWN_CELLS, ...(opts.townHouses !== undefined ? { houses: opts.townHouses } : {}) }).grids[0]!;
   const cells = createDenseChunk(grid);
   const byStack = new Map<number, RegionEntry[]>();
   const add = (entry: RegionEntry): void => {

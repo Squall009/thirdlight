@@ -1105,3 +1105,73 @@ const SUNLIT_CUT_MAX_PX = 400;
 const SUNLIT_OPEN_MIN_PX = 600;
 const BOX_SHADED_SHARE = 0.6;
 const OUTDOORS_DIFF_MAX_PX = 100;
+
+/** What the structure grid checks are given: the house's frame and metres, its camera and the point it looks at, its draws' name. */
+export interface GridCheckSetup extends ShadowCheckSetup {
+  readonly frame: { toWorld(x: number, y: number, z: number): [number, number, number]; toGrid(x: number, y: number, z: number): [number, number, number]; readonly yawRad: number };
+  readonly house: { readonly doorWallZ: number; readonly doorX: number; readonly backWallZ: number; readonly slabTop: number };
+  readonly camera: string;
+  readonly target: string;
+  /** The grid's draws on the page (`gridDrawName`). */
+  readonly drawName: string;
+  /** The page's draw stats (`__tlVoxelPlay.stats().worlds`). */
+  drawn(): Promise<Record<string, { chunks: number; kitInstances: number } | undefined>>;
+  readonly player: () => Promise<{ x: number; y: number; z: number } | null>;
+}
+
+
+/**
+ * A structure grid in Play (WebGPU): a stone house in grid 1 turned 30°, streamed, meshed and drawn with its kit
+ * pieces under its place (the boards at its door's jambs and front corners, magenta, seen by a camera before its
+ * porch), collided as one static body: the character walked at its front wall stops before it, walked at its door
+ * goes through into the room. With the grid's draws or its body left out, or turned the wrong way, each fails here.
+ */
+export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: number; wallStopZ: number; doorInZ: number; ms: number }> {
+  const t0 = Date.now();
+  const { control, counter, still } = driver(o);
+  const counted = async (cmd: string, name: string, args?: Record<string, unknown>): Promise<void> => {
+    const n = await counter(name);
+    await control(cmd, args);
+    await expect.poll(() => counter(name), { timeout: 10_000 }).toBe(n + 1);
+  };
+  type Grids = { count: number; bodies: number; shapes: number; resident: number; bytes: number; bodyBuilds: number; bodyBuildMs: number };
+  const grids = async (): Promise<Grids | null> => ((((await o.api(`play/${o.psid}/diagnostics`)).json as { diagnostics?: { runtime?: { voxelWorlds?: Array<{ world: string; grids?: Grids }> } } }).diagnostics?.runtime?.voxelWorlds ?? []).find((w) => w.world === 'far')?.grids ?? null);
+  await expect.poll(async () => { const w = (await o.drawn())[o.drawName]; return (w?.chunks ?? 0) > 0 && (w?.kitInstances ?? 0) > 0; }, { timeout: 20_000, message: "the structure grid's house is drawn with its kit pieces" }).toBe(true).catch(async (e: unknown) => {
+    console.log(`[voxel-play] structure grid (failed): drawn ${JSON.stringify(Object.keys(await o.drawn()))} ${JSON.stringify((await o.drawn())[o.drawName] ?? null)}; host ${JSON.stringify(await grids())}; pool ${JSON.stringify((((await o.api(`play/${o.psid}/diagnostics`)).json as { diagnostics?: { runtime?: { voxelWorlds?: Array<{ world: string; pool?: unknown }> } } }).diagnostics?.runtime?.voxelWorlds ?? []).find((w) => w.world === 'far')?.pool ?? null)}`);
+    throw e;
+  });
+  await expect.poll(async () => { const g = await grids(); return g !== null && g.count === 1 && g.bodies === 1 && g.shapes > 0; }, { timeout: 20_000, message: 'the grid is one static body' }).toBe(true);
+  await counted('cam', 'camLive', { id: o.camera, target: o.target });
+  const img = await still('grid-house');
+  await counted('uncam', 'camOff', { id: o.camera });
+  let boards = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) if (magenta(img.pixel(x, y))) boards++;
+  // The character placed on the porch before the front wall (1.5 m out), then before the door, pushed along the
+  // grid's +z (the world's (sin yaw, 0, cos yaw)) a step at a time for 120 steps.
+  const PUSH = 0.6;
+  const dir = [Math.sin(o.frame.yawRad), Math.cos(o.frame.yawRad)];
+  const walkAt = async (x: number): Promise<number> => {
+    const p = o.frame.toWorld(x, o.house.slabTop + 1, o.house.doorWallZ - 1.5);
+    await counted('cplace', 'cplaced', { x: p[0], y: p[1], z: p[2] });
+    await expect.poll(async () => { const q = await o.player(); return q !== null && Math.hypot(q.x - p[0], q.z - p[2]) < 0.2; }, { timeout: 5_000, message: 'the character is on the porch' }).toBe(true);
+    // The push takes 120 steps (a second at 120 Hz); the observations carry only the first counters by name, so the
+    // character's place is read instead: moved, then still.
+    await control('walk', { x: dir[0] * PUSH, z: dir[1] * PUSH, steps: 120 });
+    await expect.poll(async () => { const q = (await o.player())!; return Math.hypot(q.x - p[0], q.z - p[2]); }, { timeout: 5_000, message: 'the character is pushed' }).toBeGreaterThan(0.3);
+    // Settled: two readings a quarter second apart alike.
+    let last = Infinity;
+    let z = 0;
+    await expect.poll(async () => { const q = (await o.player())!; z = o.frame.toGrid(q.x, q.y, q.z)[2]; const still2 = Math.abs(z - last) < 0.01; last = z; return still2; }, { timeout: 8_000, intervals: [400], message: 'the character stops' }).toBe(true);
+    return z;
+  };
+  const wallStopZ = await walkAt(1.5);
+  const doorInZ = await walkAt(o.house.doorX);
+  const out = { magenta: boards, wallStopZ, doorInZ, ms: Date.now() - t0 };
+  console.log(`[voxel-play] structure grid (30°): ${JSON.stringify({ ...out, grids: await grids(), drawn: (await o.drawn())[o.drawName] })}`);
+  expect(boards, "the house's kit boards in the picture").toBeGreaterThan(100);
+  expect(wallStopZ, 'stopped before the front wall (its outer face at the grid z the house names)').toBeLessThan(o.house.doorWallZ);
+  expect(wallStopZ, 'and it did walk').toBeGreaterThan(o.house.doorWallZ - 1.4);
+  expect(doorInZ, 'through the door, into the room').toBeGreaterThan(o.house.doorWallZ + 0.6);
+  expect(doorInZ, 'not through the back wall').toBeLessThan(o.house.backWallZ);
+  return out;
+}

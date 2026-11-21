@@ -22,9 +22,16 @@
  * quality levels go with the ports: the level the page reports scales
  * every world's distances and sets its budget; the build's voxel materials
  * go with them too (`ctx.voxels.materialOf`).
+ *
+ * Structure grids: a world opened with placements for some of its grids
+ * (`grids`, by world: a bench's `?voxelGrids=` switch until structure
+ * objects carry them) streams each of those grids beside its world grid, and
+ * their draws leave as batches of their own (`gridDrawName`), each carrying
+ * where the grid stands. A placement for a grid the world does not list is
+ * left out with a warning.
  */
 import type { QualityLevelConfig, VoxelMaterialSources, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
-import { ChunkDrawBatcher, setFineBricks, streamerWalkBlocks, streamerWalkSource, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
+import { ChunkDrawBatcher, gridDrawName, gridPlacementProblem, parseGridPlacements, setFineBricks, VOXEL_GRIDS_URL_PARAM, type GridPlacement, streamerWalkBlocks, streamerWalkSource, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
 
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
@@ -54,7 +61,7 @@ export interface VoxelPresentation {
  * bench switch; false: each world's own `fineBuild`, until {@link VoxelPresentation.setFine} says otherwise); `walkFeed`
  * the page's walk feed to start with ({@link VoxelPresentation.setWalkFeed}; 0: off).
  */
-export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false, walkFeed = 0): VoxelPresentation {
+export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false, walkFeed = 0, grids: ReadonlyMap<string, readonly GridPlacement[]> = new Map()): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
   let walk = walkFeed;
   // The page's last focus: a world opened later answers it too.
@@ -74,6 +81,14 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
         // A world reopened while this connection still opened (a scene reload) has its own batcher under
         // the same name: this connection closes only the one it made.
         let mine: ChunkDrawBatcher | null = null;
+        const gridBatchers: Array<[string, ChunkDrawBatcher]> = [];
+        const placed = await Promise.all(
+          (grids.get(world) ?? []).map(async (place) => {
+            const g = (await conn.openGrid?.(place.gridId)) ?? null;
+            if (g === null) console.warn(`[voxels] world ${world} lists no structure grid ${place.gridId}: its placement is left out`);
+            return g === null ? null : { place, source: g.source, extent: g.extent };
+          }),
+        );
         return {
           grid: conn.grid,
           worldId: conn.worldId,
@@ -85,6 +100,14 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             return fine;
           },
           pieces: (table ??= worldPieceTable(kits, seed)),
+          grids: placed.filter((g) => g !== null),
+          presentGrid: (place, stream, sectionEdge) => {
+            // A grid's draws: no walk blocks, sky heights or rooms (the world grid's alone feed the page's lighting).
+            const name = gridDrawName(world, place.gridId);
+            const b = new ChunkDrawBatcher(name, stream, sectionEdge, send, { place: { world, grid: place.gridId, position: place.position, yawRad: place.yawRad } });
+            gridBatchers.push([name, b]);
+            batchers.set(name, b);
+          },
           present: (stream, sectionEdge, regions, props) => {
             conn.present?.(stream, sectionEdge, regions, props);
             // The batches carry the walk's blocks for the page's GPU walk while it has a reader (levels 0 and up; the far
@@ -99,6 +122,10 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             streams.set(world, stream);
           },
           close: () => {
+            for (const [name, b] of gridBatchers.splice(0)) {
+              b.close();
+              if (batchers.get(name) === b) batchers.delete(name);
+            }
             mine?.close();
             if (mine !== null && batchers.get(world) === mine) {
               batchers.delete(world);
@@ -126,4 +153,31 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
       for (const b of batchers.values()) b.setFocus(n, cells);
     },
   };
+}
+
+/**
+ * The structure grids' placements a page's query names (`?voxelGrids=`, parseGridPlacements' text: a bench's
+ * switch), by world; none when absent. A malformed one is refused whole, with a warning.
+ */
+export function gridPlacementsFromUrl(search: string): Map<string, GridPlacement[]> {
+  const text = new URLSearchParams(search).get(VOXEL_GRIDS_URL_PARAM);
+  if (text === null) return new Map();
+  try {
+    return parseGridPlacements(text);
+  } catch (e) {
+    console.warn(`[voxels] ?${VOXEL_GRIDS_URL_PARAM}= refused: ${e instanceof Error ? e.message : String(e)}`);
+    return new Map();
+  }
+}
+
+/** Placements as the page posts them to its simulation worker (checked again there). */
+export function gridPlacementsOf(list: unknown): Map<string, GridPlacement[]> {
+  const out = new Map<string, GridPlacement[]>();
+  if (!Array.isArray(list)) return out;
+  for (const e of list as Array<{ world?: unknown; places?: unknown }>) {
+    if (typeof e?.world !== 'string' || !Array.isArray(e.places)) continue;
+    const ok = (e.places as unknown[]).filter((p): p is GridPlacement => gridPlacementProblem(p) === null);
+    if (ok.length > 0) out.set(e.world, ok);
+  }
+  return out;
 }

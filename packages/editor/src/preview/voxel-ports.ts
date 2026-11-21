@@ -17,7 +17,7 @@ export function playVoxelPorts(root: string, workerUrl: string): VoxelWorldPorts
   return {
     open: async (world: string): Promise<VoxelWorldConnection> => {
       const w = await RangeWorld.open({ url: `${root}${encodeURIComponent(world)}`, workerUrl, workerName: `thirdlight-voxels ${world}` });
-      return { grid: w.grid, worldId: w.worldId, source: w.source, pool: w.pool, far: w.far };
+      return { grid: w.grid, worldId: w.worldId, source: w.source, pool: w.pool, far: w.far, openGrid: (id) => w.openGrid(id) };
     },
   };
 }

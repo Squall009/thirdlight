@@ -75,7 +75,7 @@
 import type { ClusterLights } from './cluster-build';
 import * as THREE from 'three';
 import { frameSliceMs, residentBytes, threadProfiler, wallClock } from '@thirdlight/shared';
-import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SKY_NONE, SkyColumns, SUN_TILE_TEXELS, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire } from '@thirdlight/voxel';
+import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CELLS, SHADER_READ_DEPTH_CELLS, shaderGridSide, SKY_NONE, SkyColumns, SUN_TILE_TEXELS, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge, type ChunkReliefWire, type FarSeenWire, type GridPlaceWire } from '@thirdlight/voxel';
 import { isStreamedTexture } from './texture-streaming';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { VoxelBatchStage, voxelBatchFrameMs } from './voxel-batch-stage';
@@ -262,6 +262,9 @@ const VOXEL_DRAWS_SPAN = threadProfiler.span('voxel draws made', 'voxelApply');
 const VOXEL_GRIDS_SPAN = threadProfiler.span('voxel grids uploaded', 'voxelApply');
 /** The sun heights composed and uploaded (voxel-sun-field.ts), a span of the page's thread. */
 const VOXEL_SUN_SPAN = threadProfiler.span('voxel sun heights', 'lighting');
+
+/** The axis a structure grid's yaw turns about. */
+const GRID_UP = new THREE.Vector3(0, 1, 0);
 
 /** Edits kept for measurements. */
 const EDITS_KEPT = 64;
@@ -649,11 +652,18 @@ export class VoxelWorldDraws {
     return s === null ? null : { steps: s.steps, waiting: [...s.field.waiting], farHeld: s.field.far.held, marching: s.field.marching, farNodes: s.field.far.count, nearOrigin: s.field.near.origin, farOrigin: s.field.far.window.origin, bytes: s.field.bytes, topMax: Math.max(s.field.near.topMax, s.field.far.window.topMax), stats: { ...s.field.stats } };
   }
 
-  private world(name: string, edge: number, scene: THREE.Scene, renderer: VoxelGridRenderer): WorldDraw {
+  /**
+   * A world's draws, made with its first batch. A structure grid's (`place`) hang under a root at its place, turned by
+   * its yaw: everything the view places below it (chunks, seams, kit pieces) is in the grid's frame, and what reads
+   * the world (the cull tests, the shadow casters' reports, the GPU culler's spheres) reads through that root. Its
+   * decal layers and blend are its world object's.
+   */
+  private world(name: string, edge: number, scene: THREE.Scene, renderer: VoxelGridRenderer, place?: GridPlaceWire): WorldDraw {
     let w = this.worlds.get(name);
     if (w !== undefined) return w;
+    const own = place?.world ?? name;
     const grid = chunkGrid(edge as ChunkEdge);
-    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: voxelWorldDecalsOf(scene)?.blendOf(name) ?? voxelWorldBlendMetres(null), relief: true });
+    const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: voxelWorldDecalsOf(scene)?.blendOf(own) ?? voxelWorldBlendMetres(null), relief: true });
     // Nothing is displaced until the ring is told (a relief mesh arrives only with or after it).
     surface.setRelief({ displace: this.displace, fadeStartM: 0, fadeEndM: 0 });
     if (this.arrays !== null) this.giveArrays(surface);
@@ -684,15 +694,21 @@ export class VoxelWorldDraws {
       };
     }
     view.root.name = `voxel-world ${name}`;
+    if (place !== undefined) {
+      view.root.position.set(place.position[0], place.position[1], place.position[2]);
+      view.root.quaternion.setFromAxisAngle(GRID_UP, place.yawRad);
+    }
     scene.add(view.root);
+    // Placed before any draw reports where it stands.
+    view.root.updateMatrixWorld(true);
     const decals = voxelWorldDecalsOf(scene);
-    view.setDecalLayers(decals?.layersOf(name));
+    view.setDecalLayers(decals?.layersOf(own));
     view.setDecalSurfaces(decals?.surfaces ?? null);
     // The world's object changed its layers or blend: both are draw data (no remesh; the blend a uniform).
     const unlink = decals?.onChange((world) => {
-      if (world !== name) return;
-      view.setDecalLayers(decals.layersOf(name));
-      surface.setBlendMetres(decals.blendOf(name));
+      if (world !== own) return;
+      view.setDecalLayers(decals.layersOf(own));
+      surface.setBlendMetres(decals.blendOf(own));
       this.opts.applied?.();
     }) ?? ((): void => undefined);
     this.worlds.set(name, (w = { view, surface, coarse: 0, kits: 0, relief: null, unlink }));
@@ -819,7 +835,7 @@ export class VoxelWorldDraws {
       const scene = this.opts.scene();
       const renderer = this.opts.renderer();
       if (scene === null || renderer === null) return false;
-      q.stage = new VoxelBatchStage(this.world(b.world, b.edge, scene, renderer).view, b);
+      q.stage = new VoxelBatchStage(this.world(b.world, b.edge, scene, renderer, b.place).view, b);
     }
     const t0 = performance.now();
     const ready = q.stage.prepare(more);
