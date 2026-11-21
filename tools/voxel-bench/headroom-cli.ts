@@ -275,6 +275,28 @@ async function main(): Promise<void> {
     }
     out['fillS'] = Number(((Math.min(settle.since, madeAt ?? Infinity) - T0) / 1000).toFixed(1));
     out['fill'] = await stats();
+    // Structure grids (a `?voxelGrids=` query): their draws summed over every grid's draw name, and the host's grid
+    // stats (streamed chunks and bytes, bodies, collider parts, body builds), once filled.
+    out['grids'] = {
+      draws: await canvas.evaluate((_c, w) => {
+        const all = (window as unknown as { __tlVoxelPlay?: { stats(): { worlds: Record<string, Record<string, number>> } } }).__tlVoxelPlay?.stats().worlds ?? {};
+        const sum: Record<string, number> = { worlds: 0 };
+        for (const [name, v] of Object.entries(all)) {
+          if (!name.startsWith(`${w}#`)) continue;
+          sum['worlds']!++;
+          for (const k of ['chunks', 'triangles', 'kitInstances', 'pieceDraws', 'piecesInView', 'meshBuilds']) sum[k] = (sum[k] ?? 0) + (Number(v[k]) || 0);
+        }
+        return sum;
+      }, WORLD),
+      // The frame's draw calls and triangles as the profiler counts them (the last frame's stats).
+      frame: await canvas.evaluate(() => {
+        const st = (window as unknown as { __tlProfiler?: { read(): { counters?: { stats?: { drawCalls?: number; triangles?: number } | null } } } }).__tlProfiler?.read().counters?.stats ?? null;
+        return st === null ? null : { drawCalls: st.drawCalls ?? null, triangles: st.triangles ?? null };
+      }),
+      host: (((await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<{ world?: string; grids?: Record<string, unknown>; bodies?: number; resident?: number; bytes?: number }> } } | undefined)?.runtime?.voxelWorlds ?? [])
+        .filter((v) => v.world === WORLD)
+        .map((v) => ({ grids: v.grids === undefined ? null : { ...v.grids, nearest: undefined }, worldBodies: v.bodies, worldResident: v.resident, worldBytes: v.bytes }))[0] ?? null,
+    };
     // Memory at the town once filled: the page's heap and the GPU process's (the editor's page included: Play runs in it).
     const cdp = await browser.newBrowserCDPSession();
     const info = (await cdp.send('SystemInfo.getProcessInfo')) as { processInfo: Array<{ type: string; id: number }> };
