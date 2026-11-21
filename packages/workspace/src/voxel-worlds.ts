@@ -2,8 +2,11 @@
  * A project's voxel worlds, as the backend serves and edits them: each
  * world is a folder `voxels/<name>/` in the project holding `world.json`
  * (its format, id, chunk edge, region layout and footprint, the world
- * grid's region files, and a revision that moves with every applied
- * change) and the world grid's region files under `grid-0/`.
+ * grid's region files, its structure grids' region files, and a revision
+ * that moves with every applied change), the world grid's region files
+ * under `grid-0/` and each structure grid's under `grid-<id>/`. Where a
+ * structure grid stands is not the world's to say (its structure object's
+ * place and yaw): the files hold only its cells.
  *
  * The manifest says which region files the world has: a region it does not
  * list is all air, and one it lists that is missing or unreadable is
@@ -95,7 +98,9 @@ export const VOXEL_WORLDS_FOLDER = 'voxels';
 /** A world's description and revision, next to its grids' folders. */
 export const VOXEL_WORLD_MANIFEST = 'world.json';
 /** The world manifest's format; a newer one is refused, an older one lifted ({@link liftManifest}). */
-export const VOXEL_WORLD_FORMAT = 2;
+export const VOXEL_WORLD_FORMAT = 3;
+/** The highest structure grid id (region files carry it as a u32; the world grid is 0). */
+export const VOXEL_GRID_ID_MAX = 0xffffffff;
 /**
  * The voxel world ops' arguments, as {@link VoxelWorlds.command} reads them
  * (unknown fields refused). `world` names the folder `voxels/<world>/`.
@@ -130,6 +135,12 @@ export function gridFolder(gridId: number): string {
   return `grid-${gridId}`;
 }
 
+/** A structure grid of a world as its manifest lists it: its id (≥ 1) and its region files (sorted names). */
+export interface VoxelWorldGrid {
+  readonly id: number;
+  readonly regions: readonly string[];
+}
+
 export interface VoxelWorldManifest {
   readonly format: number;
   /** The world id the region files carry (hex, 16 bytes). */
@@ -139,6 +150,8 @@ export interface VoxelWorldManifest {
   readonly footprint: RegionFootprint;
   /** The world grid's region files (sorted names): any other region is air. */
   readonly regions: readonly string[];
+  /** The structure grids, sorted by id, each with its region files listed as the world grid's are. */
+  readonly grids: readonly VoxelWorldGrid[];
   /** Moves by one with every applied change. */
   readonly revision: number;
 }
@@ -146,34 +159,52 @@ export interface VoxelWorldManifest {
 /**
  * A manifest of an older format lifted to this one, add-only. Format 1
  * listed no region files: lifting it lists the world grid's region files in
- * the folder at that moment (the most an old world can say).
+ * the folder at that moment (the most an old world can say). Format 2 had
+ * no structure grids: it reads as a world without any.
  */
 export function liftManifest(value: Record<string, unknown>, worldDir: string): Record<string, unknown> {
   const format = value.format;
   if (typeof format !== 'number' || !Number.isInteger(format) || format < 1) throw new Error(`unknown world manifest format ${String(format)}`);
-  const steps = [{ from: 1, lift: (o: Record<string, unknown>) => ({ ...o, format: 2, regions: listRegionFiles(join(worldDir, gridFolder(WORLD_GRID_ID))) }) }];
+  const steps = [
+    { from: 1, lift: (o: Record<string, unknown>) => ({ ...o, format: 2, regions: listRegionFiles(join(worldDir, gridFolder(WORLD_GRID_ID))) }) },
+    { from: 2, lift: (o: Record<string, unknown>) => ({ ...o, format: 3, grids: [] }) },
+  ];
   return liftVersion('world manifest', format, VOXEL_WORLD_FORMAT, steps, value, (o) => o.format as number);
 }
+
+/** Whether `v` is a sorted list of region file names, each once. */
+const regionList = (v: unknown): v is string[] => Array.isArray(v) && !v.some((n, i) => typeof n !== 'string' || !REGION_FILE_NAME_RE.test(n) || (i > 0 && v[i - 1] >= n));
 
 /** Reads a manifest of this format, refusing anything but its exact fields. */
 export function parseVoxelWorldManifest(value: unknown): VoxelWorldManifest {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('a world manifest is an object');
   const o = value as Record<string, unknown>;
   const keys = Object.keys(o).sort().join(',');
-  if (keys !== 'edge,footprint,format,layout,regions,revision,worldId') throw new Error(`world manifest fields ${keys}`);
+  if (keys !== 'edge,footprint,format,grids,layout,regions,revision,worldId') throw new Error(`world manifest fields ${keys}`);
   if (o.format !== VOXEL_WORLD_FORMAT) throw new Error(`unknown world manifest format ${String(o.format)}`);
   const regions = o.regions;
-  if (!Array.isArray(regions) || regions.some((n, i) => typeof n !== 'string' || !REGION_FILE_NAME_RE.test(n) || (i > 0 && regions[i - 1] >= n))) throw new Error('regions is a sorted list of region file names, each once');
+  if (!regionList(regions)) throw new Error('regions is a sorted list of region file names, each once');
+  const grids = o.grids;
+  if (!Array.isArray(grids)) throw new Error('grids is a list of { id, regions }');
+  const out: VoxelWorldGrid[] = [];
+  for (const [i, g] of grids.entries()) {
+    if (typeof g !== 'object' || g === null || Array.isArray(g) || Object.keys(g).sort().join(',') !== 'id,regions') throw new Error(`grids[${i}] is { id, regions }`);
+    const { id, regions: listed } = g as Record<string, unknown>;
+    if (typeof id !== 'number' || !Number.isInteger(id) || id < 1 || id > VOXEL_GRID_ID_MAX) throw new Error(`grids[${i}].id is a whole number 1 … ${VOXEL_GRID_ID_MAX} (0 is the world grid)`);
+    if (i > 0 && out[i - 1]!.id >= id) throw new Error('grids are sorted by id, each once');
+    if (!regionList(listed)) throw new Error(`grids[${i}].regions is a sorted list of region file names, each once`);
+    out.push({ id, regions: listed });
+  }
   if (typeof o.worldId !== 'string' || !new RegExp(`^[0-9a-f]{${WORLD_ID_BYTES * 2}}$`).test(o.worldId)) throw new Error('worldId is 32 hex digits');
   if (!(CHUNK_EDGES as readonly unknown[]).includes(o.edge)) throw new Error(`chunk edge ${String(o.edge)}`);
   if (o.layout !== 'stacked' && o.layout !== 'column') throw new Error(`layout ${String(o.layout)}`);
   if (!isRegionFootprint(o.footprint)) throw new Error(`footprint ${String(o.footprint)} (cells a region side, one of ${REGION_FOOTPRINTS.join(', ')})`);
   if (typeof o.revision !== 'number' || !Number.isSafeInteger(o.revision) || o.revision < 0) throw new Error('revision is a whole number ≥ 0');
-  return { format: VOXEL_WORLD_FORMAT, worldId: o.worldId, edge: o.edge as ChunkEdge, layout: o.layout, footprint: o.footprint as RegionFootprint, regions: regions as string[], revision: o.revision };
+  return { format: VOXEL_WORLD_FORMAT, worldId: o.worldId, edge: o.edge as ChunkEdge, layout: o.layout, footprint: o.footprint as RegionFootprint, regions, grids: out, revision: o.revision };
 }
 
 function manifestBytes(m: VoxelWorldManifest): Uint8Array {
-  const ordered = { format: m.format, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, regions: m.regions, revision: m.revision };
+  const ordered = { format: m.format, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, regions: m.regions, grids: m.grids.map((g) => ({ id: g.id, regions: g.regions })), revision: m.revision };
   return new TextEncoder().encode(`${JSON.stringify(ordered, null, 2)}\n`);
 }
 
@@ -182,9 +213,9 @@ function manifestBytes(m: VoxelWorldManifest): Uint8Array {
  * files, then the manifest at revision 0. Refuses a folder that already
  * holds a world.
  */
-export function writeVoxelWorld(dir: string, m: Omit<VoxelWorldManifest, 'format' | 'revision' | 'regions'>, store: PaletteStore): { files: number } {
+export function writeVoxelWorld(dir: string, m: Omit<VoxelWorldManifest, 'format' | 'revision' | 'regions' | 'grids'>, store: PaletteStore): { files: number } {
   if (existsSync(join(dir, VOXEL_WORLD_MANIFEST))) throw new Error(`${dir} already holds a voxel world`);
-  let manifest = parseVoxelWorldManifest({ format: VOXEL_WORLD_FORMAT, revision: 0, regions: [], ...m });
+  let manifest = parseVoxelWorldManifest({ format: VOXEL_WORLD_FORMAT, revision: 0, regions: [], grids: [], ...m });
   if (store.grid.edge !== manifest.edge) throw new Error(`the store's chunk edge ${store.grid.edge} is not the world's ${manifest.edge}`);
   const world = RegionWorld.create(join(dir, gridFolder(WORLD_GRID_ID)), worldOptions(manifest), store);
   manifest = { ...manifest, regions: world.listedRegions() };
@@ -195,21 +226,23 @@ export function writeVoxelWorld(dir: string, m: Omit<VoxelWorldManifest, 'format
 
 /**
  * Writes a world folder's manifest at revision 0 listing region files
- * already written into its world grid's folder (a generator writing a large
- * world tile by tile, never holding it whole). Refuses a folder that already
- * holds a world, and a listed file that is not there.
+ * already written into its grids' folders (a generator writing a large
+ * world tile by tile, never holding it whole): the world grid's `regions`,
+ * and each structure grid's in `grids`. Refuses a folder that already holds
+ * a world, and a listed file that is not there.
  */
-export function writeVoxelWorldManifest(dir: string, m: Omit<VoxelWorldManifest, 'format' | 'revision' | 'regions'>, regions: readonly string[]): void {
+export function writeVoxelWorldManifest(dir: string, m: Omit<VoxelWorldManifest, 'format' | 'revision' | 'regions' | 'grids'>, regions: readonly string[], grids: readonly VoxelWorldGrid[] = []): void {
   if (existsSync(join(dir, VOXEL_WORLD_MANIFEST))) throw new Error(`${dir} already holds a voxel world`);
-  const sorted = [...new Set(regions)].sort();
-  for (const name of sorted) if (!existsSync(join(dir, gridFolder(WORLD_GRID_ID), name))) throw new Error(`${name}: listed but not written`);
-  const manifest = parseVoxelWorldManifest({ format: VOXEL_WORLD_FORMAT, revision: 0, ...m, regions: sorted });
+  const sorted = (names: readonly string[]): string[] => [...new Set(names)].sort();
+  const listed = [{ id: WORLD_GRID_ID, regions: sorted(regions) }, ...[...grids].sort((a, b) => a.id - b.id).map((g) => ({ id: g.id, regions: sorted(g.regions) }))];
+  for (const g of listed) for (const name of g.regions) if (!existsSync(join(dir, gridFolder(g.id), name))) throw new Error(`${gridFolder(g.id)}/${name}: listed but not written`);
+  const manifest = parseVoxelWorldManifest({ format: VOXEL_WORLD_FORMAT, revision: 0, ...m, regions: listed[0]!.regions, grids: listed.slice(1) });
   const out = writeAtomic({ dir, target: VOXEL_WORLD_MANIFEST, bytes: manifestBytes(manifest), allowedPreHashes: null, previousHash: null });
   if (!out.ok) throw new Error(`${join(dir, VOXEL_WORLD_MANIFEST)}: not written`);
 }
 
-function worldOptions(m: VoxelWorldManifest): WorldDirOptions {
-  return { grid: chunkGrid(m.edge), worldId: hexToBytes(m.worldId), layout: m.layout, footprint: m.footprint, gridId: WORLD_GRID_ID };
+function worldOptions(m: VoxelWorldManifest, gridId: number = WORLD_GRID_ID): WorldDirOptions {
+  return { grid: chunkGrid(m.edge), worldId: hexToBytes(m.worldId), layout: m.layout, footprint: m.footprint, gridId };
 }
 
 /** A world folder's manifest, lifted to this format and checked; throws when it is missing or refused. */
@@ -239,8 +272,8 @@ export interface VoxelWorldError {
   readonly currentRevision?: number;
 }
 
-/** A world's manifest and its listed region files with their tags (null: listed, but missing or unreadable). */
-export type VoxelWorldInfo = { ok: true; world: string; manifest: VoxelWorldManifest; files: Array<{ name: string; etag: string | null }> } | { ok: false; error: VoxelWorldError };
+/** A world's manifest and its listed region files with their tags (null: listed, but missing or unreadable): the world grid's (`files`), each structure grid's (`grids`). */
+export type VoxelWorldInfo = { ok: true; world: string; manifest: VoxelWorldManifest; files: Array<{ name: string; etag: string | null }>; grids: Array<{ id: number; files: Array<{ name: string; etag: string | null }> }> } | { ok: false; error: VoxelWorldError };
 
 /** A world's files as an export ships them (`VoxelWorlds.shippedFiles`). */
 export type ShippedWorldFiles =
@@ -372,6 +405,8 @@ interface WorldState {
   /** Hash of the manifest's bytes. */
   manifestHash: string;
   world: RegionWorld;
+  /** The structure grids' region files by grid id (served; nothing edits them yet). */
+  grids: Map<number, RegionWorld>;
   undo: UndoStore;
   history: HistoryEntry[];
   /** Strokes undone, newest last: a redo applies the last again; a new edit drops them all. */
@@ -533,23 +568,36 @@ export class VoxelWorlds {
     for (const file of manifest.regions) stamps.set(join(gridDir, file), fileStamp(join(gridDir, file)));
     // Opened on demand: a file's chunks load when an edit reaches them, so a world of any size is served in bounded memory.
     const world = RegionWorld.scan(gridDir, opts, manifest.regions, this.opts.residentBytes);
+    const grids = new Map<number, RegionWorld>();
+    for (const g of manifest.grids) {
+      const dirOf = join(dir, gridFolder(g.id));
+      for (const file of g.regions) stamps.set(join(dirOf, file), fileStamp(join(dirOf, file)));
+      grids.set(g.id, RegionWorld.scan(dirOf, worldOptions(manifest, g.id), g.regions, this.opts.residentBytes));
+    }
     // Undo records of an earlier run (or of the files before someone else changed them) are gone: the folder starts empty.
     const spillDir = join(projectDir, 'cache', 'voxel-undo', name);
     rmSync(spillDir, { recursive: true, force: true });
     mkdirSync(spillDir, { recursive: true });
-    return { manifest, manifestHash, world, undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], redo: [], stamps };
+    return { manifest, manifestHash, world, grids, undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], redo: [], stamps };
   }
 
   /**
    * The files of a world (the manifest and `files`, by default every listed
-   * region) someone else changed since this process last read or wrote
-   * them: a moved stamp whose bytes still hash to what this process knows
-   * is not a change (the stamp is renewed).
+   * region of every grid; a structure grid's named `grid-<id>/<file>`)
+   * someone else changed since this process last read or wrote them: a
+   * moved stamp whose bytes still hash to what this process knows is not a
+   * change (the stamp is renewed).
    */
   private changedOnDisk(w: OpenWorld, files?: readonly string[]): string[] {
-    const gridDir = w.world.dir;
     const checks: Array<{ name: string; path: string; known: string | null | undefined }> = [{ name: VOXEL_WORLD_MANIFEST, path: join(w.dir, VOXEL_WORLD_MANIFEST), known: w.manifestHash }];
-    for (const file of files ?? w.manifest.regions) checks.push({ name: file, path: join(gridDir, file), known: w.world.files.get(file)?.hash });
+    const all = files ?? [...w.manifest.regions, ...w.manifest.grids.flatMap((g) => g.regions.map((f) => `${gridFolder(g.id)}/${f}`))];
+    for (const name of all) {
+      const inGrid = /^grid-(\d+)\/(.+)$/.exec(name);
+      const g = inGrid === null ? w.world : w.grids.get(Number(inGrid[1]));
+      const file = inGrid === null ? name : inGrid[2]!;
+      if (g === undefined) continue;
+      checks.push({ name, path: join(g.dir, file), known: g.files.get(file)?.hash });
+    }
     const changed: string[] = [];
     for (const c of checks) {
       const stamp = fileStamp(c.path);
@@ -608,8 +656,8 @@ export class VoxelWorlds {
     return this.queued(w, async (): Promise<VoxelWorldInfo> => {
       const fresh = await this.refresh(w);
       if (!Array.isArray(fresh)) return fresh;
-      const files = w.world.listedRegions().map((file) => ({ name: file, etag: w.world.files.get(file)?.hash ?? null }));
-      return { ok: true, world: name, manifest: w.manifest, files };
+      const tags = (g: RegionWorld): Array<{ name: string; etag: string | null }> => g.listedRegions().map((file) => ({ name: file, etag: g.files.get(file)?.hash ?? null }));
+      return { ok: true, world: name, manifest: w.manifest, files: tags(w.world), grids: [...w.grids].map(([id, g]) => ({ id, files: tags(g) })) };
     });
   }
 
@@ -634,20 +682,26 @@ export class VoxelWorlds {
    * this process wrote or read them). A region the world does not list is
    * not found: a client reads its chunks as air. A listed region that is
    * missing or unreadable is refused as damaged: a client reports its chunks.
+   * `gridId`: the grid the file is of (default the world grid); a grid the
+   * world does not list has no region.
    */
-  async regionFile(projectId: string, name: string, file: string): Promise<RegionFileAnswer> {
+  async regionFile(projectId: string, name: string, file: string, gridId: number = WORLD_GRID_ID): Promise<RegionFileAnswer> {
     if (!REGION_FILE_NAME_RE.test(file)) return refuse('invalid_request', 'validation', 'not a region file name', '/file');
+    if (!Number.isInteger(gridId) || gridId < 0 || gridId > VOXEL_GRID_ID_MAX) return refuse('invalid_request', 'validation', 'not a grid id', '/grid');
     const w = await this.load(projectId, name);
     if ('ok' in w) return w;
     return this.queued(w, async (): Promise<RegionFileAnswer> => {
+      const listed = gridId === WORLD_GRID_ID ? w.manifest.regions : (w.manifest.grids.find((g) => g.id === gridId)?.regions ?? []);
+      const key = gridId === WORLD_GRID_ID ? file : `${gridFolder(gridId)}/${file}`;
       // Only a listed file can be stale here; a file the manifest does not list is no part of the world (a new one comes with a changed manifest).
-      const fresh = await this.refresh(w, w.manifest.regions.includes(file) ? [file] : []);
+      const fresh = await this.refresh(w, listed.includes(file) ? [key] : []);
       if (!Array.isArray(fresh)) return fresh;
-      const broken = w.world.damagedRegions.get(file);
-      if (broken !== undefined) return refuse('region_damaged', 'conflict', `voxel world ${name} lists region ${file}, which cannot be read: ${broken}`);
-      const f = w.world.files.get(file);
-      if (f === undefined || f.hash === null) return refuse('region_not_found', 'not_found', `voxel world ${name} has no region ${file}`);
-      return { ok: true, path: join(w.world.dir, file), etag: f.hash };
+      const g = gridId === WORLD_GRID_ID ? w.world : w.grids.get(gridId);
+      const broken = g?.damagedRegions.get(file);
+      if (broken !== undefined) return refuse('region_damaged', 'conflict', `voxel world ${name} lists region ${key}, which cannot be read: ${broken}`);
+      const f = g?.files.get(file);
+      if (g === undefined || f === undefined || f.hash === null) return refuse('region_not_found', 'not_found', `voxel world ${name} has no region ${key}`);
+      return { ok: true, path: join(g.dir, file), etag: f.hash };
     });
   }
 

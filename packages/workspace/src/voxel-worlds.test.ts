@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { applyEdit, canonicalEditCommand, chunkGrid, chunkOfKey, createDenseChunk, createWorldStore, exportOrAir, sameDenseChunk, VOXEL_ROLE, type PaletteStore } from '@thirdlight/voxel';
 import { afterAll, describe, expect, it } from 'vitest';
 import { sha256HexNative } from './digest';
-import { openShippedWorld, VoxelWorlds, writeVoxelWorld, type VoxelCommandResult } from './voxel-worlds';
+import { openShippedWorld, parseVoxelWorldManifest, readVoxelWorldManifest, VoxelWorlds, writeVoxelWorld, type VoxelCommandResult } from './voxel-worlds';
 import { listRegionFiles, RegionWorld } from './voxel-world-files';
 import { defaultOps, type WriteOps } from './write';
 
@@ -248,5 +248,92 @@ describe('a voxel world served on demand', () => {
     expect(!r.ok && r.error.code).toBe('world_changed');
     const info = await worlds.info('p', 'w');
     expect(info.ok && info.files.find((f) => f.name === other)?.etag).toBeNull();
+  });
+});
+
+describe('structure grids in the world manifest (format 3)', () => {
+  const WORLD = { worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512 } as const;
+  const opts = (gridId: number) => ({ grid, worldId: Uint8Array.from(WORLD_ID.match(/../g)!.map((h) => parseInt(h, 16))), layout: 'stacked' as const, footprint: 512 as const, gridId });
+  /** A house-sized grid: a 4 × 3 × 4 block of wall at its cell (0, 0, 0), one region file. */
+  function houseStore(): PaletteStore {
+    const s = createWorldStore(grid);
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) for (let y = 0; y < 3; y++) s.setVoxel(x, y, z, { material: 3, role: VOXEL_ROLE.wall, shape: 15, wetness: 0 });
+    return s;
+  }
+  /** A world folder with grids 3 and 7 written (their files under grid-<id>/) and listed. */
+  function withGrids(): { worlds: VoxelWorlds; worldDir: string } {
+    const projectDir = join(root, `g${++worldCount}`);
+    const worldDir = join(projectDir, 'voxels', 'w');
+    mkdirSync(worldDir, { recursive: true });
+    writeVoxelWorld(worldDir, WORLD, groundStore());
+    const listed = [3, 7].map((id) => ({ id, regions: RegionWorld.create(join(worldDir, `grid-${id}`), opts(id), houseStore()).listedRegions() }));
+    const m = JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as Record<string, unknown>;
+    writeFileSync(join(worldDir, 'world.json'), `${JSON.stringify({ ...m, grids: listed }, null, 2)}\n`);
+    return { worlds: new VoxelWorlds({ projectDir: (id) => (id === 'p' ? projectDir : null) }), worldDir };
+  }
+
+  it('writes format 3 with no grids; reads format 2 as a world with none; lists and serves each grid with tags', async () => {
+    const { worldDir } = setUp();
+    const written = JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as Record<string, unknown>;
+    expect(Object.keys(written)).toEqual(['format', 'worldId', 'edge', 'layout', 'footprint', 'regions', 'grids', 'revision']);
+    expect([written.format, written.grids]).toEqual([3, []]);
+    // A format-2 manifest (as 45–46 wrote them): lifted, nothing rewritten.
+    const { grids: _g, ...two } = written;
+    writeFileSync(join(worldDir, 'world.json'), `${JSON.stringify({ ...two, format: 2 }, null, 2)}\n`);
+    const lifted = readVoxelWorldManifest(worldDir);
+    expect([lifted.format, lifted.grids]).toEqual([3, []]);
+    expect(lifted.regions).toEqual(written.regions);
+
+    const { worlds, worldDir: dir } = withGrids();
+    const info = await worlds.info('p', 'w');
+    if (!info.ok) throw new Error(info.error.message);
+    expect(info.manifest.grids.map((g) => [g.id, g.regions])).toEqual([[3, ['r.0.0.0.vxr']], [7, ['r.0.0.0.vxr']]]);
+    expect(info.grids.map((g) => [g.id, g.files.map((f) => f.name), g.files.every((f) => typeof f.etag === 'string')])).toEqual([[3, ['r.0.0.0.vxr'], true], [7, ['r.0.0.0.vxr'], true]]);
+    const served = await worlds.regionFile('p', 'w', 'r.0.0.0.vxr', 7);
+    expect(served.ok && served.path).toBe(join(dir, 'grid-7', 'r.0.0.0.vxr'));
+    expect(served.ok && served.etag).toBe(sha256HexNative(readFileSync(join(dir, 'grid-7', 'r.0.0.0.vxr'))));
+    // The same name in the world grid is the world grid's file; a grid the world does not list has no region.
+    const world = await worlds.regionFile('p', 'w', 'r.0.0.0.vxr');
+    expect(world.ok && world.path).toBe(join(dir, 'grid-0', 'r.0.0.0.vxr'));
+    const unlisted = await worlds.regionFile('p', 'w', 'r.0.0.0.vxr', 5);
+    expect(!unlisted.ok && unlisted.error.code).toBe('region_not_found');
+  });
+
+  it("reports a listed grid region that is missing or of another grid as damaged, never air, and a grid file changed on disk", async () => {
+    const { worlds, worldDir } = withGrids();
+    rmSync(join(worldDir, 'grid-3', 'r.0.0.0.vxr'));
+    // The world grid's file copied into grid 7's folder: its header names grid 0, so it is not grid 7's.
+    writeFileSync(join(worldDir, 'grid-7', 'r.0.0.0.vxr'), readFileSync(join(worldDir, 'grid-0', 'r.0.0.0.vxr')));
+    const info = await worlds.info('p', 'w');
+    if (!info.ok) throw new Error(info.error.message);
+    expect(info.grids.map((g) => g.files[0]!.etag)).toEqual([null, null]);
+    for (const id of [3, 7]) {
+      const r = await worlds.regionFile('p', 'w', 'r.0.0.0.vxr', id);
+      expect(!r.ok && r.error.code, `grid ${id}`).toBe('region_damaged');
+    }
+    // The world grid is untouched by its grids' damage.
+    expect((await worlds.regionFile('p', 'w', 'r.0.0.0.vxr')).ok).toBe(true);
+    // Written back sound: found by its stamp before the next read, the world read again.
+    RegionWorld.create(join(worldDir, 'grid-9'), opts(7), houseStore());
+    writeFileSync(join(worldDir, 'grid-7', 'r.0.0.0.vxr'), readFileSync(join(worldDir, 'grid-9', 'r.0.0.0.vxr')));
+    const again = await worlds.regionFile('p', 'w', 'r.0.0.0.vxr', 7);
+    expect(again.ok && again.etag).toBe(sha256HexNative(readFileSync(join(worldDir, 'grid-7', 'r.0.0.0.vxr'))));
+  });
+
+  it('refuses unknown fields, unsorted or repeated grids, grid 0 and malformed entries', () => {
+    const base = { format: 3, worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512, regions: [], revision: 0 };
+    const bad: Array<[unknown, RegExp]> = [
+      [{ ...base, grids: [], extra: 1 }, /fields/],
+      [{ ...base }, /fields/],
+      [{ ...base, grids: [{ id: 2, regions: [] }, { id: 2, regions: [] }] }, /sorted by id/],
+      [{ ...base, grids: [{ id: 5, regions: [] }, { id: 2, regions: [] }] }, /sorted by id/],
+      [{ ...base, grids: [{ id: 0, regions: [] }] }, /world grid/],
+      [{ ...base, grids: [{ id: 1.5, regions: [] }] }, /whole number/],
+      [{ ...base, grids: [{ id: 1, regions: [], yaw: 30 }] }, /\{ id, regions \}/],
+      [{ ...base, grids: [{ id: 1, regions: ['r.1.0.0.vxr', 'r.0.0.0.vxr'] }] }, /sorted list/],
+      [{ ...base, format: 4, grids: [] }, /format 4/],
+    ];
+    for (const [m, why] of bad) expect(() => parseVoxelWorldManifest(m), JSON.stringify(m)).toThrow(why);
+    expect(parseVoxelWorldManifest({ ...base, grids: [{ id: 1, regions: ['r.0.0.0.vxr'] }, { id: 0xffffffff, regions: [] }] }).grids.map((g) => g.id)).toEqual([1, 0xffffffff]);
   });
 });

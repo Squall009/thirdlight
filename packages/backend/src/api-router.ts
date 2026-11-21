@@ -53,7 +53,7 @@ export interface ApiRoutes {
   };
   readonly voxels: {
     readonly info: Route<[projectId: string, world: string]>;
-    readonly region: Route<[projectId: string, world: string, file: string]>;
+    readonly region: Route<[projectId: string, world: string, file: string, grid?: number]>;
     readonly farInfo: Route<[projectId: string, world: string]>;
     readonly farRegion: Route<[projectId: string, world: string, level: string, file: string]>;
     readonly farBake: Route<[projectId: string, world: string]>;
@@ -228,6 +228,10 @@ export function makeApiRouter(r: ApiRoutes) {
     // GET /api/v1/projects/:projectId/voxels/:world/regions/:file — a region file, whole or one byte range
     if (parts.length === 8 && parts[2] === 'projects' && parts[4] === 'voxels' && parts[6] === 'regions') {
       return only('GET', () => voxels.region(req, res, parts[3]!, decodeURIComponent(parts[5]!), decodeURIComponent(parts[7]!)));
+    }
+    // GET /api/v1/projects/:projectId/voxels/:world/grids/:grid/regions/:file — a structure grid's region file, whole or one byte range
+    if (parts.length === 10 && parts[2] === 'projects' && parts[4] === 'voxels' && parts[6] === 'grids' && /^\d{1,10}$/.test(parts[7]!) && parts[8] === 'regions') {
+      return only('GET', () => voxels.region(req, res, parts[3]!, decodeURIComponent(parts[5]!), decodeURIComponent(parts[9]!), Number(parts[7])));
     }
     // POST /api/v1/projects/:projectId/lighting/bake {sceneId} — "Bake lighting" in the project's editor; GET …/bake/:jobId its state
     if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'lighting' && parts[5] === 'bake') {

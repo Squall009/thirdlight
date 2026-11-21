@@ -215,7 +215,9 @@ lighting chosen performance first (46e).
   - Stacked layout: index (rx, ry, rz), with 16 chunks (256 m) a stack, aligned at y = 0.
 - **Structure grids.** Each structure has its own grid with a numeric grid id (≥ 1; the world grid is 0). It uses
   the same cell bounds and the same chunk and region math in its own local frame. The transform (position and yaw)
-  is not stored in voxel files; it belongs to the structure record (47a).
+  is not stored in voxel files; it belongs to the structure record (47a). Its cell (0, 0, 0) is the minimum corner
+  of its footprint's box at the ground floor's top (the anchor rule, F2), and the world manifest lists its region
+  files (§3.2, format 3).
 - **Floating origin (§3.6).** Authoritative positions stay integer cells and 64-bit metres. Only 32-bit consumers
   (the GPU, physics) work relative to a moving origin.
 
@@ -579,12 +581,30 @@ bytes; the compressor is passed in. Little-endian.
 - **Writes.** A file is replaced atomically through the workspace's durable write: a temporary file, fsync, rename,
   fsync of the folder, a read-back, and a refusal if the file is not what this process last saw.
 
-#### World manifest, format 2 (`world.json`; `voxel-worlds.ts`)
+#### World manifest, format 3 (`world.json`; `voxel-worlds.ts`)
 
-A world is a folder holding `world.json` and its grids' folders (`grid-0/` for the world grid). The manifest is
-JSON with two-space indents and a closing newline, in this field order: `format` (2), `worldId` (32 hex digits, the id its region files carry), `edge`
+A world is a folder holding `world.json` and its grids' folders (`grid-0/` for the world grid, `grid-<id>/` for
+each structure grid). The manifest is
+JSON with two-space indents and a closing newline, in this field order: `format` (3), `worldId` (32 hex digits, the id its region files carry), `edge`
 (16 or 32), `layout` (`stacked` or `column`), `footprint` (512 or 1,024 cells), `regions` (the world grid's region
-file names, sorted, each once) and `revision` (moves by one with every applied change). Unknown fields are refused.
+file names, sorted, each once), `grids` and `revision` (moves by one with every applied change). Unknown fields are refused.
+
+- **Structure grids (format 3; entry F2, owner 2026-11-20: "Everything as proposed is fine").** `grids` is a list
+  of `{ "id": 7, "regions": ["r.0.0.0.vxr"] }`, sorted by id, each id once, 1 … 2³² − 1 (0 is the world grid and
+  is never listed here), exactly those two fields; a grid's regions are listed as the world grid's are (sorted
+  names, each once), and its region files lie in `grid-<id>/`, their headers carrying that grid id (a file of
+  another grid is refused, its chunks damaged). A grid's listed region that is missing, unreadable or of another
+  tile is damage, never air (R4), exactly as the world grid's: `region_damaged` (409) on its range route
+  (`…/voxels/<world>/grids/<id>/regions/<file>`), `etag: null` in the world's file list (`grids[].files`).
+- **Where a grid stands is not stored here.** A structure grid's transform (its position and its yaw about the
+  vertical axis; floors stay level, never a tilt or a scale) is its structure object's place in the scene (§2.1),
+  so moving a structure rewrites no voxel and no manifest. Until structure objects exist the runtime takes the
+  transforms as a host option when the world is opened (bench data only).
+- **The anchor rule.** A structure's cell (0, 0, 0) is the minimum corner of its footprint's box at the ground
+  floor's top, so a building under 256 m is one region file.
+- **Exports** ship each grid's region files and a list of grids with their transforms in the runtime manifest
+  (R39: never resampled into the world grid). Not built yet: an export ships the world grid alone.
+- **Not in the format:** a tilt or a scale of a grid; two structures sharing one grid.
 
 - **Which regions exist (R4).** A region the manifest does not list is all air. A listed region that is missing,
   unreadable or of another tile is damaged: the backend reports it (`region_damaged`, 409, on the range route;
@@ -611,7 +631,9 @@ file names, sorted, each once) and `revision` (moves by one with every applied c
   changed, then sends the edit again (default chosen, owner to confirm). A released, taken-over or unregistered
   project's worlds are closed and read again on next use.
 - **Versions.** A newer format is refused. Format 1 (45.7a) had no `regions`; its upgrade step lists the world
-  grid's region files found in the folder when it is lifted, the most an old world can say.
+  grid's region files found in the folder when it is lifted, the most an old world can say. Format 2 had no
+  `grids`; its step (add-only) reads it as a world without structure grids, and nothing is rewritten until the
+  world's next applied change writes its manifest in format 3.
 
 **Measured (45.3)**
 - **Size:** hilly 4 km² is 64 column files (128 stacked), 23.1 MB; header plus table are 5.8 % of it.
@@ -1567,7 +1589,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 |---|---|---|---|---|
 | Chunk codec | `VC` | 2 | a newer one refused | `CHUNK_CODEC_UPGRADES`, add-only, keyed by the version lifted from (v2 has none) |
 | Region file | `TLVR` | 2 (+ codec version byte) | a newer one refused | `REGION_UPGRADES` (header and table; chunks by the codec's steps), add-only (v2 has none) |
-| World manifest | `world.json` `format` | 2 | a newer one refused | step 1 → 2 lists the region files found (§3.2) |
+| World manifest | `world.json` `format` | 3 | a newer one refused | step 1 → 2 lists the region files found; 2 → 3 adds `grids: []` (§3.2) |
 | Edit command | `v` | 2 | refused | none yet |
 | Undo record | `TLVU` | 2 | refused | not needed (session data) |
 | Save | `TLVS` | 2 | a newer one refused | `SAVE_UPGRADES`, append-only (v2 has none) |

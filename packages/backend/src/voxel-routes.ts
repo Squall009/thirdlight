@@ -80,9 +80,9 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     else sendJson(res, 200, r);
   };
 
-  /** A region file, whole or one byte range (the caller checked who may read it). */
-  const sendRegion = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string): Promise<void> => {
-    sendFile(req, res, await worlds.regionFile(projectId, world, file), file);
+  /** A region file of the world grid or of structure grid `grid`, whole or one byte range (the caller checked who may read it). */
+  const sendRegion = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string, grid?: number): Promise<void> => {
+    sendFile(req, res, await worlds.regionFile(projectId, world, file, grid), file);
   };
 
   /** The far cache's manifest and files with their tags (the caller checked who may read them). */
@@ -143,11 +143,11 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     else await sendInfo(res, projectId, world);
   };
 
-  /** GET …/voxels/:world/regions/:file — a region file, whole or one byte range. */
-  const region = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string): Promise<void> => {
+  /** GET …/voxels/:world/regions/:file (and …/grids/:grid/regions/:file, a structure grid's) — a region file, whole or one byte range. */
+  const region = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string, file: string, grid?: number): Promise<void> => {
     const auth = requireAuth(req, projectId, false);
     if (auth !== null) sendError(res, auth);
-    else await sendRegion(req, res, projectId, world, file);
+    else await sendRegion(req, res, projectId, world, file, grid);
   };
 
   /** GET …/voxels/:world/far — the far cache's manifest and files with their tags. */

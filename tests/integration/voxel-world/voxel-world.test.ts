@@ -61,8 +61,8 @@ import {
   WORLD_RULES,
 } from '@thirdlight/voxel';
 import { readKtx2Layout, readRuntimeContentSync, textureSlotSetKey, voxelSurfaceTextures, type MaterialVoxel, type VoxelKit, type VoxelKitMesh } from '@thirdlight/project-model';
-import { glbBytes } from '@thirdlight/shared';
-import { importRead, writeVoxelWorld } from '@thirdlight/workspace';
+import { glbBytes, hexToBytes } from '@thirdlight/shared';
+import { importRead, RegionWorld, writeVoxelWorld } from '@thirdlight/workspace';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -286,7 +286,7 @@ describe('voxel world routes', () => {
     const r = await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth });
     expect(r.status).toBe(200);
     const info = (await r.json()) as { manifest: { revision: number; layout: string; regions: string[] }; files: Array<{ name: string; etag: string }> };
-    expect(info.manifest).toMatchObject({ format: 2, revision: 0, layout: 'stacked', edge: 32, footprint: 512, worldId: WORLD_ID });
+    expect(info.manifest).toMatchObject({ format: 3, grids: [], revision: 0, layout: 'stacked', edge: 32, footprint: 512, worldId: WORLD_ID });
     expect(info.files.length).toBeGreaterThan(0);
     // The manifest lists exactly the region files the world has.
     expect(info.manifest.regions).toEqual(info.files.map((f) => f.name));
@@ -524,9 +524,23 @@ describe('voxel world routes', () => {
     rmSync(join(worldDir, 'grid-0', lost));
     // A stray file the manifest does not list is not part of the world: never read.
     writeFileSync(join(worldDir, 'grid-0', 'r.25.0.25.vxr'), readFileSync(join(worldDir, 'grid-0', manifest.regions.find((n) => n !== lost)!)));
+    // Two structure grids listed: grid 4's file written (its own folder), grid 6's listed but gone: damaged as the world grid's.
+    const house = createWorldStore(grid);
+    for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) house.setVoxel(x, y, 0, { material: 3, role: 3, shape: 15, wetness: 0 });
+    const gridFiles = RegionWorld.create(join(worldDir, 'grid-4'), { grid, worldId: hexToBytes(WORLD_ID), layout: 'stacked', footprint: 512, gridId: 4 }, house).listedRegions();
+    const listedGrids = [{ id: 4, regions: gridFiles }, { id: 6, regions: ['r.0.0.0.vxr'] }];
+    writeFileSync(join(worldDir, 'world.json'), `${JSON.stringify({ ...manifest, grids: listedGrids }, null, 2)}\n`);
     await start();
-    const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { manifest: { regions: string[] }; files: Array<{ name: string; etag: string | null }> };
+    const gridUrl = (id: number, file: string): string => `${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}/grids/${id}/regions/${file}`;
+    const own = await fetch(gridUrl(4, gridFiles[0]!), { headers: auth });
+    expect(own.status).toBe(200);
+    expect(new Uint8Array(await own.arrayBuffer())).toEqual(new Uint8Array(readFileSync(join(worldDir, 'grid-4', gridFiles[0]!))));
+    const gone = await fetch(gridUrl(6, 'r.0.0.0.vxr'), { headers: auth });
+    expect([gone.status, ((await gone.json()) as { error: { code: string } }).error.code]).toEqual([409, 'region_damaged']);
+    expect((await fetch(gridUrl(5, 'r.0.0.0.vxr'), { headers: auth })).status).toBe(404);
+    const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { manifest: { regions: string[] }; files: Array<{ name: string; etag: string | null }>; grids: Array<{ id: number; files: Array<{ name: string; etag: string | null }> }> };
     expect(info.manifest.regions).toEqual(manifest.regions);
+    expect(info.grids.map((g) => [g.id, g.files.map((f) => f.etag !== null)])).toEqual([[4, [true]], [6, [false]]]);
     expect(info.files.find((f) => f.name === lost)?.etag).toBeNull();
     const route = await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}/regions/${lost}`, { headers: { ...auth, range: 'bytes=0-63' } });
     expect(route.status).toBe(409);
@@ -543,7 +557,8 @@ describe('voxel world routes', () => {
     expect((into.json.error as { code: string }).code).toBe('chunk_not_loaded');
     const elsewhere = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 2, grid: 0, kind: 'set', cells: [2, 12, 0], voxel: { material: 3, role: 3, wetness: 0, shape: 15 } } } });
     expect(elsewhere.status, JSON.stringify(elsewhere.json)).toBe(200);
-    expect((JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { regions: string[] }).regions).toEqual(manifest.regions);
+    // An edit of the world grid keeps the structure grids listed.
+    expect(JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { regions: string[] }).toMatchObject({ regions: manifest.regions, grids: listedGrids });
   }, 60_000);
 
   it('MCP sends the voxel ops through tl_command as the editor page does (the same answer, the same files); the editor\'s feed tells of every change', async () => {
