@@ -686,7 +686,7 @@ open before the share), not the GPU walk.
 medium and high tiers; WebGL 2 (its smoke test only); anything in motion beyond the orbit numbers; edit → light for a
 grid house in the browser (no edit path into grids); a turned house on a slope; the off run's light check (the off run
 stopped at the room check). Gates: gate-fast-20261122-061112 (RED on `project-items.e2e.ts`, D410),
-gate-rerun-20261122-063506 GREEN.
+gate-rerun-20261122-063506 GREEN; `area play` with the leak test gate-area-20261122-082532 GREEN (24 passed).
 
 ## 9. Decision log
 
