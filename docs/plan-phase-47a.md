@@ -171,7 +171,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | Done 2026-11-22 (68fbec87, b4ff1315): `@thirdlight/voxel` `structures/`: generator contract, F1 record + checks, building generator (union walls, 45° roofs, hip over the outline), regenerate (undo/redo, fit rule), capture, regenerate-all; town house = bench pattern but beams, landing; small house 1.4 ms, 131 houses 78 ms, regenerate with 1,000 overrides 30 ms; D751, D752 |
 | 47a.4 | Done 2026-11-22 (4059d423): `voxelStructure` (F1), its grid written by the backend through the commands, one undo step with the scene edit; create (next grid, anchor), regenerate, copy, delete, material swap, hand edits as overrides, `regenerateStructures`; Play/export read places from the objects. Small house 20 ms, L 60–76 ms; +0.8–2.2 s with a far cache (D754); D753, D755 |
-| 47a.5 | not started |
+| 47a.5 | (a) done 2026-11-22 (6be74d26, ef33ad6f, 6003c541): the Scene view draws, moves (live in a drag, 0.04–0.06 ms a move) and picks structure grids; `ctx.voxels` by the grid a point lies in: reads, exact rays (131 grids 220 rays/ms by tile index), dig/set/paint, saves, `regionAt`; edit → light 0.8 s; spec §3.6 as built; D748 narrowed; D756–D758. (b) not started |
 | 47a.6 | not started |
 | 47a.7 | not started |
 | 47a.8 | not started |
@@ -1135,6 +1135,128 @@ gate-area-20261122-161421 GREEN (24 passed).
 **D-rows:** D753 (two region files for an anchored house in a stacked world), D754 (the far follow-up's cost on a
 structure command), D755 (the fine bake and columns outside the world grid's don't see grids).
 
+### 47a.5a — structure grids in the Scene view and in ctx.voxels
+
+**Built** (6be74d26, ef33ad6f, 6003c541; F2 as approved, no stored thing added):
+- **The Scene view draws structure grids.** Each `voxelStructure` object of the open scenes has its grid streamed in
+  the view's worker (`editor/src/voxel-world/scene-voxels-grids.ts`: a streamer a grid in its world's pool under its
+  job ids, the view's focus moved into its frame and told only once it moved an eighth of its gap to the grid, as Play
+  does) and drawn with its world's surface and piece batches under its place (`VoxelWorldDraws` and its grid views, the
+  path 47a.1a2 built). The page reads each structure's place from the object's transform every drawn frame (a gizmo
+  drag's override included): a move or turn moves the grid's root and places its kit copies again in the world's
+  batches (`VoxelWorldDraws.placeGrid`, `VoxelChunkView.placed`), static shadows drawn again; nothing is read or
+  derived. A change the backend applied to a grid (made, regenerated, edited by hand, pasted, deleted, undone, redone)
+  reaches the view by `voxelsChanged`, which now carries the grids' changed chunks (`grids`, an optional field of the
+  feed event, from the command's answer): only those are read and derived again; a grid made by the change is opened
+  when its files arrive; a change reaching past the box its streamer reads opens the grid again (D758). A click selects
+  a structure whose cells the pointer's ray meets nearer than any drawn object (the worker walks every world and its
+  grids, `walkWithGrids`; the click waits for its answer); the selection outline wears the structure's box (its
+  generator's box turned into the world). No tool, handle or mode (47a.6).
+- **`ctx.voxels` reaches the grid a point lies in** (runtime `voxel-grid-access.ts`), by one rule: *a point lies in a
+  structure where the structure's own cell holding it is not air; everywhere else it lies in the world's own cells;
+  where structures overlap, the lower grid id wins.* Reads (`get`, `materialAt`, `coverageAt`: a structure's own
+  coverage, else the world's with the lit props and without the grids' stamps) answer from that grid. `raycast` walks
+  the world and each grid along the ray in its own frame (`walkWithGrids`), solid and light stops (a light ray reads the
+  world's props without the stamps), and says which grid it met (`grid`, 0 the world's own), the cell in that grid
+  (`cell`), the voxel's centre in world metres (`at`) and the face's normal turned into the world. Changes over a region
+  act on each grid's own cells whose centres lie in it: `dig` and `paint` on the world's and every structure's (a dig
+  through a house's wall into the ground empties both); `set` on a structure's cells that are not air and on the
+  world's elsewhere, never a world cell whose centre lies in a structure's solid cell. Order: the world grid's stroke
+  first, then each structure's by ascending grid id, all one change (one id; reported once every grid's swap is in:
+  `VoxelChanges` keeps swap groups by grid and group). A grid's stroke writes its overlay (spec §2.3), derives its
+  chunks again, reads its stamp again (light, sun heights, rooms), and its walk links and collision body follow its
+  swap. `save()` holds every grid's changes (save file v2 already keys entries by grid; each grid chunk's base hash is
+  its shipped chunk's); `restore` lays each grid's entries into that grid; a save's pieces of a grid the world does not
+  hold are reported in `mismatches` (`grid`, never applied, whatever the choice); a grid's base mismatch follows R60 as
+  the world's does. `regionAt` names the structure whose box (its cells that are not air, as read for its stamp) holds
+  the point (`grid`); the object's id is not known in an export (D756). Reference text in `voxel-api.ts` (the
+  generated `tl_docs` pages, `docs/manual/reference`).
+- **Rays through a town** test only the grids along their way: `GridWalkIndex` (`grid-walk.ts`) files a world's grids by
+  the 16 m tiles their turned boxes cover and walks the tiles a ray's path crosses (a 2D DDA). `walkWithGrids` now
+  enters a grid a millimetre before its box, so a wall on the box's face (a house anchored on cell 0) is met by its
+  face with its normal (it read as started inside: distance 0, no normal).
+- **D748**: walkers of another height or with drops cross at the links (a taller one only where a link's two ends have
+  room for it); `reach` still searches the world graph alone (what it needs: D748).
+- **Spec §3.6**: the open contract gap replaced by "Across grids, as built" (keys by grid and chunk in the jobs, no
+  cross-grid apron, the grids meet through the stamp, the links, the far resample and the ray walk, what invalidates
+  what); the summary's M7 line closed. No format, field or version moved.
+
+**Tests.** Vitest `tools/voxel-bench/world-host-grids.test.ts` (a real runtime, region files on disk, worker threads,
+Rapier; three houses at 0°, 30° and 45°): the rule (wall, door and room cells, the ground under, coverage 1 and 0, a
+room's `grid`); rays at each yaw meet cell (4, 2, 0) at 3 m with the normal (−sin, 0, −cos), solid and light, and
+through the door the back wall; a dig ball over the wall's foot empties wall and ground as one change (two chunks), a
+second dig changes 0 cells, a set over a wall and the air before it changes the wall in the house and the air in the
+world grid (the ray from the street meets grid 0 first); a dug wall saved (every entry grid 2, base hashes of the
+shipped chunks) and restored into a fresh run of the same files; a save made before the structures existed (restored,
+nothing reported, the house stands), a save restored where its structure is gone (each of its pieces reported, grid 2,
+not kept; the world's pit lands), one where the structure was rebuilt (a mismatch kept). `walk-graph-links.test.ts`:
+other walkers (1.5 m tall, drops of 1 m, 2 m with drops of 2 m) go in by the door, a 2.5 m walker does not.
+`structure-stamp.test.ts`: the tile index meets what testing every grid meets on 400 random rays over 64 houses (a few
+boxes a ray). E2E: the Scene view test (`voxel-scene-structures.ts`, called from `voxel-world.e2e.ts`'s Scene view
+test, one backend) makes a house by command and finds it in the pixels, moves it by `setTransform` (pixels move,
+region files' times unchanged, nothing meshed again), adds a storey (the house's top row rises), undoes with Ctrl+Z (as
+before within 80 px), clicks it (its row selected, the outline wears it); the Play test casts at the turned wall
+(grid 1, row z 0, the turned normal, 150 cm), digs it, walks the character in through the hole (grid z 4.19) and reads
+the room's light rise. What each does with the feature broken: without the feed's `grids` the storey never draws
+(timeout); without the draws' move the pixels stay; without the grid rule reads answer the world's air, rays pass the
+walls, digs leave them, saves hold no grid entry; without the link fit the other walkers' paths stop at the world
+graph (unreachable).
+
+**Measured.**
+- *Scene view* (2026-11-22 17:33–17:46 UTC, a 256 m slice world in a fresh e2e backend, WebGPU, 1280 × 720 page with
+  the editor's panels, load 2.4–3.5 (another process on the host); the view's own stats: `data-render-ms` (its p50 and
+  p95 CPU ms of a drawn frame) while the left button orbits the view for 5 s (a move every 16 ms: 149–150 frames, the
+  input's rate, not a cap), and the time from the page's load to every world and grid settled and drawn; the editor
+  has no frame cap; scratch spec `work/47a.5a/scratch/zz-scene-measure.e2e.ts.keep`, raw `m/sv-*.json`; no kit in the
+  project, so no kit pieces):
+
+  | houses | W: in the world grid (yaw 0) | G: structure objects (own grids, 30°) |
+  |---|---|---|
+  | 1 | draw 34.1 s; render 3.00 / 4.60 ms | draw 34.3 s; render 3.00 / 3.80 ms; drag 16 moves in 2.05 s, 1 ms in all |
+  | 20 | draw 34.0 s; render 2.80 / 4.30 ms | draw 34.8 s; render 3.60 / 5.40 ms |
+  | 131 | draw 34.1 s; render 3.10 / 3.80 ms; 364 chunks | draw 26.0 s; render 4.10 / 6.50 ms; 464 chunks, 132 draw sets; drag 16 moves, 0.6 ms in all, render 4.00 / 4.80 |
+
+  Read: the time to draw is the world's (34 s for the slice world at this view in every run; 26 s for G131 is not
+  explained: one run each); the grids add about 1 ms to a frame's p50 at 131 (2.7 ms at p95: their chunk surfaces, a
+  draw a chunk); a structure's move costs about 0.04–0.06 ms a move (16 moves: the snap's steps). The G20 drag's grab
+  missed (0 moves; another house under the arrow). Pictures looked at: `m/sv-g-131.json.png` (131 turned houses drawn
+  over the hills), `m/sv-w-131.json.png` (the same lots aligned), `m/sv-g-1.json-drag.png` (mid-drag: the house, its
+  box outline and the gizmo together away from its stored place).
+- *Rays* (Node 22, `work/47a.5a/scratch/rays.ts`: 47a.1b's town box and its 72,000 rays at 30°, best of three, CPU,
+  raw `scratch/rays-1.json`, load 1.1): the world alone 523.9 rays a ms; with the box's 24 grids tested 206.6, filed by
+  tile 222.5 (2.63 boxes tested a ray); with all 131 town houses' boxes tested 120.2 (47a.1b: 137), filed by tile 220.0
+  (2.78 tested, 1.02 entered). The index takes a town's rays back to the cost of the grids they enter.
+- *Edit → light, edit → mesh* (Play, the gate's Play test, WebGPU low): the dug wall moved the room's light 800 ms
+  (alone: 866 ms) after the dig command, from 0.585 to 1.593 settled (0.571 → 1.304 alone);
+  `pics/grid-house.png` (before, without the volume) and `pics/grid-house-dug.png` (after, with it) looked at: the
+  hole is through the front wall and into the door beside it (the world box round the turned shape, D757), the room
+  inside lit, the magenta boards at the hole's new edges. Edit → mesh in the grid house is not read separately (the
+  Play test's edit hook list holds the pit's, not the dig's).
+- *Saves*: the round trip and the mismatch cases are vitest (above); their bytes and time were not measured.
+- *The town orbit* (the default path, no grid): 2026-11-22 17:47–18:24 UTC, `run.mjs headroom --quality low --rounds 2`, the
+  head 6003c541 against base fe171617 (built in a scratch worktree with its own `@thirdlight` links, removed after),
+  A B A B, second rounds, each alone (load 0.6–2.6; `work/47a.5a/measure-ab.sh`, raw `m/O-*`): room 7 (the edge search
+  stopped at 7 copies in the head's first run, 0 of 89 missed at no load; the run began at load 2.6), 128 against
+  128, 128; page ms 5.33, 5.67 against 6.06, 5.67; simulation 1.88, 2.26 against 2.10, 2.09; GPU `near` 3.95, 4.94
+  against 4.06, 4.32, `far` 3.31, 3.75 against 2.38, 4.17, `lighting` 4.77, 4.31 against 3.92, 3.74 (resolution
+  0.4–2.2 ms); fill 7.1, 7.7 s against 8.4, 8.2. Equal within the spread but the head's first room, which is not
+  resolved (one run; its second is 128). No lit program was touched: the 128-lamp reading was not run.
+- The Play test 2.0 min alone and in the gate (1.8–2.3 before); the Scene view test 19–20 s.
+
+**Unverified:** medium and high tiers; WebGL 2 (its smoke test only); a turned house on a slope; anything in motion
+but the drag's numbers and its one picture; exports' `ctx.voxels` in grids (the runtime is the same code; no export
+test casts or digs a grid); the editor's preview beyond Play's runtime; the Inspector; edit → mesh in a grid house.
+**Left out** (slice b and later, as the brief): many grids' simulation on a moving camera (D743, D745), the stamp in
+one piece (D747), the far rebuild blocking commands (D754), the fine bake (D755), eave specks and corner lines (D744,
+D746); `reach` across grids (D748); an object id on hits (D756).
+
+**Gates:** gate-fast-20261122-164434 (the Scene view commit; every touched area) RED on the Play test's profiler `jobs`
+lane (known flaky), gate-rerun-20261122-165707 GREEN; gate-fast-20261122-171852 (`ctx.voxels`) GREEN (Play test 2.0
+min). The docs commit: see §7 and the report.
+
+**D-rows:** D748 narrowed; D756 (hits and regions name the grid, not the object), D757 (a world-box region round a
+turned wall), D758 (a Scene view grid reopened whole past its box).
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -1265,6 +1387,23 @@ structure command), D755 (the fine bake and columns outside the world grid's don
 - 2026-11-22 (47a.4): the e2e house is a structure object (its porch a hand edit kept as overrides), so its grid
   layout moved by the anchor: the front wall at z = 0, the porch at −3 … 0 m (`voxel-grid-house.ts`); the checks read
   the same geometry from `GRID_HOUSE_M`.
+
+- 2026-11-22 (47a.5a; default chosen, owner to confirm): **the grid a point lies in**: a structure's cell that is not
+  air, else the world's own cells; the lower grid id where structures overlap. Reads and rays follow it; `dig` and
+  `paint` act on every grid's cells whose centres lie in the region; `set` replaces a structure's solid cells and fills
+  the world's cells elsewhere (never a world cell inside a structure's solid one), so a script that sets air inside a
+  room writes the world grid, not the house; strokes go world grid first, then grids by id, one change.
+- 2026-11-22 (47a.5a; default chosen, owner to confirm): **`ctx.voxels` names a structure by its grid id** (hits,
+  regions, mismatches), not its object: the object is not tied to its grid in an export without a stored key (D756).
+- 2026-11-22 (47a.5a; default chosen, owner to confirm): **a save's pieces of a structure the world no longer holds
+  are reported and never applied**, whatever the game chose for a mismatch (there are no cells to put them in).
+- 2026-11-22 (47a.5a; default chosen, owner to confirm): **the Scene view streams structure grids in its own worker**
+  as Play does, and follows each object's transform every drawn frame (a drag moves the draws, the worker's frame
+  follows when the edit is stored); a click selects a structure whose cells are nearer than any drawn object.
+- 2026-11-22 (47a.5a; default chosen, owner to confirm): **rays file grids by 16 m tiles** (`GRID_WALK_TILE_M`, a
+  chunk's edge), built when a world opens in Play; the editor's pick tests every grid (one ray a click).
+- 2026-11-22 (47a.5a; default chosen, owner to confirm): **other walkers cross at the links**, a taller walker only where
+  a link's two ends have room for it (a link is made for the default walker; its middle is not checked again).
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 

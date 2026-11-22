@@ -1247,8 +1247,11 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   await hook('setStore', 'off');
   await counted('uncam', 'camOff', { id: o.camera });
   await expect.poll(() => counter('changes'), { timeout: 10_000, message: 'the dig swapped in' }).toBeGreaterThan(changes);
+  // The dig's way from the script to the screen in the grid's draws (the play page's edit hook, its last for the grid).
+  const edits = (await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate(() => (window as unknown as { __tlVoxelPlay: { edits(): unknown[] } }).__tlVoxelPlay.edits())) as { world: string; swapMs: number; visibleMs: number; chunks: number }[];
+  const toScreen = edits.filter((e) => e.world === o.drawName).pop() ?? null;
   const holeInZ = await walkAt(1.25);
-  console.log(`[voxel-play] structure grid edit: ray ${gray}; room light ${shut.toFixed(3)} → ${holed.toFixed(3)}, moved ${editToLightMs} ms after the dig; walked in through the hole to grid z ${holeInZ.toFixed(2)}`);
+  console.log(`[voxel-play] structure grid edit: ray ${gray}; room light ${shut.toFixed(3)} → ${holed.toFixed(3)}, moved ${editToLightMs} ms after the dig; edit → screen in the grid ${JSON.stringify(toScreen)}; walked in through the hole to grid z ${holeInZ.toFixed(2)}`);
   expect(holed, 'the room lighter with a hole in its wall').toBeGreaterThan(shut);
   expect(holeInZ, 'through the hole, into the room').toBeGreaterThan(o.house.doorWallZ + 0.6);
   // The grid's kit pieces draw in its world's batches (no draw a kind of its own; the world's count holds its copies),

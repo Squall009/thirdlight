@@ -184,8 +184,8 @@ reads at once; built in 45.10c), a terrain mesher sub-phase before kits (46b), d
 lighting chosen performance first (46e).
 
 **Open, and not part of v1 yet:**
-- dependencies across grids (M7): the job contract's keys, aprons and invalidation are per grid (§3.6 open contract
-  gap, with the planned design, before 47a);
+- dependencies across grids (M7): closed in 47a without a format change (§3.6 "Across grids, as built": keys by
+  grid and chunk, no cross-grid apron; grids meet through the stamp, the links, the far resample and the ray walk);
 - shoreline cells that are both ground and water (O15): the first candidate for the reserved bits;
 - a sparse GPU form of the shader data (§3.7: 3–6× smaller than the dense grids, one more read per corner),
   measured but not built.
@@ -1011,21 +1011,40 @@ inside), in x, z, y order.
   per km² for the test world), as content files checked by digest when read, with no backend and no range reads; an
   export is refused if a named world is missing or has a missing or damaged region file.
 
-**Open contract gap: dependencies across grids (review M7; for the owner before 47a).** Aprons, dependency and
-invalidation keys (`dependentChunks`, tracker stamps) and derived results are all per grid: a job names one grid's
-chunk and sees only that grid's cells. §1e needs a structure grid's pieces to end in caps where it meets another
-grid or the terrain, and a rail can stand on world-grid ground, so a derive will read another grid's occupancy and
-an edit in one grid must invalidate results in another. v1 cannot express that; it was not added in 45 because
-it needs the rotated structure grids (47a) to be tested honestly. Planned design (proposed):
-- **keys:** every chunk key, input stamp and dependency in the job contract becomes (grid id, chunk) (today's
-  keys are grid 0's);
-- **cross-grid apron:** a derive names, besides its own apron, read-only *occupancy strips* of other grids: for
-  each grid whose bounds come within R of the chunk, the cells of that grid within R, resampled into this grid's
-  frame by the grids' transform (occupancy and role only, not the full value);
-- **invalidation:** an edit's cell box, moved into every other grid's frame (its world-space box, rounded out),
-  marks that grid's results within R of it stale (`dependentChunks` per grid);
-- **staleness:** a result accepted only while the stamps of every chunk it read, in every grid, still match.
-Cost to measure in 47a: the resampling per job and the extra strips' bytes.
+**Across grids, as built in 47a (review M7's gap closed without a format change).** A world holds the world grid
+and its structure grids (§3.2, manifest format 3); each grid is streamed, derived and collided in its own frame, and
+no job reads another grid's cells. What 47a builds, all derived and never stored:
+- **Keys:** every job's chunk, the tracker's dirty chunks and input stamps carry the grid id beside the chunk (the
+  grids' streamers share their world's pool, job ids and tracker), so two grids' jobs on the same chunk coordinates
+  stay apart (tested). The job message's version is unchanged: stream job 1 already named the grid.
+- **No cross-grid apron.** A derive reads its own grid's chunk and apron only: a structure never reads the world's
+  voxels to derive, the world never reads a structure's; a structure's pieces end where its own cells end (they cap
+  against its own air, not against the ground or another grid). The planned read-only occupancy strips of other grids
+  were not needed and are not built.
+- **Where grids meet** (each made again from the side that changed):
+  - *light, sun heights and rooms*: a grid's resident cells are stamped into the world grid's cells where it stands
+    (`structure-stamp.ts`, the share rule), held in the world's prop channel beside the props; the world's light stop,
+    open regions (rooms, portals, sky heights) and mip stops read the stamp. A grid's chunk arriving, leaving or being
+    edited (`ctx.voxels`) reads its stamp again; the world chunks it covered and now covers are recombined, and their
+    walk blocks go to the page again (the light volume restarts what they reach);
+  - *paths*: each grid keeps a walk graph in its own frame; links join its standable cells to the world's a step
+    away (`walk-graph-links.ts`), made again when a chunk on either side is made again; the world's walker is blocked
+    by the stamp;
+  - *the far field*: the far build reads a world's placed grids resampled into its cells (`grid-resample.ts`); the
+    backend builds again the world chunks a structure left and entered when a command moves, makes, changes or
+    deletes it;
+  - *rays* (`ctx.voxels.raycast`, the editor's pick): the world walked as it is and each grid along the ray walked in
+    its own frame (`walkWithGrids`; the grids filed by 16 m tiles, `GridWalkIndex`, so a ray tests the boxes on its
+    way); a light ray reads the world's props without the grids' stamps.
+- **Invalidation:** an edit in the world grid makes stale what is within R of it in the world grid only (its stamp
+  classes, links and the far chunks under it follow from the world's own events); an edit in a grid makes stale what
+  is within R of it in that grid, then its stamp and links are made again from its new cells; a structure moved or
+  turned (its object's transform: the grid's place) changes no voxel and no derived part of the grid: its draws,
+  stamp, links, collision body and far chunks are placed or made again from the same cells. Play and exports read
+  the places when the world opens; the editor's Scene view follows them live.
+- **Staleness:** a result is accepted only while the stamps of the chunks it read in its own grid still match; a
+  stamp, a link or a far chunk is a function of both sides' current cells, made again whenever either side's chunk
+  changes, never stored.
 
 **Measured:**
 - **Node, 45.5a:** 87–173 stored chunks/s decoded; worker jobs 0.66 ms median.

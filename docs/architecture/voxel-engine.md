@@ -48,8 +48,9 @@ page in the same commit.
   **links** join a grid's standable cell to the nearest world one a step away (a diagonal's reach, one cell up or down,
   room at both ends, the grid's own cells free along the way: doorsteps, foundation edges), made again with either
   side's chunk (`walk-graph-links.ts`); a path between graphs takes the cheapest of the best three doors' legs, each
-  graph's own query (`walk-graph-linked.ts`, runtime `voxel-world-paths.ts`). Other walkers and `reach` search the world
-  graph alone (D748).
+  graph's own query (`walk-graph-linked.ts`, runtime `voxel-world-paths.ts`); a walker of another height or with drops
+  crosses at the links too (a taller one only where a link's ends have room for it); `reach` searches the world graph
+  alone (D748).
 - **Light coverage with props**: objects whose model is marked `affectsLighting` are stamped into the world's prop
   coverage channel (`prop-channel.ts`, a byte a cell over the resident chunks, never saved): each prop sampled once
   into its own cells where it stands (its collider, else its model's bounds; 4³ samples a cell), a chunk its props
@@ -97,8 +98,19 @@ page in the same commit.
   `FarWorldSource(dir, grids)`: the majority of 2 × 2 points a cell; the backend passes its objects' places to every
   far build and rebuild, and a structure made, moved, turned or deleted builds again the world chunks it left and
   entered), so past its own rings a grid is drawn as far bricks a cell off (not in the fine bake: D755).
-  `ctx.voxels` reads, solid rays, edits and saves and the Scene view see the world grid alone (plan-47a §8a, 47a.1a,
-  47a.1a2, 47a.1b, 47a.1c, 47a.1d, 47a.4).
+  **`ctx.voxels` sees structures by one rule: a point lies in a structure where the structure's own cell holding it is
+  not air, else in the world's own cells** (the lower grid id where structures overlap; runtime `voxel-grid-access.ts`).
+  Reads answer from that grid; `raycast` walks the world and each grid along the ray in its own frame (`walkWithGrids`,
+  the grids filed by 16 m tiles in `GridWalkIndex`) and names the grid met (`grid`, `cell`; the normal turned into the
+  world); `dig` and `paint` act on every grid's cells whose centres lie in the region, `set` on a structure's solid
+  cells and the world's elsewhere (world grid first, then grids by id, one change); a grid's change writes its overlay,
+  derives its chunks again and reads its stamp again, its links and body following its swap; saves hold every grid's
+  changes (entries by grid, each against its shipped chunk's hash), a removed structure's pieces reported and left out;
+  `regionAt` names the structure whose box holds the point (its grid id: the object id is not known in an export,
+  D756). **The editor's Scene view** draws every structure object's grid where the object stands (its worker streams
+  each grid in its own frame; a move or a gizmo drag moves the draws at once, nothing derived; a change reads only the
+  grid's changed chunks, `voxelsChanged.grids`), and a click on a grid's cells selects its object (the worker's walk
+  through the worlds and their grids). Measured: plan-47a §8a "47a.5a".
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
   water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); `liquid` is
   excluded by scattered checks, not one predicate; a liquid edit re-derives mesh, collision, navigation and
@@ -234,7 +246,8 @@ core (`scatter.ts`); the spline format and curve maths; the voxel `WorkerPool` a
 arrays reused by generation, bounded and resumable runs; the walk graph's searches; block layers' `block-walk.ts`
 keeps its own until it retires); one buffer grow (`@thirdlight/shared` `grownCapacity` / `grownArray`;
 `grownGpuBuffer` for raw GPU scratch buffers); one region-texture helper for a texture three owns (`region-texture.ts`:
-partial upload, grow by copy, the texture version rule; the private three hooks for it live there alone); one occupancy walk for rays (`@thirdlight/voxel` `occupancy-walk.ts`, 6-connected, level 0 then the mips and far nodes; on the GPU `voxelWalkWgsl` over the blocks the draw batches carry while something on the page reads that walk (the light volume, a bench's check; none, and nothing is packed), to the mips only: a second copy of the loop sharing three step helpers (`walk-steps.ts`), held equal by a 1,200-ray check, not one definition; `ctx.voxels.raycast` and the editor's picks; light rays stop at half coverage, the voxels', lit props' and structure stamps' joined at level 0; `walkWithGrids` walks a world and its structure grids each in its own frame, CPU only); one scene realizer for the editor and games; one content closure for
+partial upload, grow by copy, the texture version rule; the private three hooks for it live there alone); one occupancy walk for rays (`@thirdlight/voxel` `occupancy-walk.ts`, 6-connected, level 0 then the mips and far nodes; on the GPU `voxelWalkWgsl` over the blocks the draw batches carry while something on the page reads that walk (the light volume, a bench's check; none, and nothing is packed), to the mips only: a second copy of the loop sharing three step helpers (`walk-steps.ts`), held equal by a 1,200-ray check, not one definition; `ctx.voxels.raycast` and the editor's picks; light rays stop at half coverage, the voxels', lit props' and structure stamps' joined at level 0; `walkWithGrids` walks a world and its structure grids each in its own frame, CPU only, the grids along a ray from a
+tile index, `GridWalkIndex`: `ctx.voxels.raycast` and the Scene view's pick); one scene realizer for the editor and games; one content closure for
 Play and export.
 
 ## 7. What is planned on top (see the roadmap)
