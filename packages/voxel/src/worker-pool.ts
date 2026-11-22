@@ -15,9 +15,6 @@
  * - **Back-pressure.** At most `maxQueued` jobs wait; past that a submit is
  *   answered `queue_full` at once, and `room()` tells a producer how many
  *   more it may queue, so a fast flight never queues the whole ring.
- *   `room(lane)` keeps part of the queue for the lanes before it
- *   ({@link LANE_QUEUE_SHARES}): far-lane work cannot fill the queue the
- *   near field's loads and derives wait for.
  * - **Timeouts.** A job not answered within `timeoutMs` of being sent is
  *   answered `timeout`; its late reply is ignored by id. The worker stays
  *   busy until it does reply, and one silent for `hangMs` is replaced.
@@ -62,17 +59,6 @@ export function eventTargetWorker(w: {
  * worker), and up to 256 jobs wait (a full ring's refill at the low tier).
  */
 export const STREAM_POOL_SETTINGS = Object.freeze({ timeoutMs: 5000, maxQueued: 256 });
-
-/**
- * The share of the queue a lane's producers may fill together with every lane after it (`room(lane)`): the edit and
- * near lanes all of it, the far lane (with the mip lane's jobs) three quarters, the mip lane all. The queue is bounded
- * by count, so far-lane loads and derives of a world and its structure grids could fill it while the near field's
- * waited for room; lanes order what is queued, this keeps room for near work to be queued at all. The mip lane is not
- * held back: capped at half (and at three quarters) the level-0 ring took twice as long to draw again after a 150 m/s
- * stop (coverage bench: 9.9 s and 6.1 s against 4.0–4.6 s), its nearest nodes waiting behind farther ones queued first.
- * Producers that ask `room()` (no lane) see the whole queue.
- */
-export const LANE_QUEUE_SHARES: Readonly<Record<JobLane, number>> = Object.freeze({ edit: 1, near: 1, far: 0.75, mip: 1 });
 
 /** The share of a pool's workers kept for background jobs while they wait (at least one worker). */
 export const BACKGROUND_WORKER_SHARE = 0.25;
@@ -215,8 +201,6 @@ export interface PoolStats {
 
 interface Pending {
   readonly job: PoolJob;
-  /** Its lane while it waits (a move may change it). */
-  lane: JobLane;
   readonly resolve: (o: JobOutcome) => void;
   readonly queuedAt: number;
   sentAt: number;
@@ -237,8 +221,6 @@ interface Slot {
 export class WorkerPool {
   private readonly opts: Required<WorkerPoolOptions>;
   private readonly queue = new JobQueue<Pending>();
-  /** Jobs waiting in {@link queue} by lane (as last queued or moved). */
-  private readonly byLane: Record<JobLane, number> = { edit: 0, near: 0, far: 0, mip: 0 };
   private readonly back = new JobQueue<Pending>();
   /** Background jobs sent and not yet answered. */
   private backRunning = 0;
@@ -321,20 +303,9 @@ export class WorkerPool {
     return this.opts.maxQueued;
   }
 
-  /**
-   * How many more jobs may be queued now: of `lane` (default the edit lane: the whole queue), within its share of the
-   * queue taken together with the lanes after it ({@link LANE_QUEUE_SHARES}).
-   */
-  room(lane: JobLane = 'edit'): number {
-    const all = this.opts.maxQueued - this.queue.size;
-    if (lane === 'edit' || lane === 'near') return Math.max(0, all);
-    const after = lane === 'far' ? this.byLane.far + this.byLane.mip : this.byLane.mip;
-    return Math.max(0, Math.min(all, Math.floor(this.opts.maxQueued * LANE_QUEUE_SHARES[lane]) - after));
-  }
-
-  /** Jobs waiting in a lane (diagnostics and tests). */
-  queuedIn(lane: JobLane): number {
-    return this.byLane[lane];
+  /** How many more jobs may be queued now. */
+  room(): number {
+    return Math.max(0, this.opts.maxQueued - this.queue.size);
   }
 
   /** Whether a job is queued or sent and not yet answered. */
@@ -354,27 +325,16 @@ export class WorkerPool {
     }
     this.stats.submitted++;
     return new Promise<JobOutcome<O>>((resolve) => {
-      const p: Pending = { job, lane: job.lane, resolve: resolve as (o: JobOutcome) => void, queuedAt: performance.now(), sentAt: 0, worker: -1, settled: false, timer: null, hang: null };
+      const p: Pending = { job, resolve: resolve as (o: JobOutcome) => void, queuedAt: performance.now(), sentAt: 0, worker: -1, settled: false, timer: null, hang: null };
       this.live.set(job.id, p);
       queue.push(job.id, job.lane, job.distance, p);
-      if (queue === this.queue) this.byLane[job.lane]++;
       this.pump();
     });
   }
 
   /** Moves a queued job to a new lane and distance; false when it is not queued. */
   reprioritize(id: number, lane: JobLane, distance: number): boolean {
-    if (this.queue.update(id, lane, distance)) {
-      const p = this.live.get(id)!;
-      this.byLane[p.lane]--;
-      this.byLane[lane]++;
-      p.lane = lane;
-      return true;
-    }
-    const p = this.live.get(id);
-    if (!this.back.update(id, lane, distance)) return false;
-    if (p !== undefined) p.lane = lane;
-    return true;
+    return this.queue.update(id, lane, distance) || this.back.update(id, lane, distance);
   }
 
   /** Cancels a job only while it waits unsent (true: it was dropped); a sent one runs on. */
@@ -388,9 +348,7 @@ export class WorkerPool {
   cancel(id: number): boolean {
     const p = this.live.get(id);
     if (p === undefined || p.settled) return false;
-    const queued = this.queue.remove(id);
-    if (queued !== undefined) this.byLane[queued.lane]--;
-    if (queued !== undefined || this.back.remove(id) !== undefined) {
+    if (this.queue.remove(id) !== undefined || this.back.remove(id) !== undefined) {
       this.live.delete(id);
       this.stats.cancelledQueued++;
     } else {
@@ -419,7 +377,6 @@ export class WorkerPool {
       if (best < 0) return;
       const background = this.back.size > 0 && (this.queue.size === 0 || this.backRunning < this.opts.backgroundWorkers);
       const next = (background ? this.back : this.queue).pop()!;
-      if (!background) this.byLane[next.value.lane]--;
       this.send(best, next.value);
     }
   }
@@ -512,7 +469,7 @@ export class WorkerPool {
     this.closed = true;
     openPools.delete(this);
     for (const p of [...this.live.values()]) {
-      if (this.queue.remove(p.job.id) !== undefined) this.byLane[p.lane]--;
+      this.queue.remove(p.job.id);
       this.back.remove(p.job.id);
       if (p.hang !== null) clearTimeout(p.hang);
       this.settle(p, { status: 'cancelled' });

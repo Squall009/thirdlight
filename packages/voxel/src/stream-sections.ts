@@ -901,8 +901,6 @@ export class SectionDerives {
       for (const ck of order) {
         if (room <= 0 || performance.now() - t0 > budget) break;
         const list = byChunk.get(ck)!;
-        // A far chunk's streaming derive waits while its lane's share of the queue is taken (pool LANE_QUEUE_SHARES).
-        if (order !== edits && this.host.pool.room(this.host.lane(list[0]!.cx, list[0]!.cy, list[0]!.cz)) <= 0) continue;
         for (const s of list) this.wanted.delete(s);
         this.host.counters.deriveChecks++;
         const shader = list.filter((s) => this.shaderOnly(s));
