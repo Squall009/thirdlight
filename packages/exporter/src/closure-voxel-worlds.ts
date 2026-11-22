@@ -10,6 +10,12 @@
  * its content reader, never by range (it has no backend). A world a scene names that the project
  * does not hold, or whose listed file is missing, fails the export.
  *
+ * Each structure grid the project's structure objects place ships its
+ * region files the same way, with where it stands (the row's `grids`);
+ * never resampled into the world grid. A structure's definition and its
+ * overrides are authoring data: the scenes ship without the `voxelStructure`
+ * component and the overrides files are never read.
+ *
  * The files are found here, not read: the output copies them one at a
  * time and checks each against the digest the backend gave, so a world
  * edited while the export runs fails it instead of shipping mixed files.
@@ -32,6 +38,8 @@ export type ExportVoxelWorldAnswer =
       readonly ok: true;
       readonly world: Omit<ShippedVoxelWorld, 'files' | 'far'>;
       readonly files: readonly ExportVoxelFile[];
+      /** The placed structure grids: each one's id, place and region files (absent: none). */
+      readonly grids?: ReadonlyArray<{ readonly id: number; readonly position: readonly [number, number, number]; readonly yawRad: number; readonly files: readonly ExportVoxelFile[] }>;
       /** The world's far cache at that revision (`L<level>/<name>` files): shipped beside its region files, for the far field. */
       readonly far?: { readonly minLevel: number; readonly maxLevel: number; readonly files: readonly ExportVoxelFile[]; readonly bakeLevel?: number };
       /** Why the world ships without its far cache (still being built when the backend stopped waiting). */
@@ -68,6 +76,21 @@ export function referencedVoxelWorlds(scenes: readonly unknown[]): string[] {
   return [...names].sort();
 }
 
+/** A scene as an export ships it: its structure objects without their definitions (authoring data; the voxels ship). */
+export function withoutStructureDefinitions<T>(scene: T): T {
+  const entities = (scene as { entities?: unknown } | null)?.entities;
+  if (!Array.isArray(entities) || !entities.some((e) => (e as { components?: Record<string, unknown> } | null)?.components?.['voxelStructure'] !== undefined)) return scene;
+  return {
+    ...scene,
+    entities: entities.map((e) => {
+      const c = (e as { components?: Record<string, unknown> }).components;
+      if (c?.['voxelStructure'] === undefined) return e;
+      const { voxelStructure: _definition, ...rest } = c;
+      return { ...(e as object), components: rest };
+    }),
+  } as T;
+}
+
 /**
  * The worlds the scenes name, with their files: the catalog rows and the
  * files to copy (a file two worlds hold byte for byte is copied once).
@@ -87,8 +110,9 @@ export async function shipVoxelWorlds(
     if (!got.ok) return { ok: false, message: `voxel world ${name}: ${got.message} (${got.code})` };
     if (got.farNote !== undefined) notes.push({ code: 'voxel_far_cache_building', message: got.farNote });
     const row = (f: ExportVoxelFile): { name: string; digest: string; byteLength: number } => ({ name: f.name, digest: f.digest, byteLength: f.byteLength });
-    worlds.push({ ...got.world, world: name, files: got.files.map(row), ...(got.far !== undefined ? { far: { minLevel: got.far.minLevel, maxLevel: got.far.maxLevel, files: got.far.files.map(row), ...(got.far.bakeLevel !== undefined ? { bakeLevel: got.far.bakeLevel } : {}) } } : {}) });
-    for (const f of [...got.files, ...(got.far?.files ?? [])]) if (!files.has(f.digest)) files.set(f.digest, { path: `content/sha256/${f.digest}`, digest: f.digest, byteLength: f.byteLength, source: f.path });
+    const grids = (got.grids ?? []).map((g) => ({ id: g.id, position: [g.position[0], g.position[1], g.position[2]] as const, yawRad: g.yawRad, files: g.files.map(row) }));
+    worlds.push({ ...got.world, world: name, files: got.files.map(row), ...(got.far !== undefined ? { far: { minLevel: got.far.minLevel, maxLevel: got.far.maxLevel, files: got.far.files.map(row), ...(got.far.bakeLevel !== undefined ? { bakeLevel: got.far.bakeLevel } : {}) } } : {}), ...(grids.length > 0 ? { grids } : {}) });
+    for (const f of [...got.files, ...(got.far?.files ?? []), ...(got.grids ?? []).flatMap((g) => g.files)]) if (!files.has(f.digest)) files.set(f.digest, { path: `content/sha256/${f.digest}`, digest: f.digest, byteLength: f.byteLength, source: f.path });
   }
   return { ok: true, worlds, files: [...files.values()].sort((a, b) => (a.path < b.path ? -1 : 1)), notes };
 }

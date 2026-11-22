@@ -745,6 +745,17 @@ interface EmptyArgs {
 }
 ```
 
+<a id="op-regenerateStructures"></a>
+## regenerateStructures
+
+A structure op: it rides the same command route and envelope (`expectedRevision` the project's) and the backend runs it as a project command on structure objects (`voxelStructure`), writing their voxels with it: the scene edit and the voxel strokes are one undo step. It answers the project result with `voxels` (each world's stroke: cells, kept and absorbed overrides, misfits). Nothing to regenerate is refused with `no_change`.
+
+Arguments (`args`):
+
+```ts
+Record<string, never>
+```
+
 <a id="op-renameEffect"></a>
 ## renameEffect
 

@@ -12,7 +12,7 @@
  * missed, files restored) is read again whole (`readAgain`).
  */
 import { hexToBytes } from '@thirdlight/shared';
-import { chunkGrid, defaultVoxelWorkers, FAR_BAKED_LEVELS, eventTargetWorker, gridChunkExtent, OPEN_REGION_FILES, regionFarSource, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type FarNodeSource, type VoxelStreamer } from '@thirdlight/voxel';
+import { chunkGrid, defaultVoxelWorkers, FAR_BAKED_LEVELS, eventTargetWorker, gridChunkExtent, OPEN_REGION_FILES, regionFarSource, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type FarNodeSource, type GridPlacement, type VoxelStreamer } from '@thirdlight/voxel';
 import { rangeByteSource, type RangeReadStats } from './range-reads';
 
 export interface VoxelWorldManifest {
@@ -28,8 +28,8 @@ interface WorldInfo {
   ok: boolean;
   manifest?: VoxelWorldManifest;
   files?: Array<{ name: string; etag: string | null }>;
-  /** The structure grids' region files (format 3 worlds). */
-  grids?: Array<{ id: number; files: Array<{ name: string; etag: string | null }> }>;
+  /** The structure grids' region files (format 3 worlds), and where each one's structure object places it (absent: none does). */
+  grids?: Array<{ id: number; files: Array<{ name: string; etag: string | null }>; place?: GridPlacement }>;
   error?: { message: string };
 }
 
@@ -134,6 +134,8 @@ export class RangeWorld {
   readonly files = new Map<string, string | null>();
   /** Each structure grid's listed region files and their tags, by grid id. */
   readonly gridFiles = new Map<number, Map<string, string | null>>();
+  /** Where the world's structure objects placed its grids when it was opened (what Play streams them at). */
+  readonly placements: readonly GridPlacement[];
   revision: number;
 
   private constructor(
@@ -144,6 +146,7 @@ export class RangeWorld {
   ) {
     for (const f of files) this.files.set(f.name, f.etag);
     for (const g of grids) this.gridFiles.set(g.id, new Map(g.files.map((f) => [f.name, f.etag])));
+    this.placements = grids.flatMap((g) => (g.place !== undefined ? [g.place] : []));
     this.revision = manifest.revision;
     this.grid = chunkGrid(manifest.edge as ChunkEdge);
     this.worldId = hexToBytes(manifest.worldId);
@@ -182,6 +185,8 @@ export class RangeWorld {
   applyChange(streamer: VoxelStreamer, c: WorldChange): number {
     this.revision = c.revision;
     for (const f of c.files) {
+      // A structure grid's file (`grid-<id>/<name>`) is not one of the world grid's.
+      if (f.name.includes('/')) continue;
       if (f.etag === null) this.files.delete(f.name);
       else this.files.set(f.name, f.etag);
     }

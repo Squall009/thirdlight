@@ -115,6 +115,7 @@ interface MutationFailure {
 | [`publishAsset`](ops-detail.md#op-publishAsset) | PublishAssetArgs | `assets` |
 | [`publishBehavior`](ops-detail.md#op-publishBehavior) | PublishBehaviorArgs | `behaviors` |
 | [`redo`](ops-detail.md#op-redo) | EmptyArgs |  |
+| [`regenerateStructures`](ops-detail.md#op-regenerateStructures) | Record<string, never> |  |
 | [`renameEffect`](ops-detail.md#op-renameEffect) | { effectId: string; name: string } | `effects` |
 | [`renameFolder`](ops-detail.md#op-renameFolder) | RenameFolderArgs |  |
 | [`renameScene`](ops-detail.md#op-renameScene) | SceneIndexArgs | `scenes` |

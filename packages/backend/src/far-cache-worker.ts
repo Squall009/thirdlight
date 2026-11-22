@@ -51,13 +51,13 @@ parentPort?.on('message', (t: FarCacheTask | ThreadJob<FarBakeTask> | ThreadJob<
   void (async () => {
     try {
       if (job.kind === 'build') {
-        await buildFarCacheInto(job.worldDir, job.fresh, { bake: threadedBake() });
+        await buildFarCacheInto(job.worldDir, job.fresh, { bake: threadedBake(), grids: job.grids });
         parentPort!.postMessage({ id: job.id, ok: true });
       } else {
         parentPort!.postMessage({
           id: job.id,
           ok: true,
-          report: rebuildFarWorldCache(job.worldDir, job.cacheDir, job.chunks),
+          report: rebuildFarWorldCache(job.worldDir, job.cacheDir, job.chunks, job.grids),
         });
       }
     } catch (e) {

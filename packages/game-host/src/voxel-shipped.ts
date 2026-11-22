@@ -9,7 +9,7 @@
  * entry's.
  */
 import type { VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
-import { chunkGrid, defaultVoxelWorkers, eventTargetWorker, shippedChunkSource, shippedFarSource, shippedVoxelWorldsProblem, STREAM_POOL_SETTINGS, WorkerPool, type PoolWorker, type ShippedVoxelWorld } from '@thirdlight/voxel';
+import { chunkGrid, defaultVoxelWorkers, eventTargetWorker, gridChunkExtent, shippedChunkSource, shippedFarSource, shippedVoxelWorldsProblem, STREAM_POOL_SETTINGS, WorkerPool, type PoolWorker, type ShippedVoxelWorld } from '@thirdlight/voxel';
 import { hexToBytes } from '@thirdlight/shared';
 import { bufferResolver, type SceneCatalogIo } from './scene-catalog';
 
@@ -34,7 +34,7 @@ export function shippedVoxelPorts(o: ShippedVoxelPortsOptions): VoxelWorldPorts 
   const problem = shippedVoxelWorldsProblem(o.worlds);
   const byName = new Map(o.worlds.map((w) => [w.world, w]));
   const read = bufferResolver(
-    o.worlds.flatMap((w) => [...w.files, ...(w.far?.files ?? [])].map((f) => ({ digest: f.digest, byteLength: f.byteLength }))),
+    o.worlds.flatMap((w) => [...w.files, ...(w.far?.files ?? []), ...(w.grids ?? []).flatMap((g) => g.files)].map((f) => ({ digest: f.digest, byteLength: f.byteLength }))),
     o.io,
   );
   return {
@@ -46,7 +46,15 @@ export function shippedVoxelPorts(o: ShippedVoxelPortsOptions): VoxelWorldPorts 
       const create = o.createWorker ?? (() => eventTargetWorker(new (globalThis as unknown as { Worker: new (url: string, options: { name: string }) => Parameters<typeof eventTargetWorker>[0] }).Worker(o.workerUrl, { name: `thirdlight-voxels ${world}` })));
       const pool = new WorkerPool({ size: o.workers ?? defaultVoxelWorkers(), create, ...STREAM_POOL_SETTINGS });
       const far = shippedFarSource(w, async (f) => new Uint8Array(await read(f.digest)));
-      return { grid: chunkGrid(w.edge), worldId: hexToBytes(w.worldId), source, pool, ...(far !== null ? { far } : {}) };
+      // Its structure grids stand where the build placed them (the catalog's rows), each read from its own files.
+      const placements = (w.grids ?? []).map((g) => ({ gridId: g.id, position: g.position, yawRad: g.yawRad }));
+      const openGrid = async (gridId: number): Promise<Awaited<ReturnType<NonNullable<VoxelWorldConnection['openGrid']>>>> => {
+        const g = w.grids?.find((x) => x.id === gridId);
+        if (g === undefined) return null;
+        const gridSource = shippedChunkSource(w, async (f) => new Uint8Array(await read(f.digest)), gridId);
+        return { source: gridSource, extent: await gridChunkExtent(gridSource, w.layout, g.files.map((f) => f.name)) };
+      };
+      return { grid: chunkGrid(w.edge), worldId: hexToBytes(w.worldId), source, pool, ...(far !== null ? { far } : {}), ...(placements.length > 0 ? { placements, openGrid } : {}) };
     },
   };
 }

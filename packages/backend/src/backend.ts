@@ -20,7 +20,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
-import { openWorkspaceService, readMarker, UndoTimeline, VoxelWorlds, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
+import { openWorkspaceService, readMarker, StructureCommands, UndoTimeline, VoxelWorlds, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
 import { createAssetInspector, createBehaviorCompilerPort, type ContentRoutes } from './content';
 import type { TextureSlotAssembler } from './texture-slots';
@@ -106,6 +106,7 @@ export interface Backend {
     textureSlots: TextureSlotAssembler;
     decalPages: { readonly stats: { composed: number; cached: number; arrays: number } };
     modelBricks: ModelBrickImports;
+    voxelWorlds: VoxelWorlds;
   };
 }
 
@@ -281,7 +282,9 @@ export function createBackend(
   // ---------- project problems log (editor Problems tab + MCP) and the checks that fill it ----------
   const problemLog = createProblemLog({ nowMs, sendToProject: (projectId, frame) => channel.sendToProject(projectId, frame) });
   const recordProblem = problemLog.record;
-  const checks = createProjectChecks({ service, recordProblem, withdrawProblem: problemLog.withdraw, logStartup, closed: () => closed, textureEncoder, heightChecks, assetFiles });
+  // Structure objects through the commands (made below, with the voxel worlds and the undo line).
+  let structureCommands: StructureCommands | undefined;
+  const checks = createProjectChecks({ service, recordProblem, withdrawProblem: problemLog.withdraw, logStartup, closed: () => closed, textureEncoder, heightChecks, assetFiles, structuresDue: (projectId) => structureCommands?.outdated(projectId).length ?? 0 });
   const { missingFiles } = checks;
   const missingFilesRoute = makeMissingFilesRoute({ missingFiles, requireAuth, sendJson, sendError });
   const heightAlphaRoute = makeHeightAlphaRoute({ problems: checks.heightProblems, requireAuth, sendJson, sendError });
@@ -364,9 +367,10 @@ export function createBackend(
   };
   // One undo for the project: every scene command and voxel stroke on one line, stepped by `undo` / `redo`.
   const undoTimeline = new UndoTimeline(service, voxelWorlds);
+  structureCommands = new StructureCommands(service, voxelWorlds, undoTimeline);
   const voxels = makeVoxelRoutes({ worlds: voxelWorlds, requireAuth, sendJson, sendError, recordProblem, onApplied: (projectId, change) => channel.sendVoxelsChanged(projectId, change), run: (projectId, envelope) => undoTimeline.voxelCommand(projectId, envelope) });
   const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile: (projectId, file) => service.openBlobFile(projectId, file), onFileChanged, voxels: voxels.reads });
-  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), voxelCommand: voxels.command, undoTimeline, voxelApplied: voxels.applied, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
+  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), voxelCommand: voxels.command, undoTimeline, structures: structureCommands, voxelApplied: voxels.applied, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
   const library = makeLibraryRoutes({ service, requireAuth });
   const project = makeProjectRoutes({ config, service, sessions, problems: problemLog, checks, packs, requireAuth, authorized: auth.authorized, engine: async () => ({ ...engineInfo(), manual: await manualSummary(manual) }) });
 
@@ -466,7 +470,7 @@ export function createBackend(
           });
         });
       }),
-    _test: { sessions, plays, startupLog, service, contentRoutes, playContent, textureSlots, decalPages, modelBricks },
+    _test: { sessions, plays, startupLog, service, contentRoutes, playContent, textureSlots, decalPages, modelBricks, voxelWorlds },
   };
 
   return { ok: true, backend };

@@ -155,3 +155,36 @@ Streams one of the project's voxel worlds (voxels/<world>/) round the camera whi
 | `blendMetres` | number | `0.25` | 0 – 0.5, step 0.05, m | **Material blend.** Metres over which neighbouring voxel materials blend where neither sets its own blend (0: hard cell lines; the smaller wins where two meet). Changes live, no remesh. (scripts read) |
 | `bakeLevel` | number (one of 2, 1, 0.5) | `2` | m | **Brick bake.** How fine the world's far bricks are baked into its cache: 2 m (the cache's own levels), 1 m or 0.5 m (baked too: more disk and a longer bake). Baked to 0.5 m round the camera, the world draws baked bricks past the detail ring; otherwise it keeps its level-1/2 mesh rings there unless Fine build is compute. A world two scenes name is baked to the finer. (scripts read) |
 | `fineBuild` | enum: `off`, `compute` | `"off"` |  | **Fine build.** Whether the 0.5 m and 1 m bricks past the detail ring that the bake does not hold are built while playing: off (the mesh rings draw there) or compute (built on the GPU, WebGPU only; WebGL 2 keeps the mesh rings). With a 1 m bake, compute builds only the 0.5 m band. (scripts read) |
+
+<a id="component-voxelStructure"></a>
+## voxelStructure — Voxel structure
+
+A building that writes its own grid of a voxel world: change a field and the backend writes its voxels again (one undo with the change), keeping your hand edits where they still fit. Move and turn it as any object; it never tilts.
+
+- Category: Rendering
+- Added: never by hand: a structure is made with its definition (createEntity or setComponent with the building, or the structure mode); the backend gives it its grid and writes its voxels
+- On prefab objects: no
+- Rule: A root object (or in a folder) in the scene holding its world's voxelWorld object; its transform is its grid's place: a position and a turn about the vertical axis only, at unit scale.
+- Rule: Its voxels are written by the backend from the definition; hand edits on its grid are kept as overrides; exports ship the voxels, never the definition.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `world` | string, id, 1–64 chars |  |  | **World.** The voxel world it is built in (a voxelWorld object of this scene names it). (required; written by a tool; format id) |
+| `grid` | int |  | 1 – 4294967295, step 1 | **Grid.** Its own grid of the world (given by the backend when the structure is made; its files are voxels/<world>/grid-<id>/). (required; written by a tool) |
+| `footprint` | JSON: `FootprintPolygon[]` ([FootprintPolygon](types-c-m.md#type-footprint-polygon)) |  |  | **Footprint.** Polygons [{id, points: [[x, z], …]}] with right-angled corners in cells; a second polygon makes an L, a T or a wing. (required) |
+| `storeys` | int | `1` | ≥ 1, step 1 | **Storeys.** Floors stacked on the ground floor. (required) |
+| `storeyHeight` | int | `6` | ≥ 2, step 1 | **Storey height.** Cells a storey, its floor slab included (6 = 3 m: a 2.5 m room under a floor). (required) |
+| `foundationDepth` | int | `2` | ≥ 0, step 1 | **Foundation depth.** Cells of foundation below the ground floor (the building leaves the ground alone: dig or fill the site). (required) |
+| `roof` | object |  |  | **Roof.** Its shape, the cells it reaches past the walls and a gable's ridge direction. (required) |
+| `roof.shape` | enum: `flat`, `gable`, `hip` | `"gable"` |  | **Shape.** Flat, gable (ridge along the axis) or hip (sloping on every side). (required) |
+| `roof.overhang` | int | `1` | ≥ 0, step 1 | **Overhang.** Cells past the walls on every side. (required) |
+| `roof.axis` | enum: `x`, `z` | `"x"` |  | **Ridge axis.** The direction a gable's ridge runs (kept for every shape). (required) |
+| `materials` | object |  |  | **Materials.** One voxel material a part (a swap rewrites material ids only; painted cells keep their paint). (required) |
+| `materials.wall` | int |  | 1 – 4095, step 1 | **Walls.** The voxel material (its id, 1-4095) of the walls and openings; a material's kit draws it. (required) |
+| `materials.floor` | int |  | 1 – 4095, step 1 | **Floors.** The voxel material (its id, 1-4095) of the upper floors; a material's kit draws it. (required) |
+| `materials.roof` | int |  | 1 – 4095, step 1 | **Roof.** The voxel material (its id, 1-4095) of the roof; a material's kit draws it. (required) |
+| `materials.foundation` | int |  | 1 – 4095, step 1 | **Foundation.** The voxel material (its id, 1-4095) of the foundation and ground floor slab; a material's kit draws it. (required) |
+| `materials.stair` | int |  | 1 – 4095, step 1 | **Stairs.** The voxel material (its id, 1-4095) of the stairs; a material's kit draws it. (required) |
+| `openings` | JSON: `StructureOpening[]` ([StructureOpening](types-s-w.md#type-structure-opening)) |  |  | **Openings.** Doors and windows [{id, polygon, edge, storey, at, width, height, sill, prop?}] on an outside wall, in cells. (required) |
+| `stairs` | JSON: `StructureStair[]` ([StructureStair](types-s-w.md#type-structure-stair)) |  |  | **Stairs.** Flights [{id, polygon, from, at: [x, z], facing}] from a storey to the next, two cells wide. (required) |
+| `generator` | int |  | ≥ 1, step 1 | **Generator.** The building generator version that last wrote its voxels; a newer engine regenerates every structure in one undoable step (Regenerate structures). (required; written by a tool) |

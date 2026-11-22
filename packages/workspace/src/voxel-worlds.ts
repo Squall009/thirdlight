@@ -42,7 +42,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { REQUEST_ID_RE } from '@thirdlight/project-model/request-id';
-import { voxelWorldBakeLevel, voxelWorldBakeLevels } from '@thirdlight/project-model';
+import { sceneStructures, structureDefinitionOf, structurePlacements, voxelWorldBakeLevel, voxelWorldBakeLevels } from '@thirdlight/project-model';
 import {
   canonicalEditCommand,
   chunkGrid,
@@ -71,6 +71,13 @@ import {
   DEFAULT_FAR_BAKE_LEVEL_M,
   farBakeLevelOf,
   VOXEL_SIZE_M,
+  BUILDING_GENERATOR,
+  GridFrame,
+  StructureDefinitionError,
+  type GridPlacement,
+  type StructureDefinition,
+  type StructureGenerator,
+  type StructureMisfit,
   type CellBox,
   type ChunkCoord,
   type ChunkEdge,
@@ -83,13 +90,15 @@ import {
   type VoxelRecord,
 } from '@thirdlight/voxel';
 import { isVoxelWorldOp, type VoxelWorldOp } from '@thirdlight/commands/mutation-ops';
+import type { StructureOverrides } from '@thirdlight/voxel';
 import { parseOrigin } from '@thirdlight/commands';
 import { hexToBytes } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
-import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, REGION_WORLD_RESIDENT_BYTES, RegionWorld, ShippedWorld, addressName, addressOf, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
+import { commitWorldsStaged, DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, REGION_WORLD_RESIDENT_BYTES, RegionWorld, replaceFile, ShippedWorld, addressName, addressOf, type StagedFile, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
+import { applyStructureChanges, capturedOverrides, readOverrides, StructureWriteRefused, STRUCTURE_OVERRIDES_FILE, type HeldOverrides, type StructureChange, type StructureChangeReport, type StructureGridHost } from './voxel-structure-writes';
 import { writeAtomic, type WriteOps } from './write';
 import { farBricksFolder, type FarBricksRebuild } from './voxel-far-bake';
-import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, FarWorldSource, readFarCacheManifest, swapFarCache, type FarCacheManifest } from './voxel-far-cache';
+import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, FarWorldSource, placedGridChunks, readFarCacheManifest, swapFarCache, type FarCacheManifest } from './voxel-far-cache';
 import { farFineComplete, farFinePending, farFineProgress, rebakeFarFine, startFarFine, writeFarFineColumn, type FarFineResult } from './voxel-far-fine';
 import { inProcessFarJobs, type FarCacheJobs } from './voxel-far-jobs';
 
@@ -273,7 +282,16 @@ export interface VoxelWorldError {
 }
 
 /** A world's manifest and its listed region files with their tags (null: listed, but missing or unreadable): the world grid's (`files`), each structure grid's (`grids`). */
-export type VoxelWorldInfo = { ok: true; world: string; manifest: VoxelWorldManifest; files: Array<{ name: string; etag: string | null }>; grids: Array<{ id: number; files: Array<{ name: string; etag: string | null }> }> } | { ok: false; error: VoxelWorldError };
+export type VoxelWorldInfo =
+  | {
+      ok: true;
+      world: string;
+      manifest: VoxelWorldManifest;
+      files: Array<{ name: string; etag: string | null }>;
+      /** Each structure grid the manifest lists: its files, where its structure object stands (absent: no object owns it), and its last regenerate's report this backend holds (absent: none since the world was opened, or undone since). */
+      grids: Array<{ id: number; files: Array<{ name: string; etag: string | null }>; place?: GridPlacement; lastRegenerate?: StructureGridReport }>;
+    }
+  | { ok: false; error: VoxelWorldError };
 
 /** A world's files as an export ships them (`VoxelWorlds.shippedFiles`). */
 export type ShippedWorldFiles =
@@ -281,6 +299,8 @@ export type ShippedWorldFiles =
       ok: true;
       world: { world: string; worldId: string; edge: ChunkEdge; layout: RegionLayout; footprint: RegionFootprint; revision: number };
       files: Array<{ name: string; path: string; digest: string; byteLength: number }>;
+      /** The structure grids placed by the project's structure objects: each grid's region files and where it stands (absent: none). Never their definitions or overrides. */
+      grids?: Array<{ id: number; position: [number, number, number]; yawRad: number; files: Array<{ name: string; path: string; digest: string; byteLength: number }> }>;
       /** The world's far cache, current with its revision: what the far field draws (its files named `L<level>/<name>`). */
       far?: { minLevel: number; maxLevel: number; files: Array<{ name: string; path: string; digest: string; byteLength: number }>; bakeLevel?: number };
       /** Why the world ships without its far cache, or without the fine levels its bake level asks (still being built when the export stopped waiting). */
@@ -326,11 +346,27 @@ async function waitAtMost(p: Promise<unknown>, ms: number): Promise<void> {
   clearTimeout(timer);
 }
 
+/** A structure command's writes to a world (voxel-structure-writes.ts), its own op on the world's line of strokes. */
+export const STRUCTURE_WRITE_OP = 'writeStructures';
+
+/** An empty cell box: a change of structure grids only touches no cell of the world grid. */
+const NO_CELLS: Readonly<CellBox> = Object.freeze({ minX: 0, minY: 0, minZ: 0, maxX: -1, maxY: -1, maxZ: -1 });
+
+/** A misfit of a regenerate: its cell in the structure's grid, and where that cell's middle stands in the world now (metres; null: the structure is not placed). */
+export interface StructureMisfitAt extends StructureMisfit {
+  readonly at: readonly [number, number, number] | null;
+}
+
+/** What a structure command did to one grid (its last regenerate's report, held in memory and answered again by {@link VoxelWorlds.info}). */
+export interface StructureGridReport extends Omit<StructureChangeReport, 'misfits'> {
+  readonly misfits: readonly StructureMisfitAt[];
+}
+
 /** What an applied voxel command answers. */
 export interface VoxelCommandApplied {
   readonly ok: true;
-  /** The op applied: a forward op, or `undo` / `redo` of one of the world's strokes ({@link VoxelWorlds.step}). */
-  readonly op: VoxelWorldOp | VoxelStepDirection;
+  /** The op applied: a forward op (a structure command's writes: {@link STRUCTURE_WRITE_OP}), or `undo` / `redo` of one of the world's strokes ({@link VoxelWorlds.step}). */
+  readonly op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP;
   readonly requestId: string | null;
   readonly world: string;
   /** The world's revision after the change. */
@@ -343,8 +379,12 @@ export interface VoxelCommandApplied {
   readonly far: { readonly nodes: number; readonly ms: number; readonly bricks?: FarBricksRebuild; readonly fine?: FarBricksRebuild } | { readonly stale: string } | null;
   /** Cells whose voxel changed. */
   readonly cells: number;
-  /** The chunks whose content changed ([cx, cy, cz] each): what a client re-reads. */
+  /** The world grid's chunks whose content changed ([cx, cy, cz] each): what a client re-reads. */
   readonly chunks: ReadonlyArray<readonly [number, number, number]>;
+  /** The structure grids' chunks that changed, by grid (absent: none). */
+  readonly grids?: ReadonlyArray<{ readonly grid: number; readonly chunks: ReadonlyArray<readonly [number, number, number]> }>;
+  /** A structure command's writes, a grid each: cells, kept and absorbed overrides, misfits (in the grid's cells and in world metres). */
+  readonly structures?: readonly StructureGridReport[];
   /**
    * The cells the change can have touched (inclusive; an undo answers the
    * box of the edit it undoes): what a client derives again from, only the
@@ -397,6 +437,10 @@ interface HistoryEntry {
   readonly box: Readonly<CellBox>;
   readonly parts: number;
   readonly materialSwaps: readonly number[];
+  /** Structure grids' overrides files the stroke changed: their bytes before and after (null: no file). */
+  readonly overrides?: ReadonlyArray<{ readonly grid: number; readonly before: Uint8Array | null; readonly after: Uint8Array | null }>;
+  /** A structure command's writes: the far field under its grids is the command's to build again (its objects may come or go with it). */
+  readonly structural?: true;
 }
 
 /** What a world folder holds as this process last read or wrote it. */
@@ -405,8 +449,12 @@ interface WorldState {
   /** Hash of the manifest's bytes. */
   manifestHash: string;
   world: RegionWorld;
-  /** The structure grids' region files by grid id (served; nothing edits them yet). */
+  /** The structure grids' region files by grid id (a grid a command made is here before the manifest lists it). */
   grids: Map<number, RegionWorld>;
+  /** The structure grids' overrides as read or written (read on first use). */
+  overrides: Map<number, HeldOverrides>;
+  /** The last regenerate's report of each structure grid (memory only: answered again, never stored). */
+  reports: Map<number, StructureChangeReport>;
   undo: UndoStore;
   history: HistoryEntry[];
   /** Strokes undone, newest last: a redo applies the last again; a new edit drops them all. */
@@ -450,6 +498,8 @@ export interface VoxelWorldsOptions {
    * sets; absent: the default, 2 m, no fine level baked).
    */
   scenes?(projectId: string): readonly unknown[];
+  /** The structures' generator (default the building generator; tests give one of another version). */
+  readonly structureGenerator?: StructureGenerator<StructureDefinition>;
 }
 
 /**
@@ -514,9 +564,14 @@ export class VoxelWorlds {
   private readonly farJobs: FarCacheJobs;
   /** The next stroke id: unique in this process, so a stroke named after its world was read again is never another's. */
   private nextStroke = 1;
+  /** The generator structure grids are written with. */
+  readonly generator: StructureGenerator<StructureDefinition>;
+  /** Per world, the highest structure grid id handed out in this process ({@link nextGridId}). */
+  private readonly gridsGiven = new Map<string, number>();
 
   constructor(private readonly opts: VoxelWorldsOptions) {
     this.farJobs = opts.farJobs ?? inProcessFarJobs();
+    this.generator = opts.structureGenerator ?? BUILDING_GENERATOR;
   }
 
   private load(projectId: string, name: string): Promise<OpenWorld | { ok: false; error: VoxelWorldError }> {
@@ -574,11 +629,16 @@ export class VoxelWorlds {
       for (const file of g.regions) stamps.set(join(dirOf, file), fileStamp(join(dirOf, file)));
       grids.set(g.id, RegionWorld.scan(dirOf, worldOptions(manifest, g.id), g.regions, this.opts.residentBytes));
     }
+    // A grid's overrides file is stamped with its region files (read when a command first needs it).
+    for (const g of manifest.grids) {
+      const path = join(dir, gridFolder(g.id), STRUCTURE_OVERRIDES_FILE);
+      stamps.set(path, fileStamp(path));
+    }
     // Undo records of an earlier run (or of the files before someone else changed them) are gone: the folder starts empty.
     const spillDir = join(projectDir, 'cache', 'voxel-undo', name);
     rmSync(spillDir, { recursive: true, force: true });
     mkdirSync(spillDir, { recursive: true });
-    return { manifest, manifestHash, world, grids, undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], redo: [], stamps };
+    return { manifest, manifestHash, world, grids, overrides: new Map(), reports: new Map(), undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], redo: [], stamps };
   }
 
   /**
@@ -597,6 +657,13 @@ export class VoxelWorlds {
       const file = inGrid === null ? name : inGrid[2]!;
       if (g === undefined) continue;
       checks.push({ name, path: join(g.dir, file), known: g.files.get(file)?.hash });
+    }
+    if (files === undefined) {
+      for (const g of w.manifest.grids) {
+        const held = w.overrides.get(g.id);
+        // A file this process never read: any change of its stamp is someone else's (absent: known absent).
+        checks.push({ name: `${gridFolder(g.id)}/${STRUCTURE_OVERRIDES_FILE}`, path: join(w.dir, gridFolder(g.id), STRUCTURE_OVERRIDES_FILE), known: held === undefined ? undefined : held.hash });
+      }
     }
     const changed: string[] = [];
     for (const c of checks) {
@@ -657,7 +724,18 @@ export class VoxelWorlds {
       const fresh = await this.refresh(w);
       if (!Array.isArray(fresh)) return fresh;
       const tags = (g: RegionWorld): Array<{ name: string; etag: string | null }> => g.listedRegions().map((file) => ({ name: file, etag: g.files.get(file)?.hash ?? null }));
-      return { ok: true, world: name, manifest: w.manifest, files: tags(w.world), grids: [...w.grids].map(([id, g]) => ({ id, files: tags(g) })) };
+      const places = this.placements(w);
+      return {
+        ok: true,
+        world: name,
+        manifest: w.manifest,
+        files: tags(w.world),
+        grids: w.manifest.grids.map((g) => {
+          const report = w.reports.get(g.id);
+          const place = places.find((p) => p.gridId === g.id);
+          return { id: g.id, files: tags(this.gridOf(w, g.id)), ...(place !== undefined ? { place } : {}), ...(report !== undefined ? { lastRegenerate: this.reportAt(w, report) } : {}) };
+        }),
+      };
     });
   }
 
@@ -753,7 +831,7 @@ export class VoxelWorlds {
     };
     job.done = (async () => {
       if (farCacheStale(w.farDir, w.manifest) === null) return;
-      await this.farJobs.build(w.dir, fresh);
+      await this.farJobs.build(w.dir, fresh, this.placements(w));
       await this.queued(w, async () => {
         // From here commands see no build under way: theirs rebuild the landed cache themselves.
         drop();
@@ -772,7 +850,7 @@ export class VoxelWorlds {
   /** The kept ancestors of `chunks` built again by the far jobs; a cache that cannot be is dropped (the next read builds it whole). */
   private async farRebuild(w: OpenWorld, chunks: readonly ChunkCoord[]): Promise<VoxelCommandApplied['far']> {
     try {
-      const r = await this.farJobs.rebuild(w.dir, w.farDir, chunks);
+      const r = await this.farJobs.rebuild(w.dir, w.farDir, chunks, this.placements(w));
       return { nodes: r.rebuilt.length, ms: r.ms, ...(r.bricks !== undefined ? { bricks: r.bricks } : {}), ...(r.fine !== undefined ? { fine: r.fine } : {}) };
     } catch (e) {
       rmSync(w.farDir, { recursive: true, force: true });
@@ -969,11 +1047,27 @@ export class VoxelWorlds {
         const path = join(w.world.dir, file);
         files.push({ name: file, path, digest: f.hash, byteLength: statSync(path).size });
       }
+      // Each placed structure grid ships its region files as the world grid's are, with its place (never resampled into the world grid).
+      const grids: NonNullable<Extract<ShippedWorldFiles, { ok: true }>['grids']> = [];
+      for (const place of this.placements(w)) {
+        if (!m.grids.some((g) => g.id === place.gridId)) continue;
+        const rw = this.gridOf(w, place.gridId);
+        const gridFiles: (typeof grids)[number]['files'] = [];
+        for (const file of rw.listedRegions()) {
+          const broken = rw.damagedRegions.get(file);
+          const f = rw.files.get(file);
+          if (broken !== undefined || f === undefined || f.hash === null) return { ok: false, code: 'region_damaged', message: `voxel world ${name} lists region ${gridFolder(place.gridId)}/${file}, which cannot be read${broken !== undefined ? `: ${broken}` : ''}` };
+          const path = join(rw.dir, file);
+          gridFiles.push({ name: file, path, digest: f.hash, byteLength: statSync(path).size });
+        }
+        grids.push({ id: place.gridId, position: [place.position[0], place.position[1], place.position[2]], yawRad: place.yawRad, files: gridFiles });
+      }
+      const withGrids = grids.length > 0 ? { grids } : {};
       const stale = farCacheStale(w.farDir, m);
       if (stale !== null) {
         void this.buildFar(w);
         const shipped = { world: name, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, revision: m.revision };
-        return { ok: true, world: shipped, files, farNote: `voxel world ${name} ships without its far field: its far cache is still being built (${stale}); export again once it is built to draw the world past its load ring` };
+        return { ok: true, world: shipped, files, ...withGrids, farNote: `voxel world ${name} ships without its far field: its far cache is still being built (${stale}); export again once it is built to draw the world past its load ring` };
       }
       const far = readFarCacheManifest(w.farDir);
       // The fine levels ship only whole, and only down to the level the scenes ask (a finer bake held stays home).
@@ -994,9 +1088,9 @@ export class VoxelWorlds {
       const farOut = { minLevel: far.minLevel, maxLevel: far.maxLevel, files: farFiles, ...(fine.length > 0 ? { bakeLevel: Math.min(...fine) } : {}) };
       if (want < FAR_MIN_LEVEL && fine.length === 0) {
         void this.bakeFine(w);
-        return { ok: true, world: shipped, files, far: farOut, farNote: `voxel world ${name} ships without its baked fine levels (bake level ${VOXEL_SIZE_M * 2 ** want} m): they are still being baked; until an export ships them the game draws its mesh rings past the detail ring (or builds fine bricks on WebGPU where the world's fine build is compute): export again once the bake is done` };
+        return { ok: true, world: shipped, files, ...withGrids, far: farOut, farNote: `voxel world ${name} ships without its baked fine levels (bake level ${VOXEL_SIZE_M * 2 ** want} m): they are still being baked; until an export ships them the game draws its mesh rings past the detail ring (or builds fine bricks on WebGPU where the world's fine build is compute): export again once the bake is done` };
       }
-      return { ok: true, world: shipped, files, far: farOut };
+      return { ok: true, world: shipped, files, ...withGrids, far: farOut };
     });
   }
 
@@ -1028,6 +1122,60 @@ export class VoxelWorlds {
     const w = await this.load(projectId, a.world);
     if ('ok' in w) return w;
     return this.queued(w, () => this.apply(w, op, a, rid ?? null, expected as number | undefined));
+  }
+
+  /**
+   * A structure command's writes to a world's grids (voxel-structure-writes.ts) as one stroke: every change's
+   * region files, overrides files and the next manifest in one staged write; one undo takes them all back. The
+   * answer names each grid's cells, kept and absorbed overrides and misfits; a world grid edit is not one of them.
+   */
+  async writeStructures(projectId: string, world: string, changes: readonly StructureChange[], requestId: string | null): Promise<VoxelCommandResult> {
+    if (changes.length === 0) return refuse('no_change', 'validation', 'no structure to write');
+    const w = await this.load(projectId, world);
+    if ('ok' in w) return w;
+    return this.queued(w, () => this.apply(w, STRUCTURE_WRITE_OP, { changes }, requestId));
+  }
+
+  /**
+   * The next free structure grid id of a world, given out once: one above every id the world's manifest lists, the
+   * project's structure objects name, a command made in this process and this process gave out before. So an id is
+   * never given again while this backend runs, which is as long as an undo can bring back a deleted structure (the
+   * project's undo is held in this process); after a restart nothing can bring one back, and the ids its files and
+   * objects hold are skipped.
+   */
+  async nextGridId(projectId: string, world: string): Promise<number | { ok: false; error: VoxelWorldError }> {
+    const w = await this.load(projectId, world);
+    if ('ok' in w) return w;
+    return this.queued(w, async () => {
+      const key = worldKey(w);
+      let top = this.gridsGiven.get(key) ?? 0;
+      for (const g of w.manifest.grids) top = Math.max(top, g.id);
+      for (const id of w.grids.keys()) top = Math.max(top, id);
+      for (const s of this.structuresOf(w)) top = Math.max(top, s.component.grid);
+      if (top >= VOXEL_GRID_ID_MAX) return refuse('grid_ids_exhausted', 'conflict', `voxel world ${world} has given out every grid id`);
+      this.gridsGiven.set(key, top + 1);
+      return top + 1;
+    });
+  }
+
+  /**
+   * The world chunks each placed structure grid lies over, by grid (what the far build reads of it), from the grids'
+   * files as they are now; empty while the world has no far cache (nothing to build again).
+   */
+  async gridFarChunks(projectId: string, world: string, places: readonly GridPlacement[]): Promise<Map<number, Array<readonly [number, number, number]>>> {
+    const w = await this.load(projectId, world);
+    if ('ok' in w) return new Map();
+    return this.queued(w, () => Promise.resolve(farCacheStale(w.farDir, w.manifest) === 'not built' ? new Map() : new Map(places.map((p) => [p.gridId, placedGridChunks(w.dir, [p])]))));
+  }
+
+  /**
+   * The world's far cache built again over `chunks` with the structure grids where their objects stand now (a
+   * structure made, moved, turned or deleted: no voxel of the world grid changed). Null: no far cache yet.
+   */
+  async farFollow(projectId: string, world: string, chunks: ReadonlyArray<readonly [number, number, number]>): Promise<VoxelCommandApplied['far']> {
+    const w = await this.load(projectId, world);
+    if ('ok' in w || chunks.length === 0) return null;
+    return this.queued(w, () => this.farAfter(w, w.manifest.revision, [...new Map(chunks.map((c) => [c.join(','), c])).values()]));
   }
 
   /**
@@ -1083,7 +1231,7 @@ export class VoxelWorlds {
     return refuse('world_changed', 'conflict', `voxel world ${w.name} changed on disk outside this backend (${shown}); reloaded at revision ${w.manifest.revision}, undo history cleared: read the world again, then send the edit again`);
   }
 
-  private async apply(w: OpenWorld, op: VoxelWorldOp | VoxelStepDirection, a: Record<string, unknown>, requestId: string | null, expectedRevision?: number, stroke?: number): Promise<VoxelCommandResult> {
+  private async apply(w: OpenWorld, op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP, a: Record<string, unknown>, requestId: string | null, expectedRevision?: number, stroke?: number): Promise<VoxelCommandResult> {
     if (requestId !== null) {
       const seen = w.answers.get(requestId);
       if (seen !== undefined) return { ...seen, duplicated: true };
@@ -1103,22 +1251,34 @@ export class VoxelWorlds {
     /** The stroke a step takes from one stack to the other (null: a forward op). */
     let stepped: HistoryEntry | null = null;
     let scene: VoxelCommandApplied['scene'];
+    /** Overrides files this change writes (null: the file goes), by grid; their bytes before, for the undo. */
+    const flips = new Map<number, { before: Uint8Array | null; after: Uint8Array | null; value?: StructureOverrides }>();
+    let structures: StructureChangeReport[] | undefined;
     /** A step's chunks as it found them: the other way's record, and written back if the step cannot be saved. */
     let inverse: ChunkUndo[] = [];
     const isStep = op === 'undo' || op === 'redo';
     const from = op === 'undo' ? w.history : w.redo;
     const to = op === 'undo' ? w.redo : w.history;
+    const host = this.gridHost(w);
     if (op === 'editVoxels') {
       try {
         const cmd = canonicalEditCommand(a.command);
-        await w.world.ensure(editChunks(w.world.opts.grid, cmd));
-        const out = w.world.edit(cmd);
+        const target = cmd.grid === WORLD_GRID_ID ? w.world : w.grids.get(cmd.grid);
+        if (target === undefined || (cmd.grid !== WORLD_GRID_ID && !w.manifest.grids.some((g) => g.id === cmd.grid))) return refuse('grid_not_found', 'not_found', `voxel world ${w.name} has no structure grid ${cmd.grid}`, '/args/command/grid');
+        await target.ensure(editChunks(w.world.opts.grid, cmd));
+        const out = target.edit(cmd);
         if (out.cells === 0) return refuse('no_change', 'validation', 'the stroke changes no voxel');
         record = out.chunks;
         cells = out.cells;
-        box = editBounds(w.world.opts.grid, cmd);
+        box = cmd.grid === WORLD_GRID_ID ? editBounds(w.world.opts.grid, cmd) : NO_CELLS;
         parts = fieldsFeed(out.fields);
         materialSwaps = out.materialSwaps;
+        // A hand edit on a structure's grid is kept as overrides over what its generator makes there.
+        const def = cmd.grid === WORLD_GRID_ID ? null : this.structureDefinition(w, cmd.grid);
+        if (def !== null) {
+          const captured = capturedOverrides(host, this.generator, cmd.grid, def, out.chunks);
+          if (captured !== null) flips.set(cmd.grid, { before: host.overrides(cmd.grid).bytes, after: captured.bytes, value: captured.value });
+        }
       } catch (e) {
         if (e instanceof EditCommandError) return refuse('invalid_args', 'validation', e.message, `/args/command${e.path}`);
         if (e instanceof EditRefused) return refuse(e.code, e.code === 'chunk_not_loaded' ? 'conflict' : 'validation', e.message);
@@ -1129,6 +1289,27 @@ export class VoxelWorlds {
       if (!made.ok) return made;
       ({ record, cells, box, parts, materialSwaps } = made);
       scene = made.scene;
+    } else if (op === STRUCTURE_WRITE_OP) {
+      const changes = a.changes as readonly StructureChange[];
+      let made: Awaited<ReturnType<typeof applyStructureChanges>>;
+      try {
+        made = await applyStructureChanges(host, this.generator, changes);
+      } catch (e) {
+        // What the changes before the refused one did is in no record: the grids are read again from their files.
+        if (e instanceof StructureWriteRefused || e instanceof StructureDefinitionError) {
+          await this.reloadGrids(w, changes);
+          return e instanceof StructureWriteRefused ? refuse(e.code, 'conflict', e.message) : refuse('invalid_structure', 'validation', e.message, `/definition${e.path}`);
+        }
+        throw e;
+      }
+      if (made.cells === 0 && made.overrides.size === 0) return refuse('no_change', 'validation', 'the structures already hold these voxels: nothing to write');
+      record = made.record;
+      cells = made.cells;
+      box = NO_CELLS;
+      parts = fieldsFeed(made.fields);
+      materialSwaps = made.materialSwaps;
+      for (const [grid, o] of made.overrides) flips.set(grid, { before: host.overrides(grid).bytes, after: o.bytes, value: o.value });
+      structures = made.reports;
     } else {
       const top = from[from.length - 1];
       if (top === undefined || top.stroke !== stroke) return refuse('history_gone', 'conflict', `voxel world ${w.name} holds no stroke ${stroke} to ${op} (the world was read again since, or the stroke was stepped by another command)`);
@@ -1139,10 +1320,10 @@ export class VoxelWorlds {
         return refuse('history_gone', 'conflict', `voxel world ${w.name}: the record of stroke ${stroke} is lost (${e instanceof Error ? e.message : String(e)}); it cannot be ${op === 'undo' ? 'undone' : 'redone'}`);
       }
       stepped = top;
-      await w.world.ensure(record);
-      const store = w.world.store;
-      inverse = record.map((u) => ({ grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz, before: { kind: 'image', bytes: store.encodeChunk(u.cx, u.cy, u.cz) } }));
-      w.world.undo(record);
+      await this.ensureRecord(w, record);
+      inverse = record.map((u) => ({ grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz, before: { kind: 'image', bytes: this.gridOf(w, u.grid).store.encodeChunk(u.cx, u.cy, u.cz) } }));
+      this.undoInto(w, record);
+      for (const f of top.overrides ?? []) flips.set(f.grid, { before: op === 'undo' ? f.after : f.before, after: op === 'undo' ? f.before : f.after });
       cells = top.cells;
       box = top.box;
       parts = top.parts;
@@ -1150,9 +1331,11 @@ export class VoxelWorlds {
       materialSwaps = op === 'undo' ? top.materialSwaps.map((sw) => materialSwap(swapTo(sw), swapFrom(sw))).sort((x, y) => x - y) : top.materialSwaps;
     }
     const t1 = performance.now();
-    const saved = this.save(w);
+    const structural = op === STRUCTURE_WRITE_OP || stepped?.structural === true;
+    const saved = this.save(w, flips);
     // Saved files are clean: they may be dropped again (the next edit reaching them reads them back).
     w.world.trim();
+    for (const g of w.grids.values()) g.trim();
     if (!saved.ok && saved.kind === 'external') {
       // Someone else's files: read the world again (memory and history describe the old ones).
       const again = await this.refresh(w);
@@ -1161,9 +1344,9 @@ export class VoxelWorlds {
     }
     if (!saved.ok && saved.kind === 'failed') {
       // Nothing was written: memory and history go back to what the files hold (the chunks stay dirty; the next save rewrites them as they are).
-      if (stepped === null) w.world.undo(record);
+      if (stepped === null) this.undoInto(w, record);
       else {
-        w.world.undo(inverse);
+        this.undoInto(w, inverse);
         from.push({ ...stepped, id: await w.undo.put(record) });
       }
       return refuse('write_failed', 'internal', `voxel world ${w.name}: ${saved.why}`);
@@ -1173,20 +1356,49 @@ export class VoxelWorlds {
     if (stepped !== null) {
       to.push({ ...stepped, id: await w.undo.put(inverse) });
       made = stepped.stroke;
+      // A regenerate's misfits answered again are its own: an undo or redo of a grid leaves none held.
+      for (const u of record) w.reports.delete(u.grid);
     } else {
       made = this.nextStroke++;
-      w.history.push({ stroke: made, id: await w.undo.put(record), cells, box, parts, materialSwaps });
+      const overrides = [...flips].map(([grid, f]) => ({ grid, before: f.before, after: f.after }));
+      w.history.push({ stroke: made, id: await w.undo.put(record), cells, box, parts, materialSwaps, ...(overrides.length > 0 ? { overrides } : {}), ...(structural ? { structural: true as const } : {}) });
       // A new edit ends the redo of what was undone before it.
       for (const e of w.redo.splice(0)) await w.undo.drop(e.id);
+      for (const r of structures ?? []) if (r.kind === 'write') w.reports.set(r.grid, r);
     }
     if (!saved.ok) {
       return refuse('write_partial', 'internal', `voxel world ${w.name}: ${saved.why}. The ${isStep ? op : 'edit'} is applied in this backend and in ${saved.written.join(', ') || 'no file'}; ${saved.notWritten.join(', ') || 'no file'} still hold${saved.notWritten.length === 1 ? 's' : ''} the state before it, rewritten by the next save that succeeds`);
     }
     // A scene's record names a chunk once an edit of it: each chunk is answered once.
-    const chunks = [...new Map(record.map((u) => [`${u.cx},${u.cy},${u.cz}`, [u.cx, u.cy, u.cz] as const])).values()];
-    const far = await this.farAfter(w, w.manifest.revision - 1, chunks);
-    const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: saved.tags.get(name) ?? w.world.files.get(name)?.hash ?? null }));
-    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, far, cells, chunks, box, parts, materialSwaps, files, undoable: w.history.length, redoable: w.redo.length, stroke: made, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 }, ...(scene !== undefined ? { scene } : {}) };
+    const chunksOf = (id: number): Array<readonly [number, number, number]> => [...new Map(record.filter((u) => u.grid === id).map((u) => [`${u.cx},${u.cy},${u.cz}`, [u.cx, u.cy, u.cz] as const])).values()];
+    const chunks = chunksOf(WORLD_GRID_ID);
+    const gridIds = [...new Set(record.map((u) => u.grid).filter((g) => g !== WORLD_GRID_ID))].sort((x, y) => x - y);
+    // The far field reads the grids where they stand: a hand edit on a grid builds the world chunks under it again
+    // (a structure command does that itself once its objects are where the command leaves them).
+    const far = await this.farAfter(w, w.manifest.revision - 1, [...chunks, ...(structural ? [] : this.farChunksOf(w, record))]);
+    const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: saved.tags.get(name) ?? this.fileTag(w, name) }));
+    const answer: VoxelCommandApplied = {
+      ok: true,
+      op,
+      requestId,
+      world: w.name,
+      revision: w.manifest.revision,
+      far,
+      cells,
+      chunks,
+      ...(gridIds.length > 0 ? { grids: gridIds.map((grid) => ({ grid, chunks: chunksOf(grid) })) } : {}),
+      ...(structures !== undefined ? { structures: structures.map((r) => this.reportAt(w, r)) } : {}),
+      box,
+      parts,
+      materialSwaps,
+      files,
+      undoable: w.history.length,
+      redoable: w.redo.length,
+      stroke: made,
+      duplicated: false,
+      ms: { apply: t1 - t0, save: performance.now() - t1 },
+      ...(scene !== undefined ? { scene } : {}),
+    };
     if (requestId !== null) {
       w.answers.set(requestId, answer);
       if (w.answers.size > ANSWERS_KEPT) w.answers.delete(w.answers.keys().next().value!);
@@ -1243,36 +1455,147 @@ export class VoxelWorlds {
     return { ok: true, record, cells, box, parts, materialSwaps: [...swaps].sort((p, q) => p - q), scene: { min: made.min, max: made.max, labels: made.labels } };
   }
 
-  private fileName(w: OpenWorld, c: ChunkCoord): string {
-    return addressName(addressOf(w.world.opts.grid, w.manifest.layout, w.manifest.footprint, c));
+  /** A chunk's region file name as answers name it: the world grid's by name, a structure grid's `grid-<id>/<name>`. */
+  private fileName(w: OpenWorld, c: ChunkCoord & { readonly grid?: number }): string {
+    const name = addressName(addressOf(w.world.opts.grid, w.manifest.layout, w.manifest.footprint, c));
+    return c.grid === undefined || c.grid === WORLD_GRID_ID ? name : `${gridFolder(c.grid)}/${name}`;
+  }
+
+  /** A region file's tag as last written or read ({@link fileName}'s names). */
+  private fileTag(w: OpenWorld, name: string): string | null {
+    const inGrid = /^grid-(\d+)\/(.+)$/.exec(name);
+    return inGrid === null ? (w.world.files.get(name)?.hash ?? null) : (w.grids.get(Number(inGrid[1]))?.files.get(inGrid[2]!)?.hash ?? null);
+  }
+
+  /** The region world of grid `id` (a structure grid not on disk yet starts empty, in its folder to be). */
+  private gridOf(w: OpenWorld, id: number): RegionWorld {
+    if (id === WORLD_GRID_ID) return w.world;
+    let g = w.grids.get(id);
+    if (g === undefined) {
+      g = RegionWorld.scan(join(w.dir, gridFolder(id)), worldOptions(w.manifest, id), [], this.opts.residentBytes);
+      w.grids.set(id, g);
+    }
+    return g;
+  }
+
+  /** What a structure change needs of a world: its grids and their overrides. */
+  private gridHost(w: OpenWorld): StructureGridHost {
+    return {
+      grid: w.world.opts.grid,
+      gridWorld: (id) => this.gridOf(w, id),
+      overrides: (id) => {
+        let held = w.overrides.get(id);
+        if (held === undefined) {
+          held = readOverrides(join(w.dir, gridFolder(id)), w.world.opts.grid, id);
+          w.overrides.set(id, held);
+        }
+        return held;
+      },
+    };
+  }
+
+  /** The chunks of an undo record loaded, each in its grid. */
+  private async ensureRecord(w: OpenWorld, record: readonly ChunkUndo[]): Promise<void> {
+    for (const id of new Set(record.map((u) => u.grid))) await this.gridOf(w, id).ensure(record.filter((u) => u.grid === id));
+  }
+
+  /** An undo record written back, each chunk into its grid. */
+  private undoInto(w: OpenWorld, record: readonly ChunkUndo[]): void {
+    for (const id of new Set(record.map((u) => u.grid))) this.gridOf(w, id).undo(record.filter((u) => u.grid === id));
+  }
+
+  /** Grids a refused structure command touched, read again from their files (what it applied is in no record). */
+  private async reloadGrids(w: OpenWorld, changes: readonly StructureChange[]): Promise<void> {
+    for (const id of new Set(changes.flatMap((c) => (c.kind === 'copy' ? [c.grid, c.from] : [c.grid])))) {
+      const listed = w.manifest.grids.find((g) => g.id === id)?.regions ?? [];
+      w.grids.set(id, RegionWorld.scan(join(w.dir, gridFolder(id)), worldOptions(w.manifest, id), listed, this.opts.residentBytes));
+    }
+  }
+
+  /** The structure objects of the world's project naming this world (as stored now). */
+  private structuresOf(w: OpenWorld): ReturnType<typeof sceneStructures> {
+    return this.opts.scenes === undefined ? [] : sceneStructures(this.opts.scenes(w.projectId)).filter((s) => s.component.world === w.name);
+  }
+
+  /** The definition of the structure owning grid `id` (canonical, by the generator; null: no object owns it). */
+  private structureDefinition(w: OpenWorld, id: number): StructureDefinition | null {
+    const s = this.structuresOf(w).find((x) => x.component.grid === id);
+    return s === undefined ? null : this.generator.canonical(structureDefinitionOf(s.component as unknown as Record<string, unknown>));
+  }
+
+  /** Where the world's structure grids stand: their objects' places (what the far field and an export read). */
+  private placements(w: OpenWorld): GridPlacement[] {
+    return this.opts.scenes === undefined ? [] : (structurePlacements(this.opts.scenes(w.projectId)).get(w.name) ?? []);
+  }
+
+  /** The world chunks the record's structure grids lie over where they stand (none while the far cache is not built). */
+  private farChunksOf(w: OpenWorld, record: readonly ChunkUndo[]): Array<readonly [number, number, number]> {
+    const ids = new Set(record.map((u) => u.grid).filter((g) => g !== WORLD_GRID_ID));
+    if (ids.size === 0 || farCacheStale(w.farDir, w.manifest) === 'not built') return [];
+    return placedGridChunks(w.dir, this.placements(w).filter((p) => ids.has(p.gridId)));
+  }
+
+  /** A grid's report with its misfits' places in the world (its structure's place now). */
+  private reportAt(w: OpenWorld, r: StructureChangeReport): StructureGridReport {
+    const place = this.placements(w).find((p) => p.gridId === r.grid);
+    const frame = place === undefined ? null : new GridFrame(place);
+    const m = VOXEL_SIZE_M;
+    return { ...r, misfits: r.misfits.map((x) => ({ ...x, at: frame === null ? null : frame.toWorld((x.x + 0.5) * m, (x.y + 0.5) * m, (x.z + 0.5) * m) })) };
   }
 
   /**
-   * Writes the dirty region files and the next revision of the manifest as
-   * one staged write (every file staged on disk first, the manifest renamed
+   * Writes the dirty region files of every grid, the overrides files that
+   * change (`flips`: the bytes after; null: the file goes) and the next
+   * revision of the manifest (its grids: those holding a region file) as one
+   * staged write (every file staged on disk first, the manifest renamed
    * last), then renews the files' stamps; the new tags by region file.
    */
-  private save(w: OpenWorld): { ok: true; tags: Map<string, string | null> } | Exclude<StagedOutcome, { ok: true }> {
-    const prepared = w.world.prepareSaves();
-    const listed = new Set(w.world.listedRegions());
-    for (const p of prepared) {
-      if (p.bytes === null) listed.delete(p.name);
-      else listed.add(p.name);
-    }
-    const next: VoxelWorldManifest = { ...w.manifest, regions: [...listed].sort(), revision: w.manifest.revision + 1 };
+  private save(w: OpenWorld, flips: ReadonlyMap<number, { readonly after: Uint8Array | null; readonly value?: StructureOverrides }> = new Map()): { ok: true; tags: Map<string, string | null> } | Exclude<StagedOutcome, { ok: true }> {
+    const listedAfter = (rw: RegionWorld, prepared: ReturnType<RegionWorld['prepareSaves']>): string[] => {
+      const listed = new Set(rw.listedRegions());
+      for (const p of prepared) {
+        if (p.bytes === null) listed.delete(p.name);
+        else listed.add(p.name);
+      }
+      return [...listed].sort();
+    };
+    const parts = [w.world, ...[...w.grids.keys()].sort((x, y) => x - y).map((id) => w.grids.get(id)!)].map((world) => ({ world, prepared: world.prepareSaves() }));
+    const grids = parts
+      .slice(1)
+      .map((p) => ({ id: p.world.gridId, regions: listedAfter(p.world, p.prepared) }))
+      .filter((g) => g.regions.length > 0);
+    const next: VoxelWorldManifest = { ...w.manifest, regions: listedAfter(w.world, parts[0]!.prepared), grids, revision: w.manifest.revision + 1 };
     const bytes = manifestBytes(next);
     const manifestPath = join(w.dir, VOXEL_WORLD_MANIFEST);
-    const out = w.world.commitAll(prepared, [{ dir: w.dir, name: VOXEL_WORLD_MANIFEST, bytes, expect: w.manifestHash }], this.opts.writeOps);
+    const extra: StagedFile[] = [];
+    for (const [grid, f] of flips) {
+      if (f.after === null) continue;
+      const dir = join(w.dir, gridFolder(grid));
+      extra.push({ dir, name: STRUCTURE_OVERRIDES_FILE, bytes: f.after, expect: w.overrides.get(grid)?.hash ?? null });
+    }
+    // A new grid's folder is made before its files are staged in it.
+    for (const p of parts.slice(1)) if (p.prepared.some((x) => x.bytes !== null)) mkdirSync(p.world.dir, { recursive: true });
+    for (const f of extra) mkdirSync(f.dir, { recursive: true });
+    const out = commitWorldsStaged(parts, [{ dir: w.dir, name: VOXEL_WORLD_MANIFEST, bytes, expect: w.manifestHash }], this.opts.writeOps, extra);
     const written = out.ok || out.kind === 'partial' ? out.hashes : new Map<string, string>();
     for (const path of written.keys()) w.stamps.set(path, fileStamp(path));
     if (written.has(manifestPath)) {
       w.manifest = next;
       w.manifestHash = sha256HexNative(bytes);
-      if (out.ok) w.world.flushRemovals();
+      if (out.ok) for (const p of parts) p.world.flushRemovals();
+    }
+    for (const [grid, f] of flips) {
+      const path = join(w.dir, gridFolder(grid), STRUCTURE_OVERRIDES_FILE);
+      // A grid's overrides gone with it go once the manifest is written; a file written is held as written.
+      if (f.after === null ? !out.ok : !written.has(path)) continue;
+      if (f.after === null) replaceFile(join(w.dir, gridFolder(grid)), STRUCTURE_OVERRIDES_FILE, null, null);
+      const value = f.value ?? readOverrides(join(w.dir, gridFolder(grid)), w.world.opts.grid, grid).value;
+      w.overrides.set(grid, { bytes: f.after, hash: f.after === null ? null : sha256HexNative(f.after), value: f.after === null ? { ...value, chunks: new Map() } : value });
+      w.stamps.set(path, fileStamp(path));
     }
     if (!out.ok) return out;
     const tags = new Map<string, string | null>();
-    for (const p of prepared) tags.set(p.name, w.world.files.get(p.name)?.hash ?? null);
+    for (const p of parts) for (const x of p.prepared) tags.set(p.world.gridId === WORLD_GRID_ID ? x.name : `${gridFolder(p.world.gridId)}/${x.name}`, p.world.files.get(x.name)?.hash ?? null);
     return { ok: true, tags };
   }
 

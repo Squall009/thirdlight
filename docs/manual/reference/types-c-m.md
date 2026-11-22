@@ -745,6 +745,19 @@ interface FogConfig {
 }
 ```
 
+<a id="type-footprint-polygon"></a>
+### FootprintPolygon
+
+Declared in `packages/voxel/src/structures/definition.ts`.
+
+```ts
+interface FootprintPolygon {
+  readonly id: string;
+  /** Corners in cells, [x, z]; edges run along x or z, closed back to the first. */
+  readonly points: readonly (readonly [number, number])[];
+}
+```
+
 <a id="type-frame-rate-caps"></a>
 ### FRAME_RATE_CAPS
 

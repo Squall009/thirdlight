@@ -23,9 +23,11 @@
  * every world's distances and sets its budget; the build's voxel materials
  * go with them too (`ctx.voxels.materialOf`).
  *
- * Structure grids: a world opened with placements for some of its grids
- * (`grids`, by world: a bench's `?voxelGrids=` switch until structure
- * objects carry them) streams each of those grids beside its world grid, and
+ * Structure grids: a world streams each of its structure grids beside its
+ * world grid where the project's structure objects place them (the
+ * connection's `placements`: Play's world route, an export's catalog), or
+ * where a bench's `?voxelGrids=` switch places them (`grids`, by world,
+ * over the objects' places for that world), and
  * their draws leave as batches of their own (`gridDrawName`), each carrying
  * where the grid stands. A placement for a grid the world does not list is
  * left out with a warning.
@@ -83,7 +85,7 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
         let mine: ChunkDrawBatcher | null = null;
         const gridBatchers: Array<[string, ChunkDrawBatcher]> = [];
         const placed = await Promise.all(
-          (grids.get(world) ?? []).map(async (place) => {
+          (grids.get(world) ?? conn.placements ?? []).map(async (place) => {
             const g = (await conn.openGrid?.(place.gridId)) ?? null;
             if (g === null) console.warn(`[voxels] world ${world} lists no structure grid ${place.gridId}: its placement is left out`);
             return g === null ? null : { place, source: g.source, extent: g.extent };

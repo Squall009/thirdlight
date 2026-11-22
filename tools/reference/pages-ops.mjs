@@ -14,6 +14,11 @@ const VOXEL_OP_NOTE =
   'and the project\'s one `undo` / `redo` take it back and apply it again in order with the scene edits. ' +
   'It answers the world\'s new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; ' +
   'the connected editor gets the same as a `voxelsChanged` event.';
+/** What every structure op's section says first. */
+const STRUCTURE_OP_NOTE =
+  'A structure op: it rides the same command route and envelope (`expectedRevision` the project\'s) and the backend runs it as a project command on ' +
+  'structure objects (`voxelStructure`), writing their voxels with it: the scene edit and the voxel strokes are one undo step. ' +
+  'It answers the project result with `voxels` (each world\'s stroke: cells, kept and absorbed overrides, misfits).';
 /** What each voxel world op adds to the note: its own refusal when there is nothing to do. */
 const VOXEL_OP_REFUSAL = {
   editVoxels: 'A stroke that changes no voxel is refused with `no_change`.',
@@ -24,7 +29,8 @@ export function opPages(ops, types, opLists, descriptors, envelope, routing) {
   const writes = new Map();
   for (const b of descriptors.content) for (const op of b.ops) writes.set(op, [...(writes.get(op) ?? []), b.key]);
   const voxelOps = new Set(opLists.voxel);
-  const sorted = [...opLists.project, ...opLists.voxel].sort((a, b) => a.localeCompare(b));
+  const structureOps = new Set(opLists.structure ?? []);
+  const sorted = [...opLists.project, ...opLists.voxel, ...(opLists.structure ?? [])].sort((a, b) => a.localeCompare(b));
 
   const opSection = (op) => {
     const o = ops[op];
@@ -33,6 +39,7 @@ export function opPages(ops, types, opLists, descriptors, envelope, routing) {
       if (VOXEL_OP_REFUSAL[op] === undefined) throw new Error(`voxel world op ${op} has no refusal line in the reference`);
       lines.push(`${VOXEL_OP_NOTE} ${VOXEL_OP_REFUSAL[op]}`, '');
     }
+    if (structureOps.has(op)) lines.push(`${STRUCTURE_OP_NOTE} Nothing to regenerate is refused with \`no_change\`.`, '');
     const w = writes.get(op);
     if (w !== undefined) lines.push(`Writes: ${w.map((k) => ref(`content-${k}`, code(`content.${k}`))).join(', ')}.`, '');
     lines.push('Arguments (`args`):', '');

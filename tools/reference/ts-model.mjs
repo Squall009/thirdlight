@@ -164,9 +164,11 @@ export function opShapes(program, root, ops, collector, { file: unionFile, union
   ts.forEachChild(file, (n) => {
     if (ts.isTypeAliasDeclaration(n) && n.name.text === unionName) union = n;
   });
-  if (union === undefined || !ts.isUnionTypeNode(union.type)) throw new Error(`gen-reference: ${unionName} (a union) not found in ${unionFile}`);
+  // A union of one op is its member alone.
+  const members = union === undefined ? null : ts.isUnionTypeNode(union.type) ? union.type.types : ts.isTypeLiteralNode(union.type) ? [union.type] : null;
+  if (members === null) throw new Error(`gen-reference: ${unionName} (a union) not found in ${unionFile}`);
   const byOp = new Map();
-  for (const member of union.type.types) {
+  for (const member of members) {
     if (!ts.isTypeLiteralNode(member)) throw new Error(`gen-reference: a ${unionName} member is not an object type: ${member.getText()}`);
     const prop = (name) => member.members.find((m) => ts.isPropertySignature(m) && m.name.getText() === name);
     const opNode = prop('op')?.type;

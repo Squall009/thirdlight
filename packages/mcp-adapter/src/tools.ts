@@ -45,6 +45,7 @@ import {
   parseRelayUiEdges,
   relayFrameEnd,
   MUTATION_OPS as PROTOCOL_MUTATION_OPS,
+  STRUCTURE_OPS,
   VOXEL_WORLD_OPS,
   isVoxelWorldOp,
 } from '@thirdlight/protocol';
@@ -73,7 +74,7 @@ export interface ToolDefinition {
 }
 
 // The protocol's mutation op list (a new op reaches MCP with it). Voxel world ops ride the same route.
-const MUTATION_OPS = [...PROTOCOL_MUTATION_OPS, ...VOXEL_WORLD_OPS];
+const MUTATION_OPS = [...PROTOCOL_MUTATION_OPS, ...VOXEL_WORLD_OPS, ...STRUCTURE_OPS];
 /**
  * The tool's commands: the relay's closed set plus `signal`, which the tool
  * sends as the engine's `signal` debug command (input of the next step, so a

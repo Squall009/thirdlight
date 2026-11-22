@@ -8,7 +8,10 @@
  * name, digest and length. A game reads a file once, the first time a
  * chunk of its region is asked for, checks it against its row and then
  * serves the region's reads from those bytes ({@link wholeFileByteSource});
- * a file the world does not list is air, as on the backend.
+ * a file the world does not list is air, as on the backend. Each structure
+ * grid its structure objects place ships the same way (`grids`: its id,
+ * where it stands and its region files), never resampled into the world
+ * grid and never with its definition or overrides.
  *
  * Pure: the read of a file is passed in (the exported page's content
  * reader, a test's disk read), so this module does no I/O of its own.
@@ -46,6 +49,16 @@ export interface ShippedVoxelWorld {
    * named `L<level>/<region file name>` (sorted).
    */
   readonly far?: ShippedFarCache;
+  /** Its placed structure grids, by id (absent: none). */
+  readonly grids?: readonly ShippedVoxelGrid[];
+}
+
+/** One shipped structure grid: its id (≥ 1), where it stands (its cell (0, 0, 0)'s corner in metres, and a yaw in radians) and its region files. */
+export interface ShippedVoxelGrid {
+  readonly id: number;
+  readonly position: readonly [number, number, number];
+  readonly yawRad: number;
+  readonly files: readonly ShippedVoxelFile[];
 }
 
 /** A shipped world's far cache. */
@@ -80,6 +93,7 @@ export function canonicalShippedVoxelWorld(w: ShippedVoxelWorld): ShippedVoxelWo
     revision: w.revision,
     files: sortedFiles(w.files),
     ...(w.far !== undefined ? { far: { minLevel: w.far.minLevel, maxLevel: w.far.maxLevel, files: sortedFiles(w.far.files), ...(w.far.bakeLevel !== undefined ? { bakeLevel: w.far.bakeLevel } : {}) } } : {}),
+    ...(w.grids !== undefined && w.grids.length > 0 ? { grids: [...w.grids].sort((a, b) => a.id - b.id).map((g) => ({ id: g.id, position: [g.position[0], g.position[1], g.position[2]] as const, yawRad: g.yawRad, files: sortedFiles(g.files) })) } : {}),
   };
 }
 
@@ -109,7 +123,7 @@ export function shippedVoxelWorldsProblem(v: unknown): string | null {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return `voxelWorlds[${i}] is not an object`;
     const w = raw as Record<string, unknown>;
     const keys = Object.keys(w).join(',');
-    if (keys !== WORLD_KEYS && keys !== `${WORLD_KEYS},far`) return `voxelWorlds[${i}] has the keys ${WORLD_KEYS.replace(/,/g, ', ')} (and far)`;
+    if (![WORLD_KEYS, `${WORLD_KEYS},far`, `${WORLD_KEYS},grids`, `${WORLD_KEYS},far,grids`].includes(keys)) return `voxelWorlds[${i}] has the keys ${WORLD_KEYS.replace(/,/g, ', ')} (and far, grids)`;
     if (typeof w.world !== 'string' || !VOXEL_WORLD_NAME_RE.test(w.world)) return `voxelWorlds[${i}].world is not a world name`;
     if (i > 0 && !(last < w.world)) return 'voxelWorlds are in ascending world name order, each once';
     last = w.world;
@@ -133,6 +147,21 @@ export function shippedVoxelWorldsProblem(v: unknown): string | null {
       };
       const p = filesProblem(`voxelWorlds[${i}].far.files`, f.files, levelOk, 'L<level>/ or B<level>/<stacked region file name> of a kept level, or B<level>/ of a baked fine level');
       if (p !== null) return p;
+    }
+    if (w.grids !== undefined) {
+      if (!Array.isArray(w.grids)) return `voxelWorlds[${i}].grids is a list`;
+      let lastId = 0;
+      for (const [k, g] of (w.grids as unknown[]).entries()) {
+        const at = `voxelWorlds[${i}].grids[${k}]`;
+        if (typeof g !== 'object' || g === null || Object.keys(g).join(',') !== 'id,position,yawRad,files') return `${at} has the keys id, position, yawRad, files`;
+        const r = g as Record<string, unknown>;
+        if (typeof r.id !== 'number' || !Number.isInteger(r.id) || r.id <= lastId || r.id > 0xffffffff) return `${at}.id is a whole number 1 … 2³² − 1, in ascending order, each once`;
+        lastId = r.id;
+        if (!Array.isArray(r.position) || r.position.length !== 3 || !r.position.every((v) => typeof v === 'number' && Number.isFinite(v))) return `${at}.position is [x, y, z] in metres`;
+        if (typeof r.yawRad !== 'number' || !Number.isFinite(r.yawRad)) return `${at}.yawRad is a finite number`;
+        const p = filesProblem(`${at}.files`, r.files, (name) => parseRegionFileName(w.layout as RegionLayout, name) !== null, `a ${w.layout} region file name`);
+        if (p !== null) return p;
+      }
     }
   }
   return null;
@@ -227,15 +256,17 @@ export function shippedFarSource(w: ShippedVoxelWorld, readFile: (file: ShippedV
 }
 
 /**
- * The chunk source of a shipped world: each listed file read whole through
- * `readFile` (which checks it against its row) the first time its region is
- * opened; regions not listed are air.
+ * The chunk source of a shipped world's grid (`gridId`; default the world
+ * grid): each listed file read whole through `readFile` (which checks it
+ * against its row) the first time its region is opened; regions not listed
+ * are air.
  */
-export function shippedChunkSource(w: ShippedVoxelWorld, readFile: (file: ShippedVoxelFile) => Promise<Uint8Array>): RegionChunkSource {
-  const byName = new Map(w.files.map((f) => [f.name, f]));
+export function shippedChunkSource(w: ShippedVoxelWorld, readFile: (file: ShippedVoxelFile) => Promise<Uint8Array>, gridId: number = WORLD_GRID_ID): RegionChunkSource {
+  const files = gridId === WORLD_GRID_ID ? w.files : (w.grids?.find((g) => g.id === gridId)?.files ?? []);
+  const byName = new Map(files.map((f) => [f.name, f]));
   return new RegionChunkSource({
     worldId: hexToBytes(w.worldId),
-    gridId: WORLD_GRID_ID,
+    gridId,
     grid: chunkGrid(w.edge),
     layout: w.layout,
     footprint: w.footprint,

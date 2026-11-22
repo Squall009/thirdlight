@@ -81,7 +81,7 @@
  * the edit.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { glbBytes, pngBytes } from '@thirdlight/shared';
 import { deflateSync } from 'node:zlib';
@@ -96,11 +96,11 @@ import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-sets';
 import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
-import { canonicalEditCommand, chunkGrid, gridDrawName, gridPlacementsText, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, gridDrawName, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
 import { GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelGridChecks, voxelRoomChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 import { playScriptSource } from './voxel-play-script';
-import { GRID_HOUSE, GRID_HOUSE_M, gridHousePlacement, siteTop, writeGridHouse } from './voxel-grid-house';
+import { GRID_HOUSE, GRID_HOUSE_M, gridHousePlacement, gridHousePorch, gridHouseStructure, siteTop } from './voxel-grid-house';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -109,9 +109,9 @@ let scene: Cell;
 const FAR_CHUNKS = 512;
 let farScene: Cell;
 /**
- * The Play world's structure grid: a stone house with a porch in grid 1, turned 30° about its middle, 20 m east of
- * the pad (where the pad's shadow checks never reach), its slab on the highest ground under it; its placement goes to
- * the Play test as `?voxelGrids=` (a structure grid's place is not stored).
+ * The Play world's structure grid: a stone house with a porch (a structure object of the play project) in grid 1,
+ * turned 30° about its middle, 20 m east of the pad (where the pad's shadow checks never reach), its slab on the
+ * highest ground under it; Play and the export read its place from its object.
  */
 const HOUSE_GRID = 1;
 let house: ReturnType<typeof gridHousePlacement>;
@@ -125,7 +125,6 @@ test.beforeAll(async () => {
   const pad = [(farScene[0] + 9.5) / 2, farScene[1] / 2, (farScene[2] + 10.5) / 2];
   const mid: [number, number] = [pad[0]! + 20, pad[2]!];
   house = gridHousePlacement(HOUSE_GRID, [mid[0], siteTop(far.store, mid[0], mid[1], 8), mid[1]], 30);
-  writeGridHouse(join(be.projectDir, 'voxels', 'far'), HOUSE_GRID, MAT.stone);
   await addStoneKit();
   // The stone's material record: a voxel material bound to the test kit (so the binding, and every picture, is as
   // the kit's own list made it); and a material for meshes only, which voxel tools never list.
@@ -956,7 +955,6 @@ let houseCamera = '';
 let houseTarget = '';
 
 /** The Play camera (metres, as `playProject` places it): over the pad, 35° down. */
-const housePlacementQuery = (): string => `&voxelGrids=${encodeURIComponent(gridPlacementsText('far', [house.place]))}`;
 const playCamera = (at: readonly number[]): { position: number[]; rotation: number[] } => ({ position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(PLAY_PITCH / 2), 0, 0, Math.cos(PLAY_PITCH / 2)] });
 /** The decal marks on the far world's stone wall (metres: its front face, above the banister). */
 const DECAL_SIDE = 1.2;
@@ -999,9 +997,15 @@ async function playProject(): Promise<[number, number, number]> {
     await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: `Wall mark (${mode})`, transform: { position: marks[mode] }, components: { decal: { size: [DECAL_SIDE, DECAL_SIDE, 0.6], mode, material } } });
   }
   const player = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [at[0], at[1] + 1.5, at[2]] } }))['createdId']);
+  // The house: a structure object of the far world (the backend gives it grid 1 and writes its voxels), placed by its
+  // object's transform, and its porch a hand edit on its grid (kept as the structure's overrides).
+  const made = await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Stone house', transform: { position: [...house.place.position], rotation: house.rotation }, components: { voxelStructure: gridHouseStructure('far', MAT.stone) } });
+  expect((made['voxels'] as Array<{ structures: Array<{ grid: number }> }>)[0]!.structures[0]!.grid).toBe(HOUSE_GRID);
+  const porch = await be.command({ op: 'editVoxels', projectId: be.projectId, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-play' }, args: { world: 'far', command: gridHousePorch(HOUSE_GRID, MAT.stone) } });
+  expect(porch['ok'], JSON.stringify(porch).slice(0, 400)).toBe(true);
   // A camera on the structure grid's house (off until the test makes it live) and the point it looks at.
   const f = house.frame;
-  houseCamera = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'House camera', transform: { position: f.toWorld(GRID_HOUSE_M.doorX, 3.5, -6) }, components: { virtualCamera: { rig: 'fixed', priority: 40, enabled: false, blend: 'cut', fovY: PLAY_FOV_Y_DEG, near: 0.1, far: 300, occlusion: 'none' } } }))['createdId']);
+  houseCamera = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'House camera', transform: { position: f.toWorld(GRID_HOUSE_M.doorX, 3.5, GRID_HOUSE_M.doorWallZ - 9) }, components: { virtualCamera: { rig: 'fixed', priority: 40, enabled: false, blend: 'cut', fovY: PLAY_FOV_Y_DEG, near: 0.1, far: 300, occlusion: 'none' } } }))['createdId']);
   houseTarget = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'House middle', transform: { position: f.toWorld(GRID_HOUSE_M.doorX, 1.5, GRID_HOUSE_M.doorWallZ + 2) } }))['createdId']);
   await playCmd('setComponent', { entityId: player, component: 'controller', value: {} });
   // One save slot for the game's own save document (the voxel save rides in it as text).
@@ -1382,7 +1386,7 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     const roofCam = async (name: string, occlusion: string): Promise<string> => String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name, transform: { position: [hutAt[0], hutAt[1] + 14, hutAt[2] + 9.25] }, components: { virtualCamera: { rig: 'fixed', priority: 40, enabled: false, blend: 'cut', fovY: PLAY_FOV_Y_DEG, near: 0.1, far: 300, occlusion } } }))['createdId']);
     const roofCameras = { cut: await roofCam('Roof camera (cut away)', 'cutAway'), plain: await roofCam('Roof camera', 'none') };
     const playT0 = Date.now();
-    const { at, psid, answer, canvas, errors, shadowObjects, away, observe, drawn } = await startPlay(page, renderer, `&voxelLight=off${housePlacementQuery()}`);
+    const { at, psid, answer, canvas, errors, shadowObjects, away, observe, drawn } = await startPlay(page, renderer, '&voxelLight=off');
     // The play's locator serves the world its scenes name, not the project's other worlds.
     const preview = new URL((await page.locator('iframe.tl-app__preview-frame').getAttribute('src'))!, be.origin).origin;
     const voxelStatus = async (world: string): Promise<number> => (await fetch(`${preview}${answer.playContent.path}voxels/${world}`)).status;
@@ -1811,7 +1815,7 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
 // ---- The export plays the world with no backend ------------------------------------------------------------------
 // This test halts the file's one backend (an export is checked with the backend stopped): it stays the file's last test.
 
-test('Export: the Play project exported and served statically with the backend stopped streams its world from the shipped region files, draws it and its wall marks, stands the character on it, and a console dig opens the pit', async ({ page }) => {
+test('Export: the Play project exported and served statically with the backend stopped streams its world from the shipped region files, draws it and its wall marks, stands the character on it, and a console dig opens the pit; its structure grid ships with its place (no definition, no overrides) and its turned house stops the character at its wall', async ({ page }) => {
   test.setTimeout(180_000);
   const at = await playProject();
   await groundRelief(true);
@@ -1834,6 +1838,19 @@ test('Export: the Play project exported and served statically with the backend s
   const shippedMaterials = ((exportedContent(out) as unknown as { materials?: Array<{ materialId: string; voxel?: unknown }> }).materials ?? []);
   expect(shippedMaterials.find((m) => m.materialId === 'mat-stone-voxel')?.voxel).toEqual(STONE_MATERIAL.voxel);
   expect(shippedMaterials.some((m) => m.materialId === 'mat-crate-paint')).toBe(false);
+  // The structure grid ships its region files with its object's place, never its definition or overrides.
+  const shippedGrids = (shipped[0] as { grids?: Array<{ id: number; position: number[]; yawRad: number; files: Array<{ digest: string }> }> }).grids ?? [];
+  expect(shippedGrids.map((g) => g.id)).toEqual([HOUSE_GRID]);
+  expect(shippedGrids[0]!.yawRad).toBeCloseTo(house.place.yawRad, 9);
+  shippedGrids[0]!.position.forEach((v, i) => expect(v).toBeCloseTo(house.place.position[i]!, 6));
+  expect(shippedGrids[0]!.files.length).toBeGreaterThan(0);
+  expect(shippedGrids[0]!.files.every((f) => existsSync(join(out, 'content', 'sha256', f.digest)))).toBe(true);
+  const overridesFile = join(be.projectDir, 'voxels', 'far', `grid-${HOUSE_GRID}`, 'overrides.tlvo');
+  expect(existsSync(overridesFile), 'the porch is kept as the structure\'s overrides').toBe(true);
+  expect(existsSync(join(out, 'content', 'sha256', createHash('sha256').update(readFileSync(overridesFile)).digest('hex')))).toBe(false);
+  const shippedText = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? shippedText(join(dir, e.name)) : [join(dir, e.name)]));
+  const definitionIn = [join(out, 'manifest.json'), ...shippedText(join(out, 'content'))].filter((f) => readFileSync(f).includes('foundationDepth'));
+  expect(definitionIn, 'no structure definition in the catalog or the content files').toEqual([]);
   const regionPaths = new Set(shipped[0]!.files.map((f) => `content/sha256/${f.digest}`));
   const regionBytes = shipped[0]!.files.reduce((n, f) => n + f.byteLength, 0);
   // The far world is the slice's 128 m square (256 cells of 0.5 m).
@@ -1897,6 +1914,27 @@ test('Export: the Play project exported and served statically with the backend s
     expect(changedPixels(before, after)).toBeGreaterThan(500);
     const edits = await game.evaluate(() => (window as unknown as { __tlVoxelPlay?: { edits(): unknown[] } }).__tlVoxelPlay?.edits() ?? null);
     console.log(`[voxel-export] edit→screen ${JSON.stringify(edits)}`);
+    // The turned house from its shipped grid, where its object placed it: drawn, and solid at its front wall.
+    const houseName = gridDrawName('far', HOUSE_GRID);
+    await expect.poll(() => game.evaluate((n) => (window as unknown as { __tlVoxelPlay?: { stats(): { worlds: Record<string, { chunks: number }> } } }).__tlVoxelPlay?.stats().worlds[n]?.chunks ?? 0, houseName), { timeout: 30_000, message: "the structure grid's house is drawn in the export" }).toBeGreaterThan(0);
+    const consoleRun = async (line: string, done: RegExp): Promise<void> => {
+      await canvas.click();
+      await game.keyboard.press('Backquote');
+      await game.getByLabel('debug console command').fill(line);
+      await game.getByLabel('debug console command').press('Enter');
+      await expect(game.locator('.tl-console')).toContainText(done);
+      await game.keyboard.press('Backquote');
+    };
+    const porchAt = house.frame.toWorld(1.5, GRID_HOUSE_M.slabTop + 1, GRID_HOUSE_M.doorWallZ - 1.5);
+    await consoleRun(`cplace ${porchAt.join(' ')}`, /ran cplace/);
+    await expect.poll(async () => { const q = (await observe())?.player; return q !== undefined && Math.hypot(q.x - porchAt[0], q.z - porchAt[2]) < 0.2; }, { timeout: 10_000, message: "the character is on the house's porch" }).toBe(true);
+    await consoleRun(`walk ${0.6 * Math.sin(house.place.yawRad)} ${0.6 * Math.cos(house.place.yawRad)} 120`, /ran walk/);
+    let wallZ = Infinity;
+    let lastZ = -Infinity;
+    await expect.poll(async () => { const q = (await observe())!.player!; wallZ = house.frame.toGrid(q.x, q.y, q.z)[2]; const settled = Math.abs(wallZ - lastZ) < 0.01 && wallZ > GRID_HOUSE_M.doorWallZ - 1.4; lastZ = wallZ; return settled; }, { timeout: 10_000, intervals: [400], message: 'the character is pushed and stops' }).toBe(true);
+    await canvas.screenshot({ path: test.info().outputPath('export-house.png') });
+    console.log(`[voxel-export] structure grid: drawn, the character stopped at grid z ${wallZ.toFixed(2)} (the front wall's face at ${GRID_HOUSE_M.doorWallZ})`);
+    expect(wallZ, "stopped before the house's front wall").toBeLessThan(GRID_HOUSE_M.doorWallZ);
     const outside = requests.filter((u) => !u.startsWith(site.url) && !u.startsWith('about:') && !u.startsWith('data:') && !u.startsWith('blob:'));
     expect(outside).toEqual([]);
     const regionReads = requests.filter((u) => regionPaths.has(u.slice(site.url.length)));

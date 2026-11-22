@@ -500,6 +500,8 @@ export const TOOL_DETAILS = {
     'the region files rewritten with their tags, how many of the world\'s edits can be undone and redone, and its stroke id; a request id sent again answers the first answer (duplicated true). ' +
     'The connected editor gets the same as a voxelsChanged event. A stroke over the undo budget of one edit is refused (over_budget: split it), ' +
     'one that changes nothing with no_change, and files changed outside the backend with world_changed (the world is read again; send the edit again). ' +
+    'Structures (buildings that write their own grid of a voxel world): a voxelStructure component {world, footprint [{id, points [[x, z], …]}], storeys, storeyHeight, foundationDepth, roof {shape flat|gable|hip, overhang, axis x|z}, materials {wall, floor, roof, foundation, stair}, openings [{id, polygon, edge, storey, at, width, height, sill, prop?}], stairs [{id, polygon, from, at [x, z], facing}]} (cells of its grid; tl_docs "component.voxelStructure") on an object in the scene holding its world\'s voxelWorld object: createEntity or setComponent with it makes one (the backend gives it the next free grid and anchors its definition), a setComponent of its fields regenerates its voxels (hand edits kept where they fit), pasteEntities copies its grid with its voxels and overrides, deleteEntity empties its grid; each is one undo step with its voxels, and the answer adds voxels [the world\'s stroke: structures [{grid, cells, kept, absorbed, misfits [{x, y, z, at}]}]]. ' +
+    'Its transform is its grid\'s place (a turn about the vertical axis only: a tilt or a scale is refused); moving it rewrites no voxel. editVoxels with command.grid = its grid edits it by hand (kept as its overrides). regenerateStructures {} writes every structure an older generator wrote again (one undo step; no_change when none). ' +
     'Returns the new revision on success, ' +
     'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
     'tl_inspect/tl_content_query, not this tool.',
@@ -815,6 +817,7 @@ const COMMAND_AREAS: readonly { id: string; title: string; from: string }[] = [
   { id: 'game-modes', title: 'Game modes and behavior groups', from: 'Game modes: setModes' },
   { id: 'timelines', title: 'Timelines', from: 'Timelines (sequencer' },
   { id: 'voxel-worlds', title: 'Voxel worlds: editVoxels, writeKitTestScene, one undo', from: 'Voxel worlds (a project' },
+  { id: 'voxel-structures', title: 'Structures: voxelStructure, regenerateStructures', from: 'Structures (buildings that write' },
   { id: 'result', title: 'What it returns', from: 'Returns the new revision on success' },
 ];
 

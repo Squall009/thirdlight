@@ -43,6 +43,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-voxel-material-limits"></a>`VOXEL_MATERIAL_LIMITS` | `{"idMin":1,"idMax":4095,"tileMetresMin":0.5,"tileMetresMax":64,"heightDepthMax":0.25,"heightDepthDefault":0.02,"blendMetresMax":0.5,"blendMetresDefault":0.25}` |  |
 
+<a id="limits-project-model--voxel-structure"></a>
+## `voxel-structure.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-voxel-structure-grid-max"></a>`VOXEL_STRUCTURE_GRID_MAX` | `4294967295` | The highest structure grid id (region files carry it as a u32; 0 is the world grid). |
+
 <a id="limits-project-model--voxel-world"></a>
 ## `voxel-world.ts`
 

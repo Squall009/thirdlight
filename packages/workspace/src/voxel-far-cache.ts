@@ -354,6 +354,15 @@ export class FarWorldSource implements FarSource {
     }
   }
 
+  /** The world chunks each placed grid's turned box touches, every one listed once. */
+  placedChunks(): Array<readonly [number, number, number]> {
+    const out = new Map<string, readonly [number, number, number]>();
+    for (const g of this.placed) {
+      for (let cx = g.chunks.lo[0]!; cx <= g.chunks.hi[0]!; cx++) for (let cy = g.chunks.lo[1]!; cy <= g.chunks.hi[1]!; cy++) for (let cz = g.chunks.lo[2]!; cz <= g.chunks.hi[2]!; cz++) out.set(`${cx},${cy},${cz}`, [cx, cy, cz]);
+    }
+    return [...out.values()];
+  }
+
   /** A level-0 chunk's region read as stored (a content key reads its bytes). Throws on a damaged file. */
   read(cx: number, cy: number, cz: number): RegionChunkRead {
     return this.folder.read(cx, cy, cz);
@@ -723,6 +732,11 @@ export interface FarRebuildReport {
   readonly fine?: FarBricksRebuild;
 }
 
+/** The world chunks placed structure grids lie over (what the far build reads of them), from their files in the world folder. */
+export function placedGridChunks(worldDir: string, places: readonly GridPlacement[]): Array<readonly [number, number, number]> {
+  return places.length === 0 ? [] : new FarWorldSource(worldDir, places).placedChunks();
+}
+
 /**
  * Builds again exactly the kept ancestors of `chunks` (changed in the world
  * folder since the cache was built) and rewrites only the level files
@@ -925,9 +939,9 @@ export function farCacheStale(cacheDir: string, world: Pick<VoxelWorldManifest, 
  * requests meanwhile runs (a column of a mountain world takes about a
  * second).
  */
-export function yieldingFarRunner(worldDir: string): FarColumnRunner {
+export function yieldingFarRunner(worldDir: string, grids: readonly GridPlacement[] = []): FarColumnRunner {
   return async function* run(columns, minLevel) {
-    const world = new FarWorldSource(worldDir);
+    const world = new FarWorldSource(worldDir, grids);
     for (const [rx, rz] of columns) {
       yield farColumnNodes(world, rx, rz, minLevel);
       await new Promise<void>((ok) => setImmediate(ok));

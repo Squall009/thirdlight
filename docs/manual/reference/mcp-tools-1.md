@@ -56,6 +56,7 @@ In full, by area:
 - [Game modes and behavior groups](mcp-tools-3.md#tool-tl_command-game-modes) (`tool.tl_command.game-modes`)
 - [Timelines](mcp-tools-3.md#tool-tl_command-timelines) (`tool.tl_command.timelines`)
 - [Voxel worlds: editVoxels, writeKitTestScene, one undo](mcp-tools-3.md#tool-tl_command-voxel-worlds) (`tool.tl_command.voxel-worlds`)
+- [Structures: voxelStructure, regenerateStructures](mcp-tools-3.md#tool-tl_command-voxel-structures) (`tool.tl_command.voxel-structures`)
 - [What it returns](mcp-tools-3.md#tool-tl_command-result) (`tool.tl_command.result`)
 
 <a id="tool-tl_command-scene-ops"></a>

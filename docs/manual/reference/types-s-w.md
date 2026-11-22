@@ -1,8 +1,18 @@
-# Types (StampEdit to WindOctave)
+# Types (StairFacing to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-stair-facing"></a>
+### StairFacing
+
+Declared in `packages/voxel/src/structures/definition.ts`.
+
+```ts
+/** Which way a stair climbs. */
+type StairFacing = '+x' | '-x' | '+z' | '-z';
+```
 
 <a id="type-stamp-edit"></a>
 ### StampEdit
@@ -46,6 +56,48 @@ Declared in `packages/project-model/src/instance-brush.ts`.
 ```ts
 /** The surface under one candidate: its height and the normal's X and Z (Y follows); null: nothing there. */
 type StrokeSurfaceSample = [number, number, number] | null;
+```
+
+<a id="type-structure-opening"></a>
+### StructureOpening
+
+Declared in `packages/voxel/src/structures/definition.ts`.
+
+```ts
+interface StructureOpening {
+  readonly id: string;
+  /** The polygon whose edge it is on. */
+  readonly polygon: string;
+  /** Edge k of that polygon: point k to point k + 1. */
+  readonly edge: number;
+  readonly storey: number;
+  /** Cells from the edge's start to the opening's first cell. */
+  readonly at: number;
+  readonly width: number;
+  readonly height: number;
+  /** Cells between the storey's floor and the opening's bottom (0: a door). */
+  readonly sill: number;
+  /** The prop that fills it (a door, a window), when one is chosen. */
+  readonly prop?: string;
+}
+```
+
+<a id="type-structure-stair"></a>
+### StructureStair
+
+Declared in `packages/voxel/src/structures/definition.ts`.
+
+```ts
+interface StructureStair {
+  readonly id: string;
+  /** The polygon it stands in. */
+  readonly polygon: string;
+  /** The storey it climbs from (to the next). */
+  readonly from: number;
+  /** The first step's cell, [x, z]. */
+  readonly at: readonly [number, number];
+  readonly facing: StairFacing;
+}
 ```
 
 <a id="type-surface-bake"></a>
@@ -1118,7 +1170,9 @@ type V3OwnedComponent =
   /** v4 scenes only: how a view subject parts foliage. */
   | 'interactor'
   /** v4 scenes only: one of the project's voxel worlds, streamed while the scene is loaded. */
-  | 'voxelWorld';
+  | 'voxelWorld'
+  /** v4 scenes only: a building's definition, written into its own grid of a voxel world by the backend. */
+  | 'voxelStructure';
 ```
 
 <a id="type-vec3"></a>

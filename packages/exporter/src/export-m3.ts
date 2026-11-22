@@ -55,7 +55,7 @@ import { openStaging, resolveExportTarget, type ExportStaging } from './export-i
 import type { ExportContext } from './export-types';
 import { clip, type ExportError, type ExportResult } from './errors';
 import { checkBundleGraphM3, VOXEL_WORKER_ENTRY_FILE } from './graph';
-import { referencedVoxelWorlds, shipVoxelWorlds, type ShippedVoxelFileCopy } from './closure-voxel-worlds';
+import { referencedVoxelWorlds, shipVoxelWorlds, withoutStructureDefinitions, type ShippedVoxelFileCopy } from './closure-voxel-worlds';
 
 const M3_SCHEMA_VERSION = 2;
 const BUNDLE_NAME = 'js/main.js';
@@ -214,9 +214,10 @@ export async function exportProjectM3(
     projectId: ctx.projectId,
     revision: captured.revision,
     capturedAt,
-    scene: captured.scene,
+    // A structure's definition stays home: its grid's voxels ship in the world's row.
+    scene: withoutStructureDefinitions(captured.scene),
     content: captured.content,
-    ...(captured.scenes !== undefined ? { scenes: captured.scenes, startScenes: captured.startScenes ?? [] } : {}),
+    ...(captured.scenes !== undefined ? { scenes: captured.scenes.map(withoutStructureDefinitions), startScenes: captured.startScenes ?? [] } : {}),
     // The assets and instance buffers are found on disk and copied into the output one at a
     // time, each checked against its digest while it is copied: the export never holds them.
     locate: true,

@@ -324,4 +324,4 @@ export { RESOURCE_CREATING_OPS } from '@thirdlight/project-model/limits';
 export { REPEATED_ROW_ENTITY_IDS_MAX } from '@thirdlight/project-model/repeated-rows';
 
 // Every mutation op the wire accepts (defined once, in commands).
-export { MUTATION_OPS, VOXEL_WORLD_OPS, isVoxelWorldOp, type VoxelWorldOp } from '@thirdlight/commands/mutation-ops';
+export { MUTATION_OPS, VOXEL_WORLD_OPS, isVoxelWorldOp, type VoxelWorldOp, STRUCTURE_OPS, isStructureOp } from '@thirdlight/commands/mutation-ops';

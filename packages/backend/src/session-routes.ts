@@ -4,8 +4,8 @@ import type { HeadlessEditors } from './headless';
 import type { ErosionRunner } from './erosion-runner';
 import { randomBytes } from 'node:crypto';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
-import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, isVoxelWorldOp, withBoundedAssembled, type SessionError } from '@thirdlight/protocol';
-import { type CommandError, type MutationResult, type QueryResult, type UndoTimeline, type VoxelCommandApplied, type WorkspaceService } from '@thirdlight/workspace';
+import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, isStructureOp, isVoxelWorldOp, withBoundedAssembled, type SessionError } from '@thirdlight/protocol';
+import { type CommandError, type MutationResult, type QueryResult, type StructureCommandOutcome, type StructureCommands, type UndoTimeline, type VoxelCommandApplied, type WorkspaceService } from '@thirdlight/workspace';
 import { SessionRegistry, type SessionRecord } from './sessions';
 
 import { SESSION_LIST_MAX, newConnId, newWsToken, type OriginDoc } from './util';
@@ -38,6 +38,8 @@ export interface SessionRoutesContext {
   readonly voxelCommand?: (res: ServerResponse, projectId: string, envelope: Record<string, unknown>) => Promise<void>;
   /** The project's one undo line: `undo` and `redo` step its newest step, a project entry or a voxel stroke. */
   readonly undoTimeline: UndoTimeline;
+  /** Structure objects through the commands: their voxels written with the scene edit, one undo step (absent: none). */
+  readonly structures?: StructureCommands;
   /** A voxel stroke undone or redone: the editor's feed tells open views what changed. */
   readonly voxelApplied?: (projectId: string, r: VoxelCommandApplied, origin: unknown) => void;
   /** The backend's headless editors (the owner's browser evicts them). */
@@ -47,7 +49,7 @@ export interface SessionRoutesContext {
 }
 
 export function makeSessionRoutes(ctx: SessionRoutesContext) {
-  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport, textures, erosion, voxelCommand, undoTimeline, voxelApplied } = ctx;
+  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport, textures, erosion, voxelCommand, undoTimeline, voxelApplied, structures } = ctx;
   // The undo depths a client starts from are the one line's (project entries and voxel strokes).
   const fullState: SessionRoutesContext['fullState'] = (projectId) => {
     const st = ctx.fullState(projectId);
@@ -199,6 +201,17 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       await voxelCommand(res, projectId, venv);
       return;
     }
+    // A structure op: the backend composes the project command it runs (its voxels written with it, one step).
+    if (structures !== undefined && typeof raw === 'object' && raw !== null && !Array.isArray(raw) && isStructureOp((raw as Record<string, unknown>).op)) {
+      const senv = raw as Record<string, unknown>;
+      const sorigin = originOf(senv);
+      if (unbound(sorigin)) return;
+      const ssession = sessions.sessionForProject(projectId);
+      if (ssession) sessions.touch(ssession, nowMs());
+      const out = await structures.regenerateAll(projectId, senv);
+      sendStructureOutcome(res, projectId, String(senv.op), out, sorigin, ssession);
+      return;
+    }
     const envelope = parseCommandEnvelope(strict.value);
     if (!envelope.ok) {
       sendError(res, envelope.error);
@@ -297,6 +310,12 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
         await stepRoute(res, projectId, envelope.op, env, envOrigin, session);
         return;
       }
+      // A command that can change structure objects writes their voxels with it (one step on the project's line).
+      if (structures !== undefined && extraction === null && folderReport === null && stagePrep === null && structures.touches(projectId, env)) {
+        const out = await structures.command(projectId, env);
+        sendStructureOutcome(res, projectId, envelope.op, out, envOrigin, session);
+        return;
+      }
       const result = service.runCommand(env);
       // What was prepared for it is used once (a refused or replayed publish leaves nothing behind).
       if (envelope.op === 'publishAsset' && typeof env['requestId'] === 'string') service.preparePublish(projectId, env['requestId'], null);
@@ -347,6 +366,8 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
   };
 
 
+  const sendStructureOutcome = structureReplies({ sendJson, notifyMutationApplied, voxelApplied, record: (session, requestId, revision) => sessions.record(session, 'command', requestId, revision, nowMs()), refuse: (res, projectId, op, result) => sendRefusal(res, projectId, op, result) });
+
   /**
    * The raw commands.md refusal passed through as it is (it carries `currentRevision` etc.; a SessionError re-wrap
    * would drop those fields).
@@ -363,8 +384,8 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
    * unchanged), duplicated, voxels: the world's answer }`; a project step's is the pipeline's result as before.
    */
   const stepRoute = async (res: ServerResponse, projectId: string, op: 'undo' | 'redo', env: Record<string, unknown>, envOrigin: OriginDoc | null, session: SessionRecord | undefined): Promise<void> => {
-    const step = await undoTimeline.step(projectId, op, env);
-    const extra = step.skipped.length > 0 ? { skipped: step.skipped } : {};
+    const step = structures !== undefined ? await structures.step(projectId, op, env) : await undoTimeline.step(projectId, op, env);
+    const extra = { ...(step.skipped.length > 0 ? { skipped: step.skipped } : {}), ...(step.kind === 'project' && step.voxels !== undefined && step.voxels.length > 0 ? { voxels: step.voxels } : {}) };
     if (step.skipped.length > 0) recordProblem(projectId, 'command', 'undo_skipped', `${op} skipped ${step.skipped.length} step${step.skipped.length === 1 ? '' : 's'} no longer held: ${step.skipped.map((k) => k.reason).join('; ')}`.slice(0, 1024));
     if (step.kind === 'refused') {
       recordProblem(projectId, 'command', step.error.code, `${op}: ${step.error.message}`);
@@ -393,6 +414,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
     if (result.duplicated === false) {
       notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
       if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
+      if (step.kind === 'project') for (const v of step.voxels ?? []) voxelApplied?.(projectId, v, envOrigin);
       // One user action that ran several commands (a content pack added) is one undo/redo step:
       // the rest of its group follows, each on the change feed; the answer is the last.
       const g0 = service.historyGroups(projectId);
@@ -419,4 +441,29 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
   };
 
   return { establishSession, listSessions, sessionLog, commandRoute };
+}
+
+/**
+ * A structure command's answer: the project result with the voxels it wrote (`voxels`, a world each: cells, kept and
+ * absorbed overrides, misfits) and the far field built again under moved structures (`far`); each change on the
+ * editor's feeds.
+ */
+function structureReplies(d: {
+  readonly sendJson: (res: ServerResponse, status: number, body: unknown) => void;
+  readonly notifyMutationApplied: SessionRoutesContext['notifyMutationApplied'];
+  readonly voxelApplied: SessionRoutesContext['voxelApplied'];
+  readonly record: (session: SessionRecord, requestId: string, revision: number) => void;
+  readonly refuse: (res: ServerResponse, projectId: string, op: string, result: Extract<MutationResult, { ok: false }>) => void;
+}) {
+  return (res: ServerResponse, projectId: string, op: string, out: StructureCommandOutcome, origin: OriginDoc | null, session: SessionRecord | undefined): void => {
+    const result = out.result;
+    if (!result.ok) return d.refuse(res, projectId, op, result);
+    if (result.duplicated === false) {
+      d.notifyMutationApplied(projectId, result.requestId, result.revision, origin, result.change, (result as { sceneId?: string }).sceneId);
+      if (session) d.record(session, result.requestId, result.revision);
+      for (const v of out.voxels) d.voxelApplied?.(projectId, v, origin);
+    }
+    const extra = { ...(out.voxels.length > 0 ? { voxels: out.voxels } : {}), ...(out.far.length > 0 ? { far: out.far } : {}) };
+    d.sendJson(res, 200, withBoundedAssembled({ ...result, ...extra }));
+  };
 }

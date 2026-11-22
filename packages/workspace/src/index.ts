@@ -142,8 +142,13 @@ export {
   type VoxelWorldOpArgs,
   type VoxelWorldsOptions,
   type VoxelStepDirection,
+  STRUCTURE_WRITE_OP,
+  type StructureGridReport,
+  type StructureMisfitAt,
 } from './voxel-worlds';
-export { UndoTimeline, type SkippedStep, type TimelineEntry, type TimelineStep } from './undo-timeline';
+export { UndoTimeline, type AttachedStroke, type SkippedStep, type TimelineEntry, type TimelineStep } from './undo-timeline';
+export { StructureCommands, type StructureCommandOutcome } from './structure-commands';
+export { STRUCTURE_OVERRIDES_FILE, type StructureChange, type StructureChangeReport } from './voxel-structure-writes';
 export {
   buildFarCache,
   FAR_CACHE_MANIFEST,

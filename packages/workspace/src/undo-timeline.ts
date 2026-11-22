@@ -24,13 +24,27 @@
  * longer holds it is skipped and named in the answer (`skipped`), never a
  * wall every later undo stops at.
  *
+ * A project entry may carry voxel strokes made with it (a structure's
+ * definition changed: the scene edit and the voxels it writes,
+ * structure-commands.ts): one step on the line. Its undo takes the project
+ * entry back first, then its strokes, newest first; its redo applies the
+ * project entry, then the strokes in order. A stroke its world no longer
+ * holds is skipped and named, as any.
+ *
  * Steps of one project run one at a time in arrival order; a request id
  * seen again answers as the first time (an undo resent after a lost answer
  * does not take back a second step).
  */
+import { randomBytes } from 'node:crypto';
 import type { MutationResult } from '@thirdlight/commands';
 import type { WorkspaceService } from './types';
-import type { VoxelCommandResult, VoxelStepDirection, VoxelWorlds } from './voxel-worlds';
+import type { VoxelCommandApplied, VoxelCommandResult, VoxelStepDirection, VoxelWorlds } from './voxel-worlds';
+
+/** A voxel stroke made with a project entry (one step with it). */
+export interface AttachedStroke {
+  readonly world: string;
+  readonly stroke: number;
+}
 
 /** One step on the line: a project history entry, or a voxel world's stroke. */
 export type TimelineEntry = { readonly kind: 'project'; readonly requestId: string } | { readonly kind: 'voxel'; readonly world: string; readonly stroke: number };
@@ -44,8 +58,8 @@ export interface SkippedStep {
 
 /** What one `undo` / `redo` did. */
 export type TimelineStep =
-  /** The project's own pipeline ran it (a project entry, or nothing left to step: its refusal). */
-  | { readonly kind: 'project'; readonly result: MutationResult; readonly skipped: readonly SkippedStep[] }
+  /** The project's own pipeline ran it (a project entry, or nothing left to step: its refusal); `voxels`: the strokes stepped with it. */
+  | { readonly kind: 'project'; readonly result: MutationResult; readonly skipped: readonly SkippedStep[]; readonly voxels?: readonly VoxelCommandApplied[] }
   /** A voxel world's stroke; `revision` is the project's (unchanged by a stroke). */
   | { readonly kind: 'voxel'; readonly result: VoxelCommandResult; readonly revision: number; readonly skipped: readonly SkippedStep[] }
   /** Refused before any store was asked (the project moved on since the revision the caller saw). */
@@ -66,6 +80,8 @@ interface Line {
   busy: number;
   /** Strokes left out by a read of the line (depths, next) since the last step: the next step's answer names them. */
   skipped: SkippedStep[];
+  /** The voxel strokes made with a project entry, by its request id (one step with it). */
+  readonly attached: Map<string, AttachedStroke[]>;
 }
 
 const same = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -80,7 +96,7 @@ export class UndoTimeline {
 
   private line(projectId: string): Line {
     let l = this.lines.get(projectId);
-    if (l === undefined) this.lines.set(projectId, (l = { entries: [], cursor: 0, answers: new Map(), queue: Promise.resolve(), busy: 0, skipped: [] }));
+    if (l === undefined) this.lines.set(projectId, (l = { entries: [], cursor: 0, answers: new Map(), queue: Promise.resolve(), busy: 0, skipped: [], attached: new Map() }));
     return l;
   }
 
@@ -115,6 +131,22 @@ export class UndoTimeline {
   }
 
   /**
+   * A project command that writes voxels with it (structure-commands.ts), applied through the line: `run` applies
+   * the project command, then the strokes it makes, and answers both; the project entry becomes the line's newest
+   * step with the strokes attached (one undo takes all of it back).
+   */
+  structureCommand<T extends { readonly result: MutationResult; readonly strokes: readonly AttachedStroke[] }>(projectId: string, run: () => Promise<T>): Promise<T> {
+    const l = this.line(projectId);
+    return this.serial(l, async () => {
+      l.skipped.push(...this.reconcile(projectId, l, true));
+      const out = await run();
+      l.skipped.push(...this.reconcile(projectId, l, true));
+      if (out.result.ok && !out.result.duplicated && out.strokes.length > 0) l.attached.set(out.result.requestId, [...out.strokes]);
+      return out;
+    });
+  }
+
+  /**
    * `undo` (or `redo`) of the project: the newest applied step (or the next undone one) is taken back (or applied
    * again) by its own store. `envelope` is the project command envelope (`expectedRevision` the project's revision
    * the caller saw: a stroke is refused against it as a project entry is).
@@ -135,8 +167,28 @@ export class UndoTimeline {
         const e = l.entries[at];
         if (e === undefined || e.kind === 'project') {
           const result = this.service.runCommand(envelope);
-          if (result.ok && !result.duplicated && e !== undefined) l.cursor += op === 'undo' ? -1 : 1;
-          return this.answered(l, requestId, { kind: 'project', result, skipped });
+          const strokes = e === undefined ? undefined : l.attached.get(e.requestId);
+          if (!result.ok || result.duplicated || strokes === undefined || strokes.length === 0) {
+            if (result.ok && !result.duplicated && e !== undefined) l.cursor += op === 'undo' ? -1 : 1;
+            return this.answered(l, requestId, { kind: 'project', result, skipped });
+          }
+          // The strokes made with the entry: taken back newest first, applied again in order.
+          const voxels: VoxelCommandApplied[] = [];
+          for (const s of op === 'undo' ? [...strokes].reverse() : strokes) {
+            const r = await this.worlds.step(projectId, s.world, op, s.stroke, null);
+            if (r.ok) voxels.push(r);
+            else if (r.error.code === 'history_gone') {
+              strokes.splice(strokes.indexOf(s), 1);
+              skipped.push({ world: s.world, stroke: s.stroke, reason: r.error.message });
+            } else {
+              // The voxels could not follow (a write failed): the scene edit is put back, and the step refused.
+              for (const done of voxels.reverse()) await this.worlds.step(projectId, done.world, op === 'undo' ? 'redo' : 'undo', done.stroke, null);
+              this.service.runCommand({ op: op === 'undo' ? 'redo' : 'undo', projectId, requestId: `req-${randomBytes(16).toString('hex')}`, expectedRevision: result.revision, args: {} });
+              return { kind: 'voxel', result: r, revision: this.service.undoHistory(projectId)?.revision ?? 0, skipped };
+            }
+          }
+          l.cursor += op === 'undo' ? -1 : 1;
+          return this.answered(l, requestId, { kind: 'project', result, skipped, voxels });
         }
         const h = this.service.undoHistory(projectId);
         const expected = envelope.expectedRevision;
@@ -212,7 +264,9 @@ export class UndoTimeline {
   private dropTail(projectId: string, l: Line): void {
     const tail = l.entries.splice(l.cursor);
     if (tail.some((e) => e.kind === 'project')) this.service.dropRedoTail(projectId);
-    for (const world of new Set(tail.flatMap((e) => (e.kind === 'voxel' ? [e.world] : [])))) void this.worlds.clearRedo(projectId, world);
+    const attached = tail.flatMap((e) => (e.kind === 'project' ? (l.attached.get(e.requestId) ?? []) : []));
+    for (const e of tail) if (e.kind === 'project') l.attached.delete(e.requestId);
+    for (const world of new Set([...tail.flatMap((e) => (e.kind === 'voxel' ? [e.world] : [])), ...attached.map((s) => s.world)])) void this.worlds.clearRedo(projectId, world);
   }
 
   /**
@@ -227,7 +281,16 @@ export class UndoTimeline {
     if (checkStrokes) {
       for (let i = l.entries.length - 1; i >= 0; i--) {
         const e = l.entries[i]!;
-        if (e.kind !== 'voxel') continue;
+        if (e.kind === 'project') {
+          // A stroke made with a project entry stands where the entry does, or it is no longer held.
+          const strokes = l.attached.get(e.requestId);
+          for (const s of [...(strokes ?? [])]) {
+            if (this.worlds.strokeSide(projectId, s.world, s.stroke) === (i < l.cursor ? 'undo' : 'redo')) continue;
+            strokes!.splice(strokes!.indexOf(s), 1);
+            skipped.push({ world: s.world, stroke: s.stroke, reason: `voxel world ${s.world} no longer holds stroke ${s.stroke} (the world was read again, closed or deleted since)` });
+          }
+          continue;
+        }
         const side = this.worlds.strokeSide(projectId, e.world, e.stroke);
         if (side === (i < l.cursor ? 'undo' : 'redo')) continue;
         l.entries.splice(i, 1);

@@ -11,6 +11,9 @@ import { Worker } from 'node:worker_threads';
 
 import { inProcessFarJobs, type FarCacheJobs, type FarFineResult, type FarFineTask, type FarRebuildReport } from '@thirdlight/workspace';
 
+/** Where a world's structure grids stand, as the far jobs take them. */
+type GridPlacement = NonNullable<Parameters<FarCacheJobs['build']>[2]>[number];
+
 import { threadPoolRun } from './far-cache-threads';
 
 /** One job for the worker. */
@@ -19,6 +22,8 @@ type FarCacheJob =
       readonly kind: 'build';
       readonly worldDir: string;
       readonly fresh: string;
+      /** Where the world's structure grids stand (their objects' places): resampled into the far levels. */
+      readonly grids: readonly GridPlacement[];
     }
   | {
       readonly kind: 'rebuild';
@@ -29,6 +34,7 @@ type FarCacheJob =
         readonly cy: number;
         readonly cz: number;
       }>;
+      readonly grids: readonly GridPlacement[];
     };
 
 /** A job as posted, with the id its answer carries. */
@@ -88,17 +94,17 @@ export function createFarCacheJobs(workerUrl: URL | null): FarCacheJobs {
   let edits: FarWorker | null = null;
   let idle: ReturnType<typeof setTimeout> | null = null;
   return {
-    async build(worldDir, fresh) {
+    async build(worldDir, fresh, grids = []) {
       const w: FarWorker = new FarWorker(workerUrl, () => builds.delete(w));
       builds.add(w);
       try {
-        await w.run({ kind: 'build', worldDir, fresh });
+        await w.run({ kind: 'build', worldDir, fresh, grids });
       } finally {
         builds.delete(w);
         w.stop();
       }
     },
-    async rebuild(worldDir, cacheDir, chunks) {
+    async rebuild(worldDir, cacheDir, chunks, grids = []) {
       if (idle !== null) clearTimeout(idle);
       const w = (edits ??= new FarWorker(workerUrl, () => {
         if (edits === w) edits = null;
@@ -110,6 +116,7 @@ export function createFarCacheJobs(workerUrl: URL | null): FarCacheJobs {
             worldDir,
             cacheDir,
             chunks: chunks.map(({ cx, cy, cz }) => ({ cx, cy, cz })),
+            grids,
           })
         ).report!;
       } finally {

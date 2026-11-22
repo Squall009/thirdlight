@@ -163,6 +163,20 @@ export function isVoxelWorldOp(op: unknown): op is VoxelWorldOp {
 }
 
 /**
+ * The structure ops: project commands the backend composes for structures
+ * (regenerate all: every structure an older generator wrote gets the
+ * generator's version, and its voxels are written again by it), the scene
+ * edit and the voxel writes one undo step. Not in MUTATION_OPS: the backend
+ * builds the project command they run (a `setComponent`).
+ */
+export const STRUCTURE_OPS = ['regenerateStructures'] as const;
+export type StructureOp = (typeof STRUCTURE_OPS)[number];
+
+export function isStructureOp(op: unknown): op is StructureOp {
+  return typeof op === 'string' && (STRUCTURE_OPS as readonly string[]).includes(op);
+}
+
+/**
  * The query ops: reads of the last acknowledged state, served by the
  * workspace on the same command route (never a mutation, no history). The one
  * list: the wire's envelope check, the workspace's query envelope and its

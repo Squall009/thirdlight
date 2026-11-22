@@ -661,11 +661,19 @@ export class RegionWorld {
    * (its file goes once the manifest no longer lists it).
    */
   commitAll(prepared: readonly PreparedSave[], after: readonly StagedFile[] = [], ops?: WriteOps): StagedOutcome {
+    return commitWorldsStaged([{ world: this, prepared }], after, ops);
+  }
+
+  /** The prepared saves whose jobs are still live, and the files they write. */
+  stagedSaves(prepared: readonly PreparedSave[]): { live: PreparedSave[]; files: StagedFile[] } {
     const live = prepared.filter((p) => this.tracker.isLive(p.job.id));
-    const writes = live.filter((p) => p.bytes !== null);
-    const files: StagedFile[] = [...writes.map((p) => ({ dir: this.dir, name: p.name, bytes: p.bytes!, expect: this.files.get(p.name)?.hash ?? null })), ...after];
-    const out = writeFilesStaged(files, ops);
-    const written = new Set(out.ok ? files.map((f) => join(f.dir, f.name)) : out.kind === 'partial' ? [...out.hashes.keys()] : []);
+    const files = live.filter((p) => p.bytes !== null).map((p) => ({ dir: this.dir, name: p.name, bytes: p.bytes!, expect: this.files.get(p.name)?.hash ?? null }));
+    return { live, files };
+  }
+
+  /** A staged write's outcome taken into the files' state ({@link commitAll}). */
+  settleSaves(live: readonly PreparedSave[], out: StagedOutcome): void {
+    const written = new Set(out.ok || out.kind === 'partial' ? out.hashes.keys() : []);
     for (const p of live) {
       const f = this.files.get(p.name) ?? this.fileOf(chunkOfKey(this.opts.grid, p.job.chunks[0]!.key));
       this.tracker.commitSave(p.job.id, () => {
@@ -684,7 +692,29 @@ export class RegionWorld {
         return true;
       });
     }
-    return out;
+  }
+
+  /** Loads every listed region file's chunks (a structure's grid is read whole before it is regenerated). */
+  async ensureAll(): Promise<void> {
+    if (this.budget === null) return;
+    const c: ChunkCoord = { cx: 0, cy: 0, cz: 0 };
+    const chunks: ChunkCoord[] = [];
+    for (const [name, f] of this.files) {
+      if (f.loaded || f.hash === null || this.damagedRegions.has(name)) continue;
+      // One chunk of a file names it: its region's lowest corner.
+      const a = f.address;
+      const side = chunksPerRegionSide(this.opts.grid, this.opts.footprint);
+      c.cx = a.rx * side;
+      c.cy = a.layout === 'stacked' ? a.ry * side : 0;
+      c.cz = a.rz * side;
+      chunks.push({ ...c });
+    }
+    await this.ensure(chunks);
+  }
+
+  /** Chunks written into the store directly (a structure regenerated): dirty, so the next save writes them. */
+  markEdited(chunks: Iterable<Readonly<ChunkCoord>>): void {
+    for (const u of chunks) this.tracker.edited({ grid: this.gridId, key: chunkKey(this.opts.grid, u.cx, u.cy, u.cz) });
   }
 
   /** Deletes the files of regions that became all air (call once the world's list no longer names them). */
@@ -707,6 +737,19 @@ export class RegionWorld {
     this.flushRemovals();
     return { files: prepared.length, bytes, repacked };
   }
+}
+
+/**
+ * Several region worlds' prepared saves (a voxel world's grids) committed
+ * as one staged write, with `extra` files staged beside them and `after`
+ * (the manifest) renamed last; each world then takes the outcome into its
+ * files' state.
+ */
+export function commitWorldsStaged(parts: ReadonlyArray<{ readonly world: RegionWorld; readonly prepared: readonly PreparedSave[] }>, after: readonly StagedFile[] = [], ops?: WriteOps, extra: readonly StagedFile[] = []): StagedOutcome {
+  const staged = parts.map((p) => ({ world: p.world, ...p.world.stagedSaves(p.prepared) }));
+  const out = writeFilesStaged([...staged.flatMap((s) => s.files), ...extra, ...after], ops);
+  for (const s of staged) s.world.settleSaves(s.live, out);
+  return out;
 }
 
 /**

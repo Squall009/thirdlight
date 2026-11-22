@@ -195,11 +195,16 @@ export interface VoxelWorldConnection {
    */
   present?(stream: VoxelStreamer, sectionEdge: number, regions?: OpenRegionStitch, props?: PropLightChannel): void;
   /**
-   * Structure grids streamed beside the world grid, each where it stands: until structure objects carry their
-   * transforms this is a host option given when the world is opened (a bench's placements), the one way a grid's
-   * place reaches the runtime. Absent or empty: the world grid alone, as before.
+   * Structure grids streamed beside the world grid, each where it stands (a presentation makes them from
+   * {@link placements}, or a bench's placements over them). Absent or empty: the world grid alone.
    */
   readonly grids?: readonly VoxelGridConnection[];
+  /**
+   * Where the world's structure grids stand, as the project's structure objects place them: what Play reads of the
+   * backend's world route and an export ships in its catalog. Read when the world opens: a structure object moved
+   * while the game runs moves no grid (structures are authoring objects).
+   */
+  readonly placements?: readonly GridPlacement[];
   /**
    * Opens one of the world's structure grids by id (null: the world lists no such grid): its chunk source and the
    * chunks its files hold. What a presentation reads to make {@link grids} from placements.

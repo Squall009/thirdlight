@@ -1109,7 +1109,7 @@ const OUTDOORS_DIFF_MAX_PX = 100;
 /** What the structure grid checks are given: the house's frame and metres, its camera and the point it looks at, its draws' name. */
 export interface GridCheckSetup extends ShadowCheckSetup {
   readonly frame: { toWorld(x: number, y: number, z: number): [number, number, number]; toGrid(x: number, y: number, z: number): [number, number, number]; readonly yawRad: number };
-  readonly house: { readonly doorWallZ: number; readonly doorX: number; readonly backWallZ: number; readonly slabTop: number; readonly room: readonly [number, number, number] };
+  readonly house: { readonly doorWallZ: number; readonly doorX: number; readonly backWallZ: number; readonly slabTop: number; readonly room: readonly [number, number, number]; readonly porchLight: number };
   readonly camera: string;
   readonly target: string;
   /** The grid's draws on the page (`gridDrawName`). */
@@ -1123,14 +1123,14 @@ export interface GridCheckSetup extends ShadowCheckSetup {
 /**
  * The light volume's light over the house's floor (the 0.5 m cell on the slab at the room's middle) against the light
  * over its porch, open to the sky (the cell on the slab 1.5 m before the door wall): every face's brightness summed,
- * once each cell has had {@link LIGHT_UPDATES} updates. The picture through the door is no measure of it: the sun
- * shines through the door onto the back wall.
+ * once each cell has had {@link LIGHT_UPDATES} updates (the porch's point is the house's `porchLight`). The picture
+ * through the door is no measure of it: the sun shines through the door onto the back wall.
  */
-const PORCH_LIGHT_Z_M = 1.5;
 const LIGHT_UPDATES = 8;
 
 /**
- * A structure grid in Play (WebGPU): a stone house in grid 1 turned 30°, streamed, meshed and drawn with its kit
+ * A structure grid in Play (WebGPU): a stone house (a structure object: its grid written by the backend, placed by
+ * its object, its porch a hand edit kept as overrides) in grid 1 turned 30°, streamed, meshed and drawn with its kit
  * pieces under its place (the boards at its door's jambs and front corners, magenta, seen by a camera before its
  * porch), collided as one static body: the character walked at its front wall stops before it, walked at its door
  * goes through into the room. Stamped into the world grid: `ctx.voxels.regionAt` inside it answers a room whose door
@@ -1172,7 +1172,7 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   const settleAt = Date.now();
   const [mx, , mz] = o.house.room;
   const y = o.house.slabTop + 0.25;
-  const pts = [o.frame.toWorld(mx, y, mz), o.frame.toWorld(mx, y, PORCH_LIGHT_Z_M)];
+  const pts = [o.frame.toWorld(mx, y, mz), o.frame.toWorld(mx, y, o.house.porchLight)];
   let cells: VolumeCell[] = [];
   await expect.poll(async () => { cells = (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? []; return cells.length === 2 && cells.every((c) => c.updates >= LIGHT_UPDATES); }, { timeout: 60_000, intervals: [250], message: "the light volume's cells over the house's floor and its porch are lit" }).toBe(true).catch((e: unknown) => {
     throw new Error(`${String(e).slice(0, 200)}; cells ${JSON.stringify(cells)}`);

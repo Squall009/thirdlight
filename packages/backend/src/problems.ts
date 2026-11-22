@@ -83,6 +83,8 @@ export interface ProjectChecksDeps {
   readonly textureEncoder: TextureEncoder;
   readonly heightChecks: HeightAlphaChecks;
   readonly assetFiles: AssetFileCheck;
+  /** Structures an older generator wrote (the regenerate-all step is due for them; absent: none known). */
+  readonly structuresDue?: (projectId: string) => number;
 }
 
 /**
@@ -195,6 +197,9 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
       paintProblems.loaded(projectId);
       heightProblems.loaded(projectId);
       occluderProblems.loaded(projectId);
+      // A diagnostic only: regenerating is a command the designer sends (one undoable step), never done on open.
+      const due = deps.structuresDue?.(projectId) ?? 0;
+      if (due > 0) recordProblem(projectId, 'workspace', 'structures_need_regenerating', `${due} structure${due === 1 ? '' : 's'} need${due === 1 ? 's' : ''} regenerating: written by an older building generator; send regenerateStructures (one undo step) to write them again`);
     },
     /** An editor loading the project: its materials are checked (once; after that, after each change). */
     loadedByEditor(projectId: string): void {
