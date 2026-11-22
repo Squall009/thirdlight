@@ -1008,7 +1008,7 @@ manifest, duplicate, export, props, splines and water.
 
 **Gates:** gate-fast-20261122-135248 RED (the build: two test files' types), gate-fast-20261122-135529 RED (Play test:
 the profiler's `jobs` lane had no bars under load peak 15.2; `tracer-terrain-rings.test.ts`, D411, passed alone),
-gate-rerun-20261122-141124 GREEN (Play test passed). b4ff1315 and the docs: see §7.
+gate-rerun-20261122-141124 GREEN (Play test passed); b4ff1315 with the docs: gate-fast-20261122-142034 GREEN (756 test files, 14 e2e).
 
 **D-rows:** D751 (the fit rule's four designer-wrong cases above, with proposals), D752 (no cross gable: one ridge
 axis a structure).
