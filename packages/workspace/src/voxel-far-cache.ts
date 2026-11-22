@@ -299,6 +299,23 @@ interface PlacedFarGrid {
   /** The world chunks its turned box touches (inclusive). */
   readonly chunks: { readonly lo: readonly number[]; readonly hi: readonly number[] };
   readonly cells: Map<string, FarCells>;
+  /** Its place and its files' chunk entries as content-key bytes (made when first asked). */
+  content?: Uint8Array[];
+}
+
+/** A placed grid's place and every chunk entry its files hold, as stored, for a content key. */
+function placedGridContent(g: PlacedFarGrid, grid: ChunkGrid): Uint8Array[] {
+  const f = g.frame;
+  const out: Uint8Array[] = [new TextEncoder().encode(JSON.stringify({ grid: f.gridId, at: f.position, yaw: f.yawRad }))];
+  const e = grid.edge;
+  for (let cx = g.box.lo[0] / e; cx < g.box.hi[0] / e; cx++) for (let cy = g.box.lo[1] / e; cy < g.box.hi[1] / e; cy++) for (let cz = g.box.lo[2] / e; cz < g.box.hi[2] / e; cz++) {
+    const r = g.folder.read(cx, cy, cz);
+    if (r.kind === 'air') out.push(Uint8Array.of(0));
+    else if (r.kind === 'uniform') out.push(Uint8Array.of(1, r.value & 0xff, (r.value >>> 8) & 0xff, (r.value >>> 16) & 0xff, r.value >>> 24));
+    else if (r.kind === 'stored') out.push(Uint8Array.of(2, r.raw ? 1 : 0), r.bytes);
+    else throw new Error(`grid ${f.gridId} chunk (${cx}, ${cy}, ${cz}): ${r.reason}`);
+  }
+  return out;
 }
 
 /**
@@ -352,6 +369,19 @@ export class FarWorldSource implements FarSource {
       const w = gridWorldCellBox(box, frame, VOXEL_SIZE_M);
       this.placed.push({ folder, frame, box, chunks: { lo: w.lo.map((v) => Math.floor(v / e)), hi: w.hi.map((v) => Math.floor((v - 1) / e)) }, cells: new Map() });
     }
+  }
+
+  /**
+   * What the placed grids over world chunks `min`…`max` (inclusive) put there, as bytes for a content key: each grid's
+   * place and every chunk entry its files hold, as stored. Empty where no grid stands.
+   */
+  placedContent(min: readonly number[], max: readonly number[]): Uint8Array[] {
+    const out: Uint8Array[] = [];
+    for (const g of this.placed) {
+      if ([0, 1, 2].some((a) => g.chunks.hi[a]! < min[a]! || g.chunks.lo[a]! > max[a]!)) continue;
+      out.push(...(g.content ??= placedGridContent(g, this.grid)));
+    }
+    return out;
   }
 
   /** The world chunks each placed grid's turned box touches, every one listed once. */
@@ -412,12 +442,19 @@ export class FarWorldSource implements FarSource {
     return Math.log2(chunksPerRegionSide(this.grid, this.manifest.footprint));
   }
 
-  /** The world's region columns (rx, rz), sorted. */
+  /**
+   * The world's region columns (rx, rz), sorted: the world grid's, and those the placed grids' turned boxes touch (a
+   * structure standing where the world grid has no region is in the far field too).
+   */
   columns(): Array<readonly [number, number]> {
     const seen = new Map<string, readonly [number, number]>();
     for (const name of this.manifest.regions) {
       const at = parseRegionFileName(this.manifest.layout, name);
       if (at !== null) seen.set(`${at.rx},${at.rz}`, [at.rx, at.rz]);
+    }
+    const shift = this.columnLevel;
+    for (const g of this.placed) {
+      for (let rx = g.chunks.lo[0]! >> shift; rx <= g.chunks.hi[0]! >> shift; rx++) for (let rz = g.chunks.lo[2]! >> shift; rz <= g.chunks.hi[2]! >> shift; rz++) seen.set(`${rx},${rz}`, [rx, rz]);
     }
     return [...seen.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   }
@@ -436,6 +473,11 @@ export class FarWorldSource implements FarSource {
       const f = this.folder.file(rx, 0, rz)!;
       const c = { cx: 0, cy: 0, cz: 0 };
       for (let i = 0; i < f.index.size; i++) rows.add(f.index.coordOf(i, c).cy >> shift);
+    }
+    // The rows the placed grids reach in this column (a house above the world grid's highest region).
+    for (const g of this.placed) {
+      if (rx < g.chunks.lo[0]! >> shift || rx > g.chunks.hi[0]! >> shift || rz < g.chunks.lo[2]! >> shift || rz > g.chunks.hi[2]! >> shift) continue;
+      for (let ry = g.chunks.lo[1]! >> shift; ry <= g.chunks.hi[1]! >> shift; ry++) rows.add(ry);
     }
     return [...rows].sort((a, b) => a - b);
   }

@@ -869,7 +869,7 @@ export class VoxelWorlds {
     const want = this.wantedBake(w);
     if (want >= FAR_MIN_LEVEL) return undefined;
     const failed = this.fineFailed.get(worldKey(w));
-    return { bakeLevel: want, baking: this.fineBakes.has(worldKey(w)), paused: this.finePaused.has(worldKey(w)), ...(failed !== undefined ? { failed } : {}), levels: farFineProgress(m, new FarWorldSource(w.dir), want) };
+    return { bakeLevel: want, baking: this.fineBakes.has(worldKey(w)), paused: this.finePaused.has(worldKey(w)), ...(failed !== undefined ? { failed } : {}), levels: farFineProgress(m, new FarWorldSource(w.dir, this.placements(w)), want) };
   }
 
   /**
@@ -945,9 +945,9 @@ export class VoxelWorlds {
     };
     const current = (): boolean => !this.farBuilds.has(key) && farCacheStale(w.farDir, w.manifest) === null;
     job.done = (async () => {
-      const pending = await this.queued(w, () => Promise.resolve(current() ? farFinePending(startFarFine(w.farDir, level), new FarWorldSource(w.dir), level) : []));
+      const pending = await this.queued(w, () => Promise.resolve(current() ? farFinePending(startFarFine(w.farDir, level), new FarWorldSource(w.dir, this.placements(w)), level) : []));
       if (pending.length === 0) return;
-      for await (const r of this.farJobs.bakeFine(pending.map((t) => ({ worldDir: w.dir, ...t })))) {
+      for await (const r of this.farJobs.bakeFine(pending.map((t) => ({ worldDir: w.dir, ...t, grids: this.placements(w) })))) {
         if (job.stopped) break;
         const landed = await this.queued(w, () => Promise.resolve(current() && !job.stopped && this.landFine(w, job, r)));
         if (!landed) break;
@@ -969,7 +969,7 @@ export class VoxelWorlds {
   private landFine(w: OpenWorld, job: FineBake, r: FarFineResult): boolean {
     writeFarFineColumn(w.farDir, w.world.store.grid, r);
     w.farTags.clear();
-    if (job.changed.length > 0) rebakeFarFine(w.dir, w.farDir, job.changed, { level: r.level, rx: r.rx, rz: r.rz });
+    if (job.changed.length > 0) rebakeFarFine(w.dir, w.farDir, job.changed, { level: r.level, rx: r.rx, rz: r.rz }, this.placements(w));
     return true;
   }
 
@@ -1072,7 +1072,7 @@ export class VoxelWorlds {
       const far = readFarCacheManifest(w.farDir);
       // The fine levels ship only whole, and only down to the level the scenes ask (a finer bake held stays home).
       const want = this.wantedBake(w);
-      const fine = want < FAR_MIN_LEVEL ? farFineComplete(far, new FarWorldSource(w.dir), want) : [];
+      const fine = want < FAR_MIN_LEVEL ? farFineComplete(far, new FarWorldSource(w.dir, this.placements(w)), want) : [];
       const fineFolders = new Set(fine.map((l) => `${farBricksFolder(l)}/`));
       const farFiles = farCacheFiles(w.farDir)
         .slice(1)

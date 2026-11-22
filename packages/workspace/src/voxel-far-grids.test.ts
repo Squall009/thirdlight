@@ -12,6 +12,7 @@ import { buildFarNode, chunkGrid, createWorldStore, GridFrame, SHAPE_FULL, VOXEL
 import { hexToBytes } from '@thirdlight/shared';
 import { afterAll, describe, expect, it } from 'vitest';
 import { FarWorldSource } from './voxel-far-cache';
+import { bakeFarFineColumn, farFineColumns, farFineContentKey } from './voxel-far-fine';
 import { RegionWorld } from './voxel-world-files';
 import { gridFolder, writeVoxelWorld, writeVoxelWorldManifest } from './voxel-worlds';
 
@@ -138,5 +139,51 @@ describe('the far builder sees structure grids where they stand', () => {
     const plain = new FarWorldSource(G);
     const other = new FarWorldSource(G, [{ ...placement(0), gridId: 7 }]);
     for (const [cx, cy, cz] of CHUNKS) expect(sameCells(other.chunk(cx, cy, cz), plain.chunk(cx, cy, cz))).toBe(true);
+  });
+
+  it('bakes the fine levels with the grids too: a grid at yaw 0 bakes the world-grid house node for node; turned, other nodes', () => {
+    const w = new FarWorldSource(W);
+    const g = new FarWorldSource(G, [placement(0)]);
+    const t = new FarWorldSource(G, [placement(30)]);
+    const bare = new FarWorldSource(G);
+    for (const level of [0, 1]) {
+      let differ = 0;
+      let housed = 0;
+      const cols = farFineColumns(w, level);
+      expect(farFineColumns(g, level)).toEqual(cols);
+      for (const [rx, rz] of cols) {
+        const a = bakeFarFineColumn(w, { level, rx, rz });
+        const b = bakeFarFineColumn(g, { level, rx, rz });
+        expect(b.entries.length).toBe(a.entries.length);
+        expect(a.entries.length).toBeGreaterThan(0);
+        const key = (e: { cx: number; cy: number; cz: number }): string => `${e.cx},${e.cy},${e.cz}`;
+        const body = (e: (typeof a.entries)[number]): string => ('stored' in e ? `s${e.raw}:${Array.from(e.stored).join(',')}` : `u${e.uniform}`);
+        const byKey = new Map(a.entries.map((e) => [key(e), e]));
+        for (const e of b.entries) expect(body(e) === body(byKey.get(key(e))!), `level ${level} node ${key(e)}`).toBe(true);
+        // Turned, the house's nodes differ from the aligned house's; without its place, the ground alone.
+        const turned = bakeFarFineColumn(t, { level, rx, rz });
+        differ += turned.entries.filter((e) => !byKey.has(key(e)) || body(e) !== body(byKey.get(key(e))!)).length;
+        const ground = new Map(bakeFarFineColumn(bare, { level, rx, rz }).entries.map((e) => [key(e), body(e)]));
+        housed += a.entries.filter((e) => ground.get(key(e)) !== body(e)).length;
+      }
+      expect(differ, `level ${level}: turned nodes`).toBeGreaterThan(0);
+      expect(housed, `level ${level}: nodes the house is in`).toBeGreaterThan(0);
+    }
+    // A fine node's content key holds the grid over it: where it stands and what its files hold.
+    const n = { level: 1, nx: 0, ny: 0, nz: -1 };
+    expect(farFineContentKey(g, n)).not.toBe(farFineContentKey(bare, n));
+    expect(farFineContentKey(g, n)).not.toBe(farFineContentKey(t, n));
+    expect(farFineContentKey(g, n)).toBe(farFineContentKey(new FarWorldSource(G, [placement(0)]), n));
+  });
+
+  it('builds a grid standing where the world grid has no region into the far levels', () => {
+    const far = { ...placement(0), position: [600, 0, 400] as [number, number, number] };
+    const g = new FarWorldSource(G, [far]);
+    const own = new FarWorldSource(G).columns();
+    const cols = g.columns();
+    expect(cols.length).toBeGreaterThan(own.length);
+    const [rx, rz] = cols.find((c) => !own.some((o) => o[0] === c[0] && o[1] === c[1]))!;
+    expect(g.columnRows(rx, rz).length).toBeGreaterThan(0);
+    expect(bakeFarFineColumn(g, { level: 0, rx, rz }).entries.length).toBeGreaterThan(0);
   });
 });

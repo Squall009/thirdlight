@@ -28,7 +28,7 @@ export interface FarCacheJobs {
 export function rebuildFarWorldCache(worldDir: string, cacheDir: string, chunks: ReadonlyArray<{ readonly cx: number; readonly cy: number; readonly cz: number }>, grids: readonly GridPlacement[] = []): FarRebuildReport {
   const t0 = performance.now();
   const coarse = rebuildFarCache(worldDir, cacheDir, chunks, grids);
-  const fine = rebakeFarFine(worldDir, cacheDir, chunks);
+  const fine = rebakeFarFine(worldDir, cacheDir, chunks, undefined, grids);
   return fine === undefined ? coarse : { ...coarse, ms: performance.now() - t0, fine };
 }
 

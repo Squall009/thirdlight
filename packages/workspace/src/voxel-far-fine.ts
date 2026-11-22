@@ -49,6 +49,7 @@ import {
   type ChunkCells,
   type ChunkGrid,
   type FarCells,
+  type GridPlacement,
   type MipNode,
   type RegionEntry,
   type RegionFootprint,
@@ -62,6 +63,8 @@ export interface FarFineTask {
   readonly level: number;
   readonly rx: number;
   readonly rz: number;
+  /** The structure grids where their objects stand (resampled into the world's cells, as the kept levels read them). */
+  readonly grids?: readonly GridPlacement[];
 }
 
 /** A fine bake job's nodes, as region entries (zstd-packed where smaller), and what it took. */
@@ -154,14 +157,12 @@ export function bakeFarFineColumn(world: FarWorldSource, t: Pick<FarFineTask, 'l
   const g = world.grid;
   const side = chunksPerRegionSide(g, world.manifest.footprint);
   const S = 1 << t.level;
-  // The node rows the world's region rows under the column hold.
+  // The node rows the world's region rows under the column hold (the placed grids' rows with them).
   let lo = Infinity;
   let hi = -Infinity;
-  for (const name of world.manifest.regions) {
-    const at = parseRegionFileName(world.manifest.layout, name);
-    if (at === null || Math.floor(at.rx / S) !== t.rx || Math.floor(at.rz / S) !== t.rz) continue;
-    const rows = world.manifest.layout === 'stacked' ? [at.ry] : world.columnRows(at.rx, at.rz);
-    for (const ry of rows) {
+  for (const [rx, rz] of world.columns()) {
+    if (Math.floor(rx / S) !== t.rx || Math.floor(rz / S) !== t.rz) continue;
+    for (const ry of world.columnRows(rx, rz)) {
       lo = Math.min(lo, Math.floor((ry * side) / S));
       hi = Math.max(hi, Math.floor(((ry + 1) * side - 1) / S));
     }
@@ -186,8 +187,9 @@ export function inThreadFarFine(): FarFineRunner {
   return async function* run(tasks) {
     const worlds = new Map<string, FarWorldSource>();
     for (const t of tasks) {
-      let w = worlds.get(t.worldDir);
-      if (w === undefined) worlds.set(t.worldDir, (w = new FarWorldSource(t.worldDir)));
+      const key = `${t.worldDir}\u0000${JSON.stringify(t.grids ?? [])}`;
+      let w = worlds.get(key);
+      if (w === undefined) worlds.set(key, (w = new FarWorldSource(t.worldDir, t.grids)));
       yield bakeFarFineColumn(w, t);
       await new Promise<void>((ok) => setImmediate(ok));
     }
@@ -337,6 +339,8 @@ export function farFineContentKey(world: FarWorldSource, n: MipNode): string {
       parts.push(head, r.bytes);
     } else throw new Error(`chunk (${cx}, ${cy}, ${cz}): ${r.reason}`);
   }
+  // The structure grids resampled into those chunks: where each stands and what its files hold.
+  parts.push(...world.placedContent(min, max));
   const all = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
   let o = 0;
   for (const p of parts) {
@@ -354,11 +358,11 @@ const DRAWS_NOTHING = Uint8Array.of(0);
  * looked up first by its content key in the rebuilt store, and rewrites only the files holding them, then the
  * manifest. Absent: the cache bakes no fine levels.
  */
-export function rebakeFarFine(worldDir: string, cacheDir: string, chunks: ReadonlyArray<{ readonly cx: number; readonly cy: number; readonly cz: number }>, only?: { readonly level: number; readonly rx: number; readonly rz: number }): FarBricksRebuild | undefined {
+export function rebakeFarFine(worldDir: string, cacheDir: string, chunks: ReadonlyArray<{ readonly cx: number; readonly cy: number; readonly cz: number }>, only?: { readonly level: number; readonly rx: number; readonly rz: number }, grids: readonly GridPlacement[] = []): FarBricksRebuild | undefined {
   const t0 = performance.now();
   const m = readFarCacheManifest(cacheDir);
   if (m.fine === undefined) return undefined;
-  const world = new FarWorldSource(worldDir);
+  const world = new FarWorldSource(worldDir, grids);
   const g = world.grid;
   const side = chunksPerRegionSide(g, m.footprint as RegionFootprint);
   const baked = new Map(m.fine.levels.map((l) => [l.level, new Set(l.columns)]));

@@ -23,8 +23,8 @@
  * where the lots put them, those of turned lots left out).
  *
  * `--far none|grids` builds the far cache's town again from the variant's
- * files (its kept levels and baked bricks over the town's chunks; the fine
- * levels are left as they are): `none` the world grid alone (a structure
+ * files (its kept levels and baked bricks over the town's chunks, and the
+ * fine levels over them where the world bakes some): `none` the world grid alone (a structure
  * grid then has no far field past its own rings), `grids` with each placed
  * grid resampled into the world's cells there (workspace `FarWorldSource`).
  * The far cache as it was is kept beside the world's stash until `restore`
@@ -43,7 +43,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync,
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createDenseChunk, gridPlacementsText, packRegionChunk, parseRegionFileName, regionFileName, writeRegion, type GridPlacement, type RegionEntry } from '@thirdlight/voxel';
-import { farCacheDir, pickStore, rebuildFarCache, zstdCompress } from '@thirdlight/workspace';
+import { farCacheDir, pickStore, rebuildFarWorldCache, zstdCompress } from '@thirdlight/workspace';
 import { FAR_WORLD_FOOTPRINT, FAR_WORLD_GRID, farWorldDirs, FAR_WORLD_NAME, FAR_TOWN_SHIFT_CELLS, writeFarWorldColumn } from './far-world';
 import { TEST_WORLD_ID } from './test-world-id';
 import { houseGrid, housePlacement, townHouses, TOWN_SEED } from './town';
@@ -173,9 +173,10 @@ if (far !== '') {
     const a = parseRegionFileName('stacked', name)!;
     for (let x = 0; x < side; x++) for (let y = 0; y < side; y++) for (let z = 0; z < side; z++) chunks.push({ cx: a.rx * side + x, cy: a.ry * side + y, cz: a.rz * side + z });
   }
-  const r = rebuildFarCache(dir, farDir, chunks, far === 'grids' ? places : []);
+  // The kept levels and, where the world bakes them, the fine levels over the town (both read the placed grids).
+  const r = rebuildFarWorldCache(dir, farDir, chunks, far === 'grids' ? places : []);
   const bytesOf = (prefix: string): number => r.files.filter((f) => f.startsWith(prefix)).reduce((n, f) => n + (existsSync(join(farDir, f)) ? statSync(join(farDir, f)).size : 0), 0);
-  farReport = { mode: far, grids: far === 'grids' ? places.length : 0, ms: Math.round(r.ms), nodes: r.rebuilt.length, files: r.files.length, levelBytes: bytesOf('L'), brickBytes: bytesOf('B'), bricks: r.bricks ?? null };
+  farReport = { mode: far, grids: far === 'grids' ? places.length : 0, ms: Math.round(r.ms), nodes: r.rebuilt.length, files: r.files.length, levelBytes: bytesOf('L'), brickBytes: bytesOf('B'), bricks: r.bricks ?? null, fine: r.fine ?? null };
 }
 const sum = (k: 'files' | 'bytes' | 'chunks'): number => perHouse.reduce((n, h) => n + h[k], 0);
 const report = {
