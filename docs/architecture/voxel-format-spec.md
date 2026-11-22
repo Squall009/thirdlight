@@ -825,8 +825,14 @@ smaller of the two stays. Writing takes 8–11 ms, reading 14–19 ms. The base 
 bytes are already in the base form (as every chunk is today; 60–82 µs before) and 309–343 µs through a decode
 (what a later codec pays), in plain JavaScript (plan **45.8a review fixes**).
 
-**Structure overrides.** These are a structure's hand edits over the voxels it generates. They are stored with the
-structure record in the project, never in region files or exports (R33, R35).
+**Structure overrides (entry F3, owner 2026-11-20: "Everything as proposed is fine"; used from 47a.3).** These are a
+structure's hand edits over the voxels it generates: a cell, the generated voxel it replaced, the voxel it holds. They
+are authoring data kept beside the structure's grid, never in its region files or in exports (R33, R35): the file
+`voxels/<world>/grid-<id>/overrides.tlvo`, written in the same staged write as the grid's region files (47a.4). Hand
+edits are captured as they are made: after an edit, a touched chunk's overrides are the cells where the grid differs
+from what the generator makes there (`captureOverrides`), so an edit that puts a cell back drops its override. The
+structure record keeps the generator's version that last wrote the voxels (F1 `generator`; `BUILDING_GENERATOR_VERSION`),
+so a newer engine regenerates every older structure in one step (R34, `regenerateAll`).
 
 | Offset | Bytes | Field |
 |---|---|---|
@@ -846,7 +852,9 @@ structure record in the project, never in region files or exports (R33, R35).
   role). The override is written, and its base becomes the newly generated voxel.
 - **misfit:** anything else. It is reported and not written.
 
-This was tested on a test room grown from 6 to 8 m, not on a generator. A rule for every structure kind is 47a's.
+First tested on a test room grown from 6 to 8 m; on the building generator (47a.3) in the cases a designer meets
+(`structures/fit-rule.test.ts`; what it gives in each, and the cases a designer may call wrong, are in
+`plan-phase-47a.md` §8a "47a.3"). The rule is unchanged.
 
 **Overrides versions.** Overrides live as long as the project, so they upgrade like saves: a newer version is
 refused, and `OVERRIDE_UPGRADES` holds append-only steps on decoded overrides from `OVERRIDE_FIRST_VERSION` = 2
@@ -1662,8 +1670,8 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R26 | §2.2 reserved bits | — | later: shoreline O15 in 49 (first candidate for the reserved bits) |
 | R27, R28 | §2.2 material (12 bits) | 45.10a | partly: id width set by the owner (4,096 a world); the material model is 46d's |
 | R29 | §3.3 stamp | 45.4; `edits.test.ts` | served (voxelizing at import is 47b) |
-| R30–R32 | §2.1 grid ids | — | later: 47a structure records |
-| R33, R34 | §3.5 TLVO, fit rule | 45.4; `edits.test.ts` | served; the regenerate-all step is 47a |
+| R30–R32 | §2.1 grid ids; F1 (the record) | 47a.3; `structures/*.test.ts`, `tools/voxel-bench/structure-house.test.ts` | partly: the generator (voxels a pure function of the record, material swap material ids only, scale, wings, storeys) is built; the component and its commands are 47a.4 |
+| R33, R34 | §3.5 TLVO, fit rule | 45.4, 47a.3; `edits.test.ts`, `structures/regenerate.test.ts`, `structures/fit-rule.test.ts` | served; regenerate-all as a function (47a.3), its command and undo step 47a.4 |
 | R35 | §3.5 (overrides not in region files) | 45.4 | served |
 | R36–R39 | §2.1, §3.2 grid id, own folder | 45.3; `region.test.ts` | partly: streaming per grid untested (46a); transform 47a |
 | R40 | §3.7 per grid | — | later: 46a/46e |

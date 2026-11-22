@@ -1,13 +1,13 @@
 /**
  * Hand edits on a structure, kept as overrides over its generated voxels,
- * format v2 DRAFT.
+ * format v2.
  *
  * A structure's voxels are a pure function of its definition. Hand edits on
  * top are stored apart from them, per chunk of the structure's own grid:
  * each overridden cell keeps the generated voxel it replaced (its base) and
- * the voxel the author left there. They live with the structure's record in
- * the project, not in its region files: exports bake the resolved voxels
- * and never carry them.
+ * the voxel the author left there. They are authoring data beside the
+ * grid's region files, never in them: exports ship the resolved voxels and
+ * never carry them.
  *
  * Regenerating (a changed definition, or a generator upgrade applied to
  * every structure) writes the new generated voxels, then reapplies each

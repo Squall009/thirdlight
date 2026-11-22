@@ -466,3 +466,8 @@ export { WALK_LINK_REACH_CELLS, WalkGraphLinks, type LinkedGrid, type WalkLink, 
 export { LINKED_DOOR_APART_M, LINKED_PATH_DOORS, LinkedWalkQueries, type LinkedPathAnswer } from './walk-graph-linked';
 export { WALK_GRAPH_NEIGHBOURS, WalkGraph, type WalkExit, type WalkGraphStats, type WalkGraphView } from './walk-graph';
 export { WalkQueries, type WalkPathAnswer, type WalkQueryCost, type WalkQueryOptions, type WalkReachAnswer, type WalkStatus } from './walk-graph-queries';
+export { parseStructureDefinition, ROOF_AXES, ROOF_SHAPES, STAIR_FACINGS, STAIR_WIDTH_CELLS, STRUCTURE_DEFAULTS, StructureDefinitionError, translateDefinition, type FootprintPolygon, type RoofAxis, type RoofShape, type StairFacing, type StructureDefinition, type StructureMaterials, type StructureOpening, type StructureRoof, type StructureStair } from './structures/definition';
+export { boxChunkKeys, boxChunks, type GeneratedDefinition, type StructureGenerator } from './structures/generator';
+export { anchoredDefinition, BUILDING_GENERATOR, BUILDING_GENERATOR_VERSION, buildingChunk, buildingPlan, canonicalStructureDefinition } from './structures/building';
+export { NO_ROOF, type BuildingPlan } from './structures/building-plan';
+export { captureOverrides, regenerateAll, regenerateStructure, type RegenerateAllReport, type RegenerateReport, type StructureMisfit, type StructureToRegenerate } from './structures/regenerate';
