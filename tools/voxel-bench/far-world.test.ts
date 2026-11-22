@@ -524,10 +524,11 @@ describe('the far field drawn as meshes and as bricks', () => {
       }
       expect(faces).toBeGreaterThan(0);
       expect(worstGap).toBe(0);
-      // An edit through the workspace's commands: the backend rebuilds the cache's ancestors, the far field reads them again.
+      // An edit through the workspace's commands: the backend rebuilds the cache's ancestors after its answer, the far field reads them again.
       const worlds = new VoxelWorlds({ projectDir: (id) => (id === 'p' ? p : null) });
       const r = await worlds.command('p', { op: 'editVoxels', projectId: 'p', args: { world: 'far', command: { v: 2, grid: 0, kind: 'fill', min: [-40, -30, -40], max: [-8, 40, -8], mode: 'dig' } } });
-      expect(r.ok && r.far).toMatchObject({ nodes: expect.any(Number) });
+      expect(r.ok && r.far).toMatchObject({ queued: expect.any(Number) });
+      expect(await worlds.farSettled('p', 'far')).toMatchObject({ nodes: expect.any(Number) });
       const chunks = r.ok ? r.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })) : [];
       const l2 = farAncestors(chunks, m.minLevel, m.minLevel).map(mipNodeKey);
       const before = new Map([...shown].filter(([k]) => l2.includes(k)).map(([k, d]) => [k, d.mesh!.vertices.slice()]));
