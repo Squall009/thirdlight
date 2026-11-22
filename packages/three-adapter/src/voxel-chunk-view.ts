@@ -247,6 +247,11 @@ class DrawShadowReports {
   }
 }
 
+/** The level-0 chunks' surface meshes clipped decals may be cut from. */
+function* levelZeroSurfaces(levels: ReadonlyArray<Map<number, ChunkDraw> | undefined>): Iterable<THREE.Mesh> {
+  for (const d of levels[0]?.values() ?? []) if (d.decalSurface !== null) yield d.decalSurface;
+}
+
 /** A seam piece: positions in the finer level's steps from its origin (finer-level cells). */
 export type VoxelSeamPiece = SeamPieceWire;
 
@@ -496,7 +501,7 @@ export class VoxelChunkView {
     applyObjectDecalLayers(this.root, mask);
     this.pieces.setDecalLayers(mask);
     // A clipped decal reads its surfaces' layers when it cuts: each surface comes again, so the decals over it look again.
-    for (const m of this.surfaceMeshes()) {
+    for (const m of levelZeroSurfaces(this.levels)) {
       this.decalSurfaces?.removed(m);
       this.decalSurfaces?.added(m);
     }
@@ -505,13 +510,9 @@ export class VoxelChunkView {
   /** Tell `l` of every level-0 chunk's surface as it comes, goes and moves from now on (null: no one); the drawn ones come now. */
   setDecalSurfaces(l: VoxelDecalSurfaces | null): void {
     if (l === this.decalSurfaces) return;
-    for (const m of this.surfaceMeshes()) this.decalSurfaces?.removed(m);
+    for (const m of levelZeroSurfaces(this.levels)) this.decalSurfaces?.removed(m);
     this.decalSurfaces = l;
-    for (const m of this.surfaceMeshes()) this.tellAdded(m);
-  }
-
-  private *surfaceMeshes(): Iterable<THREE.Mesh> {
-    for (const d of this.levels[0]?.values() ?? []) if (d.decalSurface !== null) yield d.decalSurface;
+    for (const m of levelZeroSurfaces(this.levels)) this.tellAdded(m);
   }
 
   /**
@@ -536,6 +537,26 @@ export class VoxelChunkView {
     if (c.layers.length === 0 && this.crackLayers === 0) return;
     this.shading.setCracks(c.layers, c.materialLayer);
     this.crackLayers = c.layers.length;
+  }
+
+  /**
+   * The root was moved or turned (a structure grid's object moved): the surfaces follow under it as they are; kit
+   * pieces drawn in another view's batches had their copies placed through the old place, so each drawn chunk's are
+   * placed again from the instances it keeps (no voxel read, nothing derived); the static shadows are drawn again
+   * and clipped decals cut again where the surfaces stand now.
+   */
+  placed(): void {
+    this.root.updateMatrixWorld(true);
+    if (this.pieces.root.parent !== this.root) {
+      for (const map of this.levels) for (const m of map?.values() ?? []) if (m.instances.count > 0) this.givePieces(m, this.pieceRuns(m));
+      this.flushPieces();
+    }
+    this.statics?.to.bump();
+    for (const m of levelZeroSurfaces(this.levels)) {
+      m.updateWorldMatrix(true, false, true);
+      this.decalSurfaces?.moved(m);
+    }
+    this.rebuilt?.();
   }
 
   /** Builds again the pieces of every drawn chunk and node that waited for kit meshes, then tells {@link rebuilt}. */
@@ -629,7 +650,7 @@ export class VoxelChunkView {
     for (const s of this.seams.values()) this.place(s.mesh, s.cell);
     this.pieces.rebase();
     this.far.rebase();
-    for (const m of this.surfaceMeshes()) {
+    for (const m of levelZeroSurfaces(this.levels)) {
       m.updateWorldMatrix(true, false, true);
       this.decalSurfaces?.moved(m);
     }

@@ -23,6 +23,11 @@ export interface ViewPointerHost {
   readonly queries: SceneQueries;
   readonly copies: CopySelection;
   readonly picked: (entityId: string | null) => void;
+  /**
+   * What a click picks among the voxel worlds' structure grids, given what it picked among the drawn objects: the
+   * structure object if a grid's cells are nearer (null: no voxel pick to wait for).
+   */
+  readonly voxelPick?: (clientX: number, clientY: number, picked: string | null) => Promise<string | null> | null;
   readonly copyPicked: (entityId: string, index: number) => void;
   readonly doublePicked: (entityId: string) => void;
   readonly resize: () => void;
@@ -30,6 +35,8 @@ export interface ViewPointerHost {
 
 export class ViewPointer {
   private downAt: { x: number; y: number } | null = null;
+  /** Clicks made: a voxel pick answering after a later click is dropped. */
+  private clicks = 0;
 
   constructor(private readonly host: ViewPointerHost) {}
 
@@ -110,6 +117,12 @@ export class ViewPointer {
         return;
       }
     }
-    this.host.picked(this.host.queries.pick(e.clientX, e.clientY));
+    const id = this.host.queries.pick(e.clientX, e.clientY);
+    const voxel = this.host.voxelPick?.(e.clientX, e.clientY, id) ?? null;
+    if (voxel === null) return this.host.picked(id);
+    const click = ++this.clicks;
+    void voxel.then((v) => {
+      if (click === this.clicks) this.host.picked(v);
+    });
   };
 }

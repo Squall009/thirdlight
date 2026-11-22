@@ -270,11 +270,20 @@ const GRID_UP = new THREE.Vector3(0, 1, 0);
 
 /** Edits kept for measurements. */
 const EDITS_KEPT = 64;
+/** The median of the last frames' intervals (ms; null: too few frames yet). */
+function frameInterval(t: readonly number[]): number | null {
+  if (t.length <= BUDGET_FRAMES) return null;
+  const d = Array.from({ length: BUDGET_FRAMES }, (_, i) => t[t.length - 1 - i]! - t[t.length - 2 - i]!).sort((a, b) => a - b);
+  return d[BUDGET_FRAMES >> 1]!;
+}
+
 /** Frame times kept (wall-clock ms): a few seconds at a high refresh rate. */
 const FRAMES_KEPT = 600;
 
 export class VoxelWorldDraws {
   private readonly worlds = new Map<string, WorldDraw>();
+  /** Where structure grids stand when told so over what their batches name (their objects moved): by draw name, kept until the draws are disposed (a grid drawn again stands there). */
+  private readonly places = new Map<string, Pick<GridPlaceWire, 'position' | 'yawRad'>>();
   /** Batches waiting for the renderer (the adapter starts asynchronously) or for their draws to be made, oldest first. */
   private readonly waiting: Waiting[] = [];
   /** ms spent making and showing batches since the last animation frame. */
@@ -484,16 +493,12 @@ export class VoxelWorldDraws {
   }
 
   /** The kit meshes' and textures' GPU bytes (every world draws from them). */
-  private kitBytes(): number {
-    return this.kitSet?.meshes.gpuBytes() ?? 0;
-  }
-
   /** A view built the pieces that waited for kit meshes (or took new kits): its draws' bytes and the kits' go back again. */
   private rebuilt(name: string): void {
     const w = this.worlds.get(name);
     if (w === undefined) return;
     w.coarse = w.view.coarseBytes();
-    w.kits = this.kitBytes();
+    w.kits = this.kitSet?.meshes.gpuBytes() ?? 0;
     this.opts.report(name, w.view.chunkBytes(), w.coarse, w.kits);
   }
 
@@ -525,7 +530,7 @@ export class VoxelWorldDraws {
 
   private pumpWithin(): void {
     const frames = typeof requestAnimationFrame === 'function';
-    const budget = voxelBatchFrameMs(this.frameInterval());
+    const budget = voxelBatchFrameMs(frameInterval(this.frameTimes));
     while (this.waiting.length > 0) {
       // Past the budget nothing more is made until the next frame (which begins with none spent, so it makes at least one draw).
       if (frames && this.spent >= budget) return;
@@ -541,13 +546,6 @@ export class VoxelWorldDraws {
   }
 
   /** The median of the page's newest frame intervals (null: too few frames yet). */
-  private frameInterval(): number | null {
-    const t = this.frameTimes;
-    if (t.length <= BUDGET_FRAMES) return null;
-    const d = Array.from({ length: BUDGET_FRAMES }, (_, i) => t[t.length - 1 - i]! - t[t.length - 2 - i]!).sort((a, b) => a - b);
-    return d[BUDGET_FRAMES >> 1]!;
-  }
-
   private loop(): void {
     if (this.raf !== null || this.disposed || typeof requestAnimationFrame !== 'function') return;
     const tick = (): void => {
@@ -676,8 +674,9 @@ export class VoxelWorldDraws {
       const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface: base.surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), sharedPieces: base.view.pieces });
       view.rebuilt = () => this.rebuilt(name);
       view.root.name = `voxel-world ${name}`;
-      view.root.position.set(place.position[0], place.position[1], place.position[2]);
-      view.root.quaternion.setFromAxisAngle(GRID_UP, place.yawRad);
+      const at = this.places.get(name) ?? place;
+      view.root.position.set(at.position[0], at.position[1], at.position[2]);
+      view.root.quaternion.setFromAxisAngle(GRID_UP, at.yawRad);
       scene.add(view.root);
       // Placed before any draw reports where it stands.
       view.root.updateMatrixWorld(true);
@@ -738,6 +737,21 @@ export class VoxelWorldDraws {
     }) ?? ((): void => undefined);
     this.worlds.set(name, (w = { view, surface, shared: false, coarse: 0, kits: 0, relief: null, unlink }));
     return w;
+  }
+
+  /**
+   * A structure grid's draws (`name`, its draw name) stand at `place` from now on: its object was moved or turned.
+   * Its surfaces move with their root at once and its kit pieces are placed again in its world's batches; nothing is
+   * read or derived again. A grid not drawn yet is drawn there when its first batch comes.
+   */
+  placeGrid(name: string, place: Pick<GridPlaceWire, 'position' | 'yawRad'>): void {
+    this.places.set(name, { position: [place.position[0], place.position[1], place.position[2]], yawRad: place.yawRad });
+    const w = this.worlds.get(name);
+    if (w === undefined || !w.shared) return;
+    w.view.root.position.set(place.position[0], place.position[1], place.position[2]);
+    w.view.root.quaternion.setFromAxisAngle(GRID_UP, place.yawRad);
+    w.view.placed();
+    this.opts.applied?.();
   }
 
   /** A world's sky heights (null: none arrived yet). */
@@ -885,7 +899,7 @@ export class VoxelWorldDraws {
     this.applied++;
     const was = [w.coarse, w.kits];
     w.coarse = done.coarseBytes;
-    w.kits = this.kitBytes();
+    w.kits = this.kitSet?.meshes.gpuBytes() ?? 0;
     if (done.chunkBytes.length > 0 || was[0] !== w.coarse || was[1] !== w.kits) this.opts.report(b.world, done.chunkBytes, w.coarse, w.kits);
     this.opts.applied?.();
     const applyMs = q.ms + performance.now() - t0;

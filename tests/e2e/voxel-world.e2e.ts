@@ -101,6 +101,7 @@ import { mustCommand } from '../support/commands';
 import { GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelGridChecks, voxelRoomChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 import { playScriptSource } from './voxel-play-script';
 import { GRID_HOUSE, GRID_HOUSE_M, gridHousePlacement, gridHousePorch, gridHouseStructure, siteTop } from './voxel-grid-house';
+import { sceneViewStill, sceneViewStructureChecks, sceneViewVoxels, type SceneViewVoxels } from './voxel-scene-structures';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -108,6 +109,9 @@ let scene: Cell;
 /** The same world 8 km out on x and z (512 chunks), for Play: a world far from the origin. */
 const FAR_CHUNKS = 512;
 let farScene: Cell;
+/** The slice world's cells as written (the Scene view's structure stands on its ground). */
+let sliceStore: ReturnType<typeof writeSliceWorld>['store'];
+let sliceDir: string;
 /**
  * The Play world's structure grid: a stone house with a porch (a structure object of the play project) in grid 1,
  * turned 30° about its middle, 20 m east of the pad (where the pad's shadow checks never reach), its slab on the
@@ -119,7 +123,10 @@ let house: ReturnType<typeof gridHousePlacement>;
 test.beforeAll(async () => {
   be = await startBackend('e2e-voxel');
   // 128 m square: enough ground around the scene for the ring, quick to write.
-  scene = [...writeSliceWorld(be.projectDir, 'slice', 256).scene] as Cell;
+  const slice = writeSliceWorld(be.projectDir, 'slice', 256);
+  scene = [...slice.scene] as Cell;
+  sliceStore = slice.store;
+  sliceDir = slice.dir;
   const far = writeSliceWorld(be.projectDir, 'far', 256, { x: FAR_CHUNKS, z: FAR_CHUNKS });
   farScene = [...far.scene] as Cell;
   const pad = [(farScene[0] + 9.5) / 2, farScene[1] / 2, (farScene[2] + 10.5) / 2];
@@ -1639,27 +1646,6 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
 
 // ---- The editor's Scene view draws the world ----------------------------------------------------------------
 
-/**
- * The Scene view's picture once it is still (no frame asked for, none drawn while it was taken), saved under `name`.
- * What streams in on its own is waited for by the caller first.
- */
-async function sceneViewStill(page: Page, name: string): Promise<ReturnType<typeof decodePng>> {
-  const view = page.locator('canvas.tl-viewport');
-  const quiet = async (): Promise<string | null> => ((await view.getAttribute('data-frame-wanted')) === '0' ? await view.getAttribute('data-frames') : null);
-  let png: Buffer | null = null;
-  await expect.poll(async () => {
-    const before = await quiet();
-    if (before === null) return false;
-    const shot = await view.screenshot();
-    if ((await quiet()) !== before) return false;
-    png = shot;
-    return true;
-  }, { timeout: 30_000, intervals: [50] }).toBe(true);
-  writeFileSync(test.info().outputPath(`${name}.png`), png!);
-  return decodePng(png!);
-}
-
-interface SceneViewVoxels { worlds: Record<string, { chunks: number; triangles: number; meshBuilds: number; kitInstances: number; tableUploads: number; tableMs: number }>; replaced: number; states: Record<string, { revision: number; settled: boolean; resident: number }>; problems: Record<string, string> }
 
 test("Scene view: a voxelWorld object's world streams round the editor camera and draws; an edit and a kit slot filled through the command route show without a reload; one undo steps scene edits and the stroke in order", async ({ page }) => {
   test.setTimeout(150_000);
@@ -1673,7 +1659,7 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
   await page.goto(editorUrlFor(be.editorUrl, 'webgpu'));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const view = page.locator('canvas.tl-viewport');
-  const voxels = async (): Promise<SceneViewVoxels | null> => JSON.parse((await view.getAttribute('data-voxels')) ?? 'null') as SceneViewVoxels | null;
+  const voxels = (): Promise<SceneViewVoxels | null> => sceneViewVoxels(page);
   // Orbit the object (F): the world will stream round that point.
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
   await page.keyboard.press('f');
@@ -1802,6 +1788,10 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
   expect(await table()).toMatchObject({ meshBuilds: looks0.meshBuilds, replaced: looks0.replaced });
   expect(Math.abs(hueCount(await sceneViewStill(page, 'scene-view-stone-back'), 'blue') - blue[0])).toBeLessThan(200);
   console.log(`[voxel-scene-view] material table: ${JSON.stringify(await table())}, last upload ${(await voxels())!.worlds['slice']!.tableMs.toFixed(2)} ms; blue pixels ${blue.join(' → ')}`);
+
+  // A structure object of the world: drawn in its own grid where it stands, moved, grown, undone, picked.
+  const site: [number, number] = [ox / 2 + 4, oz / 2 - 9];
+  await sceneViewStructureChecks({ page, command: (op, args) => playCmd(op, args), query: (op, args) => be.command({ op, projectId: be.projectId, args }), world: 'slice', worldDir: sliceDir, centre: [site[0], siteTop(sliceStore, site[0], site[1], 4), site[1]], material: MAT.stone, otherId: id });
 
   // The object goes: so does the world's draw (and the project is as the other tests left it; Play's world, 8 km out
   // and all air round this view, may still stream).

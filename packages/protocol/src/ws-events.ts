@@ -170,15 +170,17 @@ export interface VoxelsChangedPayload {
   parts: number;
   /** The distinct material changes (the voxel package's `materialSwap`: from, to): whether a paint moves cells to another kit's pieces. */
   materialSwaps: readonly number[];
-  /** The region files rewritten, with their new entity tags (null: the file is gone). */
+  /** The region files rewritten, with their new entity tags (null: the file is gone); a structure grid's as `grid-<id>/<name>`. */
   files: ReadonlyArray<{ name: string; etag: string | null }>;
+  /** The structure grids' chunks whose content changed, by grid (absent: none): what a client re-reads of each grid. */
+  grids?: ReadonlyArray<{ grid: number; chunks: ReadonlyArray<readonly [number, number, number]> }>;
   /** The command's request id, so the client that sent it can tell its own change. */
   requestId: string | null;
   origin: Origin | null;
 }
 
 export function makeVoxelsChanged(p: VoxelsChangedPayload): string {
-  return emit({ type: 'voxelsChanged', op: p.op, world: p.world, revision: p.revision, chunks: p.chunks, box: p.box, parts: p.parts, materialSwaps: p.materialSwaps, files: p.files, requestId: p.requestId, origin: p.origin });
+  return emit({ type: 'voxelsChanged', op: p.op, world: p.world, revision: p.revision, chunks: p.chunks, box: p.box, parts: p.parts, materialSwaps: p.materialSwaps, files: p.files, ...(p.grids !== undefined ? { grids: p.grids } : {}), requestId: p.requestId, origin: p.origin });
 }
 
 /**

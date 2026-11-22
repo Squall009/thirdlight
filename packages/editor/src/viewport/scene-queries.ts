@@ -67,6 +67,8 @@ export interface SceneQueriesHost {
 
 export class SceneQueries {
   readonly raycaster = new THREE.Raycaster();
+  /** How far along the ray the last {@link pick} found its object (Infinity: none): a voxel pick answers only nearer. */
+  pickedAt = Infinity;
 
   constructor(private readonly host: SceneQueriesHost) {
     this.raycaster.layers.enable(BATCHED_LAYER);
@@ -240,14 +242,23 @@ export class SceneQueries {
   private pickMesh(clientX: number, clientY: number): string | null {
     const adapter = this.host.adapter();
     const flags = this.host.flags();
+    this.pickedAt = Infinity;
     for (const h of this.castScene(clientX, clientY)) {
       // The drawable's entity (its logical parents up to the entity's node in the adapter).
       const id = adapter.entityOf?.(h.object) ?? null;
       if (id === null || !this.host.synced.has(id)) continue;
       // Hidden or locked entities are not pickable (try the next hit).
-      const f = flags.get(id);
-      if (f === undefined || (f.active && !f.locked)) return id;
+      if (this.pickable(id)) {
+        this.pickedAt = h.distance;
+        return id;
+      }
     }
     return null;
+  }
+
+  /** Whether a click may pick an entity: shown and not locked. */
+  pickable(id: string): boolean {
+    const f = this.host.flags().get(id);
+    return f === undefined || (f.active && !f.locked);
   }
 }

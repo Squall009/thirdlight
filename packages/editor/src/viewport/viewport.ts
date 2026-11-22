@@ -229,7 +229,7 @@ export class Viewport {
       instanceChunkSize: () => this.instanceChunk,
     });
     this.source.setCamera(this.camera);
-    this.voxels = new SceneVoxels({ adapter: () => this.adapter, requestRender: () => this.requestRender(), source: options.voxels ?? null, arrayBytes: (set) => this.assets.loadBytes(slotTextureKey(set)) });
+    this.voxels = new SceneVoxels({ adapter: () => this.adapter, requestRender: () => this.requestRender(), source: options.voxels ?? null, arrayBytes: (set) => this.assets.loadBytes(slotTextureKey(set)), localOf: (id) => this.source.localOf(id) });
     this.look = new ViewportLook({ adapter: () => this.adapter, source: this.source, projected: () => this.projected, requestRender: () => this.requestRender() });
     this.overlay.name = 'scene-view-overlays';
     // The view's own drawing (grid, gizmo, outlines, handles, brush cursors) is never an occludee.
@@ -310,6 +310,12 @@ export class Viewport {
       queries: this.queries,
       copies: this.copies,
       picked: (id) => this.cb.onPick(id),
+      voxelPick: (x, y, picked) => {
+        this.queries.aim(x, y);
+        const ray = this.queries.raycaster.ray;
+        const p = this.voxels.pick(ray.origin, ray.direction, Math.min(this.queries.pickedAt, this.camera.far));
+        return p?.then((s) => (s !== null && this.synced.has(s) && this.queries.pickable(s) ? s : picked)) ?? null;
+      },
       copyPicked: (id, index) => this.cb.onCopyPick?.(id, index),
       doublePicked: (id) => this.cb.onDoublePick?.(id),
       resize: () => this.resize(),
@@ -974,7 +980,8 @@ export class Viewport {
   /** An outline around the selection's drawn bounds (what the adapter draws for it: a box, a model, an instance set). */
   private updateSelectionOutline(): void {
     const id = this.selectedId;
-    const box = id === null || this.hierarchyFlags.get(id)?.active === false || this.isolation.active ? null : this.queries.boundsOf([id], () => true);
+    // A structure object draws nothing itself: its box is its grid's cells where they stand.
+    const box = id === null || this.hierarchyFlags.get(id)?.active === false || this.isolation.active ? null : (this.voxels.structureBox(id) ?? this.queries.boundsOf([id], () => true));
     this.outline.update(this.root, id, box);
   }
 

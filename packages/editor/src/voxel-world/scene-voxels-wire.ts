@@ -2,7 +2,7 @@
  * The messages between the editor page and the worker that streams the
  * Scene view's voxel worlds (scene-voxels-worker.ts).
  */
-import type { ChunkDrawBatch, PieceKitSource, ReliefRingSettings, SectionEdge, WorldLevelsMetres, WorldRingMetres } from '@thirdlight/voxel';
+import type { ChunkDrawBatch, GridPlacement, PieceKitSource, ReliefRingSettings, SectionEdge, WorldLevelsMetres, WorldRingMetres } from '@thirdlight/voxel';
 import type { WorldChange } from './range-world';
 
 /** Page → worker. */
@@ -18,8 +18,12 @@ export type SceneVoxelsIn =
   | { readonly t: 'focus'; readonly x: number; readonly y: number; readonly z: number }
   /** A change the backend applied to `world` (the editor feed's `voxelsChanged`). */
   | { readonly t: 'changed'; readonly world: string; readonly change: WorldChange }
-  /** The page's GPU bytes of drawn chunks (`[cx, cy, cz, bytes]` repeated). */
-  | { readonly t: 'drawn'; readonly world: string; readonly bytes: readonly number[]; readonly coarse: number; readonly kits: number };
+  /** The page's GPU bytes of drawn chunks (`[cx, cy, cz, bytes]` repeated) of a world or a structure grid (its draw name). */
+  | { readonly t: 'drawn'; readonly world: string; readonly bytes: readonly number[]; readonly coarse: number; readonly kits: number }
+  /** Where the open scenes' structure objects of `world` place its grids (every one; a grid left out is not drawn). */
+  | { readonly t: 'grids'; readonly world: string; readonly places: readonly GridPlacement[] }
+  /** What a ray (world metres) meets first within `maxM` in every world and its drawn grids, each grid in its own frame. */
+  | { readonly t: 'pick'; readonly id: number; readonly origin: readonly [number, number, number]; readonly dir: readonly [number, number, number]; readonly maxM: number };
 
 /** Worker → page. */
 export type SceneVoxelsOut =
@@ -29,4 +33,6 @@ export type SceneVoxelsOut =
   /** The world could not be opened or read again (it is not drawn, or drawn as it was). */
   | { readonly t: 'problem'; readonly world: string; readonly message: string }
   /** What a world holds (after it settles; tests and the status read it). */
-  | { readonly t: 'state'; readonly world: string; readonly revision: number; readonly resident: number; readonly settled: boolean; readonly bytes: number };
+  | { readonly t: 'state'; readonly world: string; readonly revision: number; readonly resident: number; readonly settled: boolean; readonly bytes: number; readonly grids?: Readonly<Record<string, { readonly resident: number; readonly settled: boolean }>> }
+  /** A pick's answer: the nearest stop (metres along the ray), its world and grid (0: the world grid), or none. */
+  | { readonly t: 'picked'; readonly id: number; readonly hit: { readonly world: string; readonly grid: number; readonly t: number } | null };

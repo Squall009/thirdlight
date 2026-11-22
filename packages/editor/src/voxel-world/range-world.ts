@@ -42,6 +42,14 @@ export interface WorldChange {
   /** The change's material changes (absent: unknown, a shader-only change may move cells to another kit's pieces). */
   readonly materialSwaps?: readonly number[];
   readonly files: ReadonlyArray<{ readonly name: string; readonly etag: string | null }>;
+  /** The structure grids' chunks that changed, by grid (absent: none). */
+  readonly grids?: ReadonlyArray<{ readonly grid: number; readonly chunks: ReadonlyArray<readonly [number, number, number]> }>;
+}
+
+/** A structure grid's region file as a change names it (`grid-<id>/<name>`): its grid and name (null: a world grid file). */
+function gridFileOf(name: string): { grid: number; name: string } | null {
+  const m = /^grid-(\d+)\/(.+)$/.exec(name);
+  return m === null ? null : { grid: Number(m[1]), name: m[2]! };
 }
 
 export interface RangeWorldOptions {
@@ -166,7 +174,7 @@ export class RangeWorld {
   /**
    * A structure grid of the world read by range from its route (`<url>/grids/<id>/regions/<file>`; a file the grid
    * does not list holds only air), and the chunks its files hold (from their tables); null: the world lists no such
-   * grid. The grid's files are as the world was opened: an edit reaches the world grid alone.
+   * grid. A change naming its files ({@link applyChange}) updates the list it reads.
    */
   async openGrid(gridId: number): Promise<{ source: RegionChunkSource; extent: ChunkBox | null } | null> {
     const listed = this.gridFiles.get(gridId);
@@ -185,12 +193,14 @@ export class RangeWorld {
   applyChange(streamer: VoxelStreamer, c: WorldChange): number {
     this.revision = c.revision;
     for (const f of c.files) {
-      // A structure grid's file (`grid-<id>/<name>`) is not one of the world grid's.
-      if (f.name.includes('/')) continue;
-      if (f.etag === null) this.files.delete(f.name);
-      else this.files.set(f.name, f.etag);
+      // A structure grid's file (`grid-<id>/<name>`) goes to its grid's list (a grid made by the change gets one).
+      const g = gridFileOf(f.name);
+      const list = g === null ? this.files : (this.gridFiles.get(g.grid) ?? this.gridFiles.set(g.grid, new Map()).get(g.grid)!);
+      const name = g === null ? f.name : g.name;
+      if (f.etag === null) list.delete(name);
+      else list.set(name, f.etag);
     }
-    return streamer.refresh(c.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })), c.box, c.parts, c.materialSwaps);
+    return c.chunks.length === 0 ? 0 : streamer.refresh(c.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })), c.box, c.parts, c.materialSwaps);
   }
 
   /**
@@ -211,6 +221,13 @@ export class RangeWorld {
     if (now.manifest.worldId !== m.worldId || now.manifest.edge !== m.edge || now.manifest.layout !== m.layout || now.manifest.footprint !== m.footprint) return 'another world is in this folder now';
     this.files.clear();
     for (const f of now.files) this.files.set(f.name, f.etag);
+    // A grid's list is changed in place: an open grid's source reads through it.
+    for (const [id, list] of this.gridFiles) if (!now.grids.some((g) => g.id === id)) list.clear();
+    for (const g of now.grids) {
+      const list = this.gridFiles.get(g.id) ?? this.gridFiles.set(g.id, new Map()).get(g.id)!;
+      list.clear();
+      for (const f of g.files) list.set(f.name, f.etag);
+    }
     this.revision = now.manifest.revision;
     streamer.refresh([...resident]);
     return null;
