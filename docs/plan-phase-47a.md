@@ -736,6 +736,21 @@ gate-rerun-20261122-063506 GREEN; `area play` with the leak test gate-area-20261
   stream budget** (15.6 MB for the town's 131 houses at low), not a new budget entry.
 - 2026-11-22 (47a.1b): the Play test's grid house has a roof and a door of opening cells (a portal), so its room is a
   room; its collision and picture checks are unchanged.
+- 2026-11-21 (the lead, after 47a.1a; default chosen, owner to confirm): **a slice 47a.1a2 was put before slices b–d**:
+  with a streamer a grid the town's 131 own-grid houses took 129–142 ms of simulation a frame, so light, paths and the
+  far view could not be measured honestly until many small grids were cheap. Built as a streamer a grid that runs only
+  with work (not one streamer a world: that would add a grid dimension to every streaming module), one budget, the
+  world's batches. Result: page, draws, memory and room as the world grid's; simulation still about 2× on a moving
+  camera (D743's remainder, D745): accepted for now, carried to 47a.5.
+- 2026-11-22 (the lead, after 47a.1b, under the owner's accepted default on question 2): **a structure grid's soft
+  light, sun shade and rooms come from its stamp in the world grid, by the share rule** (the props' own: 4³ samples a
+  cell, stop at half). Evidence (§8a 47a.1b; pictures `work/47a.1b/m/S-w/room-window.png` and `S-g45/room-window.png`
+  looked at by the lead: the turned room is as dark as the control's, its walls a shade lighter, two thin bright lines
+  at its inner corners = D746): no rule leaks through a closed turned wall (at most 7 of 24,000 rays away from
+  openings), no room is lost, the GPU walk is unchanged and the frame costs as without it; exact stepping would cost
+  2.3–4.2× the walk and a second loop on the GPU. The price, for the owner's page: a door or window turned 30°–45°
+  passes 12–18 % less light than drawn, and surfaces the light sees are up to 0.5 m off the drawn ones. The exact CPU
+  walk (`walkWithGrids`) is kept for `ctx.voxels.raycast` through grids (47a.5).
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
