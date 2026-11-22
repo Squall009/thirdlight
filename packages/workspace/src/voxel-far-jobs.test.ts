@@ -133,9 +133,10 @@ describe('a far cache built in the background', () => {
     const shipped = await worlds.shippedFiles('p', 'w');
     expect(shipped.ok && shipped.farNote).toBeUndefined();
     expect(shipped.ok && shipped.far?.files.length).toBeGreaterThan(0);
-    // A later edit rebuilds the landed cache's ancestors before it is answered.
+    // A later edit rebuilds the landed cache's ancestors after it is answered.
     const r2 = await worlds.step('p', 'w', 'undo', worlds.newestStroke('p', 'w')!, null);
-    expect(r2.ok && r2.far).toMatchObject({ nodes: expect.any(Number) });
+    expect(r2.ok && r2.far).toMatchObject({ queued: expect.any(Number) });
+    expect(await worlds.farSettled('p', 'w')).toMatchObject({ nodes: expect.any(Number) });
     const fresh2 = join(root, 'held-fresh-2');
     await buildFarCache(worldDir, fresh2);
     expect(filesOf(farCacheDir(projectDir, 'w'))).toEqual(filesOf(fresh2));

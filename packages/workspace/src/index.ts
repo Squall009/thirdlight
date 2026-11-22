@@ -135,6 +135,8 @@ export {
   type RegionFileAnswer,
   type VoxelCommandApplied,
   type VoxelCommandResult,
+  type FarRebuilt,
+  type VoxelFarFollow,
   type VoxelWorldError,
   type VoxelWorldGrid,
   type VoxelWorldInfo,
@@ -146,6 +148,7 @@ export {
   type StructureGridReport,
   type StructureMisfitAt,
 } from './voxel-worlds';
+export { FAR_FOLLOW_SETTLE_MS } from './voxel-far-follow';
 export { UndoTimeline, type AttachedStroke, type SkippedStep, type TimelineEntry, type TimelineStep } from './undo-timeline';
 export { StructureCommands, type StructureCommandOutcome } from './structure-commands';
 export { STRUCTURE_OVERRIDES_FILE, type StructureChange, type StructureChangeReport } from './voxel-structure-writes';

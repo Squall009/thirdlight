@@ -23,7 +23,7 @@ import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
 import type { Backend } from '@thirdlight/backend/services';
 import { anchoredDefinition, boxChunks, BUILDING_GENERATOR, chunkGrid, chunkOfKey, createDenseChunk, createWorldStore, decodeOverrides, denseValue, exportOrAir, PLANE_BIT, SHAPE_FULL, VOXEL_ROLE, type StructureDefinition, type StructureGenerator, type VoxelStoreCandidate } from '@thirdlight/voxel';
 import { hexToBytes } from '@thirdlight/shared';
-import { RegionWorld, readVoxelWorldManifest, writeVoxelWorld, type VoxelWorlds } from '@thirdlight/workspace';
+import { FAR_REBUILT_FOLDER, farCacheDir, RegionWorld, readVoxelWorldManifest, writeVoxelWorld, type VoxelWorlds } from '@thirdlight/workspace';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -378,4 +378,68 @@ describe('structures through the commands', () => {
     expect(JSON.stringify(seen)).toContain('"voxelStructure"');
     await client.close();
   });
+});
+
+describe('the far field after structure commands', () => {
+  const farUrl = (): string => `${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}/far`;
+  /** The far info once the cache is current (a read builds what commands left first; a whole build is waited for). */
+  const farInfo = async (): Promise<Record<string, unknown>> => {
+    for (let i = 0; i < 600; i++) {
+      const r = await fetch(farUrl(), { headers: auth });
+      if (r.status === 200) return (await r.json()) as Record<string, unknown>;
+      await new Promise((ok) => setTimeout(ok, 100));
+    }
+    throw new Error('the far cache never became current');
+  };
+  /** Every far cache file by path, with its hash (the store of rebuilt contents aside: it holds what was ever built). */
+  const farState = (): Record<string, string> => {
+    const dir = farCacheDir(backend._test.service.projectDir(PROJECT)!, WORLD);
+    const out: Record<string, string> = {};
+    const walk = (d: string): void => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, e.name);
+        if (e.isDirectory()) {
+          if (e.name !== FAR_REBUILT_FOLDER) walk(p);
+        } else out[relative(dir, p)] = createHash('sha256').update(readFileSync(p)).digest('hex');
+      }
+    };
+    walk(dir);
+    return out;
+  };
+
+  it('answers each command before its far rebuild, builds a drag of moves once, and ends equal to a whole build after undo and redo', async () => {
+    await farInfo();
+    const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Far house', transform: { position: [-20, 3, 14], rotation: yawQ(30) }, components: { voxelStructure: SMALL } });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const id = made.json['createdId'] as string;
+    // Answered with its chunks gathered, not built.
+    const far = made.json['far'] as Array<{ world: string; far: { queued?: number } }>;
+    expect(far[0]?.far.queued).toBeGreaterThan(0);
+    const first = (await farInfo())['follow'] as { commands: number; chunks: number; result: { nodes?: number } };
+    // A structure made is its stroke and its place: one rebuild.
+    expect(first.commands).toBeGreaterThanOrEqual(1);
+    expect(first.result.nodes).toBeGreaterThan(0);
+    // Ten moves as a drag sends them: each answered with the far changes gathered, one rebuild of where it ends.
+    for (let i = 1; i <= 10; i++) {
+      const m = await cmd('setTransform', { entityId: id, transform: { position: [-20 + i * 1.5, 3, 14], rotation: yawQ(30 + i * 3) } });
+      expect(m.status, JSON.stringify(m.json)).toBe(200);
+      expect((m.json['far'] as Array<{ far: { queued?: number } }>)[0]?.far.queued).toBeGreaterThan(0);
+    }
+    // Gathered, not one rebuild a move (ten in one where the moves come under FAR_FOLLOW_SETTLE_MS apart: vitest
+    // voxel-far-follow.test.ts holds that to the count; here a loaded host may split them).
+    const drag = (await farInfo())['follow'] as { commands: number; result: { nodes?: number } };
+    expect(drag.commands).toBeGreaterThan(1);
+    expect(drag.result.nodes).toBeGreaterThan(0);
+    // Undo the last move and redo it, then undo it again: the far field follows each.
+    expect((await lineStep('undo')).status).toBe(200);
+    expect((await lineStep('redo')).status).toBe(200);
+    expect((await lineStep('undo')).status).toBe(200);
+    await farInfo();
+    const followed = farState();
+    // The same cache built whole from the world and the structures where they stand now.
+    rmSync(farCacheDir(backend._test.service.projectDir(PROJECT)!, WORLD), { recursive: true, force: true });
+    await farInfo();
+    const whole = farState();
+    expect(whole).toEqual(followed);
+  }, 120_000);
 });

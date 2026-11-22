@@ -93,7 +93,8 @@ describe('the far cache worker', () => {
         },
       },
     });
-    expect(r.ok && r.far).toMatchObject({ nodes: expect.any(Number) });
+    expect(r.ok && r.far).toMatchObject({ queued: expect.any(Number) });
+    expect(await worlds.farSettled('p', 'w')).toMatchObject({ nodes: expect.any(Number) });
     const fresh = join(root, 'fresh');
     await buildFarCache(worldDir, fresh);
     expect(filesOf(farCacheDir(projectDir, 'w'))).toEqual(filesOf(fresh));

@@ -271,7 +271,9 @@ describe('fine far levels baked by a world', () => {
     expect(r.ok ? null : r.error).toBeNull();
     if (!r.ok) return;
     const dirty = farFineDirty(r.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })));
-    const far = r.far as { fine?: { dirty: number; built: number; reused: number } };
+    // The rebuild follows the answer.
+    expect(r.far).toMatchObject({ queued: expect.any(Number) });
+    const far = (await worlds.farSettled('p', 'w')) as { fine?: { dirty: number; built: number; reused: number } };
     // Nodes reading the same chunks (all air past the world, all rock under it) share a content key: built once.
     expect(far.fine?.dirty).toBe(dirty.length);
     expect(far.fine!.built + far.fine!.reused).toBe(dirty.length);
@@ -296,11 +298,13 @@ describe('fine far levels baked by a world', () => {
     expect(filesOf(dir)).toEqual(filesOf(farCacheDir(fresh.projectDir, 'w')));
     // Undone, then the same dig again: the dig's nodes come back from the rebuilt store by their content.
     const u = await worlds.step('p', 'w', 'undo', worlds.newestStroke('p', 'w')!, null);
-    const undone = u.ok ? (u.far as { fine?: { dirty: number; built: number; reused: number } }).fine : undefined;
+    expect(u.ok).toBe(true);
+    const undone = ((await worlds.farSettled('p', 'w')) as { fine?: { dirty: number; built: number; reused: number } }).fine;
     expect(undone!.dirty).toBe(dirty.length);
     expect(undone!.built + undone!.reused).toBe(dirty.length);
     const again = await worlds.command('p', { op: 'editVoxels', projectId: 'p', args: { world: 'w', command: DIG } });
-    expect(again.ok && (again.far as { fine?: unknown }).fine).toMatchObject({ dirty: dirty.length, built: 0, reused: dirty.length });
+    expect(again.ok).toBe(true);
+    expect(((await worlds.farSettled('p', 'w')) as { fine?: unknown }).fine).toMatchObject({ dirty: dirty.length, built: 0, reused: dirty.length });
     // A column landing while a bake runs builds again only its own nodes over the changes made meanwhile: the
     // columns' shares add up to the whole change's.
     const m = readFarCacheManifest(dir);

@@ -100,6 +100,7 @@ import { writeAtomic, type WriteOps } from './write';
 import { farBricksFolder, type FarBricksRebuild } from './voxel-far-bake';
 import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, FarWorldSource, placedGridChunks, readFarCacheManifest, swapFarCache, type FarCacheManifest } from './voxel-far-cache';
 import { farFineComplete, farFinePending, farFineProgress, rebakeFarFine, startFarFine, writeFarFineColumn, type FarFineResult } from './voxel-far-fine';
+import { FarFollow } from './voxel-far-follow';
 import { inProcessFarJobs, type FarCacheJobs } from './voxel-far-jobs';
 
 /** The project folder holding its voxel worlds, one folder each. */
@@ -315,7 +316,18 @@ export type RegionFileAnswer = { ok: true; path: string; etag: string } | { ok: 
  * with their tags, current with the world's revision. While it is being
  * built (missing, or of an older revision) the answer is `far_cache_building`.
  */
-export type VoxelFarInfo = { ok: true; world: string; manifest: FarCacheManifest; files: Array<{ name: string; etag: string }>; fine?: VoxelFineBake } | { ok: false; error: VoxelWorldError };
+export type VoxelFarInfo = { ok: true; world: string; manifest: FarCacheManifest; files: Array<{ name: string; etag: string }>; fine?: VoxelFineBake; follow?: VoxelFarFollow } | { ok: false; error: VoxelWorldError };
+
+/** The last far rebuild that followed commands after their answers (voxel-far-follow.ts), as the far info reports it. */
+export interface VoxelFarFollow {
+  /** Changes it built (an edit, an undo, a structure step: a structure made or changed gives its stroke and its place), and the world chunks it built again over. */
+  readonly commands: number;
+  readonly chunks: number;
+  /** When it landed (ms since the epoch). */
+  readonly at: number;
+  /** What it built (null: there was no far cache). */
+  readonly result: FarRebuilt | { readonly stale: string } | null;
+}
 
 /** A world's fine bake as the far info answers it: the level asked, whether it is baking now, and per fine level the region columns baked of all. */
 export interface VoxelFineBake {
@@ -372,11 +384,13 @@ export interface VoxelCommandApplied {
   /** The world's revision after the change. */
   readonly revision: number;
   /**
-   * The far cache after the change: the nodes rebuilt (the changed chunks'
-   * ancestors) and the ms it took, or why it was not (it is then built
+   * The far cache after the change: `queued`, the world chunks now waiting
+   * to be built again after the answer (voxel-far-follow.ts; a rebuild's
+   * own answer: the nodes rebuilt and the ms it took, from
+   * {@link VoxelWorlds.farSettled}), or why it will not be (it is then built
    * again whole when next read); null when the world has none yet.
    */
-  readonly far: { readonly nodes: number; readonly ms: number; readonly bricks?: FarBricksRebuild; readonly fine?: FarBricksRebuild } | { readonly stale: string } | null;
+  readonly far: FarRebuilt | { readonly queued: number } | { readonly stale: string } | null;
   /** Cells whose voxel changed. */
   readonly cells: number;
   /** The world grid's chunks whose content changed ([cx, cy, cz] each): what a client re-reads. */
@@ -480,6 +494,9 @@ interface OpenWorld extends WorldState {
   queue: Promise<unknown>;
 }
 
+/** A far rebuild's answer: the nodes rebuilt (the changed chunks' ancestors), the ms it took, its bricks and fine nodes. */
+export type FarRebuilt = { readonly nodes: number; readonly ms: number; readonly bricks?: FarBricksRebuild; readonly fine?: FarBricksRebuild };
+
 const refuse = (code: string, cls: VoxelWorldError['cls'], message: string, path?: string): { ok: false; error: VoxelWorldError } => ({ ok: false, error: { code, cls, message, ...(path !== undefined ? { path } : {}) } });
 
 export interface VoxelWorldsOptions {
@@ -493,6 +510,8 @@ export interface VoxelWorldsOptions {
   readonly farJobs?: FarCacheJobs;
   /** How long an export waits for a far cache being built (default {@link FAR_EXPORT_WAIT_MS}). */
   readonly farExportWaitMs?: number;
+  /** How long a command's far changes wait for more before they are built (default `FAR_FOLLOW_SETTLE_MS`). */
+  readonly farFollowSettleMs?: number;
   /**
    * The project's scenes as stored: their voxel world components name each world's bake level (the finest any of them
    * sets; absent: the default, 2 m, no fine level baked).
@@ -569,7 +588,12 @@ export class VoxelWorlds {
   /** Per world, the highest structure grid id handed out in this process ({@link nextGridId}). */
   private readonly gridsGiven = new Map<string, number>();
 
+  /** The far rebuilds that follow commands after their answers, and the worlds they are for (by {@link worldKey}). */
+  private readonly farGather: FarFollow<FarRebuilt | { readonly stale: string }>;
+  private readonly farFollowing = new Map<string, OpenWorld>();
+
   constructor(private readonly opts: VoxelWorldsOptions) {
+    this.farGather = new FarFollow((key, before, chunks) => this.farFollowRun(key, before, chunks), opts.farFollowSettleMs);
     this.farJobs = opts.farJobs ?? inProcessFarJobs();
     this.generator = opts.structureGenerator ?? BUILDING_GENERATOR;
   }
@@ -791,6 +815,8 @@ export class VoxelWorlds {
   async farInfo(projectId: string, name: string): Promise<VoxelFarInfo> {
     const w = await this.load(projectId, name);
     if ('ok' in w) return w;
+    // What commands left to build goes first: a cache read now is the one they made.
+    await this.farGather.settle(worldKey(w));
     const stale = farCacheStale(w.farDir, w.manifest);
     if (stale !== null) {
       void this.buildFar(w);
@@ -808,7 +834,8 @@ export class VoxelWorlds {
       const manifest = readFarCacheManifest(w.farDir);
       const fine = this.fineState(w, manifest);
       if (fine !== undefined && !fine.baking && !fine.paused && fine.failed === undefined && fine.levels.some((l) => l.done < l.total)) void this.bakeFine(w);
-      return { ok: true, world: name, manifest, files, ...(fine !== undefined ? { fine: { ...fine, baking: this.fineBakes.has(worldKey(w)) } } : {}) };
+      const follow = this.farGather.last.get(worldKey(w));
+      return { ok: true, world: name, manifest, files, ...(fine !== undefined ? { fine: { ...fine, baking: this.fineBakes.has(worldKey(w)) } } : {}), ...(follow !== undefined ? { follow } : {}) };
     });
   }
 
@@ -848,7 +875,7 @@ export class VoxelWorlds {
   }
 
   /** The kept ancestors of `chunks` built again by the far jobs; a cache that cannot be is dropped (the next read builds it whole). */
-  private async farRebuild(w: OpenWorld, chunks: readonly ChunkCoord[]): Promise<VoxelCommandApplied['far']> {
+  private async farRebuild(w: OpenWorld, chunks: readonly ChunkCoord[]): Promise<FarRebuilt | { readonly stale: string }> {
     try {
       const r = await this.farJobs.rebuild(w.dir, w.farDir, chunks, this.placements(w));
       return { nodes: r.rebuilt.length, ms: r.ms, ...(r.bricks !== undefined ? { bricks: r.bricks } : {}), ...(r.fine !== undefined ? { fine: r.fine } : {}) };
@@ -1014,10 +1041,42 @@ export class VoxelWorlds {
       for (const [cx, cy, cz] of chunks) build.changed.set(`${cx},${cy},${cz}`, { cx, cy, cz });
       return { stale: 'the far cache is being built; this change is built into it when it lands' };
     }
-    const stale = farCacheStale(w.farDir, { ...w.manifest, revision: before });
+    // Changes gathered and not built yet: the cache is still at the revision the first of them found.
+    const key = worldKey(w);
+    const base = this.farGather.before(key) ?? before;
+    const stale = farCacheStale(w.farDir, { ...w.manifest, revision: base });
     if (stale === 'not built') return null;
     if (stale !== null) return { stale };
-    return this.farRebuild(w, chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })));
+    this.farFollowing.set(key, w);
+    return { queued: this.farGather.add(key, base, chunks.map(([cx, cy, cz]) => ({ cx, cy, cz }))) };
+  }
+
+  /** A world's gathered far changes built (voxel-far-follow.ts), in its queue: on the cache as it is when their turn comes. */
+  private farFollowRun(key: string, before: number, chunks: ChunkCoord[]): Promise<FarRebuilt | { readonly stale: string } | null> {
+    const w = this.farFollowing.get(key);
+    if (w === undefined) return Promise.resolve(null);
+    return this.queued(w, async () => {
+      const build = this.farBuilds.get(key);
+      if (build !== undefined) {
+        for (const c of chunks) build.changed.set(`${c.cx},${c.cy},${c.cz}`, c);
+        return { stale: 'the far cache is being built; these changes are built into it when it lands' };
+      }
+      const stale = farCacheStale(w.farDir, { ...w.manifest, revision: before });
+      if (stale === 'not built') return null;
+      if (stale !== null) return { stale };
+      const r = await this.farRebuild(w, chunks);
+      return r;
+    });
+  }
+
+  /**
+   * Builds now what commands left for a world's far cache and answers once it landed: the rebuild's answer (null: none
+   * waited, or the world has no far cache). Benches and tests read the far cache current with it.
+   */
+  async farSettled(projectId: string, world: string): Promise<FarRebuilt | { readonly stale: string } | null> {
+    const w = await this.load(projectId, world);
+    if ('ok' in w) return null;
+    return this.farGather.settle(worldKey(w));
   }
 
   /**
@@ -1033,6 +1092,7 @@ export class VoxelWorlds {
     if ('ok' in w) return { ok: false, code: w.error.code, message: w.error.message };
     const wait = this.opts.farExportWaitMs ?? FAR_EXPORT_WAIT_MS;
     const t0 = performance.now();
+    await this.farGather.settle(worldKey(w));
     if (farCacheStale(w.farDir, w.manifest) !== null) await waitAtMost(this.buildFar(w), wait);
     if (this.wantedBake(w) < FAR_MIN_LEVEL && farCacheStale(w.farDir, w.manifest) === null) await waitAtMost(this.bakeFine(w), Math.max(0, wait - (performance.now() - t0)));
     return this.queued(w, async (): Promise<ShippedWorldFiles> => {
@@ -1160,22 +1220,25 @@ export class VoxelWorlds {
 
   /**
    * The world chunks each placed structure grid lies over, by grid (what the far build reads of it), from the grids'
-   * files as they are now; empty while the world has no far cache (nothing to build again).
+   * files as they are now; empty while the world has no far cache (nothing to build again). Read outside the world's
+   * queue (a structure's move must not wait for a far rebuild under way there; region files are replaced whole, so a
+   * read sees a file before or after a write).
    */
   async gridFarChunks(projectId: string, world: string, places: readonly GridPlacement[]): Promise<Map<number, Array<readonly [number, number, number]>>> {
     const w = await this.load(projectId, world);
     if ('ok' in w) return new Map();
-    return this.queued(w, () => Promise.resolve(farCacheStale(w.farDir, w.manifest) === 'not built' ? new Map() : new Map(places.map((p) => [p.gridId, placedGridChunks(w.dir, [p])]))));
+    return farCacheStale(w.farDir, w.manifest) === 'not built' ? new Map() : new Map(places.map((p) => [p.gridId, placedGridChunks(w.dir, [p])]));
   }
 
   /**
-   * The world's far cache built again over `chunks` with the structure grids where their objects stand now (a
-   * structure made, moved, turned or deleted: no voxel of the world grid changed). Null: no far cache yet.
+   * The world's far cache to be built again over `chunks` with the structure grids where their objects stand then (a
+   * structure made, moved, turned or deleted: no voxel of the world grid changed): gathered, not waited for, outside
+   * the world's queue, so a drag's moves gather into one rebuild while each is answered. Null: no far cache yet.
    */
   async farFollow(projectId: string, world: string, chunks: ReadonlyArray<readonly [number, number, number]>): Promise<VoxelCommandApplied['far']> {
     const w = await this.load(projectId, world);
     if ('ok' in w || chunks.length === 0) return null;
-    return this.queued(w, () => this.farAfter(w, w.manifest.revision, [...new Map(chunks.map((c) => [c.join(','), c])).values()]));
+    return this.farAfter(w, w.manifest.revision, [...new Map(chunks.map((c) => [c.join(','), c])).values()]);
   }
 
   /**
