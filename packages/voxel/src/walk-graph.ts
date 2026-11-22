@@ -533,6 +533,11 @@ export class WalkGraph {
     return this.chunks.values();
   }
 
+  /** The graph's sizes and times without walking its links (what a summary over many graphs reads each frame). */
+  counts(): Omit<WalkGraphStats, 'frontierPieces'> {
+    return { chunks: this.chunks.size, cells: this.cellCount, pieces: this.pieceCount, exits: this.exitCount, built: this.built, kept: this.kept, paired: this.paired, buildMs: this.buildMs, pairMs: this.pairMs };
+  }
+
   stats(): WalkGraphStats {
     let frontierPieces = 0;
     for (const c of this.chunks.values()) {

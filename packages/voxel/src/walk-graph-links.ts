@@ -182,7 +182,7 @@ export class WalkGraphLinks {
     const links: WalkLink[] = [];
     const under = new Set<number>();
     // The world chunks under the grid chunk's turned box (what a change there makes these links again for).
-    {
+    if (part !== null && part.ys.length > 0) {
       const e = graph.grid.edge;
       const min = [Infinity, Infinity, Infinity];
       const max = [-Infinity, -Infinity, -Infinity];
@@ -241,6 +241,12 @@ export class WalkGraphLinks {
     }
     const was = gl.under.get(key);
     if (was !== undefined) this.unindex(id, key, was.keys);
+    this.setLinks(gl, key, links);
+    // A grid chunk where nothing stands links to nothing whatever the world does: it hears of no world chunk.
+    if (part === null || part.ys.length === 0) {
+      gl.under.delete(key);
+      return;
+    }
     const list = [...under];
     gl.under.set(key, { keys: list, at: [cx, cy, cz] });
     for (const k of list) {
@@ -249,11 +255,6 @@ export class WalkGraphLinks {
       let set = by.get(id);
       if (set === undefined) by.set(id, (set = new Set()));
       set.add(key);
-    }
-    this.setLinks(gl, key, links);
-    if (part === null) {
-      gl.under.delete(key);
-      this.unindex(id, key, list);
     }
   }
 

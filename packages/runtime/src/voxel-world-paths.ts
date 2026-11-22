@@ -113,7 +113,7 @@ export class WorldPaths {
     let pending = 0;
     let bytes = this.links.bytes + this.linked!.bytes;
     for (const g of this.grids) {
-      const st = g.walk.stats();
+      const st = g.walk.counts();
       chunks += st.chunks;
       cells += st.cells;
       pieces += st.pieces;
@@ -124,6 +124,12 @@ export class WorldPaths {
     }
     const l = this.links.stats();
     return { chunks, cells, pieces, exits, buildMs: Math.round(buildMs * 100) / 100, pending, bytes, links: l.links, linkChunksMade: l.made, linkMs: Math.round(l.ms * 100) / 100 };
+  }
+
+  /** The grids' part of the world's walk diagnostics (nothing with no grid). */
+  gridStatsPart(): { readonly grids?: GridWalkStats } {
+    const g = this.gridStats();
+    return g === null ? {} : { grids: g };
   }
 
   /** Every query answered with what it has (unknown): a new run, or the world gone. */

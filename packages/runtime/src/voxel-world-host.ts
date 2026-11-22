@@ -911,7 +911,7 @@ export class VoxelWorldHost {
       ...(this.streamer !== null ? { readRing: { setM: this.streamer.readReach.sceneRing.loadRadius * VOXEL_SIZE_M, nowM: this.streamer.ring.loadRadius * VOXEL_SIZE_M, reachM: this.streamer.readReach.cells === null ? null : this.streamer.readReach.cells * VOXEL_SIZE_M } } : {}),
       ...(m !== undefined ? { stream: { reading: m.reading, decoding: m.decoding, deriving: m.deriving, damaged: m.damaged, derivedBytes: m.bytes.derived, counters: m.counters, lod: this.streamer?.mips?.lod.counters ?? null } } : {}),
       ...(regions !== null ? { regions } : {}),
-      ...(this.walk !== null ? { walk: { ...this.walk.stats(), pending: this.walk.pending, bytes: this.walk.bytes, searchBytes: this.paths!.queries.bytes, queued: this.paths!.queued, ...this.paths!.queries.served, ...(this.paths!.gridStats() !== null ? { grids: this.paths!.gridStats() } : {}) } } : {}),
+      ...(this.walk !== null ? { walk: { ...this.walk.stats(), pending: this.walk.pending, bytes: this.walk.bytes, searchBytes: this.paths!.queries.bytes, queued: this.paths!.queued, ...this.paths!.queries.served, ...this.paths!.gridStatsPart() } } : {}),
       ...(far !== undefined ? { far: { selected: far.nodes, drawn: far.drawn, pending: far.pending, jobs: far.jobs, selectMs: far.selectMs, meshUs: far.meshUs, queueMs: far.queueMs, readMs: far.readMs, pumpMs: far.pumpMs, commitMs: far.commitMs, firsts: far.firsts, counters: far.counters, gpu: far.gpu, standIns: far.standIns, seen: far.seen, fine: far.fine } } : {}),
     };
     P.end(STATS_SPAN.rest);
