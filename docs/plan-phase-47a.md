@@ -169,7 +169,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.0 | Done 2026-11-21 (docs only, no gate): baseline at 58fac9ba (§8a; page ms at 128 lamps +2 ms against 46e.19, the 128-lamp room unusable). D740 not fixed: the surface WGSL equal in loads, samples, loops; `level0` equal at both commits, so the extra is the coarse levels' read meeting other data; D740 rewritten |
 | 47a.1 | (a) done (0980318c…42363e34). (b) done (3627dc6b, 06ecc288): stamp (share), rooms 24/24; D746, D747. (c) done (fe397a85, 5db10a23): a walk graph a grid linked at doorsteps, on: every room and storey at 0/30/45°, no cell in a wall; the stamp alone loses 4–7 stair tops; D748, D749. (d) done 2026-11-22 (654fae78): grids resampled into the far build: the town at 250 m–2 km as W's; D750 |
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
-| 47a.3 | not started |
+| 47a.3 | Done 2026-11-22 (68fbec87, b4ff1315): `@thirdlight/voxel` `structures/`: generator contract, F1 record + checks, building generator (union walls, 45° roofs, hip over the outline), regenerate (undo/redo, fit rule), capture, regenerate-all; town house = bench pattern but beams, landing; small house 1.4 ms, 131 houses 78 ms, regenerate with 1,000 overrides 30 ms; D751, D752 |
 | 47a.4 | not started |
 | 47a.5 | not started |
 | 47a.6 | not started |
@@ -870,6 +870,149 @@ matches the placements would need one in `far.json` (an owner stop; not built).
 turned houses past their own rings as W's is drawn, for 9 ms of bake a house and +0.2–0.6 % bytes; keep it, fed from the
 structure objects' placements in 47a.5; at a 0.5 m bake level a 45° wall would be edge-joined cells (not seen in Play).
 
+### 47a.3 — the structure core
+
+**Built** (68fbec87, b4ff1315; F1 without a piece list, F3 as approved), `@thirdlight/voxel` `structures/`, pure,
+no component, op or schema change (47a.4):
+- **The contract** (`generator.ts`, `StructureGenerator<D>`): `kind`, `version`, `canonical(input)`, `box(def)` (every
+  cell it writes, inclusive), `chunk(def, grid, cx, cy, cz, out)` (a chunk of the structure's own grid, every cell).
+  A definition carries `generator`, the version that last wrote it. Nothing in it names buildings: splines and water
+  bodies sit on the same terms.
+- **The record** (`definition.ts`, `StructureDefinition`): F1's fields but `world` and `grid` (47a.4's), rebuilt field
+  by field (`parseStructureDefinition`), unknown fields refused, no count caps; with the plan's checks in
+  `canonicalStructureDefinition` (`building.ts`). It is defined in the voxel package: project-model may import voxel
+  (`tools/check-boundaries.mjs`: `project-model: { packages: ['voxel'] }`), voxel imports nothing but shared, and the
+  generator reads it; 47a.4's component imports the type and its canonical form from there (no copy). Refusals name
+  the field (JSON pointer) and what to change: a diagonal edge, a point on a straight run, a repeated point, an
+  outline crossing or touching itself (with "use a second polygon for a wing or a courtyard's side"), an opening on
+  an edge two polygons share ("inside the building at cell (15, 4) … put it on an outside wall"), past its edge's
+  end, its storey or the rows between floors, over another opening, a stair step in a wall or outside its polygon,
+  from the top storey, over another stair or its landing over another's hole, a generator newer than the build's.
+- **The building generator** (`building-plan.ts` union and walls, `building-roof.ts`, `building-features.ts`
+  openings and stairs, `building.ts` the chunk writer; each under 200 lines): polygons rasterised (a cell inside
+  when its middle is), joined as a union; walls are the union's cells with an outside cell among their eight
+  neighbours (one cell thick, an L's or T's inner corner cell included, so every corner is closed face to face; no
+  wall inside the union, so wings that touch or overlap are one building and a ring of four polygons leaves a
+  courtyard); the foundation is the ground floor's row (0) over the union and `foundationDepth` rows under it (role
+  foundation, as the bench house's slab); walls rows 1 … top − 1; each upper slab (row s · storeyHeight) inside the
+  walls, role floor, open over the steps that climb to it; openings are the wall's cells along their edge, role
+  `opening` in the wall's material; a stair is storeyHeight − 1 steps of a row a cell, two cells wide (`at` and the
+  next cell toward +x climbing along z, +z along x), then its landing on the next floor; every cell full integrity
+  (15), dry. The plan is laid out once a definition object (a `WeakMap`); a chunk is table reads a column.
+- **Roofs** (one cell thick, 45°, the roof mesher's stair), over the union widened by the overhang (square: eave and
+  verge reach the same): **flat** at the top row; **hip** over the whole outline at once, a column's row the top plus
+  its chessboard distance in from the widened outline, so an L or T gets each wing's ridge along the wing, hips at
+  the outer corners and a valley from each inner corner, and a courtyard ring its inner eaves sloping in (built first
+  as a hip a polygon joined by the highest: that left a gutter where an L's polygons meet; b4ff1315 replaced it);
+  **gable** a polygon each, ridge along the structure's one `axis` (F1 has one), joined by the highest over each
+  column, every polygon's eave and verge kept outside the walls (dropping the lower one opened the attic at an L's
+  inner corner: the closure test found it). Walls rise to meet a sloped roof: a gable end (its outside along the
+  ridge) to the row under the roof, an eave wall to two rows under it (the eave cell a cell out and up, as the bench
+  house and the role spec's "an eave wall stopping a cell under the roof"). Shown: `work/47a.3/roofs.png` (rows x,
+  columns z; rectangle, L and T × flat, gable, hip; colour the rise, black the walls; looked at) and the text maps
+  `L-hip.txt`, `L-gable.txt`, `T-gable.txt`. **What a designer may call wrong:** a gable over an L or T runs every
+  ridge along the one axis, so the wing's ridge crosses the wing and meets the main roof in a valley along it (an
+  M-shaped pair of parallel gables, closed and drawn as planes), not a cross gable; a per-polygon ridge axis would
+  need an add-only F1 field (the owner's; D752).
+- **The anchor rule (one rule, `definition.ts`, `anchoredDefinition`):** a definition's numbers are its grid's cells,
+  as they are; nothing translates between them, ever. Point (x, z) is the lattice corner, y = 0 is the ground floor's
+  row (its slab; F2's "ground floor's top" read as 47a.1a read it), storeys up from it, the foundation into negative
+  rows. A new structure starts anchored: `anchoredDefinition` moves it by whole cells so the minimum x and z of all it
+  writes (eaves and overhang included, as 47a.1a's houses) are 0. A regenerate never moves it: a wider overhang, a
+  deeper foundation or a wing to the west write into negative cells (one more region file across x = 0 or y = 0 in a
+  stacked layout), and every stored override keeps its cell. A plain 8 × 6 m house anchored is 2 chunks (the
+  foundation below row 0 is the second; the 131 town houses anchored 137 chunks), unanchored 5.
+- **Regenerate** (`regenerate.ts`, `regenerateStructure`): over every chunk the grid holds, the new box's, the
+  previous definition's (when given) and the overrides': writes the generated chunk (cells no longer generated
+  become air), `reapplyOverrides` (the fit rule as written), then compares each chunk with what it held: the undo
+  record (`ChunkUndo[]`, a chunk's changed cells or its whole image when smaller, as an edit's) and the redo (the same
+  chunks after), `cells`, `fields` and `parts` for the feeds, `materialSwaps`, `kept`, `absorbed`, the misfits with
+  their grid cells, the rebased overrides and the definition with the generator's version. Nothing changed: `changed:
+  false`, no record (the command layer's `no_change`).
+- **Capture** (`captureOverrides`): after an edit, each chunk it changed is generated alone and its overrides become
+  the cells where the grid now differs (`chunkOverridesOf`); a cell put back drops its override. TLVO v2 as written
+  (F3): spec §3.5 and `format-versions.md` updated in 68fbec87 (draft → 2, the file `grid-<id>/overrides.tlvo` and its
+  staged write for 47a.4, the owner's note of 2026-11-20).
+- **Regenerate all** (`regenerateAll`): every structure whose `generator` is below the generator's version
+  regenerated, one combined report (cells, kept, absorbed, misfits; each structure's own report and undo record), the
+  current ones listed and left alone (R34; the command and its one undo step are 47a.4).
+
+**Tests** (vitest, Node; `structures/building.test.ts` 11, `regenerate.test.ts` 6, `fit-rule.test.ts` 6,
+`tools/voxel-bench/structure-house.test.ts` 3): the checks above with their messages; wings (L, T, two overlapping
+rectangles, a ring): every wall cell exactly on the union's outline by the test's own reading of the rectangles, the
+L's inner corner cell, no wall where wings meet, the courtyard open to the sky, foundation under the union only;
+every roof shape on a rectangle at both axes (rows against the 45° formula, gable ends and eave walls), and on the
+rectangle, L, T and ring at overhangs 0, 1, 2 (36 buildings): a roof over every column, one 45° surface over the
+rooms, **no room or attic cell reached from outside** by a 6-connected flood (closed); the hip L's wing ridge and
+valley; floors, holes, steps, landing, openings, and a room reached from outside only through its openings; the same
+bytes twice, the same cells at chunk edges 16 and 32 and in reversed chunk order; the anchor. Regenerate: a fresh
+write then no change; **12 random houses × 6 random changes** (scale, a wing, storeys, roof, a material, an opening
+added, moved, removed; 50 changes checked): regenerated = generated fresh cell for cell, undo gives the grid before, redo
+the grid after; a material swap of walls, roof and floor: `fields` = material only, every cell's role, shape and
+wetness and the cell set unchanged, a painted cell kept painted, a dug hole kept; capture → encode → decode →
+regenerate into an empty grid gives the edited grid and the same bytes; regenerate-all with a test generator one
+version on. Bench: **every town house (131, balconies off) written by the generator equals `houseVoxel`** but for
+its beams (the timber rows a cell out at each storey line: not in a structure record) and the stair's landing (the
+pattern leaves the floor open one cell past the top step, a cell-wide gap; the generator floors it); so the bench's
+town does **not** use the package's generator (its worlds would not stay byte-equal) and is left alone; the L-house
+written by one-column `fill` commands (a command a run of equal voxels) derives (world rules, a full kit) to the same bytes in every chunk round
+it; the L-house's pieces are all of the catalogue's cases.
+
+**The fit rule on the building generator** (`fit-rule.test.ts`, a 16 × 12-cell two-storey gable house; each row a
+test asserting what the rule gives today):
+
+| Case | What happens (approved rule) | Right? |
+|---|---|---|
+| a hole cut in a wall, the house widened (that wall moved) | the hole in the wall that stayed: kept; the cells of the hole in the wall that moved are inside the room now, where the generator makes air: **absorbed, dropped without a report**; the new wall is whole | **no**: the designer's window is lost silently. Proposal: test fit before absorption (an override is absorbed only when the generated voxel is its value *and* the base's kind is unchanged; else a misfit, reported). A hole that follows its wall needs the hole as an opening in the definition, not a per-cell override (D751) |
+| a wall cell painted, then a material swap | kept, the cell stays painted (the owner's words) | yes |
+| … the wall swapped to the paint's own material, then back | the paint is absorbed at the first swap; at the swap back the cell goes with the wall | **no** in a common round trip: the paint is gone. Proposal: keep a painted override whose value equals the generated voxel when its base differs from it only in material (D751) |
+| a shelf inside, then a storey added | a shelf in a room that stays a room: kept; one in the attic where the new floor's slab goes: misfit (reported, not written; the floor is there) | yes |
+| a window hand-cut, then the same opening added to the definition | painted as `opening` cells: absorbed; **dug** (air): a misfit for each cell (air against the generated `opening`), the cells come out as the opening | half: the result is right, the report is noise. Proposal: air and `opening` count as one kind (both open) for the fit (D751) |
+| the roof changed gable → hip under a hand-built chimney | the chimney's cells in the air and in the attic: kept; where the new hip roof lies: misfit, so **the roof runs through the chimney**; where the old gable roof was (base roof, now air): misfit, so **the chimney has a hole** | **no**. Proposal: a hand-added solid (value solid, base air or roof) stays wherever the generator now makes air or roof (D751) |
+| overrides on cells that leave the box (the house shrunk) | a post added outside: kept; a hole in the wall that went: absorbed; a painted cell of it: misfit | yes (the misfit report is the designer's cue) |
+
+The rule is unchanged (an approved spec); the proposals are for the lead and the owner.
+
+**Measured** (Node 22, i5-12600H, 2026-11-22 14:16–14:18 UTC, load 1.6–2.8, one process in an 8G scope, nothing else
+running; `work/47a.3/scratch/measure.ts`, `node bundle.cjs measure && node measure.mjs`; raw `measure-4.json`; medians
+of 15 (5 for the town, 7 for the regenerates); bytes at rest as a region file holds them: each chunk zstd 3 or raw, a
+12-byte entry, the 64-byte header):
+
+| | ms | chunks | cells | bytes (codec / at rest) |
+|---|---|---|---|---|
+| small house 8 × 6 m, 2 storeys, door, stair, gable: generate (definition and plan included) | 1.42 (anchored 0.96) | 5 (anchored 2) | 1,624 | 32,893 / 545 (anchored 20,545 / 445) |
+| large L 40 × 30 m, 4 storeys, 3 stairs, hip | 8.23 (anchored 7.15) | 24 (18) | 33,804 | 172,607 / 2,557 (147,911 / 2,463) |
+| the town's 131 houses (definition from the pattern, anchor, generate) | 78.4 | 137 | — | 53,274 at rest (407 a house) |
+| regenerate the large L + a storey, 1,000 overrides (500 dug, 500 painted wall cells) | 30.5 | 18 in the undo record | 13,672 changed | overrides 10,040 B; kept 1,000 |
+| regenerate the same with nothing changed (`no_change`) | 21.3 | — | 0 | — |
+| capture after a brush dab (sphere, radius 3 cells, through a wall across a chunk face) | 0.95 | 2 | 29 | — |
+
+A regenerate's cost is the whole grid's chunks exported, generated and compared, whatever changed (21 ms for 24
+chunks with nothing changed); a chunk-local regenerate (only the chunks a change can reach) is left for 47a.4 if the
+editor needs it.
+
+**The L-house through the real derive** (world rules, a full test kit bound to every material, the two-storey L of
+`structure-houses.ts`: 12 × 8 m and a 5 × 6 m wing, a door, three windows, a stair; 8 chunks): hip 1,081 pieces, gable
+1,064, **none of an unknown case** (every instance's piece is a case of the world rules' catalogue, as the kit tests
+read them). Hip by case: edge-in-bottom 196, edge-out-bottom 160, edge-out-top 156, edge-out-vertical 140,
+roof-eave 112, edge-in-top 96, edge-in-vertical 68, roof-hip 43, corner-out-bottom 32, corner-out-top 32,
+roof-ridge 19, corner-in-bottom 16, corner-in-top 6, roof-valley 5. Gable: edge-in-bottom 202, edge-out-bottom 166,
+edge-out-vertical 143, edge-out-top 106, edge-in-top 99, roof-eave 72, edge-in-vertical 71, roof-gable 60,
+roof-ridge 47, corner-out-bottom 34, corner-out-top 28, corner-in-bottom 22, corner-in-top 9, roof-hip 4,
+roof-valley 1.
+
+**Unverified:** anything drawn (no browser in this item: the roofs are seen as plans only, not through the roof
+mesher on screen); a turned or sloped site; a generator's output in Play or an export (47a.4–47a.5); the time of a
+regenerate in the backend with its staged write. **Left out** (as the brief): the component, ops, undo step,
+manifest, duplicate, export, props, splines and water.
+
+**Gates:** gate-fast-20261122-135248 RED (the build: two test files' types), gate-fast-20261122-135529 RED (Play test:
+the profiler's `jobs` lane had no bars under load peak 15.2; `tracer-terrain-rings.test.ts`, D411, passed alone),
+gate-rerun-20261122-141124 GREEN (Play test passed). b4ff1315 and the docs: see §7.
+
+**D-rows:** D751 (the fit rule's four designer-wrong cases above, with proposals), D752 (no cross gable: one ridge
+axis a structure).
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -956,6 +1099,27 @@ structure objects' placements in 47a.5; at a 0.5 m bake level a 45° wall would 
 - 2026-11-22 (the lead): a gate's Export test failed three times in this phase with "the configured exportRoot is not
   a directory" and passed on rerun; the likely cause is an agent clearing the temp folder while a gate runs. The
   agents' brief now forbids cleaning `TMPDIR` during a gate; a watch row if it recurs after that.
+
+- 2026-11-22 (47a.3; default chosen, owner to confirm): **a structure definition's numbers are its grid's cells,
+  never translated**: point (x, z) a lattice corner, y = 0 the ground floor's row (its slab), the foundation in
+  negative rows; F2's anchor (cell 0 at the minimum corner of all a structure writes, eaves included, as 47a.1a) is
+  applied once when a structure is made (`anchoredDefinition`), never by a regenerate, so no change of overhang,
+  foundation or wings moves a stored override (a wing to the west writes into negative cells: one more region file).
+- 2026-11-22 (47a.3; default chosen, owner to confirm): **the structure record's type and checks are defined in
+  `@thirdlight/voxel`** (`structures/definition.ts`), the generator's reader; project-model may import voxel and
+  takes the type and its canonical form from there in 47a.4 (no copy, no boundary change).
+- 2026-11-22 (47a.3; default chosen, owner to confirm): **a building is the union of its polygons**: walls only on the
+  union's outline (an inner corner cell included), none where wings meet, a ring leaves a courtyard; an outline may
+  not cross or touch itself and has no point on a straight run; polygons may overlap, touch or stand apart.
+- 2026-11-22 (47a.3; default chosen, owner to confirm): **roofs**: 45°, one cell thick; a hip over the whole outline
+  (chessboard distance in from the eave: an L gets wing ridges and valleys); a gable a polygon with the structure's
+  one ridge axis, joined by the highest, every polygon's eave kept outside the walls; flat at the top row; gable ends
+  rise to the row under the roof, eave walls to two rows under it. A cross gable needs a ridge axis a polygon (D752).
+- 2026-11-22 (47a.3; default chosen, owner to confirm): **parts the record does not name**: the ground floor's slab is
+  foundation (as the bench house); an opening takes the wall's material; a stair is two cells (1 m) wide toward +x or
+  +z, storeyHeight − 1 steps, the next floor open over its steps and whole at its landing; every cell integrity 15.
+- 2026-11-22 (47a.3): the bench town keeps its own `houseVoxel`: the package's generator writes every plain town house
+  exactly but for its beams and stair landing, so the bench worlds would not stay byte-equal.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
