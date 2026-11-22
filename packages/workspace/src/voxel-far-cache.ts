@@ -27,6 +27,18 @@ import {
   buildFarNode,
   chunkGrid,
   createDenseChunk,
+  denseRecordAt,
+  GridFrame,
+  gridWorldCellBox,
+  localIndex,
+  resampleGridInto,
+  valueMaterial,
+  valueRole,
+  valueShape,
+  valueWetness,
+  VOXEL_SIZE_M,
+  type GridCellBox,
+  type GridPlacement,
   chunksPerRegionSide,
   FAR_BRICK_BUILD,
   FAR_BRICKS_BLOB_VERSION,
@@ -254,6 +266,7 @@ class RegionFolder {
     readonly layout: RegionLayout,
     readonly listed: ReadonlySet<string>,
     keep = 16,
+    readonly gridId = WORLD_GRID_ID,
   ) {
     this.files = new FileCache(keep);
   }
@@ -263,7 +276,7 @@ class RegionFolder {
     if (!this.listed.has(name)) return null;
     return this.files.get(join(this.dir, name), () => {
       const bytes = new Uint8Array(readFileSync(join(this.dir, name)));
-      const expect = { worldId: this.worldId, gridId: WORLD_GRID_ID, layout: this.layout, grid: this.grid, footprint: this.footprint, rx, ry: this.layout === 'stacked' ? ry : 0, rz };
+      const expect = { worldId: this.worldId, gridId: this.gridId, layout: this.layout, grid: this.grid, footprint: this.footprint, rx, ry: this.layout === 'stacked' ? ry : 0, rz };
       return { index: RegionIndex.parse(bytes, { expect }), bytes };
     });
   }
@@ -278,18 +291,67 @@ class RegionFolder {
   }
 }
 
-/** A world folder's level-0 chunks as a far tree's source. */
+/** A structure grid placed for a far build: its files, its cell box, where it stands, its chunks decoded as read. */
+interface PlacedFarGrid {
+  readonly folder: RegionFolder;
+  readonly frame: GridFrame;
+  readonly box: GridCellBox;
+  /** The world chunks its turned box touches (inclusive). */
+  readonly chunks: { readonly lo: readonly number[]; readonly hi: readonly number[] };
+  readonly cells: Map<string, FarCells>;
+}
+
+/**
+ * A world folder's level-0 chunks as a far tree's source. With `grids` (where the world's structure grids stand: not
+ * stored with the voxels), each chunk a placed grid's turned box touches is the world's cells with the grid's resampled
+ * over them (grid-resample.ts), so the far levels and their bricks see the structures; a grid not in the manifest, or
+ * holding nothing, is left out. With none, the world grid's cells as stored.
+ */
 export class FarWorldSource implements FarSource {
   readonly manifest: VoxelWorldManifest;
   readonly grid: ChunkGrid;
   private readonly folder: RegionFolder;
   private readonly store: PaletteStore;
+  private readonly placed: PlacedFarGrid[] = [];
 
-  constructor(readonly worldDir: string) {
+  constructor(
+    readonly worldDir: string,
+    grids: readonly GridPlacement[] = [],
+  ) {
     this.manifest = readVoxelWorldManifest(worldDir);
     this.grid = chunkGrid(this.manifest.edge);
-    this.folder = new RegionFolder(join(worldDir, gridFolder(WORLD_GRID_ID)), this.grid, hexToBytes(this.manifest.worldId), this.manifest.footprint, this.manifest.layout, new Set(this.manifest.regions));
+    const id = hexToBytes(this.manifest.worldId);
+    this.folder = new RegionFolder(join(worldDir, gridFolder(WORLD_GRID_ID)), this.grid, id, this.manifest.footprint, this.manifest.layout, new Set(this.manifest.regions));
     this.store = pickStore(this.grid);
+    for (const place of grids) {
+      const listed = this.manifest.grids.find((g) => g.id === place.gridId);
+      if (listed === undefined) continue;
+      const folder = new RegionFolder(join(worldDir, gridFolder(place.gridId)), this.grid, id, this.manifest.footprint, this.manifest.layout, new Set(listed.regions), 4, place.gridId);
+      // Its cell box: the chunks its files hold.
+      const lo = [Infinity, Infinity, Infinity];
+      const hi = [-Infinity, -Infinity, -Infinity];
+      const c = { cx: 0, cy: 0, cz: 0 };
+      for (const name of listed.regions) {
+        const at = parseRegionFileName(this.manifest.layout, name);
+        if (at === null) continue;
+        const f = folder.file(at.rx, at.ry, at.rz);
+        if (f === null) continue;
+        for (let i = 0; i < f.index.size; i++) {
+          f.index.coordOf(i, c);
+          const p = [c.cx, c.cy, c.cz];
+          for (let a = 0; a < 3; a++) {
+            lo[a] = Math.min(lo[a]!, p[a]!);
+            hi[a] = Math.max(hi[a]!, p[a]! + 1);
+          }
+        }
+      }
+      if (lo[0] === Infinity) continue;
+      const e = this.grid.edge;
+      const box: GridCellBox = { lo: [lo[0]! * e, lo[1]! * e, lo[2]! * e], hi: [hi[0]! * e, hi[1]! * e, hi[2]! * e] };
+      const frame = new GridFrame(place);
+      const w = gridWorldCellBox(box, frame, VOXEL_SIZE_M);
+      this.placed.push({ folder, frame, box, chunks: { lo: w.lo.map((v) => Math.floor(v / e)), hi: w.hi.map((v) => Math.floor((v - 1) / e)) }, cells: new Map() });
+    }
   }
 
   /** A level-0 chunk's region read as stored (a content key reads its bytes). Throws on a damaged file. */
@@ -300,7 +362,40 @@ export class FarWorldSource implements FarSource {
   chunk(cx: number, cy: number, cz: number): FarCells {
     const r = this.folder.read(cx, cy, cz);
     if (r.kind === 'damaged') throw new Error(`chunk (${cx}, ${cy}, ${cz}): ${r.reason}`);
-    return readCells(this.grid, this.store, r);
+    const own = readCells(this.grid, this.store, r);
+    const over = this.placed.filter((g) => cx >= g.chunks.lo[0]! && cx <= g.chunks.hi[0]! && cy >= g.chunks.lo[1]! && cy <= g.chunks.hi[1]! && cz >= g.chunks.lo[2]! && cz <= g.chunks.hi[2]!);
+    if (over.length === 0) return own;
+    const out = createDenseChunk(this.grid);
+    if (typeof own === 'number') {
+      out.material.fill(valueMaterial(own));
+      out.role.fill(valueRole(own));
+      out.shape.fill(valueShape(own));
+      out.wetness.fill(valueWetness(own));
+    } else if (own !== null) {
+      out.material.set(own.material);
+      out.role.set(own.role);
+      out.shape.set(own.shape);
+      out.wetness.set(own.wetness);
+    }
+    let written = 0;
+    for (const g of over) written += resampleGridInto(out, this.grid, cx, cy, cz, g.frame, g.box, (x, y, z) => this.gridRecord(g, x, y, z), VOXEL_SIZE_M);
+    return written === 0 ? own : out;
+  }
+
+  /** A placed grid's record at a cell of its own frame (0: air or not held). */
+  private gridRecord(g: PlacedFarGrid, x: number, y: number, z: number): number {
+    const sh = this.grid.shift;
+    const key = `${x >> sh},${y >> sh},${z >> sh}`;
+    let c = g.cells.get(key);
+    if (c === undefined) {
+      const r = g.folder.read(x >> sh, y >> sh, z >> sh);
+      if (r.kind === 'damaged') throw new Error(`grid ${g.frame.gridId} chunk (${x >> sh}, ${y >> sh}, ${z >> sh}): ${r.reason}`);
+      c = readCells(this.grid, this.store, r);
+      g.cells.set(key, c);
+    }
+    if (c === null) return 0;
+    if (typeof c === 'number') return c;
+    return denseRecordAt(c, localIndex(this.grid, x & this.grid.mask, y & this.grid.mask, z & this.grid.mask));
   }
 
   /** The level at which one node spans one region (chunks a region side = 2^level). */
@@ -448,6 +543,8 @@ export interface FarBuildReport {
 /** How a full far cache build runs: its levels' lowest, the region columns' runner, the bake jobs' runner. */
 export interface FarBuildOptions {
   readonly minLevel?: number;
+  /** Where the world's structure grids stand (not stored with the voxels): resampled into the far levels (the {@link FarWorldSource} note). */
+  readonly grids?: readonly GridPlacement[];
   readonly run?: FarColumnRunner;
   /** Runs the bake jobs (default: here, one after another, from the fresh cache's level files). */
   readonly bake?: FarBakeRunner;
@@ -495,7 +592,7 @@ export function swapFarCache(fresh: string, cacheDir: string): void {
  */
 export async function buildFarCacheInto(worldDir: string, fresh: string, opts: FarBuildOptions = {}): Promise<FarBuildReport> {
   const t0 = performance.now();
-  const world = new FarWorldSource(worldDir);
+  const world = new FarWorldSource(worldDir, opts.grids);
   const minLevel = opts.minLevel ?? FAR_MIN_LEVEL;
   const columns = world.columns();
   const columnLevel = world.columnLevel;
@@ -631,11 +728,13 @@ export interface FarRebuildReport {
  * folder since the cache was built) and rewrites only the level files
  * holding them, then the manifest (at the world's revision now). Untouched
  * children are read from the cache, so the result equals a full build.
+ * `grids`: where the world's structure grids stand, resampled into the
+ * chunks they touch (the {@link FarWorldSource} note).
  */
-export function rebuildFarCache(worldDir: string, cacheDir: string, changed: Iterable<{ readonly cx: number; readonly cy: number; readonly cz: number }>): FarRebuildReport {
+export function rebuildFarCache(worldDir: string, cacheDir: string, changed: Iterable<{ readonly cx: number; readonly cy: number; readonly cz: number }>, grids: readonly GridPlacement[] = []): FarRebuildReport {
   const t0 = performance.now();
   const chunks = [...changed];
-  const world = new FarWorldSource(worldDir);
+  const world = new FarWorldSource(worldDir, grids);
   const cache = new FarCacheReader(cacheDir);
   const m = cache.manifest;
   if (m.worldId !== world.manifest.worldId || m.edge !== world.manifest.edge || m.footprint !== world.manifest.footprint) throw new Error('the far cache is of another world: build it again');

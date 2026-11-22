@@ -16,7 +16,7 @@ import { dayPresets } from './day-cycle';
 /** The pictures' names, fixed (a later item compares files of the same name). */
 export const LIGHT_SHOT_NAMES = ['street-noon', 'room-window', 'cave', 'night-lamps', 'far-view'] as const;
 /** Checks beside the five, taken only when named (`--only`): a far lamp from two places, two cameras moved 1 m, the lit props' two readings (bench-props.ts). */
-export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m', 'props-cart', 'props-table', 'house-60m', 'house-above', 'lroom-above'] as const;
+export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m', 'props-cart', 'props-table', 'house-60m', 'house-above', 'lroom-above', 'town-100m', 'town-150m', 'town-250m', 'town-600m', 'town-2km'] as const;
 /** The many-lamps scene's cameras (`--lamps N`, many-lamps.ts): a street with many lamps at night, a lamp-lit room, a high view over the lit town. */
 export const MANY_LAMP_SHOT_NAMES = ['lamps-street', 'lamps-room', 'lamps-high'] as const;
 export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number] | (typeof LIGHT_CHECK_NAMES)[number] | (typeof MANY_LAMP_SHOT_NAMES)[number];
@@ -203,6 +203,9 @@ export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   { name: 'house-60m', command: 'shot17', eye: [0, 40, -80], yaw: yawOf(0, 1), pitch: Math.atan2(35, 56), preset: 'bench-noon', near: true, shows: 'at noon, from 40 m up across the street the fronts of the row past it, about 60 m away, and their windows' },
   { name: 'house-above', command: 'shot18', eye: [0, 18, 10], yaw: yawOf(0, -1), pitch: Math.atan2(18, 9), preset: 'bench-noon', near: true, shows: 'at noon, the room camera’s house from 18 m over its south side: its roof, or with cut-away its ground floor round the bench subject' },
   { name: 'lroom-above', command: 'shot19', eye: [37, 38, 0], yaw: yawOf(0, -1), pitch: Math.atan2(13, 11), preset: 'bench-noon', near: true, shows: 'at noon, the floating L-shaped room and the brick-roofed hut in its notch from 14 m over them' },
+  // The town's middle from the east at a distance and a fifth of it up again (about 19° down), at noon: what draws a
+  // house there (100 m and 150 m: the mesh rings; past them the far field's bricks).
+  ...([['town-100m', 'shot20', 100], ['town-150m', 'shot21', 150], ['town-250m', 'shot22', 250], ['town-600m', 'shot23', 600], ['town-2km', 'shot24', 2000]] as const).map(([name, command, d]): LightingCamera => ({ name, command, eye: [d, 4 + d * 0.35, 0], yaw: yawOf(-1, 0), pitch: Math.atan2(d * 0.35, d), preset: 'bench-noon', near: d <= 150, shows: `at noon, the town's middle from ${d} m east and ${Math.round(d * 0.35)} m up: its houses as the ${d <= 150 ? 'mesh rings' : 'far field'} draw them` })),
   { name: 'props-table', command: 'shot16', eye: [0.5, 1.9, 3.5], yaw: yawOf(-3.9, -2.7), pitch: 0.3, preset: 'bench-noon', near: true, shows: 'at noon, the bench table under the room camera’s window wall and the floor under it' },
 ]);
 

@@ -461,6 +461,7 @@ export { SKY_NONE, SkyColumns, type SkyColumnWire } from './sky-columns';
 export { farBrickTops, FarSunTops, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_COVER_OFFSET, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_TILE_TEXELS, SUN_WINDOW_TEXELS, SunHeightWindow, sunTileOffset, composeSkyTile, sunCovered, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarTopsPlace, type SunColumn } from './sun-heights';
 export { buildWalkChunk, DEFAULT_WALK_AGENT, emptyWalkChunk, NO_WALK_PIECE, sameWalkChunk, standableIn, stepFits, walkCellOf, walkChunkBytes, WALK_CLEARANCE_MAX, WALK_STEP_CELLS, WalkStepper, type ChunkNavReader, type SectionNav, type WalkAgent, type WalkChunk, type WalkChunkLookup, type WalkPieceBase, type WalkStepSink } from './walk-graph-cells';
 export { stampedNav, type WalkStamps, type WalkStampsUse } from './walk-graph-stamp';
+export { denseRecordAt, GRID_RESAMPLE_SAMPLES, gridWorldCellBox, resampleGridInto, type GridCellBox, type GridRecordAt } from './grid-resample';
 export { WALK_LINK_REACH_CELLS, WalkGraphLinks, type LinkedGrid, type WalkLink, type WalkLinkStats } from './walk-graph-links';
 export { LINKED_DOOR_APART_M, LINKED_PATH_DOORS, LinkedWalkQueries, type LinkedPathAnswer } from './walk-graph-linked';
 export { WALK_GRAPH_NEIGHBOURS, WalkGraph, type WalkExit, type WalkGraphStats, type WalkGraphView } from './walk-graph';

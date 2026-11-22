@@ -22,6 +22,14 @@
  * draws the town of the world as first written in every variant (its houses
  * where the lots put them, those of turned lots left out).
  *
+ * `--far none|grids` builds the far cache's town again from the variant's
+ * files (its kept levels and baked bricks over the town's chunks; the fine
+ * levels are left as they are): `none` the world grid alone (a structure
+ * grid then has no far field past its own rings), `grids` with each placed
+ * grid resampled into the world's cells there (workspace `FarWorldSource`).
+ * The far cache as it was is kept beside the world's stash until `restore`
+ * puts it back.
+ *
  * Where each grid stands is not stored: the placements go to Play as the
  * page's `voxelGrids` switch, written to `--out` (default
  * ~/.cache/thirdlight-voxel-bench/town-grids/<variant>.json, its `query`
@@ -31,11 +39,11 @@
  *
  *   --project-dir DIR   (default ~/thirdlight-staging-p45/projects/voxel-slice)   --world NAME (default far)
  */
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createDenseChunk, gridPlacementsText, packRegionChunk, parseRegionFileName, regionFileName, writeRegion, type GridPlacement, type RegionEntry } from '@thirdlight/voxel';
-import { pickStore, zstdCompress } from '@thirdlight/workspace';
+import { farCacheDir, pickStore, rebuildFarCache, zstdCompress } from '@thirdlight/workspace';
 import { FAR_WORLD_FOOTPRINT, FAR_WORLD_GRID, farWorldDirs, FAR_WORLD_NAME, FAR_TOWN_SHIFT_CELLS, writeFarWorldColumn } from './far-world';
 import { TEST_WORLD_ID } from './test-world-id';
 import { houseGrid, housePlacement, townHouses, TOWN_SEED } from './town';
@@ -58,6 +66,13 @@ const world = arg('world', FAR_WORLD_NAME);
 const benchRoot = join(homedir(), '.cache', 'thirdlight-voxel-bench', 'town-grids');
 const stash = arg('stash', join(benchRoot, `stash-${world}`));
 const out = arg('out', join(benchRoot, `${variant}.json`));
+const far = arg('far', '');
+if (far !== '' && far !== 'none' && far !== 'grids') {
+  console.error('town-grids: --far is none or grids');
+  process.exit(2);
+}
+const farDir = farCacheDir(projectDir, world);
+const farStash = `${stash}-far`;
 const { dir, gridDir } = farWorldDirs(projectDir, world);
 const grid = FAR_WORLD_GRID;
 /** The town's region columns (the town is the 256 m square round the world's origin). */
@@ -84,6 +99,11 @@ for (const f of readdirSync(dir)) if (/^grid-[1-9]\d*$/.test(f)) rmSync(join(dir
 copyFileSync(join(stash, 'world.json'), join(dir, 'world.json'));
 if (variant === 'restore') {
   rmSync(stash, { recursive: true, force: true });
+  if (existsSync(farStash)) {
+    rmSync(farDir, { recursive: true, force: true });
+    cpSync(farStash, farDir, { recursive: true });
+    rmSync(farStash, { recursive: true, force: true });
+  }
   console.log(JSON.stringify({ variant, world: dir, restored: true }));
   process.exit(0);
 }
@@ -143,6 +163,20 @@ if (variant !== 'w') {
 const next = { format: 3, worldId: manifest.worldId, edge: manifest.edge, layout: manifest.layout, footprint: manifest.footprint, regions, grids, revision: manifest.revision };
 writeFileSync(join(dir, 'world.json'), `${JSON.stringify(next, null, 2)}\n`);
 const query = places.length === 0 ? '' : `&voxelGrids=${gridPlacementsText(world, places)}`;
+// The far cache's town built again from these files (the cache as it was kept once, for `restore`).
+let farReport: Record<string, unknown> | null = null;
+if (far !== '') {
+  if (!existsSync(farStash)) cpSync(farDir, farStash, { recursive: true });
+  const side = FAR_WORLD_FOOTPRINT / grid.edge;
+  const chunks: Array<{ cx: number; cy: number; cz: number }> = [];
+  for (const name of written) {
+    const a = parseRegionFileName('stacked', name)!;
+    for (let x = 0; x < side; x++) for (let y = 0; y < side; y++) for (let z = 0; z < side; z++) chunks.push({ cx: a.rx * side + x, cy: a.ry * side + y, cz: a.rz * side + z });
+  }
+  const r = rebuildFarCache(dir, farDir, chunks, far === 'grids' ? places : []);
+  const bytesOf = (prefix: string): number => r.files.filter((f) => f.startsWith(prefix)).reduce((n, f) => n + (existsSync(join(farDir, f)) ? statSync(join(farDir, f)).size : 0), 0);
+  farReport = { mode: far, grids: far === 'grids' ? places.length : 0, ms: Math.round(r.ms), nodes: r.rebuilt.length, files: r.files.length, levelBytes: bytesOf('L'), brickBytes: bytesOf('B'), bricks: r.bricks ?? null };
+}
 const sum = (k: 'files' | 'bytes' | 'chunks'): number => perHouse.reduce((n, h) => n + h[k], 0);
 const report = {
   variant,
@@ -152,6 +186,7 @@ const report = {
   grids: grids.length,
   files: perHouse.length === 0 ? null : { total: sum('files'), perHouseMax: Math.max(...perHouse.map((h) => h.files)), bytes: sum('bytes'), bytesPerHouse: { mean: Math.round(sum('bytes') / perHouse.length), min: Math.min(...perHouse.map((h) => h.bytes)), max: Math.max(...perHouse.map((h) => h.bytes)) }, chunksPerHouse: { mean: sum('chunks') / perHouse.length, max: Math.max(...perHouse.map((h) => h.chunks)) } },
   townColumns: written,
+  far: farReport,
   ms: Math.round(performance.now() - t0),
   query,
   perHouse,
