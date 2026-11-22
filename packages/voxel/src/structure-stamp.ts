@@ -179,58 +179,109 @@ function cellOf(rule: StructureStampRule, stop: number, opening: number): [numbe
  * {@link propCellBox} makes a prop's), each sampled at {@link PROP_SAMPLES_PER_AXIS}³ points.
  */
 export function stampGrid(cells: GridStampCells, frame: GridFrame, rule: StructureStampRule, cellM: number): StructureStampLocal {
-  const b = gridStampBounds(cells, frame, cellM);
-  const lo = [0, 1, 2].map((a) => Math.floor(b.min[a]! / cellM)) as [number, number, number];
-  const size = [0, 1, 2].map((a) => Math.max(0, Math.ceil(b.max[a]! / cellM) - lo[a]!)) as [number, number, number];
-  const n = size[0] * size[1] * size[2];
-  const bytes = new Uint8Array(n);
-  const classes = new Uint8Array(n);
-  const P = PROP_SAMPLES_PER_AXIS;
-  const [gx0, gy0, gz0] = cells.lo;
-  const [sx, sy, sz] = cells.size;
-  // The grid row index of each of a column's P² points (-1: outside the grid's box), and of each of a cell's P heights.
-  const cols = new Int32Array(P * P);
-  const ys = new Int32Array(size[1] * P);
-  for (let y = 0; y < size[1]; y++) {
-    for (let j = 0; j < P; j++) {
-      const wy = (lo[1] + y + (j + 0.5) / P) * cellM;
-      const gy = Math.floor((wy - frame.position[1]) / cellM) - gy0;
-      ys[y * P + j] = gy >= 0 && gy < sy ? gy : -1;
-    }
+  const run = new GridStampSampler(cells, frame, rule, cellM);
+  while (!run.step()) {
+    // One row of world cells a step; all of them here.
   }
-  let covered = 0;
-  for (let x = 0; x < size[0]; x++) for (let z = 0; z < size[2]; z++) {
-    let any = false;
-    for (let i = 0; i < P; i++) for (let k = 0; k < P; k++) {
-      const q = frame.toGrid((lo[0] + x + (i + 0.5) / P) * cellM, frame.position[1], (lo[2] + z + (k + 0.5) / P) * cellM);
-      const gx = Math.floor(q[0] / cellM) - gx0;
-      const gz = Math.floor(q[2] / cellM) - gz0;
-      const inside = gx >= 0 && gx < sx && gz >= 0 && gz < sz;
-      cols[i * P + k] = inside ? (gx * sz + gz) * sy : -1;
-      any ||= inside;
-    }
-    if (!any) continue;
-    for (let y = 0; y < size[1]; y++) {
-      let stop = 0;
-      let opening = 0;
-      for (let c = 0; c < P * P; c++) {
-        const row = cols[c]!;
-        if (row < 0) continue;
-        for (let j = 0; j < P; j++) {
-          const gy = ys[y * P + j]!;
-          if (gy < 0) continue;
-          const k = cells.classes[row + gy]!;
-          if (k === STAMP_CLASS.stop) stop++;
-          else if (k === STAMP_CLASS.opening) opening++;
-        }
+  return run.result();
+}
+
+/**
+ * {@link stampGrid} in pieces: each {@link step} samples one row of world cells (one x of the turned box, every z and
+ * y of it) and goes on with the next while `more()` says so, so a large building arriving takes several steps of a
+ * time slice instead of one long one. The cells it ends with are those {@link stampGrid} makes.
+ */
+export class GridStampSampler {
+  private readonly lo: [number, number, number];
+  private readonly size: [number, number, number];
+  private readonly bytes: Uint8Array;
+  private readonly classes: Uint8Array;
+  private readonly cols = new Int32Array(PROP_SAMPLES_PER_AXIS * PROP_SAMPLES_PER_AXIS);
+  /** The grid row index of each of a cell's P heights in each world row y (-1: outside the grid's box). */
+  private readonly ys: Int32Array;
+  private x = 0;
+  private covered = 0;
+
+  constructor(
+    private readonly cells: GridStampCells,
+    private readonly frame: GridFrame,
+    private readonly rule: StructureStampRule,
+    private readonly cellM: number,
+  ) {
+    const b = gridStampBounds(cells, frame, cellM);
+    this.lo = [0, 1, 2].map((a) => Math.floor(b.min[a]! / cellM)) as [number, number, number];
+    this.size = [0, 1, 2].map((a) => Math.max(0, Math.ceil(b.max[a]! / cellM) - this.lo[a]!)) as [number, number, number];
+    const n = this.size[0] * this.size[1] * this.size[2];
+    this.bytes = new Uint8Array(n);
+    this.classes = new Uint8Array(n);
+    const P = PROP_SAMPLES_PER_AXIS;
+    this.ys = new Int32Array(this.size[1] * P);
+    for (let y = 0; y < this.size[1]; y++) {
+      for (let j = 0; j < P; j++) {
+        const wy = (this.lo[1] + y + (j + 0.5) / P) * cellM;
+        const gy = Math.floor((wy - frame.position[1]) / cellM) - cells.lo[1];
+        this.ys[y * P + j] = gy >= 0 && gy < cells.size[1] ? gy : -1;
       }
-      if (stop === 0 && opening === 0) continue;
-      const [cover, cls] = cellOf(rule, stop, opening);
-      const idx = (x * size[2] + z) * size[1] + y;
-      bytes[idx] = cover;
-      classes[idx] = cls;
-      if (cover !== 0 || cls !== STAMP_CLASS.open) covered++;
     }
   }
-  return { lo, size, bytes, classes, cells: covered };
+
+  /** World rows (x) left to sample. */
+  get rowsLeft(): number {
+    return this.size[0] - this.x;
+  }
+
+  /** Samples one row at least, more while `more()`; true once every row is sampled. */
+  step(more: () => boolean = () => false): boolean {
+    do {
+      if (this.x >= this.size[0]) return true;
+      this.row(this.x++);
+    } while (this.x < this.size[0] && more());
+    return this.x >= this.size[0];
+  }
+
+  /** The stamp (every row sampled). */
+  result(): StructureStampLocal {
+    if (this.x < this.size[0]) throw new Error(`stamp sampled ${this.x} of ${this.size[0]} rows`);
+    return { lo: this.lo, size: this.size, bytes: this.bytes, classes: this.classes, cells: this.covered };
+  }
+
+  private row(x: number): void {
+    const { cells, frame, cellM, lo, size, cols, ys } = this;
+    const P = PROP_SAMPLES_PER_AXIS;
+    const [gx0, , gz0] = cells.lo;
+    const [sx, sy, sz] = cells.size;
+    for (let z = 0; z < size[2]; z++) {
+      let any = false;
+      for (let i = 0; i < P; i++) for (let k = 0; k < P; k++) {
+        const q = frame.toGrid((lo[0] + x + (i + 0.5) / P) * cellM, frame.position[1], (lo[2] + z + (k + 0.5) / P) * cellM);
+        const gx = Math.floor(q[0] / cellM) - gx0;
+        const gz = Math.floor(q[2] / cellM) - gz0;
+        const inside = gx >= 0 && gx < sx && gz >= 0 && gz < sz;
+        cols[i * P + k] = inside ? (gx * sz + gz) * sy : -1;
+        any ||= inside;
+      }
+      if (!any) continue;
+      for (let y = 0; y < size[1]; y++) {
+        let stop = 0;
+        let opening = 0;
+        for (let c = 0; c < P * P; c++) {
+          const row = cols[c]!;
+          if (row < 0) continue;
+          for (let j = 0; j < P; j++) {
+            const gy = ys[y * P + j]!;
+            if (gy < 0) continue;
+            const k = cells.classes[row + gy]!;
+            if (k === STAMP_CLASS.stop) stop++;
+            else if (k === STAMP_CLASS.opening) opening++;
+          }
+        }
+        if (stop === 0 && opening === 0) continue;
+        const [cover, cls] = cellOf(this.rule, stop, opening);
+        const idx = (x * size[2] + z) * size[1] + y;
+        this.bytes[idx] = cover;
+        this.classes[idx] = cls;
+        if (cover !== 0 || cls !== STAMP_CLASS.open) this.covered++;
+      }
+    }
+  }
 }

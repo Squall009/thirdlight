@@ -57,6 +57,7 @@ import {
   GridFrame,
   gridStampBounds,
   gridStampCellsOfChunks,
+  GridStampSampler,
   gridWalkOf,
   grownChunkBox,
   stampGrid,
@@ -332,9 +333,10 @@ export class VoxelGridHost {
 
   /**
    * The grid's stamp into its world grid by `rule` from its resident cells now (null: none resident): its world box,
-   * and its sampling into world cells of `cellM` (run later, in the derive slice). Clears {@link stampDirty}.
+   * and its sampling into world cells of `cellM`, whole or a row of world cells at a time (run later, in the derive
+   * slice). Clears {@link stampDirty}.
    */
-  stamp(rule: StructureStampRule, cellM: number): { bounds(): { min: number[]; max: number[] }; sample(cellM: number): StructureStampLocal } | null {
+  stamp(rule: StructureStampRule, cellM: number): { bounds(): { min: number[]; max: number[] }; sample(cellM: number): StructureStampLocal; sampler(cellM: number): GridStampSampler } | null {
     this.stampDirty = false;
     const s = this.streamer;
     const cells = this.extent === null ? null : gridStampCellsOfChunks(s.grid, this.extent, (cx, cy, cz, out) => s.isResident(cx, cy, cz) && s.overlay.exportChunk(cx, cy, cz, out));
@@ -342,7 +344,7 @@ export class VoxelGridHost {
     if (cells === null) return null;
     const frame = this.frame;
     const b = gridStampBounds(cells, frame, cellM);
-    return { bounds: () => b, sample: (m) => stampGrid(cells, frame, rule, m) };
+    return { bounds: () => b, sample: (m) => stampGrid(cells, frame, rule, m), sampler: (m) => new GridStampSampler(cells, frame, rule, m) };
   }
 
   /** The grid as a ray walks it: its frame, its cells (its own derived occupancy), the box of the chunks it holds (null: none). */

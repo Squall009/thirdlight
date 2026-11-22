@@ -328,7 +328,7 @@ export interface VoxelHostStats {
   /** The coarse floor's bodies now and since the world opened: added, removed, handed to the fine ground, bodies lifted. */
   readonly floors?: { readonly count: number; readonly added: number; readonly removed: number; readonly handedOver: number; readonly lifted: number };
   readonly propChannelBytes: number;
-  /** The structure grids' stamps into the world grid (absent: none stamped): the rule, the classes' bytes, stamps waiting, a stamp's sampling ms. */
+  /** The structure grids' stamps into the world grid (absent: none stamped): the rule, the classes' bytes, stamps waiting, the sampling steps run and their ms (a step: a row of world cells at least, more while the derive slice lasts). */
   readonly gridStamps?: { readonly rule: StructureStampRule; readonly grids: number; readonly classBytes: number; readonly pending: number; readonly samples: number; readonly sampleMs: { readonly p50: number; readonly max: number } };
   readonly pool?: { readonly workers: number; readonly queued: number; readonly queuedKinds: Readonly<Record<string, number>>; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly cancelledQueued: number; readonly cancelledSent: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
   /** The open regions stitched (counts, bytes held) and the derive µs of a section's regions beside its mesh and its whole derive. */
@@ -380,7 +380,7 @@ export class VoxelWorldHost {
   private grids: VoxelGridHost[] = [];
   /** How the grids are stamped into the world grid (null: not stamped, or no grids). */
   private stampRule: StructureStampRule | null = null;
-  /** µs each grid's stamp took to sample and recombine where the derive slice ran it. */
+  /** µs each step of a grid's stamp sampling took (a row of world cells at least, more while the derive slice lasts). */
   private readonly gridStampUs = new SampleRing();
   private disposed = false;
   private readonly waits: { readonly cells: RegionCells; readonly id: number }[] = [];
@@ -753,11 +753,18 @@ export class VoxelWorldHost {
             : {
                 stamp: true,
                 bounds: () => stamp.bounds(),
-                sample: (m) => {
-                  const t0 = performance.now();
-                  const out = stamp.sample(m);
-                  this.gridStampUs.add((performance.now() - t0) * 1000);
-                  return out;
+                sample: (m) => stamp.sample(m),
+                // Sampled a row of world cells at a time in the derive slice: a large building arriving takes steps.
+                sampler: (m) => {
+                  const run = stamp.sampler(m);
+                  return {
+                    step: (more) => {
+                      const t0 = performance.now();
+                      const done = run.step(more);
+                      this.gridStampUs.add((performance.now() - t0) * 1000);
+                      return done ? run.result() : null;
+                    },
+                  };
                 },
               };
         (changes ??= []).push([gridStampId(g.frame.gridId), shape]);

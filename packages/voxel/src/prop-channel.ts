@@ -48,6 +48,12 @@ export interface LitStamp {
   readonly stamp: true;
   bounds(): { min: readonly number[]; max: readonly number[] };
   sample(cellM: number): PropLocalCoverage & { readonly classes?: Uint8Array };
+  /**
+   * The same sampling in pieces (absent: in one piece): each `step` samples a part at least and goes on while `more()`
+   * says so; it answers the sampling once done, null before. {@link PropLightChannel.update} steps it within its
+   * caller's slice, so one large stamp spreads over steps as many props do.
+   */
+  sampler?(cellM: number): { step(more: () => boolean): (PropLocalCoverage & { readonly classes?: Uint8Array }) | null };
 }
 
 /** A prop's shape or a stamp, as the channel places it. */
@@ -98,6 +104,8 @@ export class PropLightChannel {
   private readonly mipCache = new Map<string, Uint32Array | null>();
   /** Props whose stamp waits (by id, in order of change), with what the chunks last saw of each. */
   private readonly stamps = new Map<string, Was>();
+  /** Stamps being sampled in pieces: the shape the sampling is of, and its sampler. */
+  private readonly sampling = new Map<string, { readonly shape: LitStamp; readonly run: ReturnType<NonNullable<LitStamp['sampler']>> }>();
   private readonly listeners: ((cx: number, cy: number, cz: number, classes: boolean) => void)[] = [];
   private scratch = new Uint8Array(0);
   private sampledBytes = 0;
@@ -133,6 +141,8 @@ export class PropLightChannel {
    */
   apply(changes: Iterable<readonly [string, LitShape | null]>): void {
     for (const [id, shape] of changes) {
+      // A sampling under way was of the shape before.
+      this.sampling.delete(id);
       const old = this.props.get(id);
       if (old !== undefined) {
         if (!this.stamps.has(id)) this.stamps.set(id, { cover: old.cover, chunks: old.chunks });
@@ -170,9 +180,25 @@ export class PropLightChannel {
     let n = 0;
     for (const [id, was] of this.stamps) {
       if (n++ > 0 && !more()) break;
+      // A stamp sampled in pieces and not done when the slice ran out waits, first in line, for the next update.
+      if (!this.sampledInPieces(id, more)) break;
       this.stamps.delete(id);
       this.stamp(id, was);
     }
+  }
+
+  /** A stamp with a sampler, due to be sampled: stepped while `more()` (a step at least); false while it is not done. */
+  private sampledInPieces(id: string, more: () => boolean): boolean {
+    const p = this.props.get(id);
+    if (p === undefined || p.cover !== null || !isStamp(p.shape) || p.shape.sampler === undefined || !this.touchesBuilt(p.chunks)) return true;
+    let s = this.sampling.get(id);
+    if (s === undefined || s.shape !== p.shape) this.sampling.set(id, (s = { shape: p.shape, run: p.shape.sampler(this.cellM) }));
+    const out = s.run.step(more);
+    if (out === null) return false;
+    this.sampling.delete(id);
+    p.cover = out;
+    this.sampledBytes += out.bytes.byteLength;
+    return true;
   }
 
   /** Every waiting stamp, now. */

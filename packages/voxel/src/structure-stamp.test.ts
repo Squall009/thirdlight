@@ -8,7 +8,7 @@ import { walkVoxels, type WalkBlockView, type WalkSource } from './occupancy-wal
 import { PropLightChannel, type LitStamp } from './prop-channel';
 import { recordValue, VOXEL_ROLE } from './record';
 import type { DeriveOutput } from './stream-job';
-import { gridStampBounds, gridStampCells, STAMP_CLASS, stampClassOfValue, stampGrid, STRUCTURE_STAMP_RULES, type GridStampCells, type StructureStampRule } from './structure-stamp';
+import { gridStampBounds, gridStampCells, GridStampSampler, STAMP_CLASS, stampClassOfValue, stampGrid, STRUCTURE_STAMP_RULES, type GridStampCells, type StructureStampRule } from './structure-stamp';
 import { streamerWalkSource, type WalkStreamerView } from './walk-sources';
 import { walkRay } from './walk-steps';
 
@@ -294,5 +294,89 @@ describe('structure grids filed by tile for rays', () => {
     expect(along / N).toBeLessThan(12);
     // A vertical ray tests its tile's grids alone.
     expect(index.along(walkRay([grids[9]!.frame.position[0] + 1, 20, grids[9]!.frame.position[2] + 1], [0, -1, 0])!, 30).map((g) => g.frame.gridId)).toContain(10);
+  });
+});
+
+describe('a large structure grid stamped in pieces', () => {
+  const same = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+  /** The 40 × 30 m L of the structure core's measures, 4 storeys of 3 m, as stamp classes: outer walls, floors, a door a storey on the long side. */
+  const L: [number, number, number] = [80, 26, 60];
+  const inL = (x: number, z: number): boolean => x >= 0 && z >= 0 && x < 80 && z < 60 && (z < 40 || x < 40);
+  const lClass = (x: number, y: number, z: number): number => {
+    if (!inL(x, z)) return STAMP_CLASS.open;
+    if (y % 6 === 0) return STAMP_CLASS.stop;
+    const wall = !inL(x - 1, z) || !inL(x + 1, z) || !inL(x, z - 1) || !inL(x, z + 1);
+    if (!wall) return STAMP_CLASS.open;
+    return z === 0 && x >= 20 && x < 22 && y % 6 >= 1 && y % 6 <= 4 ? STAMP_CLASS.opening : STAMP_CLASS.stop;
+  };
+
+  it('ends with the bytes and classes of the one-piece stamp, a row of world cells a step, at 0°, 30° and 45°', () => {
+    const cells = gridStampCells([0, 0, 0], L, lClass);
+    for (const deg of [0, 30, 45]) {
+      const frame = new GridFrame({ gridId: 2, position: [-7.3, 1, 4.1], yawRad: (deg * Math.PI) / 180 });
+      const whole = stampGrid(cells, frame, 'share', M);
+      const run = new GridStampSampler(cells, frame, 'share', M);
+      const rows = run.rowsLeft;
+      expect(rows).toBe(whole.size[0]);
+      let steps = 0;
+      let longest = 0;
+      for (;;) {
+        const left = run.rowsLeft;
+        const t0 = performance.now();
+        const done = run.step();
+        longest = Math.max(longest, performance.now() - t0);
+        steps++;
+        // Asked for no more, a step samples one row of world cells: the slice's unit.
+        expect(left - run.rowsLeft).toBe(1);
+        if (done) break;
+      }
+      expect(steps).toBe(rows);
+      const sliced = run.result();
+      expect(sliced.lo).toEqual(whole.lo);
+      expect(sliced.size).toEqual(whole.size);
+      expect(sliced.cells).toBe(whole.cells);
+      expect(sliced.cells).toBeGreaterThan(1000);
+      expect(same(sliced.bytes, whole.bytes)).toBe(true);
+      expect(same(sliced.classes, whole.classes)).toBe(true);
+      console.log(`[stamp in pieces] L at ${deg}°: ${rows} rows, ${sliced.cells} cells; longest step ${longest.toFixed(3)} ms`);
+    }
+  });
+
+  it('in the channel, waits first in line across updates and lands as the one-piece stamp does', () => {
+    const cells = gridStampCells([0, 0, 0], L, lClass);
+    const frame = new GridFrame({ gridId: 2, position: [-12, 0, -9], yawRad: Math.PI / 6 });
+    const whole = channel();
+    whole.place('grid:2', stampOf(cells, frame, 'share'));
+    const ch = channel();
+    let steps = 0;
+    const shape: LitStamp = {
+      ...stampOf(cells, frame, 'share'),
+      sample: () => {
+        throw new Error('sampled whole');
+      },
+      sampler: (m) => {
+        const run = new GridStampSampler(cells, frame, 'share', m);
+        return { step: (more) => (steps++, run.step(more) ? run.result() : null) };
+      },
+    };
+    ch.apply([['grid:2', shape]]);
+    // A prop placed after it waits behind it.
+    ch.apply([['prop', { stamp: true, bounds: () => ({ min: [30, 0, 30], max: [31, 1, 31] }), sample: () => ({ lo: [60, 0, 60], size: [1, 1, 1], bytes: Uint8Array.of(255), cells: 1 }) }]]);
+    let updates = 0;
+    while (ch.pending) {
+      ch.update(() => false);
+      updates++;
+      if (updates === 3) expect(ch.stats().pending).toBe(2);
+    }
+    expect(steps).toBe(updates - 1);
+    expect(updates).toBeGreaterThan(50);
+    for (let cx = -2; cx <= 2; cx++) for (let cy = -2; cy <= 2; cy++) for (let cz = -2; cz <= 2; cz++) {
+      const a = whole.chunk(cx, cy, cz) ?? null;
+      const b = ch.chunk(cx, cy, cz) ?? null;
+      if (!(cx === 1 && cy === 0 && cz === 1)) expect(b === null || a === null ? b === a : same(a, b)).toBe(true);
+      const ra = whole.rooms(cx, cy, cz);
+      const rb = ch.rooms(cx, cy, cz);
+      expect(rb === null || ra === null ? rb === ra : same(ra, rb)).toBe(true);
+    }
   });
 });
