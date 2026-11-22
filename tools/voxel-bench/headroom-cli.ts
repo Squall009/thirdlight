@@ -276,7 +276,8 @@ async function main(): Promise<void> {
     out['fillS'] = Number(((Math.min(settle.since, madeAt ?? Infinity) - T0) / 1000).toFixed(1));
     out['fill'] = await stats();
     // Structure grids (a `?voxelGrids=` query): their draws summed over every grid's draw name, and the host's grid
-    // stats (streamed chunks and bytes, bodies, collider parts, body builds), once filled.
+    // stats (streamed chunks and bytes, bodies, collider parts, body builds), its walk graph's (the grids' own and
+    // their links within it), once filled.
     out['grids'] = {
       draws: await canvas.evaluate((_c, w) => {
         const all = (window as unknown as { __tlVoxelPlay?: { stats(): { worlds: Record<string, Record<string, number>> } } }).__tlVoxelPlay?.stats().worlds ?? {};
@@ -293,9 +294,9 @@ async function main(): Promise<void> {
         const st = (window as unknown as { __tlProfiler?: { read(): { counters?: { stats?: { drawCalls?: number; triangles?: number } | null } } } }).__tlProfiler?.read().counters?.stats ?? null;
         return st === null ? null : { drawCalls: st.drawCalls ?? null, triangles: st.triangles ?? null };
       }),
-      host: (((await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<{ world?: string; grids?: Record<string, unknown>; bodies?: number; resident?: number; bytes?: number; pool?: unknown; propChannelBytes?: number; gridStamps?: unknown; regions?: unknown }> } } | undefined)?.runtime?.voxelWorlds ?? [])
+      host: (((await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<{ world?: string; grids?: Record<string, unknown>; bodies?: number; resident?: number; bytes?: number; pool?: unknown; propChannelBytes?: number; gridStamps?: unknown; regions?: unknown; walk?: unknown }> } } | undefined)?.runtime?.voxelWorlds ?? [])
         .filter((v) => v.world === WORLD)
-        .map((v) => ({ grids: v.grids ?? null, worldBodies: v.bodies, worldResident: v.resident, worldBytes: v.bytes, pool: v.pool ?? null, propChannelBytes: v.propChannelBytes ?? null, gridStamps: v.gridStamps ?? null, regions: v.regions ?? null }))[0] ?? null,
+        .map((v) => ({ grids: v.grids ?? null, worldBodies: v.bodies, worldResident: v.resident, worldBytes: v.bytes, pool: v.pool ?? null, propChannelBytes: v.propChannelBytes ?? null, gridStamps: v.gridStamps ?? null, regions: v.regions ?? null, walk: v.walk ?? null }))[0] ?? null,
     };
     // Memory at the town once filled: the page's heap and the GPU process's (the editor's page included: Play runs in it).
     const cdp = await browser.newBrowserCDPSession();
