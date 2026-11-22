@@ -86,9 +86,11 @@ page in the same commit.
   a turned door or window is narrowed (12–18 % of rays through a 1 m one stop at 30°–45°), closed turned walls let
   almost nothing through, rooms are found whole. Exact stepping of each grid in its own frame exists on the CPU only
   (`grid-walk.ts` `walkWithGrids`: the reference). Paths walk each grid in its own graph, linked to the world's (the walk
-  graph above). The far field, `ctx.voxels` reads, solid rays,
-  edits and saves, the Scene view and exports see the world grid alone; past its load ring a grid is not drawn
-  (plan-47a §8a, 47a.1a, 47a.1a2, 47a.1b, 47a.1c).
+  graph above). The far build reads a world's placed grids resampled into its cells (`grid-resample.ts`, workspace
+  `FarWorldSource(dir, grids)`: the majority of 2 × 2 points a cell; a bench feeds the placements until structure
+  objects do), so past its own rings a grid is drawn as far bricks a cell off. `ctx.voxels` reads, solid rays,
+  edits and saves, the Scene view and exports see the world grid alone; with no placements given to the far build, past
+  its load ring a grid is not drawn (plan-47a §8a, 47a.1a, 47a.1a2, 47a.1b, 47a.1c, 47a.1d).
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
   water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); `liquid` is
   excluded by scattered checks, not one predicate; a liquid edit re-derives mesh, collision, navigation and

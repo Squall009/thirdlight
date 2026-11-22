@@ -167,7 +167,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | Item | Status |
 |---|---|
 | 47a.0 | Done 2026-11-21 (docs only, no gate): baseline at 58fac9ba (§8a; page ms at 128 lamps +2 ms against 46e.19, the 128-lamp room unusable). D740 not fixed: the surface WGSL equal in loads, samples, loops; `level0` equal at both commits, so the extra is the coarse levels' read meeting other data; D740 rewritten |
-| 47a.1 | (a) done (0980318c…42363e34). (b) done (3627dc6b, 06ecc288): grids stamped (share), 0–7 of 24,000 rays leak, rooms 24/24; D746, D747. (c) done 2026-11-22 (fe397a85, 5db10a23): a walk graph a grid linked at doorsteps, on: all 24 rooms and 17 upper storeys at 0/30/45°, no cell in a wall, sim as without; the stamp alone loses 4–7 stair tops; D748, D749. (d) not started |
+| 47a.1 | (a) done (0980318c…42363e34). (b) done (3627dc6b, 06ecc288): stamp (share), rooms 24/24; D746, D747. (c) done (fe397a85, 5db10a23): a walk graph a grid linked at doorsteps, on: every room and storey at 0/30/45°, no cell in a wall; the stamp alone loses 4–7 stair tops; D748, D749. (d) done 2026-11-22 (654fae78): grids resampled into the far build: the town at 250 m–2 km as W's; D750 |
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | not started |
 | 47a.4 | not started |
@@ -784,6 +784,92 @@ search the world graph alone (D748).
 foundation edges, the world's walker blocked by the grid's stamp — is on (47a.8 builds its door state and walker width on
 it); the stamp alone (P-stamp) cannot carry a turned staircase and was measured, not kept on.
 
+### 47a.1d — structure grids in the far field
+
+Work folder `~/.cache/thirdlight-phase47a/work/47a.1cd/` (`measure-d.sh`, `summd.py`, `d/` every raw run and picture;
+low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone, staging; the world and its far cache restored after).
+
+**Today** (before 654fae78): the far cache is built from the world grid's files alone and a structure grid is drawn
+only by its own streamer inside its own rings (levels 0–2 in its frame, its load ring 192 m on low); the bench kept the
+town as first written in the far cache. Pictures with the far cache's town built again from G30's files without its
+houses (`run.mjs town-grids --variant g30 --far none`), at noon from the east of the town's middle at a distance and a
+fifth of it up again (bench cameras `town-100m` … `town-2km`, `--only`, `light-shots`), looked at beside W's (all houses
+in the world grid, the far cache's town built from W's files):
+- 100 m (`d/S-g30-none/town-100m.png`): every house in view drawn by its own grid, turned, kit pieces on, the eave
+  specks of D744; as W's but turned.
+- 150 m (`town-150m.png`): the same; the mesh rings work per grid in its own frame (the confirmation slice a2 asked
+  for: the houses 100–190 m away drawn whole, turned, roofs and walls in place).
+- 250 m (`town-250m.png`): only the rows within about 190 m drawn; the rest of the town is bare ground with its fences
+  and ponds (W's `d/S-w-none/town-250m.png`: the whole town, its far rows as far bricks).
+- 600 m and 2 km (`town-600m.png`, `town-2km.png`): **nothing of the town**: an empty valley floor where W shows a field
+  of small red roofs (600 m) and a red patch (2 km).
+
+**Built** (654fae78): **F-stamp**, the far build reading placed grids. `@thirdlight/voxel` `grid-resample.ts`
+(`resampleGridInto`): a grid's records sampled into a world chunk's cells where it stands, 2 × 2 points across each
+cell's middle height (yaw is about the vertical), a cell taking the record most of its points hold where at least half
+fall in cells that are not air (an opening counts), the world's own cell elsewhere; a grid at yaw 0 on the world's cells
+copies its cells exactly. Workspace `FarWorldSource(worldDir, grids)`: each placed grid the manifest lists (its files'
+chunks its box) joined over the world grid's chunks its turned box touches; `buildFarCache` (`grids` option) and
+`rebuildFarCache` (`grids` argument) pass the placements. The far cache's format, fields and files are unchanged; its
+content holds the houses. Where a grid stands is still not stored: nothing in the product passes placements yet (the
+backend's far jobs build without them); the bench does (`town-grids --far grids`, the far cache as it was kept and put
+back by `restore`). Vitest (`voxel-far-grids.test.ts`, files on disk): a grid at 0° gives the world-grid house's level-0
+cells and far nodes (levels 2 and 3) exactly; at 30° 0.9–1.1 of its cells, none outside its turned box; no placement or
+an unlisted grid: the world grid alone.
+
+**After** (`d/S-g30-grids/`, looked at beside W's and today's): 250 m: the grids' own rows exact, the rows past them far
+bricks of the turned houses (rounded red mounds, as W's far rows look); 600 m: the town as in W's picture; 2 km: the red
+patch as in W's. 100 m and 150 m: the last rows past the grids' rings now far bricks where today's pictures had none; no
+house drawn twice or missing at the boundary in these pictures. **The hand-over** (about 190 m on low): a house goes from
+its own exact mesh (crisp gables, kit pieces) to far bricks (rounded, darker, no gable), the same change W's houses make
+between their mesh rings and the same bricks at the same distance; a pop when it happens is expected as for W
+(unverified: nothing seen in motion). All three variants' far-distance shots were refused by the bench as "streaming
+never settled" for G30 (W's settled; pictures taken at the 180 s timeout, D750).
+
+**Bake** (Node in the 10G scope, the far cache's town built again: 616 kept nodes and 1,312 baked bricks' nodes over the
+town's four region columns, 328 bricks built, the rebuilt-by-content store cleared before each, two runs each, 2026-11-22
+11:32–11:35 UTC; raw `d/tgt-*.json`): W 17.9, 17.6 s (nodes 3.2, 3.2 s; bricks 14.7, 14.4); G30 with grids 22.2, 19.0 s
+(nodes 4.4, 4.5; bricks 17.8, 14.5); G30 without 16.3, 16.2 s (2.6, 2.6; 13.7, 13.6): the 131 houses' resampling adds
+about 1.2 s (9 ms a house). Bytes of the 112 files written (the town's level files and their bricks): W 8,034,643 +
+46,450,749; G30 with grids 8,041,713 + 46,527,303; without 8,020,047 + 46,272,225 (the houses add 22 kB and 255 kB
+turned, 15 kB and 178 kB aligned). Disk: a copy of the 781 MB far cache while the bench ran, deleted at `restore`
+(`far.json` after equal to before: level 2 101,572 nodes, 40,515,263 bytes).
+
+**Orbit** (2026-11-22 12:22–12:59 UTC, the far caches as above, `run.mjs headroom --quality low --rounds 2`, A B A B,
+second rounds; raw `d/F-*.json`; load 0.7–1.8):
+
+| | W | G30 with grids in the far cache |
+|---|---|---|
+| room | 128, 128 | 128, 128 |
+| GPU near / far / lighting ms (resolution) | 3.91, 4.30 / 2.93, 2.69 / 3.68, 5.56 (1.1, 1.3) | 4.73, below / 3.42, 3.88 / 4.25, 5.23 (1.3, 0.6) |
+| page / simulation ms | 5.61, 5.97 / 1.86, 2.24 | 6.45, 6.20 / 4.00, 4.15 |
+| GPU MiB; fill s | 981, 980; 7.5, 7.3 | 1,081, 954; 17.9, 17.2 |
+
+Read: GPU `far` 0.5–1.2 ms higher with the turned town, about the readings' resolution (0.6–1.3): not resolved.
+
+**At a bake level of 0.5 m or 1 m** the far bricks would be built from these resampled 0.5 m cells (1 m: from them
+downsampled). Looked at as plans of one two-storey house (Node, `scratch/resample-plan.ts`, `scratch/plan.py`; exact
+turned cells light, resampled world cells outlined dark; `d/plan-yaw{0,30,45}-y{2,9}.png`): at 0° the same cells; at 30°
+each wall a staircase of cells joined by faces, 16 % more wall cells than the wall's area (79 against 68 at the door's
+height); at 45° a one-cell wall becomes a chain of cells **touching by edges only**, 28 % fewer (48 against 66.5), the
+openings 20 against 27: drawn at 0.5 m it would be a row of cubes with gaps between them at a grazing view. Not looked at
+in Play: the bench world is drawn at its 2 m bake level (its fine levels, baked earlier from the town as first written,
+were left as they were). The near field stays the grid's own, exact.
+
+**F-own** (far nodes a grid, drawn with its transform): not built. It needs far nodes keyed by grid (a far cache or
+level files a grid: a stored layout the approved far cache format does not have: an owner stop), the far runner run a
+grid, and a row a node in the culled-instance table (131 houses: at least 131 more nodes at each kept level, against
+616 town nodes today); it would draw a far house exact in its turn where F-stamp draws it a cell off.
+
+**Design note for 47a.5:** the far cache records the world's revision, not where its grids stood, so a structure moved
+without its far chunks rebuilt leaves its old place in the far field. Rebuilding the chunks a structure left and entered
+as part of the command that moves it (as an edit rebuilds its chunks) needs no stored field; a cache that must prove it
+matches the placements would need one in `far.json` (an owner stop; not built).
+
+**Recommendation:** F-stamp — structure grids resampled into the world's cells the far build reads — draws a town of
+turned houses past their own rings as W's is drawn, for 9 ms of bake a house and +0.2–0.6 % bytes; keep it, fed from the
+structure objects' placements in 47a.5; at a 0.5 m bake level a 45° wall would be edge-joined cells (not seen in Play).
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -853,6 +939,11 @@ it); the stamp alone (P-stamp) cannot carry a turned staircase and was measured,
   grid's own cells clear along it; a path between graphs searches the legs of the best three doors (by straight lines)
   and takes the cheapest. The stamp walked as world cells (P-stamp) loses 4–7 of 17 turned staircases' tops and is kept
   only as a measured option (§8a 47a.1c). Other walkers and `reach` stay on the world graph alone until 47a.8 (D748).
+- 2026-11-22 (47a.1d; default chosen, owner to confirm): **a structure grid is in the far field as its cells
+  resampled into the world's cells the far build reads** (F-stamp: 2 × 2 points a cell, the majority of what a cell
+  holds), not far nodes of its own (F-own would need a far cache layout by grid: an owner stop); a cell off at most, at
+  2 m and coarser as W's (§8a 47a.1d). The placements are a build input, not stored; 47a.5 feeds them from the
+  structure objects and rebuilds a structure's far chunks with the command that moves it.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
