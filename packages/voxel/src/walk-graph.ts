@@ -27,8 +27,10 @@
  *   caller's slice a chunk at a time; what is left carries over.
  */
 import { chunkInWorld, chunkKeyOrNone, type CellGrid, type ChunkGrid } from './coords';
+import { OCCUPANCY } from './derived-data';
 import { DEFAULT_WALK_AGENT, NO_WALK_PIECE, buildWalkChunk, sameWalkChunk, walkChunkBytes, WalkStepper, type ChunkNavReader, type WalkChunk, type WalkChunkLookup } from './walk-graph-cells';
 import type { DeriveOutput } from './stream-job';
+import { stampedNav, type WalkStampsUse } from './walk-graph-stamp';
 
 /** What the walk graph reads of a streamer (the open regions' view). */
 export interface WalkGraphView {
@@ -129,6 +131,8 @@ export class WalkGraph {
     private readonly view: WalkGraphView,
     /** Metres a cell. */
     readonly cellM: number,
+    /** Structure grids stamped into the world grid (prop-channel.ts `rooms`): their stops block the world's walker (walk-graph-stamp.ts). */
+    private readonly stamps: WalkStampsUse | null = null,
   ) {
     this.per = view.grid.edge / view.sections.edge;
     this.stepper = new WalkStepper(cellM);
@@ -147,6 +151,15 @@ export class WalkGraph {
   touch(cx: number, cy: number, cz: number): void {
     const k = chunkKeyOrNone(this.view.grid, cx, cy, cz);
     if (k >= 0) this.dirty.set(k, [cx, cy, cz]);
+  }
+
+  /**
+   * A chunk's structure classes changed: it is made again, and the chunk over it (a floor stamped in this one's top
+   * layer supports the cells over it there). The chunk under it follows when its clearance read into this one.
+   */
+  touchStamp(cx: number, cy: number, cz: number): void {
+    this.touch(cx, cy, cz);
+    if (this.chunks.has(chunkKeyOrNone(this.view.grid, cx, cy + 1, cz))) this.touch(cx, cy + 1, cz);
   }
 
   /** Chunks to make or crossings to recompute wait. */
@@ -213,6 +226,7 @@ export class WalkGraph {
       return;
     }
     if (old !== undefined) this.drop(old);
+    this.onPart?.(cx, cy, cz);
     if (next !== null) {
       this.chunks.set(key, next);
       this.links.set(next, { out: WALK_GRAPH_NEIGHBOURS.map(() => []), frontier: WALK_GRAPH_NEIGHBOURS.map(() => []), version: 0, pieceExits: null, pieceFrontier: null, piecesAt: -1 });
@@ -241,10 +255,17 @@ export class WalkGraph {
     const per = this.per;
     const se = this.view.sections.edge;
     for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) for (let sy = 0; sy < per; sy++) if (this.view.derivedOf(cx * per + sx, cy * per + sy, cz * per + sz, true) === null) return null;
+    const use = this.stamps;
+    const stamps = use?.stamps ?? null;
+    const supports = use?.supports === true;
     const nav: ChunkNavReader = (sx, sy, sz) => {
       const r = this.view.derivedOf(cx * per + sx, cy * per + sy, cz * per + sz, true);
       if (r === null) return chunkInWorld(g, cx, cy + ((sy / per) | 0), cz) ? undefined : null;
-      return r.assembly === null ? null : r.assembly.nav;
+      const own = r.assembly === null ? null : r.assembly.nav;
+      if (stamps === null) return own;
+      const qy = cy + ((sy / per) | 0);
+      const ly = sy % per;
+      return stampedNav(own, stamps.rooms(cx, qy, cz), supports && ly === 0 ? stamps.rooms(cx, qy - 1, cz) : null, sx * se, ly * se, sz * se, g.shift, se, supports);
     };
     const t = performance.now();
     const part = buildWalkChunk(cx, cy, cz, key, g.edge, se, nav);
@@ -254,6 +275,9 @@ export class WalkGraph {
 
   /** The last chunk made's own time (ms; the bench reads it a chunk at a time). */
   lastBuildMs = 0;
+
+  /** Hears of every chunk whose part was made anew or dropped (a part that came out the same is not told): the links' cue. */
+  onPart: ((cx: number, cy: number, cz: number) => void) | null = null;
 
   private drop(c: WalkChunk): void {
     c.alive = false;
@@ -438,6 +462,22 @@ export class WalkGraph {
     return x;
   }
 
+  /** Whether a cell (its grid's cells) blocks a walker by its derived navigation, as the parts are made (undefined: not known). */
+  blocks(x: number, y: number, z: number): boolean | undefined {
+    const se = this.view.sections;
+    const e = se.edge;
+    const r = this.view.derivedOf(Math.floor(x / e), Math.floor(y / e), Math.floor(z / e), true);
+    if (r === null) return undefined;
+    const nav = r.assembly?.nav ?? null;
+    if (nav === null || nav.blocking === OCCUPANCY.empty) return false;
+    if (nav.blocking === OCCUPANCY.solid) return true;
+    const lx = x - Math.floor(x / e) * e;
+    const ly = y - Math.floor(y / e) * e;
+    const lz = z - Math.floor(z / e) * e;
+    const i = (lx * e + lz) * e + ly;
+    return ((nav.blocks![i >>> 5]! >>> (i & 31)) & 1) === 1;
+  }
+
   /** A known chunk's part (null: not known). */
   chunkAt(cx: number, cy: number, cz: number): WalkChunk | null {
     return this.chunks.get(chunkKeyOrNone(this.view.grid, cx, cy, cz)) ?? null;
@@ -510,7 +550,10 @@ export class WalkGraph {
   }
 
   clear(): void {
-    for (const c of this.chunks.values()) c.alive = false;
+    for (const c of this.chunks.values()) {
+      c.alive = false;
+      this.onPart?.(c.cx, c.cy, c.cz);
+    }
     this.chunks.clear();
     this.links.clear();
     this.dirty.clear();

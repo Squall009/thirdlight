@@ -100,7 +100,7 @@ import { canonicalEditCommand, chunkGrid, gridDrawName, gridPlacementsText, cube
 import { mustCommand } from '../support/commands';
 import { GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelGridChecks, voxelRoomChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 import { playScriptSource } from './voxel-play-script';
-import { GRID_HOUSE_M, gridHousePlacement, siteTop, writeGridHouse } from './voxel-grid-house';
+import { GRID_HOUSE, GRID_HOUSE_M, gridHousePlacement, siteTop, writeGridHouse } from './voxel-grid-house';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -1006,7 +1006,9 @@ async function playProject(): Promise<[number, number, number]> {
   await playCmd('setComponent', { entityId: player, component: 'controller', value: {} });
   // One save slot for the game's own save document (the voxel save rides in it as text).
   await playCmd('setSaveSchema', { schema: { version: 1, slots: 1, legacyWorld: false } });
-  await publishScript('digger', playScriptSource(at, house.frame.toWorld(...GRID_HOUSE_M.room)), world);
+  // A path from the porch (1.5 m before the door, on its slab) to the room's middle, on its floor.
+  const gridPath = { position: house.place.position, yawRad: house.place.yawRad, cells: GRID_HOUSE, from: f.toWorld(GRID_HOUSE_M.doorX, GRID_HOUSE_M.slabTop, GRID_HOUSE_M.doorWallZ - 1.5), to: f.toWorld(GRID_HOUSE_M.room[0], GRID_HOUSE_M.slabTop, GRID_HOUSE_M.room[2]) };
+  await publishScript('digger', playScriptSource(at, house.frame.toWorld(...GRID_HOUSE_M.room), gridPath), world);
   playWorld = world;
   return (standAt = at);
 }

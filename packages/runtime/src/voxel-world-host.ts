@@ -30,7 +30,11 @@
  * leave, in the derive slice after the open regions; `findPath` and `reach`
  * queue their queries (walk-graph-queries.ts), served in order by the world
  * list within the step's path-finding budget, and answered at a later step.
- * The graph and its searches go with the world.
+ * The graph and its searches go with the world. A world with structure grids
+ * walks each grid in its own graph (voxel-grid-host.ts), linked to the
+ * world's at doorsteps and foundation edges (walk-graph-links.ts), the
+ * world's walker blocked by the grids' stamps; a path between them is joined
+ * at a link (walk-graph-linked.ts).
  *
  * Saves: `save()` writes the overlay's changes as a voxel save file (the
  * fields the game marks saved, a base hash per chunk) once the bases of
@@ -68,7 +72,6 @@ import {
   OpenRegionStitch,
   streamerWalkSource,
   WalkGraph,
-  WalkQueries,
   walkRay,
   walkVoxels,
   WALK_STOPS,
@@ -102,7 +105,8 @@ import { frameSliceMs, residentBytes, threadProfiler } from '@thirdlight/shared'
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
 import { gridStats, streamerCollisionFeed, VoxelGridHost, type VoxelGridConnection } from './voxel-grid-host';
 import { floorColumns, VoxelFloors } from './voxel-floor';
-import { noPathAnswer, noReachAnswer, voxelPathAnswer, voxelReachAnswer, walkCellAt, walkOptionsOf } from './voxel-paths';
+import { noPathAnswer, noReachAnswer, voxelReachAnswer, walkCellAt, walkOptionsOf } from './voxel-paths';
+import { WorldPaths } from './voxel-world-paths';
 import {
   regionCellList,
   regionCells,
@@ -366,7 +370,7 @@ export class VoxelWorldHost {
   private unresidentRegions: (() => void) | null = null;
   /** The world's walk graph and its queries (null: no world open). */
   private walk: WalkGraph | null = null;
-  private paths: WalkQueries | null = null;
+  private paths: WorldPaths | null = null;
   private unresidentWalkGraph: (() => void) | null = null;
   /** The props stamped into the world, by object: kept while the world opens, placed into the channel when it is. */
   private readonly props = new Map<string, PropShape>();
@@ -490,16 +494,22 @@ export class VoxelWorldHost {
     this.walkSource = streamerWalkSource(streamer, farWalk, { props: channel });
     this.unresidentWalk?.();
     this.unresidentWalk = farWalk === null ? null : residentBytes.register('voxelStream', () => farWalk.bytes);
-    // Structure grids are stamped into the props' channel; the regions read their classes (never with no grid).
+    // Structure grids are stamped into the props' channel; the regions and the walk graph read their classes (never with no grid).
     const stampRule = (conn.grids ?? []).some((g) => g.extent !== null) ? (conn.gridStamp === undefined ? STRUCTURE_STAMP_DEFAULT : conn.gridStamp) : null;
     this.stampRule = stampRule;
     const regions = new OpenRegionStitch(streamer, stampRule !== null ? channel : null);
     this.regions = regions;
-    if (stampRule !== null) channel.listen((cx, cy, cz, classes) => classes && regions.touch(cx, cy, cz));
     this.unresidentRegions?.();
     this.unresidentRegions = residentBytes.register('regionStitch', () => regions.bytes);
-    const walk = new WalkGraph(streamer, VOXEL_SIZE_M);
-    const paths = new WalkQueries(walk);
+    // The world's walker goes round a structure grid's stamp (it blocks, it carries nothing): the grid is walked in its own graph.
+    const walk = new WalkGraph(streamer, VOXEL_SIZE_M, stampRule !== null ? { stamps: channel } : null);
+    if (stampRule !== null)
+      channel.listen((cx, cy, cz, classes) => {
+        if (!classes) return;
+        regions.touch(cx, cy, cz);
+        walk.touchStamp(cx, cy, cz);
+      });
+    const paths = new WorldPaths(walk);
     this.walk = walk;
     this.paths = paths;
     this.unresidentWalkGraph?.();
@@ -513,6 +523,7 @@ export class VoxelWorldHost {
       this.grids.push(host);
       conn.presentGrid?.(g.place, host.streamer, s.sectionEdge);
     }
+    paths.linkGrids(this.grids);
   }
 
   /**
@@ -704,6 +715,15 @@ export class VoxelWorldHost {
         threadProfiler.end(WALK_GRAPH_SPAN);
       }
     }
+    if (this.paths?.pending === true) {
+      // The structure grids' own walk graphs and their links, in what the slice leaves.
+      threadProfiler.begin(WALK_GRAPH_SPAN);
+      try {
+        this.paths.update(sliceMs - (performance.now() - stitchT0));
+      } finally {
+        threadProfiler.end(WALK_GRAPH_SPAN);
+      }
+    }
     if (this.ring !== null) {
       this.ring.setFoci(collide);
       this.ring.update();
@@ -891,7 +911,7 @@ export class VoxelWorldHost {
       ...(this.streamer !== null ? { readRing: { setM: this.streamer.readReach.sceneRing.loadRadius * VOXEL_SIZE_M, nowM: this.streamer.ring.loadRadius * VOXEL_SIZE_M, reachM: this.streamer.readReach.cells === null ? null : this.streamer.readReach.cells * VOXEL_SIZE_M } } : {}),
       ...(m !== undefined ? { stream: { reading: m.reading, decoding: m.decoding, deriving: m.deriving, damaged: m.damaged, derivedBytes: m.bytes.derived, counters: m.counters, lod: this.streamer?.mips?.lod.counters ?? null } } : {}),
       ...(regions !== null ? { regions } : {}),
-      ...(this.walk !== null ? { walk: { ...this.walk.stats(), pending: this.walk.pending, bytes: this.walk.bytes, searchBytes: this.paths!.bytes, queued: this.paths!.queued, ...this.paths!.served } } : {}),
+      ...(this.walk !== null ? { walk: { ...this.walk.stats(), pending: this.walk.pending, bytes: this.walk.bytes, searchBytes: this.paths!.queries.bytes, queued: this.paths!.queued, ...this.paths!.queries.served, ...(this.paths!.gridStats() !== null ? { grids: this.paths!.gridStats() } : {}) } } : {}),
       ...(far !== undefined ? { far: { selected: far.nodes, drawn: far.drawn, pending: far.pending, jobs: far.jobs, selectMs: far.selectMs, meshUs: far.meshUs, queueMs: far.queueMs, readMs: far.readMs, pumpMs: far.pumpMs, commitMs: far.commitMs, firsts: far.firsts, counters: far.counters, gpu: far.gpu, standIns: far.standIns, seen: far.seen, fine: far.fine } } : {}),
     };
     P.end(STATS_SPAN.rest);
@@ -989,7 +1009,7 @@ export class VoxelWorldHost {
     const o = walkOptionsOf(options);
     if (a === null || b === null || o === null) this.events.pathAnswered(noPathAnswer(id, this.name, 'unreachable', 'invalid'));
     else if (this.paths === null) this.events.pathAnswered(noPathAnswer(id, this.name, 'unknown'));
-    else this.paths.path(a, b, o, (w) => this.events.pathAnswered(voxelPathAnswer(id, this.name, w)));
+    else this.paths.path(id, this.name, a, b, o, (w) => this.events.pathAnswered(w));
     return id;
   }
 
@@ -1012,7 +1032,7 @@ export class VoxelWorldHost {
     return true;
   }
 
-  /** Path and reach queries waiting. */
+  /** Path and reach queries waiting (the grids' legs included). */
   get pathsQueued(): number {
     return this.paths?.queued ?? 0;
   }

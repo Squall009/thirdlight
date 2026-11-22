@@ -8,9 +8,10 @@
  * A straight run of steps is one segment: only the points where the way
  * turns are kept. Corners are not pulled tight: a straight line between two
  * corners could pass closer to a wall than the walk's cells keep, which the
- * graph does not check.
+ * graph does not check. A way through a structure grid gives its cells'
+ * floor middles where the grid stands (turned with it), the same rule.
  */
-import { VOXEL_SIZE_M, WALK_CLEARANCE_MAX, type WalkPathAnswer, type WalkQueryOptions, type WalkReachAnswer } from '@thirdlight/voxel';
+import { VOXEL_SIZE_M, WALK_CLEARANCE_MAX, type LinkedPathAnswer, type WalkPathAnswer, type WalkQueryOptions, type WalkReachAnswer } from '@thirdlight/voxel';
 
 import { cellBoxMetres, type VoxelPathAnswer, type VoxelReachAnswer, type VoxelWalkOptions } from './voxel-api';
 
@@ -75,6 +76,36 @@ export function voxelPathAnswer(path: number, world: string, a: WalkPathAnswer):
     status: a.status,
     ...(a.reason !== undefined ? { reason: a.reason } : {}),
     points: walkPoints(a.cells),
+    length: a.cost,
+    searched: a.run.coarse + a.run.cells + a.run.inner,
+    steps: a.run.slices,
+    ms: a.run.ms,
+  });
+}
+
+/** The waypoints of a way across graphs (floor middles in world metres): the first, every one where the step changes (a link's step is one), the last. */
+export function linkedWalkPoints(p: Float64Array, grids: Int32Array): readonly (readonly [number, number, number])[] {
+  const n = grids.length;
+  const out: (readonly [number, number, number])[] = [];
+  const same = (a: number, b: number, c: number): boolean => {
+    for (let k = 0; k < 3; k++) if (Math.abs(p[b * 3 + k]! - p[a * 3 + k]! - (p[c * 3 + k]! - p[b * 3 + k]!)) > 1e-6) return false;
+    return grids[a] === grids[b] && grids[b] === grids[c];
+  };
+  for (let i = 0; i < n; i++) {
+    if (i > 0 && i < n - 1 && same(i - 1, i, i + 1)) continue;
+    out.push(Object.freeze([p[i * 3]!, p[i * 3 + 1]!, p[i * 3 + 2]!] as [number, number, number]));
+  }
+  return Object.freeze(out);
+}
+
+/** A path across a world's graph and its structure grids' as a script reads it. */
+export function voxelLinkedPathAnswer(path: number, world: string, a: LinkedPathAnswer): VoxelPathAnswer {
+  return Object.freeze({
+    path,
+    world,
+    status: a.status,
+    ...(a.reason !== undefined ? { reason: a.reason } : {}),
+    points: linkedWalkPoints(a.points, a.grids),
     length: a.cost,
     searched: a.run.coarse + a.run.cells + a.run.inner,
     steps: a.run.slices,

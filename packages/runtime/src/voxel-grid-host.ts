@@ -31,10 +31,14 @@
  * (structure-stamp.ts) from its resident cells where it stands, read again
  * whenever a chunk of its own arrives or leaves ({@link stamp}).
  *
+ * Paths: the grid keeps a walk graph of its own, in its own frame, from its
+ * own derived navigation (exact floors, stairs and doors), made as its
+ * chunks arrive, change and leave; its world links it to the world's graph
+ * (walk-graph-links.ts).
+ *
  * Not done in a structure grid (the world grid's alone): its own open
- * regions, the walk graph, the props' lighting channel, the coarse floor and
- * the far field; `ctx.voxels` reads, rays, edits and saves answer from the
- * world grid.
+ * regions, the props' lighting channel, the coarse floor and the far field;
+ * `ctx.voxels` reads, rays, edits and saves answer from the world grid.
  */
 import { COLLIDER_3D_LIMITS, type ResolvedVoxelWorld } from '@thirdlight/project-model';
 import {
@@ -51,6 +55,7 @@ import {
   grownChunkBox,
   stampGrid,
   VOXEL_SIZE_M,
+  WalkGraph,
   worldStreamer,
   type ChunkBox,
   type ChunkGrid,
@@ -223,6 +228,8 @@ const GRID_REFOCUS_SHARE = 1 / 8;
 export class VoxelGridHost {
   readonly frame: GridFrame;
   readonly streamer: VoxelStreamer;
+  /** Its walk graph, in its own frame (cells of its own grid). */
+  readonly walk: WalkGraph;
   private readonly ring: CollisionRing | null = null;
   private readonly body: GridBody | null = null;
   private readonly unresident: () => void;
@@ -283,6 +290,7 @@ export class VoxelGridHost {
       this.ring = new CollisionRing({ grid, bodies: this.body, feed: streamerCollisionFeed(streamer), bounds: this.collisionBounds(settings) });
     }
     if (streamer.collision !== null) streamer.collision.bounds = this.collisionBounds(settings);
+    this.walk = new WalkGraph(streamer, VOXEL_SIZE_M);
     streamer.on((e) => this.onStream(e));
   }
 
@@ -294,8 +302,13 @@ export class VoxelGridHost {
   private onStream(e: StreamEvent): void {
     if (this.disposed) return;
     if ((e.type === 'loaded' || e.type === 'unloaded') && this.holds(e.cx, e.cy, e.cz)) this.stampDirty = true;
-    if (e.type === 'unloaded') this.ring?.unloaded(e.cx, e.cy, e.cz);
-    else if ((e.type === 'chunk' && !e.shaderOnly && !e.reliefOnly) || e.type === 'collision') this.ring?.changed(e.cx, e.cy, e.cz);
+    if (e.type === 'unloaded') {
+      this.ring?.unloaded(e.cx, e.cy, e.cz);
+      this.walk.touch(e.cx, e.cy, e.cz);
+    } else if ((e.type === 'chunk' && !e.shaderOnly && !e.reliefOnly) || e.type === 'collision') {
+      this.ring?.changed(e.cx, e.cy, e.cz);
+      if (e.type === 'chunk') this.walk.touch(e.cx, e.cy, e.cz);
+    }
   }
 
   private holds(cx: number, cy: number, cz: number): boolean {
@@ -438,6 +451,7 @@ export class VoxelGridHost {
     if (this.disposed) return;
     this.disposed = true;
     this.body?.clear();
+    this.walk.clear();
     this.unresident();
   }
 

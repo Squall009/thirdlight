@@ -1134,10 +1134,11 @@ const LIGHT_UPDATES = 8;
  * pieces under its place (the boards at its door's jambs and front corners, magenta, seen by a camera before its
  * porch), collided as one static body: the character walked at its front wall stops before it, walked at its door
  * goes through into the room. Stamped into the world grid: `ctx.voxels.regionAt` inside it answers a room whose door
- * is its one portal, and its room seen through the door is darker than the street before it. With the grid's draws,
- * its body or its stamp left out, or turned the wrong way, each fails here.
+ * is its one portal, and its room seen through the door is darker than the street before it; `ctx.voxels.findPath`
+ * from its porch into its room walks its own cells. With the grid's draws, its body, its stamp or its walk graph left
+ * out, or turned the wrong way, each fails here.
  */
-export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: number; wallStopZ: number; doorInZ: number; roomLight: number; streetLight: number; settleMs: number; ms: number }> {
+export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: number; wallStopZ: number; doorInZ: number; roomLight: number; streetLight: number; settleMs: number; path: { inRoom: number; cm: number; ms: number }; ms: number }> {
   const t0 = Date.now();
   const { control, counter, still } = driver(o);
   const counted = async (cmd: string, name: string, args?: Record<string, unknown>): Promise<void> => {
@@ -1203,6 +1204,20 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   };
   const wallStopZ = await walkAt(1.5);
   const doorInZ = await walkAt(o.house.doorX);
+  // A path from the porch into the room (`ctx.voxels.findPath`, answered at a later step): over the grid's own walk
+  // graph, its waypoints in the room and none in a wall's cell (the grid's own frame); asked until the graph has it.
+  const pathT0 = Date.now();
+  let packed = 0;
+  const gpath = async (): Promise<string> => {
+    const n = Math.floor((await counter('gpath')) / 1e12);
+    await control('gridpath');
+    await expect.poll(async () => Math.floor((packed = await counter('gpath')) / 1e12), { timeout: 10_000 }).toBeGreaterThan(n);
+    const r = packed % 1e12;
+    return `${Math.floor(r / 1e11)},${Math.floor(r / 1e10) % 10},${Math.floor(r / 1e8) % 100}`;
+  };
+  await expect.poll(gpath, { timeout: 20_000, intervals: [500], message: "a path from the turned house's porch into its room: found, its last waypoint in the room, none in a wall" }).toBe('1,1,0');
+  const pathInfo = { inRoom: Math.floor(packed / 1e5) % 1000, cm: packed % 1e5, ms: Date.now() - pathT0 };
+  expect(pathInfo.inRoom, 'waypoints in the room').toBeGreaterThan(0);
   // The grid's kit pieces draw in its world's batches (no draw a kind of its own; the world's count holds its copies),
   // and its streamer is left alone on the steps that have nothing for it.
   const worlds = await o.drawn();
@@ -1210,7 +1225,7 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   expect(worlds[o.drawName]?.pieceDraws, "the grid's pieces take no draws of their own").toBe(0);
   expect(worlds['far']?.kitInstances ?? 0, "the world's piece draws hold the grid's copies").toBeGreaterThanOrEqual(worlds[o.drawName]?.kitInstances ?? 0);
   expect(g.skipped, 'steps with nothing for the grid skip it').toBeGreaterThan(0);
-  const out = { magenta: boards, wallStopZ, doorInZ, roomLight: Math.round(roomLight * 1000) / 1000, streetLight: Math.round(streetLight * 1000) / 1000, settleMs, ms: Date.now() - t0 };
+  const out = { magenta: boards, wallStopZ, doorInZ, roomLight: Math.round(roomLight * 1000) / 1000, streetLight: Math.round(streetLight * 1000) / 1000, settleMs, path: pathInfo, ms: Date.now() - t0 };
   console.log(`[voxel-play] structure grid (30°): ${JSON.stringify({ ...out, grids: await grids(), drawn: (await o.drawn())[o.drawName] })}`);
   expect(boards, "the house's kit boards in the picture").toBeGreaterThan(100);
   expect(wallStopZ, 'stopped before the front wall (its outer face at the grid z the house names)').toBeLessThan(o.house.doorWallZ);

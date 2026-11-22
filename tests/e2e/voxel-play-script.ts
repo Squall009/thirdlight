@@ -11,7 +11,19 @@ import { VOXEL_ROLE } from '@thirdlight/voxel';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { GLOW_MASKED_MAT, GLOW_MAT } from './voxel-shadows';
 
-export function playScriptSource(at: readonly number[], gridRoom?: readonly number[]): string {
+/**
+ * The structure grid's house for a path into it: where its grid stands, its cells (voxel-grid-house.ts `GRID_HOUSE`),
+ * and the path's ends (world metres): on its porch, in its room.
+ */
+export interface GridHousePath {
+  readonly position: readonly number[];
+  readonly yawRad: number;
+  readonly cells: { readonly w: number; readonly d: number; readonly porch: number; readonly h: number; readonly doorX: readonly number[]; readonly doorH: number };
+  readonly from: readonly number[];
+  readonly to: readonly number[];
+}
+
+export function playScriptSource(at: readonly number[], gridRoom?: readonly number[], gridPath?: GridHousePath): string {
   const pit = `{ center: [${at[0]}, ${at[1] - 0.25}, ${at[2]}], radius: 1.75 }`;
   const wetAt = `[${at[0] - 2.75}, ${at[1] - 0.25}, ${at[2]}]`;
   return [
@@ -104,6 +116,29 @@ export function playScriptSource(at: readonly number[], gridRoom?: readonly numb
     "    for (const _ of ctx.debug.command('hutpath')) state.path = v.findPath([A[0] + 1, A[1] + 0.75, A[2] + 6.25], [A[0] - 2.5, A[1] + 0.25, A[2] - 3]);",
     "    for (const a of v.paths) if (a.path === state.path) { put('pathStatus', ['found', 'partial', 'unreachable', 'unknown'].indexOf(a.status) + 1); put('pathCm', Math.round(a.length * 100)); put('pathPoints', a.points.length); ctx.game.add('pathAnswers', 1); }",
     `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(box(-0.5, 0.5, 2, 0.5, 2.5, 2.2), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
+    // A path from the structure grid's porch into its room (`gridpath`), packed in one counter put from its first answer
+    // on (an observation carries the first 32 counters by name only; the grid's checks are the Play's last):
+    // answers × 10¹² + status (1 found … 4 unknown) × 10¹¹ + its last waypoint in the room × 10¹⁰ + waypoints in a
+    // wall's cell (the grid's own frame; the door's cells are none) × 10⁸ + waypoints in the room × 10⁵ + its length (cm).
+    ...(gridPath === undefined ? [] : [
+      `    for (const _ of ctx.debug.command('gridpath')) state.gpath = v.findPath([${gridPath.from.join(', ')}], [${gridPath.to.join(', ')}]);`,
+      '    for (const a of v.paths) if (a.path === state.gpath) {',
+      `      const c = Math.cos(${gridPath.yawRad}), s = Math.sin(${gridPath.yawRad}), P = [${gridPath.position.join(', ')}], H = ${JSON.stringify(gridPath.cells)};`,
+      '      const g = (p: number[]) => { const dx = p[0] - P[0], dz = p[2] - P[2]; return [(c * dx - s * dz) / 0.5, (p[1] - P[1]) / 0.5, (s * dx + c * dz) / 0.5]; };',
+      '      const room = (q: number[]) => q[0] > 1 && q[0] < H.w - 1 && q[2] > H.porch + 1 && q[2] < H.porch + H.d - 1;',
+      '      let inRoom = 0, inWall = 0;',
+      '      for (const p of a.points) {',
+      '        const q = g(p); const x = Math.floor(q[0]), y = Math.floor(q[1] + 0.25), z = Math.floor(q[2]);',
+      '        if (room(q)) inRoom++;',
+      '        const edge = x >= 0 && x < H.w && z >= H.porch && z < H.porch + H.d && (x === 0 || x === H.w - 1 || z === H.porch || z === H.porch + H.d - 1);',
+      '        const door = z === H.porch && x >= H.doorX[0] && x <= H.doorX[1] && y <= H.doorH;',
+      '        if (edge && y >= 1 && y <= H.h && !door) inWall++;',
+      '      }',
+      "      const last = a.points.length > 0 && room(g(a.points[a.points.length - 1])) ? 1 : 0;",
+      "      state.gp = (Math.floor((state.gp ?? 0) / 1e12) + 1) * 1e12 + (['found', 'partial', 'unreachable', 'unknown'].indexOf(a.status) + 1) * 1e11 + last * 1e10 + Math.min(inWall, 99) * 1e8 + Math.min(inRoom, 999) * 1e5 + Math.min(Math.round(a.length * 100), 99999);",
+      '    }',
+      "    if (state.gp !== undefined) put('gpath', state.gp);",
+    ]),
     // The structure grid's house as the world's regions see it (its stamp): its room's kind (1 room, 2 outdoors) and portals.
     ...(gridRoom === undefined ? [] : [`    { const g = v.regionAt(${gridRoom[0]}, ${gridRoom[1]}, ${gridRoom[2]}); put('gridRoomKind', g === null ? 0 : g.kind === 'room' ? 1 : 2); put('gridRoomPortals', g?.portals ?? -1); }`]),
     '    if (state.rooms) {',
