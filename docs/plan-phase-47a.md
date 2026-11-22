@@ -167,7 +167,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | Item | Status |
 |---|---|
 | 47a.0 | Done 2026-11-21 (docs only, no gate): baseline at 58fac9ba (§8a; page ms at 128 lamps +2 ms against 46e.19, the 128-lamp room unusable). D740 not fixed: the surface WGSL equal in loads, samples, loops; `level0` equal at both commits, so the extra is the coarse levels' read meeting other data; D740 rewritten |
-| 47a.1 | (a) done 2026-11-21 (0980318c, 185114b6): grids in the manifest (F2), streamed, drawn turned, one body a grid; town 4 ways: turn costs nothing, a streamer a grid does (131 grids: sim 127–154 ms on the orbit, W 2; draw calls 8–17 ×), D743; recommendation in §8a. b–d not started |
+| 47a.1 | (a) done 2026-11-22 (0980318c, 185114b6, bfed4123, 42363e34): grids in the manifest (F2), drawn turned, a body each; a grid's streamer runs only with work, its pieces in its world's draws, one budget. Town 131 grids: page 1.0–1.2 × W, piece draws as W, room 128; sim 1.9–2.1 × W moving (1.35 still): missed, cause in §8a; D745. b–d not started |
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | not started |
 | 47a.4 | not started |
@@ -405,6 +405,133 @@ occupancy (the turn costs nothing measurable here, the count does); slice c: sti
 slice d: far nodes of grids from the same far cache runner, keyed by grid. The orbit numbers here are the cost of 131
 streamers, not of turned grids.
 
+### 47a.1a2 — many grids made cheap
+
+**Where the per-grid time went** (measured first, Node, 2026-11-21: `work/47a.1a2/scratch/grids-node.ts`, the town's 131
+houses each in its own grid at 30°, `VoxelGridHost` exactly as Play steps it, real workers, region files on disk, the
+headroom orbit's focus at 120 steps a second, `--cpu-prof` and inspector profiles of the moving and still phases): 9.2 ms
+a step moving, 5.4 still, for 131 grids. Every step ran every grid's streamer, and two scans ignored the grid's extent:
+its **level choice** covered the top-level nodes over the whole unload ring round the focus (`chooseLevels`/`cover` over
+an empty ring: 39 % of the step moving, nothing still), and its **collision-only planner** scanned the collision ring
+round the camera every step (`wantedNow` from `look` and `request`, and again through `idle`: 35 %, moving and still);
+then `stream-mips` `sendNodes`, section readiness (`chunkReady` → `stranded` → `neighboursComing`) and the collision
+ring's `entering`. Mips, seams and section bookkeeping of the grid's own few chunks were small. The plan and reads were
+already clipped to the extent (slice a).
+
+**Built** (bfed4123, 42363e34): a streamer a grid is kept, made cheap where it ran for nothing (why not one streamer a
+world: a grid's store, overlay, sections, mips, seams, relief and collision are all keyed in its own frame; putting
+several grids behind one plan means a grid dimension in every one of those modules, and the measurement showed the cost
+was the scans and the every-step updates, not a streamer's existence):
+- `stream-lod`: the level choice's roots are clipped to the streamer's extent (`LodHost.extent`, from `MipHost`);
+- `VoxelStreamer`: `counters.activity` (every event, every read, decode and job ending) and `idle(true)`: nothing that
+  could be asked for now (stored chunks held for room, sections, nodes, seams asked again, bodies' ground) and nothing
+  waiting on time (level 0 held or the ring narrowed for speed: `StreamReadPlan.atRest`); work already out is not
+  counted, since its end moves `activity` (`pending(out)` on sections, mips, seams, the level choice, collision);
+- `VoxelGridHost.step`: one distance test against the grid's world sphere while its streamer is quiet and nothing
+  landed; the stream focus may move 1/8 of its gap to the grid's box (a cell at least, half the level rings'
+  hysteresis at most: a grid 100 m off plans every 4 m) before the grid is told; a grid out of reach that holds nothing
+  is never stepped; bodies count for a grid only within its collision keep bounds, the camera's own ground likewise;
+- `VoxelWorldHost`: one budget (`worldBudgetBytes`, the world's `MEMORY_BUDGET_BY_TIER` entry) for the world grid and
+  its grids, grids first: the world grid's share is the budget less what the grids hold;
+- drawing: a grid's view draws with its world's surface (one material set and shader-grid store) and puts its kit
+  pieces into its world's piece batches, each copy's matrix turned by the grid's yaw and moved to its place
+  (`VoxelPieceBatches.set` with a `PiecePlace`; spheres for the chunk cull and the GPU culler's rows from the turned
+  copies), so grids add their chunks' surfaces to a frame, never a draw a kind a grid;
+- diagnostics: a grid's stats name what keeps it from quiet (`waits`), the world's pool lists its queue by kind and lane
+  (`queuedKinds`); the headroom bench keeps both.
+
+Node after (same harness): 0.35 ms a step moving, 0.022 still (from 9.2 and 5.4). **In Play the first build never
+skipped** (V-g0 of the first round: 0 of 236 k grid updates skipped): the grids' coarse-level jobs waited at the back of
+the shared queue behind the world's far and mip work (diagnosis `d/G30diag*.json`: 120 of 131 grids waiting on their
+nodes, the queue 246 mip-lane jobs of 252) and `idle()` counted jobs out; 42363e34 made quiet look past work out.
+
+**Keys by (grid, chunk):** already so in the job contract as built (the tracker's `DirtyChunk` and every job's `chunk`
+carry the grid id; the grids' streamers share their world's tracker): no change of shape, spec §3.6 and
+"stream job 1" untouched. Test: two grids' jobs on the same chunk coordinates stay apart in one tracker.
+
+**Measured** 2026-11-22 03:23–05:23 UTC at 42363e34 (base 8253ff7c built in a scratch worktree with its own
+`@thirdlight` links; the head's bench for both), low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone (`uptime`
+beside each, 1-minute load 0.95–3.85), `run.mjs headroom --quality low --rounds 2`, second rounds read, the A B A B
+first then W G0 G30 G45 twice interleaved, then pictures, then coverage. Work folder `~/.cache/thirdlight-phase47a/work/
+47a.1a2/` (`measure.sh`, `lib.sh`, `mkbase.sh`, `summ1a2.py`, `m/` every raw run, `m-first/` the first build's partial
+round, `d/` the diagnosis runs, `scratch/` the Node harnesses).
+
+World grid alone, head against 8253ff7c (the town as first written, no placements): room 128, 128 against 128, 128;
+page ms 5.70, 5.93 against 5.63, 5.91; simulation 2.04, 2.22 against 2.19, 2.22; GPU `near` 4.37, 3.09 against 4.86,
+4.39 (resolution 0.7–1.6 ms: not resolved); draw calls 86, 88 against 85, 85. Equal within the spread.
+
+| town orbit, two runs | W | G0 | G30 | G45 | 47a.1a (G30) |
+|---|---|---|---|---|---|
+| room (copies; misses at no load) | 128, 128 (0/90, 0/89) | 128, 128 (0, 0) | 128, 128 (0, 0) | 128, 120 (0, 0) | −1, −1 |
+| GPU near / far / lighting ms | 3.30, 3.89 / 2.92, 4.25 / 4.89, 4.16 | 4.82, 5.18 / 3.83, 3.60 / 5.17, 3.55 | 4.71, 4.60 / 3.80, 3.23 / 5.31, 4.02 | 5.18, 4.07 / 2.36, 2.67 / 4.44, 5.02 | 5.97, 5.90 / … |
+| page ms a frame; `render` | 5.86, 5.85; 4.21, 4.41 | 6.56, 6.76; 5.10, 5.20 | 6.35, 7.04; 4.97, 5.44 | 6.61, 6.11; 5.07, 4.60 | 15.24, 15.00 |
+| simulation ms a frame (`voxelStream`) | 2.12, 2.15 (1.73, 1.77) | 4.16, 3.98 (3.47, 3.36) | 4.38, 4.36 (3.59, 3.70) | 4.54, 4.05 (3.83, 3.35) | 142.3, 135.2 |
+| draw calls; triangles (the frame after the fill) | 86, 86; 128 k, 130 k | 130, 44; 899 k, 81 k | 33, 153; 61 k, 802 k | 46, 34; 73 k, 70 k | 640, 679 |
+| world piece draws (grids' copies in them); kit instances | 49, 49; 38.9 k | 52, 52; 49.2 k | 51, 50; 45.4 k, 40.5 k | 50, 51; 36.8 k, 52.8 k | 1,017–1,057 grid piece draws |
+| page heap / GPU MiB | 698, 625 / 1,026, 1,004 | 619, 630 / 967, 1,164 | 606, 661 / 915, 1,097 | 628, 592 / 949, 962 | 671, 626 / 1,477, 1,250 |
+| one budget (low 768 MiB): world grid; grids MB | 70.0, 72.8; — | 8.1, 12.3; 86.2, 84.2 | 0.7, 13.4; 67.9, 88.3 | 10.5, 0.8; 84.0, 81.7 | 0.72; 55.9, 55.5 (each its own budget) |
+| grid updates; steps skipped (to the fill's snapshot) | — | 140 k, 112 k; 137 k, 126 k | 159 k, 104 k; 123 k, 87 k | 122 k, 154 k; 119 k, 130 k | every step, none skipped |
+| fill (s) | 8.5, 8.3 | 19.1, 16.2 | 21.0, 13.9 | 16.6, 23.7 | 21.3, 20.0 |
+
+Read: the **room** is the world grid's (128 everywhere; slice a: no room). **Page** ms 1.04–1.20 × W (target ≈ 1.3:
+met); `render` +0.7–1.0 ms (the grids' chunk surfaces: a chunk a draw). **Draw calls** depend on how much of the world
+grid's near field had arrived when the snapshot was taken (the fill's moment): 33–46 with it not yet drawn, 130–153 with
+it arriving (stand-ins and seams); the grids' kit pieces are in the world's 49–52 piece draws (W 49): they no longer
+multiply. **Simulation** 1.9–2.1 × W on the moving orbit: **target missed**. Its cause, from the coverage round's spans
+(below) and the Node harness: the grids' updates as the focus moves (each grid near the orbit is told every cell or
+few, each update 0.2–0.35 ms in Node: the level choice over its margin chunks and the section readiness walk), about
+1.4–2 ms a frame of the 120 Hz steps at 30 Hz; and the world grid's queue: in every G run the pool's queue is full
+(252 of 256) during the fill, mostly mip-lane node jobs, so the world grid's level 0 near the camera arrives after the
+grids' (fill 14–24 s against 8.3–8.5; "world grid near field 0 chunks" at the snapshot, 147 in W). That is not a hole:
+at the street camera after settling the world grid draws 159 chunks (89 at level 0, 70 at level 1) and the ground and
+fences are there (`d/S-g30-diag/street-noon.png`, `m/S-g30/street-noon.png`). **With the camera still** (light shots,
+after settling): simulation 3.87 (street), 3.94 (60 m), 2.57 (above) against W 2.90, 2.84, 1.87 (1.33–1.39 ×; slice a
+18–25 ms); page 6.87, 8.69, 4.58 against 6.65, 6.65, 4.12.
+
+**Coverage at 150 m/s** (Play on staging, `run.mjs coverage --quality low --speed 150 [--query G30]`, one each, same
+hour): longest frame 64.5 ms G30 against 71.5 W, none over 100 ms in either, missed 39.3 against 35.7 a minute, p95
+38.2 against 37.7; after the stop ground solid 0.04 against 0.03 s, full detail 5.07 against 4.27 s, nothing pending
+10.6 against 9.56 s; falls 0 of 34 both; holes 1 of 1,968 against 0. Simulation in flight 14.9 against 9.5 ms a frame,
+of which `structure grids streamed` 4.8 ms a frame (its longest frame 217 ms while the flight crossed the town: at
+speed every grid in reach is told every step). Raw `m/C-w.*`, `m/C-g30.*`.
+
+**Bodies** (direction 3; Node, `scratch/bodies-node.ts`: the G30 grids, the engine's Rapier port, a probe body walking
+two streets at 1.5 m/s, 1 m up, for 60 s): 19–21 grid bodies at a time (the houses within the collision ring's keep
+bounds), 2,033–2,389 collider parts in all, 82 body builds taking 166 ms in all (2.0 ms a build); the grids' share of a
+step 0.75–0.8 ms with the body moving. The Play test's grid house: one body, 11 parts, 3 builds in 1.2 ms; the character
+stops at grid z 2.69 before the front wall (alone; 1.85 once under the gate's load, still before the wall) and walks
+through the door to 7.19.
+
+**Far** (direction 4): a grid draws its own levels 1–2 inside its load ring (192 m on low, chosen in its frame); past it
+it is not drawn. The far field proper (far nodes per grid) is slice d. In the bench the stale far cache still draws the
+town as first written past the rings (aligned houses).
+
+**Pictures** (looked at): `m/S-w/` and `m/S-g30/` `street-noon.png`, `house-60m.png`, `house-above.png`; `m/S-g0/
+house-60m.png` and `m/S-g0-off/house-60m.png` (the same camera with `&voxelLight=off`); `d/S-g30-diag/street-noon.png`.
+The ground is drawn in every picture; at 60 m every house of G30 is there, turned, with its roof and walls; the street
+shows the turned houses' gables and kit pieces, the fences and grass of the world grid; from above the turned roof and
+its eave pieces sit on the house. Seen wrong in G only: windows lit where W's are dark (the volume does not see grids,
+slice b), and the eave and roof specks (D744, below).
+
+**D744** (in its 45-minute box): the specks are the light volume's read on grid houses: with `?voxelLight=off` the same
+camera shows none (`m/S-g0/house-60m.png` against `m/S-g0-off/house-60m.png`), and W's houses, which the volume sees,
+show almost none. Ruled out: z-fighting of eave pieces (they draw with the volume off), the geometry at level 1 (open
+edges of a house's surfaces counted in Node, `scratch/eaves.ts`: present at both lattice parities, at level 0 too, so not
+what differs between W and G). Not fixed here: it is slice b's (light seeing grids).
+
+**Unverified:** medium and high tiers; WebGL 2 (its smoke test only); anything in motion beyond the numbers; a turned
+house on a slope; the grids' bodies in Play beyond the test house (the bodies above are Node's with the engine's port).
+Gates: gate-fast-20261121-071239 GREEN (bfed4123's tree; Play test 1.8 min); gate-fast-20261122-030216 RED on the Export
+test only ("the configured exportRoot is not a directory"), gate-rerun-20261122-032107 GREEN; Play test 1.8 min in the
+gate, 2.0 min alone; `area play` (the leak test) gate-area-20261122-052436 GREEN (24 passed).
+
+**D-rows**: D743 narrowed (below); D744 found; D745 opened (the shared queue).
+
+**Recommendation** (unchanged in kind, now measured): one grid per structure stands on page cost, draw calls and memory;
+the simulation's cost of a town of grids on a moving camera is about twice the world grid's (still camera 1.35 ×). What
+is left to take: a grid's update itself (its level choice over its margin chunks, the readiness walk: 0.2–0.35 ms), and
+a queue the world grid's near work cannot be crowded out of (D745). Neither needs a foundation rewritten.
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -433,6 +560,15 @@ streamers, not of turned grids.
 - 2026-11-21 (47a.1a; default chosen, owner to confirm): until structure objects exist, **placements reach Play as a
   host option** (`VoxelWorldConnection.grids`) fed only by the page's `?voxelGrids=` bench switch; nothing a project
   stores. Each grid streamer gets the world's memory budget (no shared budget yet).
+- 2026-11-22 (47a.1a2; default chosen, owner to confirm): **a streamer a grid, made cheap, not one streamer a world**:
+  the cost was the grid's scans of the ring and its every-step updates, not the streamer; one streamer over all grids
+  would put a grid dimension into the store, sections, mips, seams, relief and collision (§8a, 47a.1a2).
+- 2026-11-22 (47a.1a2; default chosen, owner to confirm): **one memory budget a world, grids first**: the world grid's
+  share is the budget less what its grids hold, so past it the world grid evicts its far edge.
+- 2026-11-22 (47a.1a2; default chosen, owner to confirm): a grid is told of the stream focus after it moved **1/8 of its
+  gap to the grid** (a cell at least, half the level rings' hysteresis at most); bodies every cell.
+- 2026-11-22 (47a.1a2; default chosen, owner to confirm): **a grid draws with its world's surface and piece batches**;
+  a grid's relief ring is not drawn (the shared surface is placed by its world's ring; relief is off on every tier).
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 

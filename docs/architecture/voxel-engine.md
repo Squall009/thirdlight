@@ -60,11 +60,17 @@ page in the same commit.
   grid's region files in `grid-<id>/`), each the same 0.5 m cells in a frame of its own, placed by a position and a
   yaw that are not stored with the voxels (the structure object's, 47a.4; until then Play takes them as the world
   connection's `grids` host option, fed by a bench's `?voxelGrids=`). In Play each is streamed by its own streamer in
-  the world's pool under its job ids, reading only round the chunks its files hold, the foci moved into its frame;
-  drawn under its place (surfaces, kit pieces, shadows: `voxel-world-draws.ts` hangs its chunk view under a turned
-  root) and collided as one compound static body (runtime `voxel-grid-host.ts`). The light volume, sun heights,
-  open regions and rooms, the walk graph, the far field, `ctx.voxels`, the Scene view and exports see the world
-  grid alone (plan-47a §8a, 47a.1a).
+  the world's pool under its job ids (one tracker: keys are (grid, chunk)), reading only round the chunks its files
+  hold, the foci moved into its frame, its level choice covering only those chunks. A step runs a grid's streamer only
+  when it has something to do: it could ask for work (`idle(true)`: jobs out end with a poke), something landed in it
+  (`counters.activity`), or the focus moved its share of the gap to the grid (1/8, a cell at least, half the level
+  rings' hysteresis at most); a grid out of reach that holds nothing is never stepped, and a grid is given only the
+  bodies whose collision reaches it (runtime `voxel-grid-host.ts`). The world grid and its grids share the world's one
+  memory budget (grids first). Drawn under its place with its world's surface, its kit pieces in its world's piece
+  batches turned and placed copy by copy (`voxel-world-draws.ts`, `VoxelPieceBatches`), so grids add chunk surfaces to
+  a frame, not draws a kind; collided as one compound static body a grid. The light volume, sun heights, open regions
+  and rooms, the walk graph, the far field, `ctx.voxels`, the Scene view and exports see the world grid alone; past
+  its load ring a grid is not drawn (plan-47a §8a, 47a.1a and 47a.1a2).
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
   water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); `liquid` is
   excluded by scattered checks, not one predicate; a liquid edit re-derives mesh, collision, navigation and
