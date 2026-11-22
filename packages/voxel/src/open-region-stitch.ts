@@ -37,12 +37,22 @@
  *   A region touching a chunk not loaded is never enclosed: it is unknown
  *   until that chunk arrives. Portals do not open a region: a house's room
  *   behind its door and windows is enclosed, joined to the street by them.
+ * - **Structure grids** stamped into the world grid (structure-stamp.ts,
+ *   the prop channel's classes) are read with each unit: a stamped stopping
+ *   cell is solid, a stamped opening a portal cell, so a turned house's
+ *   rooms, portals and roof (the sky heights) are the world's own; a chunk
+ *   whose stamp changes is touched again.
  */
 import { chunkInWorld, chunkKey, WORLD_CELL_MIN_Y, type CellGrid, type ChunkGrid } from './coords';
 import { sectionIdOf } from './derive-assembly';
 import type { DeriveOutput } from './stream-job';
 import type { SkyColumnWire } from './sky-columns';
-import { airRegions, ALL_REGION_FACES, openRegionsArrays, REGION_FACE, REGION_PORTAL, regionLabelAt, regionSkyAt, type OpenRegionsOut } from './open-regions';
+import { airRegions, ALL_REGION_FACES, openRegionsArrays, REGION_FACE, REGION_PORTAL, regionLabelAt, regionSkyAt, stampedRegions, type OpenRegionsOut } from './open-regions';
+
+/** Structure grids stamped into the world grid as the stitching reads them: a resident chunk's classes (structure-stamp.ts; null: none). */
+export interface RegionStamps {
+  rooms(cx: number, cy: number, cz: number): Uint8Array | null;
+}
 
 /** What the stitching reads of a streamer. */
 export interface RegionStreamerView {
@@ -258,7 +268,11 @@ export class OpenRegionStitch {
   private readonly topSolid: Uint8Array;
   private readonly topAir: Uint8Array;
 
-  constructor(private readonly view: RegionStreamerView) {
+  constructor(
+    private readonly view: RegionStreamerView,
+    /** Structure grids stamped into the world grid (prop-channel.ts `rooms`): their stopping cells solid, their openings portals. */
+    private readonly stamps: RegionStamps | null = null,
+  ) {
     this.air = airRegions(view.sections.edge);
     this.topSolid = new Uint8Array(view.grid.edge ** 2).fill(view.grid.edge);
     this.topAir = new Uint8Array(view.grid.edge ** 2);
@@ -344,10 +358,19 @@ export class OpenRegionStitch {
     for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) for (let sy = 0; sy < per; sy++) {
       const r = this.view.derivedOf(cx * per + sx, cy * per + sy, cz * per + sz, true);
       if (r === null) return false;
-      const now = r.assembly === null ? this.air : r.assembly.regions;
+      const now = this.unitOf(r, cx, cy, cz, sx, sy, sz);
       if (now == null || !sameRegions(now, p.units[sectionIdOf(per, sx, sy, sz)]!)) return false;
     }
     return true;
+  }
+
+  /** A unit's regions as derived, with the structures stamped over its chunk (undefined: its result has none). */
+  private unitOf(r: DeriveOutput, cx: number, cy: number, cz: number, sx: number, sy: number, sz: number): OpenRegionsOut | undefined {
+    const own = r.assembly === null ? this.air : r.assembly.regions;
+    const classes = own == null || this.stamps === null ? null : this.stamps.rooms(cx, cy, cz);
+    if (classes === null) return own ?? undefined;
+    const se = this.view.sections.edge;
+    return stampedRegions(own!, classes, sx * se, sy * se, sz * se, this.view.grid.shift);
   }
 
   private columnKey(cx: number, cz: number): number {
@@ -405,7 +428,7 @@ export class OpenRegionStitch {
     for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) for (let sy = 0; sy < per; sy++) {
       const r = this.view.derivedOf(cx * per + sx, cy * per + sy, cz * per + sz, true);
       if (r === null) return null;
-      const regions = r.assembly === null ? this.air : r.assembly.regions;
+      const regions = this.unitOf(r, cx, cy, cz, sx, sy, sz);
       if (regions == null) return null;
       units[sectionIdOf(per, sx, sy, sz)] = regions;
     }

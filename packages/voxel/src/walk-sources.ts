@@ -13,7 +13,10 @@
  *   their channel (prop-channel.ts): a level-0 cell stops the light stop
  *   where the voxels' coverage joined with the props' reaches
  *   {@link LIGHT_STOP_COVERAGE} (`coverageAt`'s rule), so the walk reads one
- *   occupancy for light. The mips and far nodes are the voxels' alone.
+ *   occupancy for light. Structure grids stamped into the same channel
+ *   (structure-stamp.ts) stop light there too, and at the mip levels by
+ *   their stopping cells (a level's cell stops where one under it does);
+ *   props stop nothing at the mips. The far nodes are the voxels' alone.
  * - **Far nodes** are the bricks of the nodes the far field draws, copied
  *   as they go to the page (their samples, brick table and boxes; not their
  *   looks), dropped as they go from it, counted in the world's resident
@@ -92,7 +95,17 @@ export function derivedWalkView(d: DerivedData, stop: WalkStop): WalkBlockView {
 /** What a walk source reads of a world's prop channel: a resident chunk's coverage bytes (null: no prop covers it; undefined: not built). */
 export interface WalkPropCoverage {
   chunk(cx: number, cy: number, cz: number): Uint8Array | null | undefined;
+  /**
+   * The cells of a mip node (its level's cells, one bit each) that structure grids stamped into the channel stop
+   * (null: none): at the mip levels a stamped structure stops light as its own cells do in the world grid's mips.
+   */
+  mipStops?(level: number, nx: number, ny: number, nz: number): Uint32Array | null;
+  /** Moves on whenever any chunk's bytes or classes change (absent: views with props are made at every read). */
+  readonly version?: number;
 }
+
+/** Level-0 views with props kept made (a walk enters the same blocks ray after ray), past which the oldest go. */
+const PROP_VIEWS_KEPT = 512;
 
 /**
  * A level-0 block's light-stop view with the props over it: a cell also stops where its own coverage joined with the
@@ -112,23 +125,30 @@ export function propStopView(base: WalkBlockView, light: LightOut | null, props:
       (mask ??= new Uint32Array(Math.ceil((e * e * e) / 32)))[i >>> 5]! |= 1 << (i & 31);
     }
   }
-  if (mask === null) return base;
+  return mask === null ? base : maskStopView(base, mask, e);
+}
+
+/**
+ * A block's view with more stopping cells: those of `mask` (one bit a cell, the block's index `(x · e + z) · e + y`)
+ * stop the ray too.
+ */
+export function maskStopView(base: WalkBlockView, mask: Uint32Array, e: number): WalkBlockView {
   const m: Uint32Array = mask;
   const bit = (i: number): boolean => ((m[i >>> 5]! >>> (i & 31)) & 1) === 1;
   const n = e >> 2;
-  // A brick holds a prop's stopping cell when any of its 16 columns' four cells does.
-  const propBrick = (i: number): boolean => {
-    const by = i % n;
-    const bz = ((i - by) / n) % n;
-    const bx = Math.floor(i / (n * n));
-    for (let x = bx * 4; x < bx * 4 + 4; x++) for (let z = bz * 4; z < bz * 4 + 4; z++) if (((maskBits(m, (x * e + z) * e, e) >>> (by * 4)) & 15) !== 0) return true;
-    return false;
-  };
+  // A brick holds a stopping cell of the mask when any of its 16 columns' four cells does (found once: a walk asks often).
+  const held = new Uint8Array(n * n * n);
+  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
+    const col = maskBits(m, (x * e + z) * e, e);
+    if (col === 0) continue;
+    for (let by = 0; by < n; by++) if (((col >>> (by * 4)) & 15) !== 0) held[((x >> 2) * n + (z >> 2)) * n + by] = 1;
+  }
+  const maskBrick = (i: number): boolean => held[i] === 1;
   return {
     flag: base.flag === OCCUPANCY.solid ? OCCUPANCY.solid : OCCUPANCY.mixed,
     brick: (i) => {
       const f = base.brick(i);
-      return f === OCCUPANCY.solid ? f : propBrick(i) ? OCCUPANCY.mixed : f;
+      return f === OCCUPANCY.solid ? f : maskBrick(i) ? OCCUPANCY.mixed : f;
     },
     cell: (i) => base.cell(i) || bit(i),
     column: (c) => {
@@ -161,6 +181,8 @@ export function streamerWalkSource(s: WalkStreamerView, far?: FarWalkNodes | nul
   const cell = { material: 0, role: 0, shape: 0, wetness: 0 };
   const per = s.grid.shift - s.sections.shift;
   const sectionMask = (1 << per) - 1;
+  // Views joined with props, by block: made again when the section's result or the channel changed.
+  const joined = new Map<string, { readonly r: DeriveOutput; readonly version: number; readonly view: WalkBlockView }>();
   return {
     maxLevel: mips?.maxLevel ?? 0,
     blockShift: (level) => (level === 0 ? s.sections.shift : s.grid.shift),
@@ -171,10 +193,22 @@ export function streamerWalkSource(s: WalkStreamerView, far?: FarWalkNodes | nul
         const base = r.assembly === null ? WALK_EMPTY_VIEW : derivedWalkView(r.assembly, stop);
         const c = stop === 'light' && props !== null ? props.chunk(bx >> per, by >> per, bz >> per) : null;
         if (c == null) return base;
+        const key = `${bx},${by},${bz}`;
+        const version = props!.version;
+        const had = version === undefined ? undefined : joined.get(key);
+        if (had !== undefined && had.r === r && had.version === version) return had.view;
         const sh = s.sections.shift;
-        return propStopView(base, r.assembly?.light ?? null, c, (bx & sectionMask) << sh, (by & sectionMask) << sh, (bz & sectionMask) << sh, 1 << sh, s.grid.shift);
+        const view = propStopView(base, r.assembly?.light ?? null, c, (bx & sectionMask) << sh, (by & sectionMask) << sh, (bz & sectionMask) << sh, 1 << sh, s.grid.shift);
+        if (version !== undefined) {
+          if (joined.size >= PROP_VIEWS_KEPT) joined.delete(joined.keys().next().value!);
+          joined.set(key, { r, version, view });
+        }
+        return view;
       }
       const d = mips?.derivedOf(level, bx, by, bz) ?? null;
+      const m = stop === 'light' && mips !== null ? (props?.mipStops?.(level, bx, by, bz) ?? null) : null;
+      // A node the mips know nothing of (all air) is known where a structure stands in it.
+      if (m !== null) return maskStopView(d === null ? WALK_EMPTY_VIEW : derivedWalkView(d, stop), m, 1 << s.grid.shift);
       return d === null ? null : derivedWalkView(d, stop);
     },
     record(x, y, z) {

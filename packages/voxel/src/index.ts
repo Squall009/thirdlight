@@ -441,7 +441,9 @@ export { FAR_BAKED_LEVELS, FAR_ENTRY_CACHE_BYTES, FAR_ERROR_PIXELS_BY_TIER, FAR_
 export { deriveMipNode, MipTree, type MipLevelView, type MipSource } from './mip-derive';
 export { buildFaceSeam, seamBytes, SEAM_PIECE_PAD_CELLS, SEAM_RIM_CELLS, SEAM_WALK_STEPS, type FaceSeam, type NodeFace, type SeamCounts, type SeamFaceInput, type SeamPiece, type SeamSurface } from './lod-seam';
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCellBox, propCoverageChunk, propCoverageLocal, type PropLocalCoverage, type PropShape } from './prop-coverage';
-export { PROP_COVERAGE_PART, PropLightChannel, type PropChannelHost } from './prop-channel';
+export { PROP_COVERAGE_PART, PropLightChannel, type LitShape, type LitStamp, type PropChannelHost } from './prop-channel';
+export { gridStampBounds, gridStampCells, STAMP_CLASS, STAMP_QUARTER_SAMPLES, stampClassOfValue, stampGrid, STRUCTURE_STAMP_RULES, type GridStampCells, type StructureStampLocal, type StructureStampRule } from './structure-stamp';
+export { walkWithGrids, type GridWalk, type GridWalkCounts, type GridWalkHit } from './grid-walk';
 export { VoxelOverlay } from './voxel-overlay';
 export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, shippedFarFile, shippedFarSource, shippedVoxelWorldsProblem, wholeFileByteSource, type ShippedFarCache, type ShippedVoxelFile, type ShippedVoxelWorld } from './shipped-world';
 export { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample, sampleOfDistance } from './distance-brick-format';
@@ -450,11 +452,11 @@ export { FAR_SEEN_RELEASE_SHARE, FAR_SEEN_RESELECT_MS, FAR_SEEN_STRIDE, FAR_SEEN
 export { countGround, emptyCoverage, groundAt, type GroundCoverage, type GroundGap, type GroundQuery } from './stream-coverage';
 export { walkBeforeSteps, walkCrossSteps, walkFaceRel, walkFirstSteps, walkRay, WALK_INV_NONE, type WalkRay } from './walk-steps';
 export { LIGHT_STOP_COVERAGE, WALK_MAX_STEPS, WALK_STOPS, walkVoxels, type WalkBlockView, type WalkEnd, type WalkFarNode, type WalkHit, type WalkOptions, type WalkResult, type WalkSource, type WalkStop } from './occupancy-walk';
-export { derivedWalkView, FarWalkNodes, lightStops, propStopView, streamerWalkBlocks, streamerWalkSource, WALK_EMPTY_VIEW, WALK_SOLID_VIEW, type WalkBlocksView, type WalkPropCoverage, type WalkStreamerView } from './walk-sources';
+export { derivedWalkView, FarWalkNodes, lightStops, maskStopView, propStopView, streamerWalkBlocks, streamerWalkSource, WALK_EMPTY_VIEW, WALK_SOLID_VIEW, type WalkBlocksView, type WalkPropCoverage, type WalkStreamerView } from './walk-sources';
 export { applyWalkWires, packWalkBlock, pageWalkView, WALK_BLOCK_SHIFT, WALK_BRICK_WORDS, WALK_CELL_WORDS, WALK_EMPTY_KEY, WALK_ENTRY_WORDS, WALK_MAX_PROBES, WALK_PAGE_WORDS, WalkBlockFeed, walkHash, walkKey, walkPageOffsets, WalkTable, type WalkBlockWire, type WalkPacked } from './walk-pages';
 export { WALK_BENCH_KINDS, walkBenchRandom, walkBenchRays, type WalkBatchRay, type WalkBenchKind } from './walk-bench';
-export { airRegions, ALL_FACE_PAIRS, ALL_REGION_FACES, facePairBit, openRegionsArrays, openRegionsBytes, openRegionsOf, REGION_FACE, REGION_PORTAL, regionLabelAt, regionSkyAt, solidRegions, type OpenRegionsOut } from './open-regions';
-export { OpenRegionStitch, type OpenPortalInfo, type OpenRegionBox, type OpenRegionInfo, type OpenRegionStats, type RegionStreamerView } from './open-region-stitch';
+export { airRegions, ALL_FACE_PAIRS, ALL_REGION_FACES, facePairBit, openRegionsArrays, openRegionsBytes, openRegionsOf, REGION_FACE, REGION_PORTAL, regionLabelAt, regionSkyAt, solidRegions, stampedRegions, type OpenRegionsOut } from './open-regions';
+export { OpenRegionStitch, type OpenPortalInfo, type OpenRegionBox, type OpenRegionInfo, type OpenRegionStats, type RegionStamps, type RegionStreamerView } from './open-region-stitch';
 export { SKY_NONE, SkyColumns, type SkyColumnWire } from './sky-columns';
 export { farBrickTops, FarSunTops, SUN_FAR_CELL_M, SUN_HEIGHT_NO_TOP, SUN_HEIGHT_NONE, SUN_HEIGHT_UNKNOWN, SUN_MARCH_FIRST_M, SUN_MARCH_REACH_M, SUN_COVER_OFFSET, SUN_MIN_RISE, SUN_NORMAL_OFFSET, SUN_TILE_TEXELS, SUN_WINDOW_TEXELS, SunHeightWindow, sunTileOffset, composeSkyTile, sunCovered, sunLit, sunMarchT, sunShadeAt, sunShadeOf, type FarTopsPlace, type SunColumn } from './sun-heights';
 export { buildWalkChunk, DEFAULT_WALK_AGENT, emptyWalkChunk, NO_WALK_PIECE, sameWalkChunk, standableIn, stepFits, walkCellOf, walkChunkBytes, WALK_CLEARANCE_MAX, WALK_STEP_CELLS, WalkStepper, type ChunkNavReader, type SectionNav, type WalkAgent, type WalkChunk, type WalkChunkLookup, type WalkPieceBase, type WalkStepSink } from './walk-graph-cells';

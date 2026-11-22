@@ -25,6 +25,7 @@
 import type { Neighbourhood } from './assembly';
 import { OCCUPANCY, type OccupancyOut } from './derived-data';
 import { valueRole, VOXEL_ROLE } from './record';
+import { STAMP_CLASS } from './structure-stamp';
 
 /** Face bits of a unit: −x, +x, −y, +y, −z, +z. */
 export const REGION_FACE = Object.freeze({ nx: 1, px: 2, ny: 4, py: 8, nz: 16, pz: 32 });
@@ -144,6 +145,15 @@ export function openRegionsOf(n: Neighbourhood, occ: OccupancyOut): OpenRegionsO
   }
   if (occ.flag === OCCUPANCY.solid) return solidRegions(e);
   if (occ.flag === OCCUPANCY.empty && openings === null) return airRegions(e);
+  return labelRegions(e, occ.flag, solid, openings);
+}
+
+/**
+ * A unit's regions from its cells' kinds: `flag` the {@link OCCUPANCY} of its solid cells as a whole, `solid` a cell's,
+ * `openings` its open cells that are openings (1; null: none). The labelling every unit's regions are made by.
+ */
+function labelRegions(e: number, flag: number, solid: (i: number) => boolean, openings: Uint8Array | null): OpenRegionsOut {
+  const cells = e * e * e;
   const { labels, stack } = scratchOf(cells);
   labels.fill(0);
   const volume: number[] = [];
@@ -225,7 +235,7 @@ export function openRegionsOf(n: Neighbourhood, occ: OccupancyOut): OpenRegionsO
   let skyUniform = true;
   for (let c = 0; c < e2; c++) {
     let h = 0;
-    if (occ.flag === OCCUPANCY.mixed) {
+    if (flag === OCCUPANCY.mixed) {
       for (let y = e - 1; y >= 0; y--) {
         if (solid(c * e + y)) {
           h = y + 1;
@@ -239,4 +249,42 @@ export function openRegionsOf(n: Neighbourhood, occ: OccupancyOut): OpenRegionsO
   }
   const out = count <= 0xff ? Uint8Array.from(labels) : labels.slice();
   return { edge: e, count, labels: out, volume: Uint16Array.from(volume, (v) => Math.min(v, 0xffff)), flags: Uint8Array.from(flags), links, connect, sky: skyUniform ? null : sky, skyUniform: skyUniform ? skyFirst : 0 };
+}
+
+/**
+ * A unit's regions with a structure stamped over it (structure-stamp.ts): `classes` the stamp's classes of the storage
+ * chunk holding the unit (local index `((x << csh) | z) << csh | y`), the unit's cells at `(ox, oy, oz)` in it. A
+ * stamped stopping cell is solid; a stamped opening is a portal cell where the unit's own cell is open; the rest is the
+ * unit's own. `base` itself where no stamped cell falls in the unit.
+ */
+export function stampedRegions(base: OpenRegionsOut, classes: Uint8Array, ox: number, oy: number, oz: number, csh: number): OpenRegionsOut {
+  const e = base.edge;
+  let any = false;
+  for (let x = 0; x < e && !any; x++) for (let z = 0; z < e && !any; z++) {
+    const row = (((ox + x) << csh) | (oz + z)) << csh;
+    for (let y = 0; y < e; y++) if (classes[row | (oy + y)] !== 0) {
+      any = true;
+      break;
+    }
+  }
+  if (!any) return base;
+  const cells = e * e * e;
+  const solidAt = new Uint8Array(cells);
+  let openings: Uint8Array | null = null;
+  let solids = 0;
+  for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
+    const row = (((ox + x) << csh) | (oz + z)) << csh;
+    for (let y = 0; y < e; y++) {
+      const i = (x * e + z) * e + y;
+      const l = regionLabelAt(base, i);
+      const c = classes[row | (oy + y)]!;
+      if (l === 0 || c === STAMP_CLASS.stop) {
+        solidAt[i] = 1;
+        solids++;
+      } else if (c === STAMP_CLASS.opening || (base.flags[l - 1]! & REGION_PORTAL) !== 0) (openings ??= new Uint8Array(cells))[i] = 1;
+    }
+  }
+  if (solids === cells) return solidRegions(e);
+  if (solids === 0 && openings === null) return airRegions(e);
+  return labelRegions(e, solids === 0 ? OCCUPANCY.empty : OCCUPANCY.mixed, (i) => solidAt[i] === 1, openings);
 }
