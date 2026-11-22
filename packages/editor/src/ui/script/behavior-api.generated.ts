@@ -3178,13 +3178,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(x: number, y: number, z: number): VoxelValue | null",
       "returns": "VoxelValue",
-      "doc": "The voxel at a world position, or null where the world is not loaded there (never air for that)."
+      "doc": "The voxel at a world position, or null where the world is not loaded there (never air for that). Inside a structure: its voxel where its cell is not air, else the world's own."
     },
     {
       "name": "coverageAt",
       "kind": "method",
       "detail": "(x: number, y: number, z: number): number | null",
-      "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded"
+      "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). In a structure's cell that is not "
     },
     {
       "name": "raycast",
@@ -3198,7 +3198,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(x: number, y: number, z: number): VoxelRegionInfo | null",
       "returns": "VoxelRegionInfo",
-      "doc": "The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the cell is under open sky, and its portals (door and window openings). Null where the cell is solid, or the world is not loaded th"
+      "doc": "The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the cell is under open sky, and its portals (door and window openings), and the structure whose box holds the point (`grid`). Null "
     },
     {
       "name": "portalsOf",
@@ -3236,19 +3236,19 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "set",
       "kind": "method",
       "detail": "(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult",
-      "doc": "Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap)."
+      "doc": "Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap): a structure's cells there that are not air take it in the structure, the world's own cells everywhere else (none inside a structure's sol"
     },
     {
       "name": "dig",
       "kind": "method",
       "detail": "(region: VoxelRegion): VoxelEditResult",
-      "doc": "Empty every cell of a region to air."
+      "doc": "Empty every cell of a region to air: the world's own cells and every structure's whose centres lie in it (a dig through a house's wall into the ground opens both)."
     },
     {
       "name": "paint",
       "kind": "method",
       "detail": "(region: VoxelRegion, paint: VoxelPaint): VoxelEditResult",
-      "doc": "Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes)."
+      "doc": "Change the material or wetness of the non-air cells of a region (the world's and every structure's), keeping their shape and role (only shader data changes)."
     },
     {
       "name": "isResident",
@@ -3285,13 +3285,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "save",
       "kind": "method",
       "detail": "(): number",
-      "doc": "Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document)."
+      "doc": "Make a save of the game's changes to the world (its structures' too): returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document)."
     },
     {
       "name": "restore",
       "kind": "method",
       "detail": "(save: string | Uint8Array<ArrayBufferLike>, onMismatch: VoxelMismatchChoice): VoxelRestoreResult",
-      "doc": "Restore a save (its bytes, or its text) in place of the game's changes: loaded cells read it at once, the rest as they load. `onMismatch`: what wins where the world's files changed since the save."
+      "doc": "Restore a save (its bytes, or its text) in place of the game's changes: loaded cells read it at once, the rest as they load. `onMismatch`: what wins where the world's files changed since the save (a structure's too; the pieces of a structur"
     }
   ],
   "BehaviorVoxels": [
@@ -3349,13 +3349,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(x: number, y: number, z: number): VoxelValue | null",
       "returns": "VoxelValue",
-      "doc": "The voxel at a world position, or null where the world is not loaded there (never air for that)."
+      "doc": "The voxel at a world position, or null where the world is not loaded there (never air for that). Inside a structure: its voxel where its cell is not air, else the world's own."
     },
     {
       "name": "coverageAt",
       "kind": "method",
       "detail": "(x: number, y: number, z: number): number | null",
-      "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded"
+      "doc": "How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). In a structure's cell that is not "
     },
     {
       "name": "raycast",
@@ -3369,7 +3369,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(x: number, y: number, z: number): VoxelRegionInfo | null",
       "returns": "VoxelRegionInfo",
-      "doc": "The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the cell is under open sky, and its portals (door and window openings). Null where the cell is solid, or the world is not loaded th"
+      "doc": "The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the cell is under open sky, and its portals (door and window openings), and the structure whose box holds the point (`grid`). Null "
     },
     {
       "name": "portalsOf",
@@ -3407,19 +3407,19 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "set",
       "kind": "method",
       "detail": "(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult",
-      "doc": "Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap)."
+      "doc": "Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap): a structure's cells there that are not air take it in the structure, the world's own cells everywhere else (none inside a structure's sol"
     },
     {
       "name": "dig",
       "kind": "method",
       "detail": "(region: VoxelRegion): VoxelEditResult",
-      "doc": "Empty every cell of a region to air."
+      "doc": "Empty every cell of a region to air: the world's own cells and every structure's whose centres lie in it (a dig through a house's wall into the ground opens both)."
     },
     {
       "name": "paint",
       "kind": "method",
       "detail": "(region: VoxelRegion, paint: VoxelPaint): VoxelEditResult",
-      "doc": "Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes)."
+      "doc": "Change the material or wetness of the non-air cells of a region (the world's and every structure's), keeping their shape and role (only shader data changes)."
     },
     {
       "name": "isResident",
@@ -3456,13 +3456,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "save",
       "kind": "method",
       "detail": "(): number",
-      "doc": "Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document)."
+      "doc": "Make a save of the game's changes to the world (its structures' too): returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document)."
     },
     {
       "name": "restore",
       "kind": "method",
       "detail": "(save: string | Uint8Array<ArrayBufferLike>, onMismatch: VoxelMismatchChoice): VoxelRestoreResult",
-      "doc": "Restore a save (its bytes, or its text) in place of the game's changes: loaded cells read it at once, the rest as they load. `onMismatch`: what wins where the world's files changed since the save."
+      "doc": "Restore a save (its bytes, or its text) in place of the game's changes: loaded cells read it at once, the rest as they load. `onMismatch`: what wins where the world's files changed since the save (a structure's too; the pieces of a structur"
     }
   ],
   "BehaviorWorldView": [
@@ -5184,6 +5184,18 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "boolean",
       "doc": "Met in the far field or a coarser level than full detail."
+    },
+    {
+      "name": "grid",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Whose cells it met: 0 the world's own, else the structure's grid id (its object's `voxelStructure.grid`)."
+    },
+    {
+      "name": "cell",
+      "kind": "property",
+      "detail": "readonly [number, number, number]",
+      "doc": "The cell met, in that grid's own cells (a structure's are turned with it: `at` is the same cell in world metres)."
     }
   ],
   "VoxelRegionInfo": [
@@ -5240,6 +5252,12 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "VoxelRegionKind",
       "doc": "A room, the outdoors, a portal, or not known yet ({@link VoxelRegionKind})."
+    },
+    {
+      "name": "grid",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The structure whose box (of its cells that are not air, in its own turned grid) holds the point: its grid id (0: none). A room inside a building names the building's grid; the region itself is the world's (the structure is stamped into the "
     },
     {
       "name": "bounds",
