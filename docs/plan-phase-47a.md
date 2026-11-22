@@ -1,6 +1,6 @@
 # Phase 47a — Structures and water bodies
 
-Status: **the item list, its order, the seven format entries and the five defaults were approved by the owner on 2026-11-20** ("Everything as proposed is fine"); one question on how a structure is defined is open (§10, 47a.3 waits for its answer). Building started with 47a.0.
+Status: **the item list, its order, the seven format entries and the five defaults were approved by the owner on 2026-11-20** ("Everything as proposed is fine"); the owner's question on piece-defined structures was answered with an offer and its default (no piece list) stands (§9, 2026-11-22). 47a.0 and 47a.1 are done.
 Branch `phase-45` (worktree `~/projects/thirdlight-p45`); start commit b5093d11 (the handoff's commit, for
 `tools/gate.sh start phase b5093d11` at the close). Planned from `docs/roadmap.md` (voxel order, item 3), plan 45
 §1b, §1d, §1e and its 47a line, requirements R30–R45 (`docs/architecture/voxel-format-requirements.md`),
@@ -944,6 +944,18 @@ structure objects' placements in 47a.5; at a 0.5 m bake level a 45° wall would 
   holds), not far nodes of its own (F-own would need a far cache layout by grid: an owner stop); a cell off at most, at
   2 m and coarser as W's (§8a 47a.1d). The placements are a build input, not stored; 47a.5 feeds them from the
   structure objects and rebuilds a structure's far chunks with the command that moves it.
+- 2026-11-22 (the lead, after 47a.1c and 47a.1d; default chosen, owner to confirm): **paths use a walk graph a grid
+  linked to the world's at doorsteps and foundation edges** (R40): the stamp alone loses turned stair tops (13 and
+  10 of 17 upper storeys reached at 30° and 45°). **The far view takes structure grids resampled into the far
+  build's input** (the cache's format unchanged); far nodes a grid would need a stored layout a grid and were not
+  built. Pictures looked at by the lead: `work/47a.1cd/d/S-g30-none/town-600m.png` (no town) and
+  `S-g30-grids/town-600m.png` (the town). The owner's short page: `docs/briefs/result-47a.1.md` (`acc47a-1`).
+- 2026-11-22 (the lead; default chosen, owner to confirm): **F1 is built without a `pieces` list**: the owner's
+  question of 2026-11-20 was answered with that offer and its default; no answer came in two further exchanges. It
+  remains an add-only step.
+- 2026-11-22 (the lead): a gate's Export test failed three times in this phase with "the configured exportRoot is not
+  a directory" and passed on rerun; the likely cause is an agent clearing the temp folder while a gate runs. The
+  agents' brief now forbids cleaning `TMPDIR` during a gate; a watch row if it recurs after that.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 

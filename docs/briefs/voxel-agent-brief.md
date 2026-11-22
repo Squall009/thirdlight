@@ -390,6 +390,10 @@ HOW YOU WORK:
   project-model or shared runs every area (about 40 minutes): put it in ONE commit. Anything that adds a worker, buffer
   or texture living with the adapter or the simulation also runs `tools/gate.sh start area play` (the leak test), and
   ends its workers before the page reports Play stopped (D729). Never run a `phase` or `full` gate: the lead's.
+- NEVER delete or clean `TMPDIR` (~/.cache/tmp) or anything under it while a gate runs (the e2e backends keep their
+  export roots there: a gate's Export test failed three times that way); clean only your own work folder, after the gate.
+- NEVER end your turn while a script or gate of yours runs in the background: wait for it in the foreground (a blocking
+  wait with a timeout, repeated). A progress.txt line at least every 15 minutes.
 - NEVER pipe `node tools/check-docs.mjs` and never chain anything after it; run it alone and read its exit code.
 - Never write to /tmp (`export TMPDIR=~/.cache/tmp`); heavy runs in a memory-capped scope, one at a time; `df -h ~`
   before a heavy run, clean under 10 GB free; delete exports, Playwright outputs and traces you made, keep pictures,
