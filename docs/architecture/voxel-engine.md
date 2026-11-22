@@ -77,11 +77,13 @@ page in the same commit.
   staged write, one undo step with the scene edit; a hand edit is `editVoxels` with `command.grid`; misfits are
   answered and held in memory; exports never ship a definition or overrides). In Play each is streamed by its own streamer in
   the world's pool under its job ids (one tracker: keys are (grid, chunk)), reading only round the chunks its files
-  hold, the foci moved into its frame, its level choice covering only those chunks. A step runs a grid's streamer only
-  when it has something to do: it could ask for work (`idle(true)`: jobs out end with a poke), something landed in it
-  (`counters.activity`), or the focus moved its share of the gap to the grid (1/8, a cell at least, half the level
-  rings' hysteresis at most); a grid out of reach that holds nothing is never stepped, and a grid is given only the
-  bodies whose collision reaches it (runtime `voxel-grid-host.ts`). The world grid and its grids share the world's one
+  hold, the foci moved into its frame, its level choice, collision scan and section readiness cut to those chunks. A
+  step runs a grid's streamer only when it has something to do: it could ask for work (`idle(true)`: jobs out end with
+  a poke), something landed in it (`counters.activity`), or the focus moved past what its last plan holds (the least
+  gap from its chunks and the nodes over them to a ring they are compared with, `stream-quiet.ts`
+  `VoxelStreamer.quietReach`; at least the old share of the gap to the grid, 1/8); at speed every grid in reach is
+  stepped every step; a grid out of reach that holds nothing is never stepped, and a grid is given only the bodies
+  whose collision reaches it (runtime `voxel-grid-host.ts`). The world grid and its grids share the world's one
   memory budget (grids first). Drawn under its place with its world's surface, its kit pieces in its world's piece
   batches turned and placed copy by copy (`voxel-world-draws.ts`, `VoxelPieceBatches`), so grids add chunk surfaces to
   a frame, not draws a kind; collided as one compound static body a grid. **Light, sun heights and rooms see a grid
@@ -90,14 +92,19 @@ page in the same commit.
   half; `?gridStamp=` names another rule or `off` for a bench), held in the world's prop channel (coverage bytes joined
   into the light stop; a class a cell read by the open regions as solid and portal cells, hence rooms, portals and
   the sky heights, and by the walk's mip levels as stopping cells), made again when a chunk of the grid arrives or
-  leaves, sampled in the derive slice; nothing is stored, and with no grid nothing is made. It is off by up to a cell:
+  leaves, sampled a row of world cells at a time in the derive slice (`GridStampSampler`; the cells are read in one
+  piece); nothing is stored, and with no grid nothing is made. It is off by up to a cell:
   a turned door or window is narrowed (12–18 % of rays through a 1 m one stop at 30°–45°), closed turned walls let
   almost nothing through, rooms are found whole. Exact stepping of each grid in its own frame exists on the CPU only
   (`grid-walk.ts` `walkWithGrids`: the reference). Paths walk each grid in its own graph, linked to the world's (the walk
   graph above). The far build reads a world's placed grids resampled into its cells (`grid-resample.ts`, workspace
   `FarWorldSource(dir, grids)`: the majority of 2 × 2 points a cell; the backend passes its objects' places to every
-  far build and rebuild, and a structure made, moved, turned or deleted builds again the world chunks it left and
-  entered), so past its own rings a grid is drawn as far bricks a cell off (not in the fine bake: D755).
+  far build and rebuild, the fine bake too, and a structure made, moved, turned or deleted builds again the world
+  chunks it left and entered; the far build's columns and rows include the grids' boxes), so past its own rings a grid
+  is drawn as far bricks a cell off. **A command's far rebuild follows its answer** (workspace `voxel-far-follow.ts`:
+  an edit's or a structure step's world chunks gathered per world and built in one rebuild once no change came for
+  250 ms, in the world's queue; the far route and an export build what is gathered first; a structure move's rebuild
+  lost with the process is not caught, D759).
   **`ctx.voxels` sees structures by one rule: a point lies in a structure where the structure's own cell holding it is
   not air, else in the world's own cells** (the lower grid id where structures overlap; runtime `voxel-grid-access.ts`).
   Reads answer from that grid; `raycast` walks the world and each grid along the ray in its own frame (`walkWithGrids`,

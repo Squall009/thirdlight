@@ -171,7 +171,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | Done 2026-11-22 (68fbec87, b4ff1315): `@thirdlight/voxel` `structures/`: generator contract, F1 record + checks, building generator (union walls, 45° roofs, hip over the outline), regenerate (undo/redo, fit rule), capture, regenerate-all; town house = bench pattern but beams, landing; small house 1.4 ms, 131 houses 78 ms, regenerate with 1,000 overrides 30 ms; D751, D752 |
 | 47a.4 | Done 2026-11-22 (4059d423): `voxelStructure` (F1), its grid written by the backend through the commands, one undo step with the scene edit; create (next grid, anchor), regenerate, copy, delete, material swap, hand edits as overrides, `regenerateStructures`; Play/export read places from the objects. Small house 20 ms, L 60–76 ms; +0.8–2.2 s with a far cache (D754); D753, D755 |
-| 47a.5 | (a) done 2026-11-22 (6be74d26, ef33ad6f, 6003c541): the Scene view draws, moves (live in a drag, 0.04–0.06 ms a move) and picks structure grids; `ctx.voxels` by the grid a point lies in: reads, exact rays (131 grids 220 rays/ms by tile index), dig/set/paint, saves, `regionAt`; edit → light 0.8 s; spec §3.6 as built; D748 narrowed; D756–D758. (b) not started |
+| 47a.5 | Done 2026-11-22. (a) 6be74d26, ef33ad6f, 6003c541: Scene view draws, moves, picks grids; `ctx.voxels` by grid; spec §3.6. (b) d41e0c49, 7b83e3a0, 471d16bb, 894fb4e0: grids planned at ring crossings (G30 sim 1.4–1.5 × W, base 1.8–1.9), stamp sliced, far rebuild after the answer (house 27 ms, was 832), fine bake reads grids; lane reserve backed out; D759, D760 |
 | 47a.6 | not started |
 | 47a.7 | not started |
 | 47a.8 | not started |
@@ -1259,6 +1259,148 @@ the leak test gate-area-20261122-184436 GREEN (24 passed).
 **D-rows:** D748 narrowed; D756 (hits and regions name the grid, not the object), D757 (a world-box region round a
 turned wall), D758 (a Scene view grid reopened whole past its box).
 
+### 47a.5b — what structure grids cost
+
+**Built** (d41e0c49, 7b83e3a0, d8631caf, 471d16bb, 894fb4e0, a52faa00; the lane reserve d0e1da24 and c35c4b40
+backed out by 84afba6b). Work folder `~/.cache/thirdlight-phase47a/work/47a.5b/` (`measure.sh`, `final.sh`,
+`cov-*.sh`, `fill.sh`, `fine.sh`, `lib.sh`, `summ.py`, `m/` every raw run and picture, `scratch/` the Node harness and
+the command measure).
+- **A grid's update (D743).** Node first (`scratch/grids-node.ts`, the 131 G30 houses as Play steps them, timed by
+  part): an update cost 0.27 ms, 0.17 of it the level choice, which covered every chunk under its level-2 roots (313
+  readiness asks an update: a level-2 node over a house's corner is 64 chunks), and the margin sections, which asked
+  again on every choice whether chunks past the read box were coming. Now exact cuts: the level choice covers no node
+  past the read box (`LevelChoice.extent`), the collision-only scan of the camera's ring is cut to it, and a section
+  reaching past it is known stranded once (`pastExtent`). Then the plan's reach (`stream-quiet.ts`,
+  `VoxelStreamer.quietReach`): how far the focus may move before any ring decision about the grid's chunks could
+  change (load and unload by the read box, with the lead's length off; levels, mips and the camera's collision bounds
+  by the chunks that hold cells, the air round them drawing nothing); the grid host steps a quiet grid again only past
+  that or past the old share of its gap, whichever is longer. Node: 0.36 → 0.12 ms a step moving (updates 1,320 →
+  594 in 1,200 steps), 0.029 still.
+- **The queue (D745).** A reserve by lane (`room(lane)`, the mip lane at half, far with mip at three quarters) was
+  built and measured, then backed out: see below.
+- **The stamp (D747).** `GridStampSampler`: one row of world cells (an x of the turned box) a step, on while the
+  derive slice lasts; the prop channel steps a stamp's sampler first in line across updates (`LitStamp.sampler`),
+  props behind it waiting. The result is the one-piece stamp's bytes and classes. The grid's cells are still read in
+  one piece when its chunks arrive (`gridStampCellsOfChunks`: about 3 ms for the L in Node, 0.3 ms a house).
+- **The far rebuild (D754).** Edits awaited theirs too (the same `farAfter`). The chunks a command changed are now
+  gathered (`voxel-far-follow.ts`, `FarFollow`) and built in one rebuild in the world's queue once none came for
+  `FAR_FOLLOW_SETTLE_MS` (250 ms); the answer's `far` is `{ queued }`. The far route and an export build what is gathered
+  first, so nothing reads a cache a command made stale; the far info reports the last rebuild (`follow`: changes,
+  chunks, result). A structure's move reads its grid's chunks outside the world's queue. Undo and redo gather the same
+  way. Lost with the process: an edit's rebuild leaves the cache at an older revision than the world's (built whole on
+  the next read); a structure's move, make or delete changes no revision, so its old place stays in the far field
+  (D759: proving placements needs a stored field, an owner stop). No new stored field.
+- **The fine bake (D755).** The fine levels are baked and rebuilt from the world with the placed grids
+  (`FarFineTask.grids`, `rebakeFarFine`'s grids, every backend call), a fine node's content key holds each grid over
+  it (its place and its files' entries), and the far build's columns and rows include the grids' turned boxes, so a
+  house above the world's top region or off its columns is built (the integration test found the whole build missing
+  the houses' row before this).
+- **The Play test's `jobs` lane (item 6).** The check read the Profiler's job lane once, seconds after the dig, when
+  its two-second window could hold no job (a still scene runs none; under load the wait before the read grew): a check
+  of timing. The tab now opens before the dig and the lane is polled while the dig's derives are in its window; a lane
+  that never draws still fails. The GPU-measure ballast check did not fail in this item's five gates (not
+  investigated).
+
+**Tests.** Vitest `stream-quiet.test.ts` (2,400 random moves shorter than the reach change no load, unload, level,
+stand-in, mip or collision decision of a box's chunks and nodes; moved three times the reach, the check fails; the
+level choice cut to a read box draws what it drew without it and covers no node past it); `structure-grid.test.ts`
+(a grid whose plan holds is not updated while the focus moves less than its reach, and is past it);
+`structure-stamp.test.ts` (the L at 0°, 30°, 45°: sliced equals whole, one row a step when no more is asked; in the
+channel it waits first in line across updates and lands as the whole stamp does); `voxel-far-follow.test.ts` (ten
+changes 5 ms apart are one rebuild after the last, a read builds at once, worlds apart, a dropped world builds
+nothing); `voxel-far-grids.test.ts` (fine levels 0 and 1 of the house in grid 1 at 0° equal the world-grid house's
+node for node, turned they differ, content keys follow the grid's place; a grid where the world has no region is in
+the columns, rows and fine bake); the far tests that read an edit's far answer now read `farSettled`. Integration
+`voxel-structures.test.ts`: with a far cache, a structure made answers `queued` and its rebuild follows; ten moves
+answer each with `queued` and gather (the count is the vitest's: a loaded host may split them); after undo, redo,
+undo the followed cache equals a whole build of the world and its structures where they stand, file for file.
+
+**Measured** (low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone, staging, `uptime` beside each, load 1.0–2.4;
+2026-11-22 20:46–23:07 UTC; head* = 894fb4e0's code with the lane reserve at half for the mip lane, c35c4b40 = the
+reserve on the far lane only (the queue of the final code is the base's: the reserve is backed out); base 863c6b5a built in `work/47a.5b/base`; `run.mjs headroom --quality low --rounds 2`, second
+rounds; W = the town's houses in the world grid, G30 = each in its own grid at 30°):
+
+| town orbit | W head* | W base | W c35c4b40 | G30 head* | G30 base | G30 c35c4b40 |
+|---|---|---|---|---|---|---|
+| room (copies) | 128, 128 | 128, 128 | 128 | 120, 120 | 128, 120 | 120 |
+| page ms; `render` | 6.50, 5.91; 4.86, 4.19 | 6.39, 6.18; 4.70, 4.49 | 5.62; 4.12 | 6.92, 6.40; 5.02, 4.71 | 6.97, 6.16; 5.27, 4.60 | 6.94; 5.11 |
+| simulation ms (`voxelStream`) | 2.27, 2.01 (1.82, 1.64) | 2.39, 2.16 (1.94, 1.75) | 2.13 (1.77) | 3.13, 2.91 (2.53, 2.37) | 4.35, 4.18 (3.66, 3.52) | 3.26 (2.59) |
+| GPU near / lighting ms (resolution) | 4.53, 4.36 / 4.47, 5.42 (1.4, 1.3) | 3.34, 5.23 / 3.95, 3.86 (1.2, 2.2) | 4.68 / below (4.4) | 5.25, 4.61 / 5.71, 4.99 (0.9) | 4.74, 4.19 / 5.41, 4.58 (0.8, 0.5) | 5.69 / 5.30 (2.4) |
+| world piece draws; kit instances at the fill | 50, 50; 72.4 k, 72.9 k | 49, 49; 38.9 k | 49; 38.6 k | 52, 52; 65.1 k, 70.9 k | 51, 52; 49.0 k, 45.3 k | 52; 53.5 k |
+| fill s | 8.5, 8.6 | 7.4, 7.7 | 8.2 | 11.8, 10.7 | 24.4, 17.8 | 13.5 |
+
+Read: **simulation** with the town's grids on the moving orbit 1.38–1.53 × W's (2.9–3.3 ms against 2.0–2.3) where the
+base reads 1.8–1.9 × (4.2–4.4): the target of about 1.3 × is missed by a small margin; what is left is the grids'
+updates where a ring crosses a house (Node: 0.12 ms a step at 120 steps a second, about 0.5 ms of a 30 Hz frame) and
+the skip test of 131 grids. Page ms and room as before (room 120 in G30 at both commits in some runs). The world
+grid alone (W) equal head against base within the spread, but its fill 8.2–8.6 s against 7.4–7.7 with more drawn at
+the snapshot (166–201 chunks against 143–147): measured with the lane reserve in (the reserve is out of the final code;
+W 8.2 s at c35c4b40, one run). **Fill** with grids 10.7–13.5 s against 17.8–24.4 at the base (W 8.2–8.6).
+**Time to the ground's level 0 at the street camera** was not measured as such: the headroom snapshot holds the world
+grid's chunks at the fill (36–87 chunks drawn in G30 head runs against 0–28 at the base) and the coverage round's
+level-0 settle after the stop is below. Grid counters (updates, skips, the stamp's steps) were not read: the
+snapshot's grid diagnostics came back empty in every head run (D749's relay bound).
+
+**The lane reserve, measured and backed out** (coverage, 150 m/s, the same hour, one round each): level 0 drawn
+again after the stop (`detailS`) W 9.9 s with the mip lane at half (and 9.91 again with the seams freed), 6.1 s at
+three quarters, 4.0 s with only the far lane at three quarters, 4.65 s with no reserve, base 4.5 s; nothing pending
+12.0, 11.6 s with the far lane capped against 9.0–9.2 without. G30's fill: 10.4 s (far capped), 13.8 s (no reserve),
+10.7–11.8 (mip at half): the same within the runs' spread. The nearest mip nodes waited behind farther ones queued
+first; the fill's gain is the grids' plan fixes. Backed out (84afba6b): the queue is as at the base. A reserve that
+evicts a lane's farthest queued job would be the next thing to try (D745).
+
+**Coverage at 150 m/s** (the final code 84afba6b, one round each, 23:40 UTC; base the same evening, `m/XF-*`,
+`m/Cb-*`): W longest frame 76.1 ms (base 57.7), missed 35.7 a minute (30.2), p95 38.0 (37.8); G30 56.3 (77.9), 33.8
+(35.7), 37.7 (38.2); none over 100 ms; after the stop ground solid 0.03–0.04 s in all, level 0 drawn W 4.45 s (4.5),
+G30 4.71 s (4.8), nothing pending W 9.08 s (8.98), G30 9.84 s (11.08); holes 0 in all. Equal within one round's
+spread. At speed every grid in reach is stepped every step (the plan's reach holds only at rest): the longest
+simulation frame G30 223.9 ms crossing the town, its steps' `structure grids streamed` 16.7–20.8 ms each (47a.1a2:
+217 ms): D743's part at speed is unchanged. With the far lane reserved (c35c4b40) nothing pending read 11.96 (W) and
+14.61 s (G30), one more reason the reserve went.
+
+**Structure commands with a far cache** (the in-process backend over HTTP, 5 runs each, medians, the 47a.3 houses at
+30° on flat ground; `scratch/zz-measure-structures.test.ts`, raw `m/cmd-head.json`, `m/cmd-base.json`; head against
+base, ms):
+
+| | small house: head | base | large L: head | base |
+|---|---|---|---|---|
+| create; regenerate (+1 storey); duplicate | 27; 23; 19 | 832; 766; 824 | 69; 86; 56 | 1,943; 1,978; 1,941 |
+| undo of the regenerate; move | 16; 7 | 180; 944 | 22; 12 | 877; 2,181 |
+| the far route right after (builds what is gathered): create, regenerate, undo, duplicate, move | 837, 762, 159, 819, 1,025 | 1–2 (built in the command) | 1,923, 1,910, 864, 2,290, 2,852 | 1–2 |
+
+So the command answers in its voxels' and scene's time, and the far cache is current a rebuild later (unasked: 250 ms
+after the last change, then the rebuild); the rebuild itself is unchanged (0.8 s a small house, 1.9–2.9 s the L).
+Bytes at rest: the small house 509 in 2 files, the L 2,527 in 2 (D753).
+
+**The fine bake, looked at** (`fine.sh`): the far cache's town built again with the G30 grids, the 0.5 m fine levels
+with it (45,136 fine nodes dirty, 5,080 built, 40,056 reused by content, 138 s; kept levels 616 nodes, bricks 326 of
+1,312), then from W's files (151 s), pictures `m/SF-g30/town-{150m,250m,600m}.png` and `m/SF-w/…` looked at: at 250 m
+the rows past the grids' rings are the 2 m far bricks (rounded red mounds, turned; W's aligned and sharper), exactly
+47a.1d's `d/S-g30-grids/town-250m.png`: the low tier does not draw the 0.5 m fine bricks at that distance, so the
+pictures do not show the fine bake (the shots also refused as "streaming never settled", D750). **The fine bake of a
+turned house is unverified in Play**; in Node its nodes at 0° equal the world-grid house's, and 47a.1d's plans of a
+45° wall at 0.5 m (edge-joined cells) stand as the only look at it. Whether that needs a fatter rule is not decided.
+
+**D753** (item 7): F2's "a building under 256 m is one region file" should read "one region file, or two in a stacked
+world when its foundation lies below its ground floor's region": a doc correction for the lead to take to the owner;
+the cost is one more region file of about 200 bytes a house (opened and read with its other file).
+
+**D711** (item 8): met three times, each a W run's first round (11 copies at the base, 7 at the base, 15 at the final
+code's first run after a rebuild); staging starts fresh for every run, the browser's shader cache state is not known;
+no G30 first round was low. Noted in D711.
+
+**Unverified:** the stamp's longest step in Play (the snapshot's grid diagnostics empty, D749); the fine bake of a
+turned house in Play; medium and high tiers; WebGL 2 (its smoke test only); anything in motion beyond the numbers; the
+editor's view of `far: { queued }` (nothing in the editor reads a command's `far`).
+
+**Gates:** gate-fast-20261122-191744 RED (the light volume's glow check 0.0293 against 0.0289, D760),
+gate-rerun-20261122-193525 GREEN; gate-fast-20261122-195230 GREEN (the stamp, the jobs lane, the reserve); 
+gate-fast-20261122-202436 RED (a bench test reading an edit's far answer), gate-rerun-20261122-203413 GREEN (42 e2e);
+gate-fast-20261122-222538 GREEN; the back-out and docs and `area play` below. The Play test 2.0–2.1 min in the gates.
+
+**D-rows:** D743 narrowed; D745 left (the reserve backed out, measured); D747 narrowed; D754 fixed; D755 fixed;
+D753, D711 noted; D759 (a lost far rebuild of a structure move), D760 (watch: the glow check under load).
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -1406,6 +1548,13 @@ turned wall), D758 (a Scene view grid reopened whole past its box).
   chunk's edge), built when a world opens in Play; the editor's pick tests every grid (one ray a click).
 - 2026-11-22 (47a.5a; default chosen, owner to confirm): **other walkers cross at the links**, a taller walker only where
   a link's two ends have room for it (a link is made for the default walker; its middle is not checked again).
+- 2026-11-22 (47a.5b; default chosen, owner to confirm): **a command's far rebuild follows its answer**, gathered per
+  world and built once no change came for 250 ms (`FAR_FOLLOW_SETTLE_MS`: under a drag's move interval, so a drag is
+  one rebuild of where it ends), the far route and exports building what is gathered first; a structure move lost
+  with a restart before its rebuild is not caught (D759: the stored proof would be an owner stop).
+- 2026-11-22 (47a.5b; default chosen, owner to confirm): **a structure grid is planned again only when the focus
+  crosses a ring its chunks meet** (or moves the old share of its gap, whichever is longer); the air round a house
+  (its read box's margin) counts for its loads only, not its levels or bodies.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
