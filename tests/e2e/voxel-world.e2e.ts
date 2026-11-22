@@ -1078,7 +1078,7 @@ interface ProfileE2e {
 
 /**
  * The editor's Profiler tab over a running Play (the 8 km world, the simulation in its worker, the high tier): the
- * timeline has bars in the page's, the simulation's and the job workers' lanes; a frame picked on it lists spans the
+ * timeline has bars in the page's and the simulation's lanes (the job workers' lane is checked at the dig); a frame picked on it lists spans the
  * page's profile names; the Budget view is the tier's table; a capture saved from the tab is a version 1 file of the
  * same tier, and opened again it shows as a file. Pictures at 1280 × 720 and 1920 × 1080.
  */
@@ -1089,7 +1089,7 @@ async function profilerPanel(page: Page, pr: ProfileE2e, readProfile: () => Prom
   const bars = async (lane: string): Promise<number> => Number(await timeline.getAttribute(`data-${lane}-bars`));
   await expect.poll(() => bars('page'), { timeout: 15_000, message: 'the page lane has bars' }).toBeGreaterThan(30);
   await expect.poll(() => bars('sim'), { timeout: 10_000, message: 'the simulation lane has bars' }).toBeGreaterThan(10);
-  expect(await bars('jobs')).toBeGreaterThan(0);
+  // The job workers' lane is checked where it has work in its window (the dig's derives, before the profile is read).
   await expect(panel.getByTestId('profiler-where')).toHaveText('Play running');
   // Pause, then pick a frame a few columns from the newest: the breakdown is that frame's.
   await panel.getByRole('button', { name: 'Pause' }).click();
@@ -1444,8 +1444,13 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     expect(wc.mismatches, JSON.stringify(wc.examples)).toBe(0);
     await voxelShadowChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi });
     await voxelFarLightChecks({ page, psid, at, ids: shadowObjects, away: away(), api: projectApi, camera: pitCamera, cameraAt: playCamera(at).position });
+    // The Profiler's timeline shows the last two seconds: open before the dig, its job workers' lane draws the dig's
+    // derives while they are in that window (a still scene may run no job for longer than the window holds).
+    await page.locator('.tl-dock--bottom > [role=tablist] [role=tab]', { hasText: 'Profiler' }).click();
+    const jobBars = async (): Promise<number> => Number(await page.getByTestId('profiler-timeline').getAttribute('data-jobs-bars'));
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
+    await expect.poll(jobBars, { timeout: 20_000, intervals: [50, 100, 250], message: 'the jobs lane has bars (the dig\'s derives)' }).toBeGreaterThan(0);
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);
     expect((await observe()).counters?.['refused'] ?? 0).toBe(0);
     await expect.poll(async () => (await observe()).counters?.['changes'] ?? 0, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
