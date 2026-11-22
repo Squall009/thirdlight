@@ -11,7 +11,7 @@ import { VOXEL_ROLE } from '@thirdlight/voxel';
 import { MAT } from '../../tools/voxel-bench/world-kit';
 import { GLOW_MASKED_MAT, GLOW_MAT } from './voxel-shadows';
 
-export function playScriptSource(at: readonly number[]): string {
+export function playScriptSource(at: readonly number[], gridRoom?: readonly number[]): string {
   const pit = `{ center: [${at[0]}, ${at[1] - 0.25}, ${at[2]}], radius: 1.75 }`;
   const wetAt = `[${at[0] - 2.75}, ${at[1] - 0.25}, ${at[2]}]`;
   return [
@@ -104,6 +104,8 @@ export function playScriptSource(at: readonly number[]): string {
     "    for (const _ of ctx.debug.command('hutpath')) state.path = v.findPath([A[0] + 1, A[1] + 0.75, A[2] + 6.25], [A[0] - 2.5, A[1] + 0.25, A[2] - 3]);",
     "    for (const a of v.paths) if (a.path === state.path) { put('pathStatus', ['found', 'partial', 'unreachable', 'unknown'].indexOf(a.status) + 1); put('pathCm', Math.round(a.length * 100)); put('pathPoints', a.points.length); ctx.game.add('pathAnswers', 1); }",
     `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(box(-0.5, 0.5, 2, 0.5, 2.5, 2.2), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
+    // The structure grid's house as the world's regions see it (its stamp): its room's kind (1 room, 2 outdoors) and portals.
+    ...(gridRoom === undefined ? [] : [`    { const g = v.regionAt(${gridRoom[0]}, ${gridRoom[1]}, ${gridRoom[2]}); put('gridRoomKind', g === null ? 0 : g.kind === 'room' ? 1 : 2); put('gridRoomPortals', g?.portals ?? -1); }`]),
     '    if (state.rooms) {',
     '      const a = v.regionAt(A[0], A[1] - 4.5, A[2] + 11);',
     '      const b = v.regionAt(A[0], A[1] - 4.5, A[2] + 14);',

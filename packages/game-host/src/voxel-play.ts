@@ -31,7 +31,7 @@
  * left out with a warning.
  */
 import type { QualityLevelConfig, VoxelMaterialSources, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
-import { ChunkDrawBatcher, gridDrawName, gridPlacementProblem, parseGridPlacements, setFineBricks, VOXEL_GRIDS_URL_PARAM, type GridPlacement, streamerWalkBlocks, streamerWalkSource, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
+import { ChunkDrawBatcher, GRID_STAMP_URL_PARAM, gridDrawName, gridPlacementProblem, parseGridPlacements, setFineBricks, STRUCTURE_STAMP_RULES, VOXEL_GRIDS_URL_PARAM, type GridPlacement, type StructureStampRule, streamerWalkBlocks, streamerWalkSource, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
 
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
@@ -61,7 +61,7 @@ export interface VoxelPresentation {
  * bench switch; false: each world's own `fineBuild`, until {@link VoxelPresentation.setFine} says otherwise); `walkFeed`
  * the page's walk feed to start with ({@link VoxelPresentation.setWalkFeed}; 0: off).
  */
-export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false, walkFeed = 0, grids: ReadonlyMap<string, readonly GridPlacement[]> = new Map()): VoxelPresentation {
+export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false, walkFeed = 0, grids: ReadonlyMap<string, readonly GridPlacement[]> = new Map(), gridStamp?: StructureStampRule | null): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
   let walk = walkFeed;
   // The page's last focus: a world opened later answers it too.
@@ -101,6 +101,7 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
           },
           pieces: (table ??= worldPieceTable(kits, seed)),
           grids: placed.filter((g) => g !== null),
+          ...(gridStamp !== undefined ? { gridStamp } : {}),
           presentGrid: (place, stream, sectionEdge) => {
             // A grid's draws: no walk blocks, sky heights or rooms (the world grid's alone feed the page's lighting).
             const name = gridDrawName(world, place.gridId);
@@ -116,7 +117,12 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             // And the rooms the page's see-through subjects stand in, as the regions answer them.
             const batcher = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: { source: streamerWalkSource(stream, null, { props: props ?? null }), blocks: () => streamerWalkBlocks(stream) }, walkFeed: walk, ...(regions !== undefined ? { sky: regions, rooms: regions } : {}) });
             if (focus !== null) batcher.setFocus(focus.n, focus.cells);
-            props?.listen((cx, cy, cz) => batcher.walkChanged(0, cx, cy, cz));
+            // A structure stamp's change is one at the mip levels too (its stopping cells stop light there).
+            const levels = stream.mips?.maxLevel ?? 0;
+            props?.listen((cx, cy, cz, classes) => {
+              batcher.walkChanged(0, cx, cy, cz);
+              if (classes) for (let l = 1; l <= levels; l++) batcher.walkChanged(l, cx >> l, cy >> l, cz >> l);
+            });
             mine = batcher;
             batchers.set(world, mine);
             streams.set(world, stream);
@@ -168,6 +174,17 @@ export function gridPlacementsFromUrl(search: string): Map<string, GridPlacement
     console.warn(`[voxels] ?${VOXEL_GRIDS_URL_PARAM}= refused: ${e instanceof Error ? e.message : String(e)}`);
     return new Map();
   }
+}
+
+/**
+ * How a page's query says structure grids are stamped into their worlds (`?gridStamp=`: a rule of
+ * {@link STRUCTURE_STAMP_RULES}, or `off`; a bench's comparison): undefined when absent or not one of them (the
+ * world's default).
+ */
+export function gridStampFromUrl(search: string): StructureStampRule | null | undefined {
+  const v = new URLSearchParams(search).get(GRID_STAMP_URL_PARAM);
+  if (v === 'off') return null;
+  return (STRUCTURE_STAMP_RULES as readonly string[]).includes(v ?? '') ? (v as StructureStampRule) : undefined;
 }
 
 /** Placements as the page posts them to its simulation worker (checked again there). */

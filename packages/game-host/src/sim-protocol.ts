@@ -95,7 +95,7 @@ export interface SimInitMessage {
    * `walkFeed`: the page's walk feed when it starts (a reader of its GPU
    * walk from the start: the light volume in the page's query).
    */
-  readonly voxels?: { readonly root: string; readonly worlds?: readonly import('@thirdlight/voxel').ShippedVoxelWorld[]; readonly kits?: readonly import('@thirdlight/voxel').PieceKitSource[]; readonly pieceSeed?: number; readonly qualityLevels?: readonly import('@thirdlight/runtime').QualityLevelConfig[]; readonly materials?: import('@thirdlight/runtime').VoxelMaterialSources; readonly fineBricks?: boolean; readonly walkFeed?: number; readonly grids?: readonly { readonly world: string; readonly places: readonly import('@thirdlight/voxel').GridPlacement[] }[] };
+  readonly voxels?: { readonly root: string; readonly worlds?: readonly import('@thirdlight/voxel').ShippedVoxelWorld[]; readonly kits?: readonly import('@thirdlight/voxel').PieceKitSource[]; readonly pieceSeed?: number; readonly qualityLevels?: readonly import('@thirdlight/runtime').QualityLevelConfig[]; readonly materials?: import('@thirdlight/runtime').VoxelMaterialSources; readonly fineBricks?: boolean; readonly walkFeed?: number; readonly grids?: readonly { readonly world: string; readonly places: readonly import('@thirdlight/voxel').GridPlacement[] }[]; readonly gridStamp?: import('@thirdlight/voxel').StructureStampRule | null };
 }
 
 /** Main → worker: one frame (the page's clock and its one input sample). */

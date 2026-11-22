@@ -1109,7 +1109,7 @@ const OUTDOORS_DIFF_MAX_PX = 100;
 /** What the structure grid checks are given: the house's frame and metres, its camera and the point it looks at, its draws' name. */
 export interface GridCheckSetup extends ShadowCheckSetup {
   readonly frame: { toWorld(x: number, y: number, z: number): [number, number, number]; toGrid(x: number, y: number, z: number): [number, number, number]; readonly yawRad: number };
-  readonly house: { readonly doorWallZ: number; readonly doorX: number; readonly backWallZ: number; readonly slabTop: number };
+  readonly house: { readonly doorWallZ: number; readonly doorX: number; readonly backWallZ: number; readonly slabTop: number; readonly room: readonly [number, number, number] };
   readonly camera: string;
   readonly target: string;
   /** The grid's draws on the page (`gridDrawName`). */
@@ -1121,12 +1121,23 @@ export interface GridCheckSetup extends ShadowCheckSetup {
 
 
 /**
+ * The light volume's light over the house's floor (the 0.5 m cell on the slab at the room's middle) against the light
+ * over its porch, open to the sky (the cell on the slab 1.5 m before the door wall): every face's brightness summed,
+ * once each cell has had {@link LIGHT_UPDATES} updates. The picture through the door is no measure of it: the sun
+ * shines through the door onto the back wall.
+ */
+const PORCH_LIGHT_Z_M = 1.5;
+const LIGHT_UPDATES = 8;
+
+/**
  * A structure grid in Play (WebGPU): a stone house in grid 1 turned 30°, streamed, meshed and drawn with its kit
  * pieces under its place (the boards at its door's jambs and front corners, magenta, seen by a camera before its
  * porch), collided as one static body: the character walked at its front wall stops before it, walked at its door
- * goes through into the room. With the grid's draws or its body left out, or turned the wrong way, each fails here.
+ * goes through into the room. Stamped into the world grid: `ctx.voxels.regionAt` inside it answers a room whose door
+ * is its one portal, and its room seen through the door is darker than the street before it. With the grid's draws,
+ * its body or its stamp left out, or turned the wrong way, each fails here.
  */
-export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: number; wallStopZ: number; doorInZ: number; ms: number }> {
+export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: number; wallStopZ: number; doorInZ: number; roomLight: number; streetLight: number; settleMs: number; ms: number }> {
   const t0 = Date.now();
   const { control, counter, still } = driver(o);
   const counted = async (cmd: string, name: string, args?: Record<string, unknown>): Promise<void> => {
@@ -1146,6 +1157,32 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   await counted('uncam', 'camOff', { id: o.camera });
   let boards = 0;
   for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) if (magenta(img.pixel(x, y))) boards++;
+  // The room as the world's regions see it (the grid stamped into the world grid): a room, its door its one portal.
+  const roomGauge = async (): Promise<string> => `${await counter('gridRoomKind')},${await counter('gridRoomPortals')}`;
+  await expect.poll(roomGauge, { timeout: 20_000, intervals: [200], message: "the turned house's room is a room of the world's regions, its door a portal" }).toBe('1,1');
+  // Its light: the store switched on (the Play test runs without it) with the house's camera live, the room's floor
+  // against the porch's.
+  const hook = async <T>(f: string, arg?: unknown): Promise<T> => (await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate((_, a) => {
+    const l = (window as unknown as { __tlVoxelPlay: { light: Record<string, (x?: unknown) => unknown> } }).__tlVoxelPlay.light;
+    return l[a.f]!(a.arg);
+  }, { f, arg })) as T;
+  await counted('cam', 'camLive', { id: o.camera, target: o.target });
+  await hook('setStore', 'volume');
+  const settleAt = Date.now();
+  const [mx, , mz] = o.house.room;
+  const y = o.house.slabTop + 0.25;
+  const pts = [o.frame.toWorld(mx, y, mz), o.frame.toWorld(mx, y, PORCH_LIGHT_Z_M)];
+  let cells: VolumeCell[] = [];
+  await expect.poll(async () => { cells = (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? []; return cells.length === 2 && cells.every((c) => c.updates >= LIGHT_UPDATES); }, { timeout: 60_000, intervals: [250], message: "the light volume's cells over the house's floor and its porch are lit" }).toBe(true).catch((e: unknown) => {
+    throw new Error(`${String(e).slice(0, 200)}; cells ${JSON.stringify(cells)}`);
+  });
+  const settleMs = Date.now() - settleAt;
+  const lightOf = (c: VolumeCell | undefined): number => (c?.faces ?? []).reduce((n, f) => n + clum(f), 0);
+  const roomLight = lightOf(cells[0]);
+  const streetLight = lightOf(cells[1]);
+  await hook('setStore', 'off');
+  await expect.poll(() => hook('volume'), { timeout: 10_000 }).toBeNull();
+  await counted('uncam', 'camOff', { id: o.camera });
   // The character placed on the porch before the front wall (1.5 m out), then before the door, pushed along the
   // grid's +z (the world's (sin yaw, 0, cos yaw)) a step at a time for 120 steps.
   const PUSH = 0.6;
@@ -1173,12 +1210,14 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   expect(worlds[o.drawName]?.pieceDraws, "the grid's pieces take no draws of their own").toBe(0);
   expect(worlds['far']?.kitInstances ?? 0, "the world's piece draws hold the grid's copies").toBeGreaterThanOrEqual(worlds[o.drawName]?.kitInstances ?? 0);
   expect(g.skipped, 'steps with nothing for the grid skip it').toBeGreaterThan(0);
-  const out = { magenta: boards, wallStopZ, doorInZ, ms: Date.now() - t0 };
+  const out = { magenta: boards, wallStopZ, doorInZ, roomLight: Math.round(roomLight * 1000) / 1000, streetLight: Math.round(streetLight * 1000) / 1000, settleMs, ms: Date.now() - t0 };
   console.log(`[voxel-play] structure grid (30°): ${JSON.stringify({ ...out, grids: await grids(), drawn: (await o.drawn())[o.drawName] })}`);
   expect(boards, "the house's kit boards in the picture").toBeGreaterThan(100);
   expect(wallStopZ, 'stopped before the front wall (its outer face at the grid z the house names)').toBeLessThan(o.house.doorWallZ);
   expect(wallStopZ, 'and it did walk').toBeGreaterThan(o.house.doorWallZ - 1.4);
   expect(doorInZ, 'through the door, into the room').toBeGreaterThan(o.house.doorWallZ + 0.6);
   expect(doorInZ, 'not through the back wall').toBeLessThan(o.house.backWallZ);
+  expect(streetLight, "the street's light in the volume").toBeGreaterThan(0);
+  expect(roomLight, "the house's room is darker in the light volume than the street before it").toBeLessThan(streetLight);
   return out;
 }

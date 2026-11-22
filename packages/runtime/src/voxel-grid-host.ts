@@ -27,9 +27,14 @@
  * two steps as the chunk's draw), placed at the grid's position and turned
  * by its yaw.
  *
- * Not done in a structure grid (the world grid's alone): the open regions,
- * the walk graph, the props' lighting channel, the coarse floor and the far
- * field; `ctx.voxels` reads, rays, edits and saves answer from the world grid.
+ * Light, sun heights and rooms: the grid is stamped into its world grid
+ * (structure-stamp.ts) from its resident cells where it stands, read again
+ * whenever a chunk of its own arrives or leaves ({@link stamp}).
+ *
+ * Not done in a structure grid (the world grid's alone): its own open
+ * regions, the walk graph, the props' lighting channel, the coarse floor and
+ * the far field; `ctx.voxels` reads, rays, edits and saves answer from the
+ * world grid.
  */
 import { COLLIDER_3D_LIMITS, type ResolvedVoxelWorld } from '@thirdlight/project-model';
 import {
@@ -41,7 +46,10 @@ import {
   collisionRingBounds,
   GRID_EXTENT_MARGIN_CHUNKS,
   GridFrame,
+  gridStampBounds,
+  gridStampCellsOfChunks,
   grownChunkBox,
+  stampGrid,
   VOXEL_SIZE_M,
   worldStreamer,
   type ChunkBox,
@@ -56,6 +64,8 @@ import {
   type GridPlacement,
   type PieceTable,
   type StreamEvent,
+  type StructureStampLocal,
+  type StructureStampRule,
   type VoxelStreamer,
   type WorkerPool,
 } from '@thirdlight/voxel';
@@ -242,6 +252,8 @@ export class VoxelGridHost {
   /** Updates run and steps that skipped one (diagnostics). */
   updates = 0;
   skipped = 0;
+  /** A chunk of its own arrived or left since its stamp was read ({@link stamp}). */
+  stampDirty = true;
 
   constructor(
     world: string,
@@ -281,8 +293,28 @@ export class VoxelGridHost {
 
   private onStream(e: StreamEvent): void {
     if (this.disposed) return;
+    if ((e.type === 'loaded' || e.type === 'unloaded') && this.holds(e.cx, e.cy, e.cz)) this.stampDirty = true;
     if (e.type === 'unloaded') this.ring?.unloaded(e.cx, e.cy, e.cz);
     else if ((e.type === 'chunk' && !e.shaderOnly && !e.reliefOnly) || e.type === 'collision') this.ring?.changed(e.cx, e.cy, e.cz);
+  }
+
+  private holds(cx: number, cy: number, cz: number): boolean {
+    const e = this.extent;
+    return e !== null && cx >= e.min[0] && cx <= e.max[0] && cy >= e.min[1] && cy <= e.max[1] && cz >= e.min[2] && cz <= e.max[2];
+  }
+
+  /**
+   * The grid's stamp into its world grid by `rule` from its resident cells now (null: none resident): its world box,
+   * and its sampling into world cells of `cellM` (run later, in the derive slice). Clears {@link stampDirty}.
+   */
+  stamp(rule: StructureStampRule, cellM: number): { bounds(): { min: number[]; max: number[] }; sample(cellM: number): StructureStampLocal } | null {
+    this.stampDirty = false;
+    const s = this.streamer;
+    const cells = this.extent === null ? null : gridStampCellsOfChunks(s.grid, this.extent, (cx, cy, cz, out) => s.isResident(cx, cy, cz) && s.overlay.exportChunk(cx, cy, cz, out));
+    if (cells === null) return null;
+    const frame = this.frame;
+    const b = gridStampBounds(cells, frame, cellM);
+    return { bounds: () => b, sample: (m) => stampGrid(cells, frame, rule, m) };
   }
 
   /** New distances (a quality level or a script's rings): as the world grid's. */

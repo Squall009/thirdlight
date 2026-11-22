@@ -28,10 +28,12 @@
  *   keeps any world cell an opening's samples reach open, so a door or a
  *   window survives the conservative fill.
  */
-import type { GridFrame } from './grid-place';
+import { localIndex, type ChunkGrid } from './coords';
+import { createDenseChunk, type DenseChunk } from './dense-chunk';
+import type { ChunkBox, GridFrame } from './grid-place';
 import { LIGHT_STOP_COVERAGE } from './occupancy-walk';
 import { PROP_SAMPLES_PER_AXIS, type PropLocalCoverage } from './prop-coverage';
-import { damagedIntegrity, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, valueDensity, valueMaterial, valueRole, VOXEL_ROLE } from './record';
+import { damagedIntegrity, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, recordValue, valueDensity, valueMaterial, valueRole, VOXEL_ROLE } from './record';
 import { integrityCoverage } from './damage-stages';
 
 /** A grid cell's or a stamped world cell's class: open, stopping light (a body for the regions), or an opening (a portal). */
@@ -53,6 +55,16 @@ const SAMPLES = PROP_SAMPLES_PER_AXIS ** 3;
 
 /** Samples in stopping cells from which the `quarter` rule fills a world cell: a quarter of them. */
 export const STAMP_QUARTER_SAMPLES = SAMPLES / 4;
+
+/**
+ * The rule a world stamps its structure grids by unless told otherwise: the props' share. Measured on the town's
+ * houses turned 30° and 45° it lets almost no light through a closed wall, keeps doors and windows open best but for
+ * `roles`, and takes the least of a room.
+ */
+export const STRUCTURE_STAMP_DEFAULT: StructureStampRule = 'share';
+
+/** The page switch a bench names a stamp rule or `off` by (`?gridStamp=`). */
+export const GRID_STAMP_URL_PARAM = 'gridStamp';
 
 /** The class of a grid cell from its record value ({@link STAMP_CLASS}). */
 export function stampClassOfValue(v: number): number {
@@ -80,6 +92,46 @@ export function gridStampCells(lo: readonly [number, number, number], size: read
   let i = 0;
   for (let x = 0; x < size[0]; x++) for (let z = 0; z < size[2]; z++) for (let y = 0; y < size[1]; y++, i++) classes[i] = classAt(lo[0] + x, lo[1] + y, lo[2] + z);
   return { lo, size, classes };
+}
+
+/**
+ * A grid's cells from its chunks (`chunk` exports a resident chunk's cells, false: not resident, read as open) over
+ * `extent`, cut to the box of the cells that are not open (null: none).
+ */
+export function gridStampCellsOfChunks(grid: ChunkGrid, extent: ChunkBox, chunk: (cx: number, cy: number, cz: number, out: DenseChunk) => boolean): GridStampCells | null {
+  const E = grid.edge;
+  const dense = createDenseChunk(grid);
+  const lo0 = [extent.min[0] * E, extent.min[1] * E, extent.min[2] * E];
+  const size0 = [(extent.max[0] - extent.min[0] + 1) * E, (extent.max[1] - extent.min[1] + 1) * E, (extent.max[2] - extent.min[2] + 1) * E];
+  const all = new Uint8Array(size0[0]! * size0[1]! * size0[2]!);
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (let cx = extent.min[0]; cx <= extent.max[0]; cx++) for (let cy = extent.min[1]; cy <= extent.max[1]; cy++) for (let cz = extent.min[2]; cz <= extent.max[2]; cz++) {
+    if (!chunk(cx, cy, cz, dense)) continue;
+    const ox = cx * E - lo0[0]!;
+    const oy = cy * E - lo0[1]!;
+    const oz = cz * E - lo0[2]!;
+    for (let x = 0; x < E; x++) for (let z = 0; z < E; z++) for (let y = 0; y < E; y++) {
+      const i = localIndex(grid, x, y, z);
+      if (dense.material[i] === MATERIAL_AIR && dense.role[i] !== VOXEL_ROLE.opening) continue;
+      const k = stampClassOfValue(recordValue(dense.material[i]!, dense.role[i]!, dense.shape[i]!, dense.wetness[i]!));
+      if (k === STAMP_CLASS.open) continue;
+      const p = [ox + x, oy + y, oz + z];
+      all[(p[0]! * size0[2]! + p[2]!) * size0[1]! + p[1]!] = k;
+      for (let a = 0; a < 3; a++) {
+        if (p[a]! < min[a]!) min[a] = p[a]!;
+        if (p[a]! > max[a]!) max[a] = p[a]!;
+      }
+    }
+  }
+  if (min[0] === Infinity) return null;
+  const size: [number, number, number] = [max[0]! - min[0]! + 1, max[1]! - min[1]! + 1, max[2]! - min[2]! + 1];
+  const classes = new Uint8Array(size[0] * size[1] * size[2]);
+  for (let x = 0; x < size[0]; x++) for (let z = 0; z < size[2]; z++) {
+    const from = ((x + min[0]!) * size0[2]! + (z + min[2]!)) * size0[1]! + min[1]!;
+    classes.set(all.subarray(from, from + size[1]), (x * size[2] + z) * size[1]);
+  }
+  return { lo: [lo0[0]! + min[0]!, lo0[1]! + min[1]!, lo0[2]! + min[2]!], size, classes };
 }
 
 /** A stamp of a grid in world cells: a prop's local coverage (light) and one {@link STAMP_CLASS} a cell of the same box (regions). */

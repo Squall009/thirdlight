@@ -57,6 +57,11 @@ import {
   planeMask,
   PropLightChannel,
   readSave,
+  SampleRing,
+  STRUCTURE_STAMP_DEFAULT,
+  type LitShape,
+  type LitStamp,
+  type StructureStampRule,
   SaveFileError,
   setFineBricks,
   FarWalkNodes,
@@ -142,12 +147,17 @@ const REGIONS_SPAN = threadProfiler.span('open regions stitched', 'voxelStream')
 const WALK_GRAPH_SPAN = threadProfiler.span('walk graph stitched', 'voxelStream');
 /** Keeping the far nodes' bricks for the walk where the world runs (copied as their draws leave for the page). */
 const FAR_WALK_SPAN = threadProfiler.span('far walk nodes kept', 'voxelStream');
+/** Reading a structure grid's cells for its stamp into the world grid (structure-stamp.ts), as its chunks arrive and leave. */
+const GRID_STAMP_SPAN = threadProfiler.span('structure grids stamped into the world', 'voxelStream');
 /** Stamping the lit props into the lighting occupancy (prop-channel.ts), in the derive's slice. */
 const PROP_STAMP_SPAN = threadProfiler.span('prop light stamped', 'voxelStream');
 /** A world's stats for the diagnostics: the streamer's, the open regions' and the far field's counts. */
 /** The structure grids' streaming and bodies a step (each grid's foci moved into its frame), as streaming work of this thread. */
 const GRIDS_SPAN = threadProfiler.span('structure grids streamed', 'voxelStream');
 const STATS_SPAN = { stream: threadProfiler.span('voxel stats: streamer', 'other'), regions: threadProfiler.span('voxel stats: open regions', 'other'), far: threadProfiler.span('voxel stats: far field', 'other'), rest: threadProfiler.span('voxel stats: the rest', 'other') };
+
+/** The id a structure grid's stamp has in its world's prop channel (beside the props' object ids). */
+const gridStampId = (gridId: number): string => `grid:${gridId}`;
 
 /** A world's chunk source and the workers its jobs run on, as the host (Play, an export, a test) provides them. */
 export interface VoxelWorldConnection {
@@ -193,6 +203,11 @@ export interface VoxelWorldConnection {
   openGrid?(gridId: number): Promise<{ readonly source: ChunkSource; readonly extent: ChunkBox | null } | null>;
   /** A structure grid's streamer once it is made, for what draws it (its draws stand where `place` says). */
   presentGrid?(place: GridPlacement, stream: VoxelStreamer, sectionEdge: number): void;
+  /**
+   * How the structure grids are stamped into the world grid's light occupancy, sun heights and regions
+   * (structure-stamp.ts; absent: `STRUCTURE_STAMP_DEFAULT`; null: not stamped, a bench's comparison).
+   */
+  readonly gridStamp?: StructureStampRule | null;
 }
 
 /** How the runtime reaches a project's voxel worlds (absent: a game's voxel worlds stream nothing and read null). */
@@ -307,6 +322,8 @@ export interface VoxelHostStats {
   /** The coarse floor's bodies now and since the world opened: added, removed, handed to the fine ground, bodies lifted. */
   readonly floors?: { readonly count: number; readonly added: number; readonly removed: number; readonly handedOver: number; readonly lifted: number };
   readonly propChannelBytes: number;
+  /** The structure grids' stamps into the world grid (absent: none stamped): the rule, the classes' bytes, stamps waiting, a stamp's sampling ms. */
+  readonly gridStamps?: { readonly rule: StructureStampRule; readonly grids: number; readonly classBytes: number; readonly pending: number; readonly samples: number; readonly sampleMs: { readonly p50: number; readonly max: number } };
   readonly pool?: { readonly workers: number; readonly queued: number; readonly queuedKinds: Readonly<Record<string, number>>; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly cancelledQueued: number; readonly cancelledSent: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
   /** The open regions stitched (counts, bytes held) and the derive µs of a section's regions beside its mesh and its whole derive. */
   readonly regions?: Readonly<Record<string, unknown>> & { readonly regions: number; readonly enclosed: number; readonly portals: number; readonly bytes: number };
@@ -355,6 +372,10 @@ export class VoxelWorldHost {
   private readonly props = new Map<string, PropShape>();
   /** The structure grids opened with the world (empty: the world grid alone). */
   private grids: VoxelGridHost[] = [];
+  /** How the grids are stamped into the world grid (null: not stamped, or no grids). */
+  private stampRule: StructureStampRule | null = null;
+  /** µs each grid's stamp took to sample and recombine where the derive slice ran it. */
+  private readonly gridStampUs = new SampleRing();
   private disposed = false;
   private readonly waits: { readonly cells: RegionCells; readonly id: number }[] = [];
   /** Changes by their edit groups, until their swaps. */
@@ -469,8 +490,12 @@ export class VoxelWorldHost {
     this.walkSource = streamerWalkSource(streamer, farWalk, { props: channel });
     this.unresidentWalk?.();
     this.unresidentWalk = farWalk === null ? null : residentBytes.register('voxelStream', () => farWalk.bytes);
-    const regions = new OpenRegionStitch(streamer);
+    // Structure grids are stamped into the props' channel; the regions read their classes (never with no grid).
+    const stampRule = (conn.grids ?? []).some((g) => g.extent !== null) ? (conn.gridStamp === undefined ? STRUCTURE_STAMP_DEFAULT : conn.gridStamp) : null;
+    this.stampRule = stampRule;
+    const regions = new OpenRegionStitch(streamer, stampRule !== null ? channel : null);
     this.regions = regions;
+    if (stampRule !== null) channel.listen((cx, cy, cz, classes) => classes && regions.touch(cx, cy, cz));
     this.unresidentRegions?.();
     this.unresidentRegions = residentBytes.register('regionStitch', () => regions.bytes);
     const walk = new WalkGraph(streamer, VOXEL_SIZE_M);
@@ -647,6 +672,7 @@ export class VoxelWorldHost {
     s.collision?.setFoci(collide);
     s.update();
     const channel = this.channel;
+    if (channel !== null && this.stampRule !== null) this.restampGrids(channel, this.stampRule);
     if (channel?.pending === true) {
       // The props' stamps in the derive slice, as its other streaming work: a scene's props arriving at once take steps.
       threadProfiler.begin(PROP_STAMP_SPAN);
@@ -695,6 +721,35 @@ export class VoxelWorldHost {
       }
       this.waits.splice(i, 1);
       this.events.answered(w.id, true);
+    }
+  }
+
+  /** The grids whose chunks arrived or left since their stamp: read again and placed (sampled in the derive slice). */
+  private restampGrids(channel: PropLightChannel, rule: StructureStampRule): void {
+    let changes: [string, LitShape | null][] | null = null;
+    threadProfiler.begin(GRID_STAMP_SPAN);
+    try {
+      for (const g of this.grids) {
+        if (!g.stampDirty) continue;
+        const stamp = g.stamp(rule, VOXEL_SIZE_M);
+        const shape: LitStamp | null =
+          stamp === null
+            ? null
+            : {
+                stamp: true,
+                bounds: () => stamp.bounds(),
+                sample: (m) => {
+                  const t0 = performance.now();
+                  const out = stamp.sample(m);
+                  this.gridStampUs.add((performance.now() - t0) * 1000);
+                  return out;
+                },
+              };
+        (changes ??= []).push([gridStampId(g.frame.gridId), shape]);
+      }
+      if (changes !== null) channel.apply(changes);
+    } finally {
+      threadProfiler.end(GRID_STAMP_SPAN);
     }
   }
 
@@ -829,6 +884,7 @@ export class VoxelWorldHost {
       bodies: this.bodies?.count ?? 0,
       ...(this.floors !== null ? { floors: { count: this.floors.count, ...this.floors.counters } } : {}),
       propChannelBytes: this.channel?.stats().bytes ?? 0,
+      ...(this.stampRule !== null ? { gridStamps: { rule: this.stampRule, grids: this.grids.length, classBytes: this.channel?.stats().classBytes ?? 0, pending: this.channel?.stats().pending ?? 0, samples: this.gridStampUs.count, sampleMs: { p50: this.gridStampUs.quantile(0.5) / 1000, max: this.gridStampUs.quantile(1) / 1000 } } } : {}),
       ...(pool !== undefined ? { pool: { workers: pool.size, queued: pool.queued, queuedKinds: pool.queuedKinds(), inFlight: pool.inFlight, done: pool.stats.done, queueFull: pool.stats.queueFull, cancelledQueued: pool.stats.cancelledQueued, cancelledSent: pool.stats.cancelledSent, runMs: { p50: pool.stats.runMs.quantile(0.5), p95: pool.stats.runMs.quantile(0.95) }, workerMs: { p50: pool.stats.workerUs.quantile(0.5) / 1000 } } } : {}),
       ...(m !== undefined ? { coverage: m.coverage } : {}),
       ...(this.grids.length > 0 ? { grids: gridStats(this.grids.map((g) => g.stats())) } : {}),

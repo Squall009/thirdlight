@@ -442,7 +442,7 @@ export { deriveMipNode, MipTree, type MipLevelView, type MipSource } from './mip
 export { buildFaceSeam, seamBytes, SEAM_PIECE_PAD_CELLS, SEAM_RIM_CELLS, SEAM_WALK_STEPS, type FaceSeam, type NodeFace, type SeamCounts, type SeamFaceInput, type SeamPiece, type SeamSurface } from './lod-seam';
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCellBox, propCoverageChunk, propCoverageLocal, type PropLocalCoverage, type PropShape } from './prop-coverage';
 export { PROP_COVERAGE_PART, PropLightChannel, type LitShape, type LitStamp, type PropChannelHost } from './prop-channel';
-export { gridStampBounds, gridStampCells, STAMP_CLASS, STAMP_QUARTER_SAMPLES, stampClassOfValue, stampGrid, STRUCTURE_STAMP_RULES, type GridStampCells, type StructureStampLocal, type StructureStampRule } from './structure-stamp';
+export { GRID_STAMP_URL_PARAM, gridStampBounds, gridStampCells, gridStampCellsOfChunks, STAMP_CLASS, STRUCTURE_STAMP_DEFAULT, STAMP_QUARTER_SAMPLES, stampClassOfValue, stampGrid, STRUCTURE_STAMP_RULES, type GridStampCells, type StructureStampLocal, type StructureStampRule } from './structure-stamp';
 export { walkWithGrids, type GridWalk, type GridWalkCounts, type GridWalkHit } from './grid-walk';
 export { VoxelOverlay } from './voxel-overlay';
 export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, shippedFarFile, shippedFarSource, shippedVoxelWorldsProblem, wholeFileByteSource, type ShippedFarCache, type ShippedVoxelFile, type ShippedVoxelWorld } from './shipped-world';

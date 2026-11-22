@@ -7,7 +7,8 @@
  * A floor slab one cell thick over its footprint and a porch before its door (so a character stands on the grid's
  * own cells, whatever the hill under it does), walls one cell thick round a 6 × 5 m room, 3 m tall, of the test
  * kit's stone (its free ends draw the kit's magenta boards), a door 1.5 m wide and 2.5 m tall in the wall the porch
- * faces (cut through: air), no roof.
+ * faces (opening cells: a portal, which a character walks through), and a flat roof one cell thick on the walls, so
+ * the room is a room for the world's regions and its light once the grid is stamped into the world grid.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,8 +19,9 @@ import { RegionWorld } from '@thirdlight/workspace';
 /** Cells: the room's footprint (x, z), the porch before it (z), the walls' height over the slab, the door's cells along x and its height. */
 export const GRID_HOUSE = { w: 12, d: 10, porch: 6, h: 6, doorX: [5, 7], doorH: 5 } as const;
 
-/** Grid metres: the door wall's outer face (z), the door's middle (x), the back wall's inner face (z), the slab's top (y). */
+/** Grid metres: the door wall's outer face (z), the door's middle (x), the back wall's inner face (z), the slab's top (y), the room's middle. */
 export const GRID_HOUSE_M = {
+  room: [(GRID_HOUSE.w * VOXEL_SIZE_M) / 2, VOXEL_SIZE_M + (GRID_HOUSE.h * VOXEL_SIZE_M) / 2, (GRID_HOUSE.porch + GRID_HOUSE.d / 2) * VOXEL_SIZE_M] as const,
   doorWallZ: GRID_HOUSE.porch * VOXEL_SIZE_M,
   doorX: ((GRID_HOUSE.doorX[0] + GRID_HOUSE.doorX[1] + 1) / 2) * VOXEL_SIZE_M,
   backWallZ: (GRID_HOUSE.porch + GRID_HOUSE.d - 1) * VOXEL_SIZE_M,
@@ -39,8 +41,9 @@ export function writeGridHouse(worldDir: string, gridId: number, material: numbe
     const edge = x === 0 || x === w - 1 || z === porch || z === porch + d - 1;
     for (let y = 1; y <= h; y++) {
       const door = z === porch && x >= doorX[0] && x <= doorX[1] && y <= doorH;
-      if (edge && !door) store.setVoxel(x, y, z, v(VOXEL_ROLE.wall));
+      if (edge) store.setVoxel(x, y, z, v(door ? VOXEL_ROLE.opening : VOXEL_ROLE.wall));
     }
+    store.setVoxel(x, h + 1, z, v(VOXEL_ROLE.roof));
   }
   const files = RegionWorld.create(join(worldDir, `grid-${gridId}`), { grid, worldId: hexToBytes(m.worldId), layout: m.layout, footprint: m.footprint, gridId }, store).listedRegions();
   const grids = [...m.grids.filter((g) => g.id !== gridId), { id: gridId, regions: files }].sort((a, b) => a.id - b.id);

@@ -1006,7 +1006,7 @@ async function playProject(): Promise<[number, number, number]> {
   await playCmd('setComponent', { entityId: player, component: 'controller', value: {} });
   // One save slot for the game's own save document (the voxel save rides in it as text).
   await playCmd('setSaveSchema', { schema: { version: 1, slots: 1, legacyWorld: false } });
-  await publishScript('digger', playScriptSource(at), world);
+  await publishScript('digger', playScriptSource(at, house.frame.toWorld(...GRID_HOUSE_M.room)), world);
   playWorld = world;
   return (standAt = at);
 }
