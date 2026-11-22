@@ -209,7 +209,7 @@ describe('the building generator', () => {
     }
   });
 
-  it('roofs an L, a T and a ring as one surface (the highest of each polygon\'s roof), and closes every room against the outside', () => {
+  it('roofs an L, a T and a ring as one 45° surface (a hip over the whole outline, gables a polygon joined by the highest), and closes every room against the outside', () => {
     const plans: [string, [number, number, number, number][]][] = [
       ['rect', [[0, 0, 16, 12]]],
       ['L', [[0, 0, 20, 10], [0, 10, 10, 24]]],
@@ -246,6 +246,12 @@ describe('the building generator', () => {
       }
       expect(rooms, what).toBeGreaterThan(500);
     }
+    // A hip over an L runs the wing's ridge along the wing into the main roof (no gutter where the polygons meet).
+    const l = buildingPlan(def({ footprint: [rect('a', 0, 0, 20, 10), rect('b', 0, 10, 10, 24)], roof: { shape: 'hip', overhang: 1, axis: 'x' } }));
+    const rise = (x: number, z: number): number => l.roofY[(x - l.x0) * l.d + (z - l.z0)]! - l.top;
+    for (let z = 11; z <= 18; z++) expect(rise(4, z), `wing ridge at z ${z}`).toBe(5);
+    // The valley: up the diagonal from the inner corner, a row a cell.
+    expect([rise(10, 10), rise(9, 9), rise(8, 8), rise(7, 7)]).toEqual([0, 1, 2, 3]);
   });
 
   it('writes floors with a hole over each stair, steps of one row a cell, openings in their wall, and opens a room to the outside only through them', () => {
