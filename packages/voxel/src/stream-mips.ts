@@ -450,7 +450,8 @@ export class StreamMips {
     const t0 = performance.now();
     this.advanceEdits();
     for (const g of this.openGroups()) this.stepGroup(g);
-    let room = this.host.pool.room();
+    // Streaming node work is the mip lane's (an urgent node's goes in the edit lane, within the same room).
+    let room = this.host.pool.room('mip');
     for (const m of this.stale.nodes()) {
       if (room <= 0 || performance.now() - t0 > ms) return;
       if (this.childrenSettled(m)) room -= this.rebuild(m);

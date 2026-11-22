@@ -271,7 +271,7 @@ export class StreamSeams {
   /** Works out the wanted faces when stale, and sends rebuilds of dirty faces, as far as the pool has room. */
   request(): void {
     if (this.stale) this.refresh(this.batch);
-    let room = this.host.pool.room();
+    let room = this.host.pool.room('mip');
     for (const id of this.dirty) {
       if (room <= 0) return;
       const e = this.entries.get(id);
