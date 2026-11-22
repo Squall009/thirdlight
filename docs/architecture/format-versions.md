@@ -33,11 +33,11 @@ owner are listed in `docs/decisions/owner-decisions.md`.
 
 | Format | Constant (package/file) | Value |
 |---|---|---|
-| Project schema | `PROJECT_SCHEMA_VERSION` (project-model/project-schema.ts) | 8 |
+| Project schema | `PROJECT_SCHEMA_VERSION` (project-model/project-schema.ts) | 8 (the `voxelStructure` component, F1, added within it: add-only, 47a.4; owner 2026-11-20) |
 | Content storage | `CONTENT_STORAGE_VERSION` (workspace/store-v4.ts) | 5 |
 | Asset sidecar | `SIDECAR_FORMAT` (workspace/asset-files.ts) | 3 |
 | Resource file | `RESOURCE_FORMAT` (workspace/resource-files.ts) | 1 |
-| Runtime content manifest | `RUNTIME_CONTENT_MANIFEST_VERSION_5` (project-model/manifest-v5.ts) | 5 |
+| Runtime content manifest | `RUNTIME_CONTENT_MANIFEST_VERSION_5` (project-model/manifest-v5.ts) | 5 (a world row's `grids`, F2, added within it: add-only, 47a.4) |
 | Game save | `PROJECT_SAVE_FORMAT_VERSION` (project-model/save-schema.ts) | 2 |
 | Binary container | `BINARY_CONTAINER_VERSION` (project-model/binary-container.ts) | 1 |
 | Decal clip | `DECAL_CLIP_VERSION` (project-model/decal-clip.ts) | 1 |

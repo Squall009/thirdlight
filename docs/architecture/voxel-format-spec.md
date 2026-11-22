@@ -598,12 +598,18 @@ file names, sorted, each once), `grids` and `revision` (moves by one with every 
   (`…/voxels/<world>/grids/<id>/regions/<file>`), `etag: null` in the world's file list (`grids[].files`).
 - **Where a grid stands is not stored here.** A structure grid's transform (its position and its yaw about the
   vertical axis; floors stay level, never a tilt or a scale) is its structure object's place in the scene (§2.1),
-  so moving a structure rewrites no voxel and no manifest. Until structure objects exist the runtime takes the
-  transforms as a host option when the world is opened (bench data only).
+  so moving a structure rewrites no voxel and no manifest. Built (47a.4): the object carries a `voxelStructure`
+  component (F1) naming its world and grid; its transform is refused when it tilts or scales; the backend answers each
+  listed grid's place in the world's route (`grids[].place`), which Play reads when the world opens.
 - **The anchor rule.** A structure's cell (0, 0, 0) is the minimum corner of its footprint's box at the ground
-  floor's top, so a building under 256 m is one region file.
+  floor's top, so a building under 256 m is one region file. As built (47a.3, 47a.4): applied once when a structure is
+  made; x and z from all it writes (eaves included), y = 0 the ground floor's row, so its foundation lies in negative
+  rows: in a stacked world that is the region below, two files for one house (D753), one in a column world.
 - **Exports** ship each grid's region files and a list of grids with their transforms in the runtime manifest
-  (R39: never resampled into the world grid). Not built yet: an export ships the world grid alone.
+  (R39: never resampled into the world grid). Built (47a.4): the catalog's world row gains `grids` (add-only, absent
+  when none), `[{ id, position: [x, y, z], yawRad, files: [{ name, digest, byteLength }] }]` sorted by id, every
+  file shipped whole by digest as the world grid's; the scenes ship without `voxelStructure` and no `overrides.tlvo`
+  is read. The runtime manifest's version does not move (an optional field, as `far` was).
 - **Not in the format:** a tilt or a scale of a grid; two structures sharing one grid.
 
 - **Which regions exist (R4).** A region the manifest does not list is all air. A listed region that is missing,

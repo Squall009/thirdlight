@@ -170,7 +170,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.1 | (a) done (0980318c…42363e34). (b) done (3627dc6b, 06ecc288): stamp (share), rooms 24/24; D746, D747. (c) done (fe397a85, 5db10a23): a walk graph a grid linked at doorsteps, on: every room and storey at 0/30/45°, no cell in a wall; the stamp alone loses 4–7 stair tops; D748, D749. (d) done 2026-11-22 (654fae78): grids resampled into the far build: the town at 250 m–2 km as W's; D750 |
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | Done 2026-11-22 (68fbec87, b4ff1315): `@thirdlight/voxel` `structures/`: generator contract, F1 record + checks, building generator (union walls, 45° roofs, hip over the outline), regenerate (undo/redo, fit rule), capture, regenerate-all; town house = bench pattern but beams, landing; small house 1.4 ms, 131 houses 78 ms, regenerate with 1,000 overrides 30 ms; D751, D752 |
-| 47a.4 | not started |
+| 47a.4 | Done 2026-11-22 (4059d423): `voxelStructure` (F1), its grid written by the backend through the commands, one undo step with the scene edit; create (next grid, anchor), regenerate, copy, delete, material swap, hand edits as overrides, `regenerateStructures`; Play/export read places from the objects. Small house 20 ms, L 60–76 ms; +0.8–2.2 s with a far cache (D754); D753, D755 |
 | 47a.5 | not started |
 | 47a.6 | not started |
 | 47a.7 | not started |
@@ -1013,6 +1013,120 @@ gate-rerun-20261122-141124 GREEN (Play test passed); b4ff1315 with the docs: gat
 **D-rows:** D751 (the fit rule's four designer-wrong cases above, with proposals), D752 (no cross gable: one ridge
 axis a structure).
 
+### 47a.4 — structures through the commands
+
+**Built** (4059d423; F1 and F2 as approved, F3 as 47a.3 wrote it):
+- **The component** (project-model `voxel-structure.ts`, `voxel-structure-descriptor.ts`): `voxelStructure` = `world`,
+  `grid`, then the voxel package's definition, rebuilt field by field there (`parseStructureDefinition`: every field
+  kept, an opening's `prop` too; vitest through the whole scene validator). Add-only within project schema 8 (as 46f's
+  `interactor` and 46d's material fields were recorded: the register's row names it; the number does not move). Not in
+  prefabs (a grid to one object), not read by scripts (authoring data). The scene validator refuses a structure object
+  under an object with a transform, at a scale other than 1, or turned off the vertical axis (**a tilt is refused, not
+  dropped**: `component_conflict` naming the transform's rotation; a yaw off by up to 1e−6 in x or z passes), and two
+  structures of a world on one grid in a scene. That its scene holds its world's `voxelWorld` object is the backend's
+  check (the descriptor tests build scenes one object at a time). The descriptor shows the numbers, roof and materials
+  as plain fields; the footprint, openings and stairs as their JSON values. **No voxel material picker**: the generic
+  Inspector has no widget for a voxel material id (an int field; 47a.6's), and the Inspector was not checked in a
+  browser here (left to 47a.6).
+- **Ops** (the editor and MCP send the same; `tl_command`): the existing `createEntity`, `createEntities`,
+  `pasteEntities` (the editor's Duplicate and Paste), `setComponent`, `setTransform`, `deleteEntity`, `undo`, `redo`, and
+  one new op, **`regenerateStructures`** (`STRUCTURE_OPS` in commands; args none). The backend
+  (workspace `structure-commands.ts`, `StructureCommands`) completes a structure a command brings in before the project
+  command runs, in the command's own arguments: the next free grid id, the definition anchored (`anchoredDefinition`)
+  and the generator's version; a definition the generator refuses is refused naming its field
+  (`invalid_structure`, `/args/…/voxelStructure/openings/0/at`); a pasted copy gets a new grid. After it, the scenes'
+  structures are compared by (world, grid) with before: new → written (a copy: its source's voxels and overrides),
+  definition changed → regenerated, gone → its grid emptied; each world's changes are one stroke
+  (`VoxelWorlds.writeStructures`: region files, `grid-<id>/overrides.tlvo` and the manifest in one staged write),
+  attached to the project entry on the one undo line (`UndoTimeline`: undo takes the entry back, then its strokes;
+  redo the entry, then the strokes). A refused voxel write (`world_changed`, `region_damaged`, `reference_missing`
+  for a world no `voxelWorld` object of the scene names) takes the project command back and is the command's answer.
+  Answers: the project result plus `voxels` (each world's stroke: `structures` a grid each with `cells`, `kept`,
+  `absorbed`, `misfits` [{x, y, z, base, value, generated, at: world metres}], `fields`, `materialSwaps`) and `far`.
+  Misfits are held in the backend's memory only (the last regenerate a grid; dropped by its undo or redo) and answered
+  again by the world's route (`grids[].lastRegenerate`); nothing stores them.
+- **Hand edits**: `editVoxels` with `command.grid` = a structure's grid is applied to that grid (a grid the world does
+  not list: `grid_not_found`), its chunks answered under `grids` (never as world chunks), its overrides captured
+  (`captureOverrides`) and written in the same staged write; undo and redo put the overrides file back with the cells.
+- **The grid-id rule**: one above every id the world's manifest lists, the project's structure objects name, a grid
+  made in this process, and the highest this backend process has given that world before; never given twice in a
+  process. An undo can bring a deleted structure back only while this process holds the history, so an id is never
+  reused while that is possible; after a restart the files and objects alone decide (the test: grid 2 deleted, the
+  next structure takes 3).
+- **Regenerate all** (R34): `regenerateStructures` gives every structure whose `generator` is older one
+  `setComponent` (`entityIds`, one transaction) of the generator's version, and the diff writes them: one undo step;
+  none outdated: `no_change`; outdated structures in two scenes: refused, naming the count (one step a scene). The
+  Problems list says "N structures need regenerating" when a project loads (a diagnostic; nothing is written).
+- **Moving or turning** is a plain transform edit: no region file or manifest is rewritten (stat'ed in the test). (a)
+  The Scene view does not draw structure grids yet (47a.6); Play reads the places when it opens the world (a structure
+  object moved while a game runs moves nothing: structures are authoring objects; a script moving one at run time
+  moves no grid). (b) The far cache: the backend passes the objects' places to every far build and rebuild
+  (`FarCacheJobs.build/rebuild` `grids`, through the worker), and after any step that moves, makes, changes or deletes a
+  structure (forward, undo or redo) it builds again the world chunks the grid lay over before (remembered, read from its
+  files before the step) and lies over now (`StructureCommands.followFar`, `VoxelWorlds.farFollow`). It is awaited:
+  0.8 s for the small house, 2.2 s for the L (below): too slow for a drag; the editor sends a move at the drag's end
+  (47a.6; D754).
+- **Placements from the project**: `VoxelWorldConnection.placements` (runtime), read from the world's route in Play
+  (`grids[].place`, editor `range-world.ts`) and from the catalog in an export (`grids` of the world row,
+  game-host `voxel-shipped.ts`, `openGrid` from the shipped files); `?voxelGrids=` stays for the bench and places a
+  world's grids over the objects' when it names the world.
+- **Export**: each placed grid ships its region files and its place in the world row (`grids`, add-only; the runtime
+  manifest's version does not move); the scenes ship without `voxelStructure` (`withoutStructureDefinitions`); no
+  overrides file is read. Never resampled into the world grid.
+- **MCP**: `tl_command` takes the same ops (its op list includes `regenerateStructures`); `tl_inspect` shows the
+  component; the reference generator reads the structure ops' union (`StructureOpArgs`) and the component's descriptor
+  from the build: `tl_docs` topics `op.regenerateStructures` and `component.voxelStructure` (regenerated reference).
+
+**Tests.** Vitest `project-model/src/voxel-structure.test.ts` (every field kept through the scene validator, field
+refusals by pointer, tilt/scale/parent refused, a grid to one structure, placements). Integration
+`tests/integration/voxel-world/voxel-structures.test.ts` (a real backend over HTTP, the world on disk; 11 tests):
+create (grid 1, anchored, files and manifest as F2, no overrides yet, voxels equal the generator's fresh output;
+refusals before anything is applied); regenerate equal to fresh, undo and redo exact (every file of the world folder
+hashed, the manifest's lists), `no_change`; one line across a world stroke, a rename and a roof change (undo × 3, redo ×
+3, the folder equal at each step); a hand dig and a hand-set shelf on the grid → `overrides.tlvo`, a storey added keeps
+the hole and answers the shelf as a misfit with its world place, listed again by the route; a material swap changes
+material ids only (`fields` = material, every changed cell's other bits equal); paste → grid 2 with equal voxels and
+equal overrides cells, independent after; move → no region file rewritten, the manifest's revision unchanged; a tilt
+refused; delete → grid files gone, undo brings back the same bytes, the next structure takes grid 3; a grid file
+changed on disk → `world_changed` and the scene edit taken back; a listed grid file gone → `etag: null`,
+`region_damaged`; regenerate-all with a generator one version on (`VoxelWorlds.generator` swapped in the test: no HTTP
+switch exists) → one step, undone exactly; MCP `tl_command` and `tl_inspect`. The e2e house (`voxel-grid-house.ts`) is
+now a structure object of the Play project (its porch a hand `set` on its grid, kept as overrides), placed by its
+object (no `?voxelGrids=`): the Play test's grid checks run on it unchanged in kind; the Export test checks the shipped
+grid (its place, its files), no overrides file's digest and no `foundationDepth` in the catalog or content files, the
+house drawn in the export and the character pushed at its front wall stopping before it.
+
+What each test does with the feature broken: the scene-diff writes nothing → create/regenerate/copy/delete tests fail
+on the files; the attachment off → undo leaves the voxels (folder differs); capture off → no `overrides.tlvo`; the
+placements feed off → Play's and the export's house is not drawn (`far#1` 0 chunks); the strip off → `foundationDepth`
+found in the export.
+
+**Measured** (2026-11-22 15:25–15:28 UTC, load 1.4–3.2, the in-process backend over HTTP in an 8G scope, nothing else
+running, 5 runs each, medians; `work/47a.4/measure-structures.test.ts`, raw `measure-1.json`, `measure-nofar.json`;
+the 47a.3 houses, placed at 30° on flat ground):
+
+| | small house 8 × 6 m | large L 40 × 30 m, 4 storeys |
+|---|---|---|
+| create, command / voxels apply / staged write (ms), no far cache | 20.1 / 4.6 / 7.7 | 59.5 / 39.8 / 12.2 |
+| regenerate (+1 storey), command / staged write | 18.4 / 5.2 | 76.3 / 9.1 |
+| duplicate (paste), command / staged write | 17.4 / 7.2 | 59.2 / 11.7 |
+| undo of the regenerate | 13.3 | 21.4 |
+| move (setTransform) | 5.4 | 7.6 |
+| bytes at rest (region files) | 509 in 2 files (D753) | 2,527 in 2 files |
+| with the world's far cache built: create / regenerate / duplicate / undo | 835 / 788 / 806 / 164 | 1,874 / 1,941 / 1,932 / 834 |
+| move with the far rebuild: command / rebuild (nodes) | 1,009 / 1,002 (14) | 2,212 / 2,204 (20) |
+
+The integration test's single runs agree (create 38–43 ms, regenerate 21–23 ms, undo 15–17 ms, no far cache). The far
+follow-up is the whole of the difference; the voxels are tens of milliseconds (D754).
+
+**Unverified:** anything drawn in a browser beyond the gate's e2e (no picture looked at in this item); the Inspector
+showing the component (not checked: 47a.6); a structure on a slope; more than one scene naming a world; a fine bake
+with structures (D755). **Left out** (as the brief): the Scene view drawing grids, editor tools and handles (47a.6);
+`ctx.voxels` in grids (47a.5); props, `pieces`, splines, water.
+
+**D-rows:** D753 (two region files for an anchored house in a stacked world), D754 (the far follow-up's cost on a
+structure command), D755 (the fine bake and columns outside the world grid's don't see grids).
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -1120,6 +1234,29 @@ axis a structure).
   +z, storeyHeight − 1 steps, the next floor open over its steps and whole at its landing; every cell integrity 15.
 - 2026-11-22 (47a.3): the bench town keeps its own `houseVoxel`: the package's generator writes every plain town house
   exactly but for its beams and stair landing, so the bench worlds would not stay byte-equal.
+
+- 2026-11-22 (47a.4; default chosen, owner to confirm): **a structure object that would tilt or scale is refused**
+  (the scene validator, `component_conflict` naming the transform), not silently levelled: the command's sender learns
+  why; a yaw within 1e−6 of level in x and z passes.
+- 2026-11-22 (47a.4; default chosen, owner to confirm): **grid ids are never given twice in a backend process** (one
+  above the manifest's, the objects', the grids made and the ids this process gave the world); after a restart no undo
+  can bring a deleted structure back, so the files and objects alone decide.
+- 2026-11-22 (47a.4; default chosen, owner to confirm): **the backend completes a structure in the command's own
+  arguments** (grid id, anchor, generator version), so the project history holds what was applied; a structure's
+  `world` and `grid` cannot be changed by `setComponent` (copy it, or make a new one).
+- 2026-11-22 (47a.4; default chosen, owner to confirm): **a structure object stands in its scene's frame** (a root or
+  in a folder): its transform is its grid's place as it is, never composed with a parent's.
+- 2026-11-22 (47a.4; default chosen, owner to confirm): **regenerate all is a structure op** (`regenerateStructures`)
+  the backend runs as one `setComponent` over the outdated structures and their voxels, one step; outdated
+  structures in two scenes are refused (one step a scene).
+- 2026-11-22 (47a.4; default chosen, owner to confirm): **the far field follows a structure within its command**
+  (awaited, so the cache is current when the command answers); it costs 0.8–2.2 s with a far cache (D754): a drag
+  sends its move at its end.
+- 2026-11-22 (47a.4; default chosen, owner to confirm): **a pasted structure whose source grid is gone is written
+  fresh from its definition** (its hand edits are not there to copy).
+- 2026-11-22 (47a.4): the e2e house is a structure object (its porch a hand edit kept as overrides), so its grid
+  layout moved by the anchor: the front wall at z = 0, the porch at −3 … 0 m (`voxel-grid-house.ts`); the checks read
+  the same geometry from `GRID_HOUSE_M`.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
