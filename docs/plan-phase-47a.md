@@ -167,7 +167,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | Item | Status |
 |---|---|
 | 47a.0 | Done 2026-11-21 (docs only, no gate): baseline at 58fac9ba (§8a; page ms at 128 lamps +2 ms against 46e.19, the 128-lamp room unusable). D740 not fixed: the surface WGSL equal in loads, samples, loops; `level0` equal at both commits, so the extra is the coarse levels' read meeting other data; D740 rewritten |
-| 47a.1 | (a) done 2026-11-22 (0980318c…42363e34). (b) done 2026-11-22 (3627dc6b, 06ecc288): grids stamped into the world's light, mips, sun heights, rooms (share rule, on): 0–7 of 24,000 rays leak through closed turned walls, 12–18 % through doors stopped, rooms 24/24, interiors dark as W; exact stepping 2.3–4.2× CPU rays, not on GPU. D746, D747. c–d not started |
+| 47a.1 | (a) done (0980318c…42363e34). (b) done (3627dc6b, 06ecc288): grids stamped (share), 0–7 of 24,000 rays leak, rooms 24/24; D746, D747. (c) done 2026-11-22 (fe397a85, 5db10a23): a walk graph a grid linked at doorsteps, on: all 24 rooms and 17 upper storeys at 0/30/45°, no cell in a wall, sim as without; the stamp alone loses 4–7 stair tops; D748, D749. (d) not started |
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | not started |
 | 47a.4 | not started |
@@ -688,6 +688,102 @@ grid house in the browser (no edit path into grids); a turned house on a slope; 
 stopped at the room check). Gates: gate-fast-20261122-061112 (RED on `project-items.e2e.ts`, D410),
 gate-rerun-20261122-063506 GREEN; `area play` with the leak test gate-area-20261122-082532 GREEN (24 passed).
 
+### 47a.1c — paths into and round structure grids
+
+**Built** (fe397a85, 5db10a23; bench 5e329148). Two candidates, the simpler first, each measured against W (the same
+houses in the world grid):
+- **P-stamp** (`@thirdlight/voxel` `walk-graph-stamp.ts`, `stampedNav`): the world graph's navigation with the grids'
+  stamp classes (47a.1b's share rule, the prop channel's `rooms`) read as world cells: a stamped stop blocks a walker and
+  carries one (`supports`). One graph, `findPath` unchanged. Kept only as the option the measurement below used.
+- **P-own**, left on (fe397a85): the world graph reads the same stamps **blocking only**, so its walker goes round a
+  turned house and stands nowhere inside its footprint; each structure grid keeps **its own walk graph** in its own frame
+  from its own derived navigation (`VoxelGridHost.walk`, the existing per-chunk builder, made as its chunks arrive, change
+  and leave); **links** (`walk-graph-links.ts`, `WalkGraphLinks`) join a grid's standable cell to the nearest world
+  standable cell within `WALK_LINK_REACH_CELLS` (a diagonal, 0.71 m) between floor middles, one cell up or down, room for
+  the walker at both ends (one cell more at the lower end) and the grid's own cells free at three points along the way
+  (no jamb's corner cut); a grid chunk's links are made again when its part or a world part under it is made again or
+  dropped (each graph's `onPart`), a grid chunk where nothing stands hears of no world chunk; `findPath` crosses graphs
+  (`walk-graph-linked.ts`, `LinkedWalkQueries`; runtime `voxel-world-paths.ts`): an end lies in the graph whose
+  standable cell under it is nearest, ends in one graph are that graph's own query, else the links are the exits: the
+  best `LINKED_PATH_DOORS` (3) links more than 2 m apart, ranked by straight lines, have their legs searched by each
+  graph's own queries (one A* first, the pieces' exits for a long leg) and the cheapest whole way answers, in world
+  metres (a grid's cells placed by its frame). Derived, never stored; with no grid nothing is made (`WorldPaths` holds the
+  world's queries alone; the stamp read is not made: `stampedNav` returns the section's own navigation, vitest).
+
+**Node** (2026-11-22, `work/47a.1cd/scratch/paths.ts`, 47a.1b's box: world chunks −4…3, y −1…1, the 24 houses whole in
+it at every yaw measured, the 44 touching it placed; `MODE=stamp|own node paths.mjs`, raw `paths-stamp-3.json`,
+`paths-own-5.json`; i5-12600H). For each house a path from 2.5 m before its door to its ground floor's middle and to its
+upper storey's middle (17 houses have one); **in a wall** = a cell walked whose walker column (its centre, the feet cell
+and three over) lies in a stopping cell of the grid, read in the grid's own frame from its records.
+
+| | W | P-stamp 0° | 30° | 45° | P-own 0° | 30° | 45° |
+|---|---|---|---|---|---|---|---|
+| street → room found (of 24) | 24 | 24 | 24 | 24 | 24 | 24 | 24 |
+| street → upper storey found (of 17) | 17 | 17 | **13** | **10** | 17 | 17 | 17 |
+| length against W: room; upper (least … most) | 1 | 1; 1 (the same cells, 24/24, 17/17) | 0.99–1.06; 0.94–1.08 | 1.00–1.10; 1.01–1.13 | 0.97–1.00; 0.97–1.00 (the same cells 21/24, 4/17) | 0.99–1.05; 0.96–1.02 | 0.98–1.09; 0.96–1.03 |
+| cells in a wall (deepest, cells) | — | 0 | 4 (0.08) | 0 | 0 | 0 | 0 |
+| across the box, two ways round the houses: found; length against W; cells in a wall | found 157.5, 172.2 m | 1, 1; 0 | 0.99, 1.01; 0 | 0.98, 0.99; 0 | 1, 1; 0 | 0.99, 1.01; 0 | 0.98, 0.99; 0 |
+| query ms (cells) street → room, median; across | 0.07 (39); 12.9–17.5 (15.6 k–17.8 k) | 0.06 (39) | 0.09 (29) | 0.07 (54) | 0.13 (24) | 0.10 (32) | 0.09 (23); 6.7–8.6 (11 k–15 k) |
+| graph build: the box's world graph; a house's own graph (median, most); links | 105–110 ms | 170 ms | 162 | 142 | 72 ms; 0.47, 1.17 ms; 87 ms (116 grid chunks, 78 links) | 58; 0.46, 1.15; 73 (90 links) | 54; 0.44, 1.09; 59 (91 links) |
+| bytes: world graph; the grids' graphs; links | 1.15 MB | 1.19 MB | 1.24 | 1.25 | 0.68 MB; 0.51 MB; 33 kB | 0.69; 0.51; 37 kB | 0.69; 0.51; 37 kB |
+| a house placed again (its chunks made again), ms; its stitch alone (all its links made again) | — | 1.9–9.6 | 1.9–6.6 | 1.6–6.1 | 1.5–3.6; 0.4–4.6 | 1.4–3.7; 1.2–4.3 | 1.3–3.2; 1.2–3.9 |
+| the edit: a back wall dug 1 × 2 m (path from 2.5 m behind it to the room) | 22.5 → 7.6 m | 4.0 ms | 4.8 | 4.3 | 13.3 ms (derive 9.1, stamp 2.1, graph and links 1.3, query 0.4) | 13.4 | 13.7 |
+
+Read: **P-stamp loses stairs by design.** Its rooms are all found and its turned doors pass, but 4 of 17 upper storeys
+at 30° and 7 at 45° are not reached: the stair steps themselves stamp as standable cells (`DIAG=1`: every step of the
+lost houses' stairs had its cells), but where the stair's top meets the floor beside it the share rule leaves world
+columns whose cells the stop covers less than half at both heights, so a gap opens a cell wide that no step crosses. No
+other stamp rule keeps them (`RULE=quarter`: 9 and 13 of 17; `roles`, `majority`, `any`: 0, the thickened steps take the
+headroom; `paths-{roles,majority,any,quarter}.json`), and 4 cells of its upper paths at 30° grazed a wall (up to 0.08
+cells inside). **P-own passes every house at every yaw**, no cell of the 72 + 51 measured paths in a wall, paths round
+the houses as the stamp's. At 0° it is not W cell for cell (21 of 24 room paths, 4 of 17 upper the same cells; lengths
+0.97–1.00 of W): diagonals are taken inside a chunk only (+0.29 m a chunk face crossed), and a house's own chunk faces
+lie elsewhere than the world's; that is the walk graph's rule, not the link (the vitest house on chunk-aligned cells
+gives W's cells and cost exactly). The edit is a direct write to the grid's store, the grid's chunk derived again, its
+stamp and graph made again (there is no edit path into grids: 47a.5); its new way in 13–14 ms of work in Node, most of it
+the derive.
+
+**Play** 2026-11-22 08:58–11:10 UTC, low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone (`uptime` beside each;
+1-minute load 1.1–1.8, the first head run's start 3.0), `run.mjs headroom --quality low --rounds 2`, second rounds read;
+work folder `~/.cache/thirdlight-phase47a/work/47a.1cd/` (`measure-c.sh`, `measure-c2.sh`, `summc.py`, `m/`). Base
+533a62a7 (before fe397a85) built in a scratch worktree with its own `@thirdlight` links, removed after.
+
+| town orbit, second rounds | room | page ms | simulation ms | GPU near / far / lighting (resolution) |
+|---|---|---|---|---|
+| world grid alone, head fe397a85 (A B A B) | 128, 128 | 5.71, 5.74 | 2.07, 2.29 | 4.19, 5.35 / 2.34, 2.84 / 3.92, 4.23 (1.2, 1.8) |
+| world grid alone, base 533a62a7 | 128, 128 | 5.58, 5.58 | 2.17, 2.25 | 4.65, below / 3.36, below / 5.92, 4.61 (1.0, 4.0) |
+| W (all houses in the world grid) | 128, 128 | 5.72, 6.29 | 2.10, 2.40 | 3.95, 4.17 / 3.74, 3.37 / 4.26, 5.68 (2.5, 1.8) |
+| G30, head fe397a85 | 128, 128 | 6.48, 6.45 | 5.16, 4.12 | 3.90, 5.39 / 3.23, 2.45 / 5.87, 4.49 (0.8, 0.8) |
+| G30, head 5db10a23 (A B A B) | 120, 128 | 6.48, 6.43 | **4.15, 3.91** | 5.65, 5.09 / below, 3.30 / 4.31, 5.43 (4.3, 2.0) |
+| G30, base 533a62a7 (no walk graph in grids) | 120, 128 | 7.20, 6.12 | **4.38, 4.04** | 3.73, 3.90 / 3.31, 3.72 / 5.58, 4.04 (3.2, 2.5) |
+
+Read: the world grid alone is unchanged (simulation 2.07–2.29 against 2.17–2.25, page 5.71–5.74 against 5.58: inside
+the spread). G30 with the grids' own graphs and links costs no more simulation on the orbit than without them in the same
+hour (3.91–4.15 against 4.04–4.38 ms); G30's simulation over W's is 47a.1a2's streaming of the grids (D743, D745). Walk
+graph bytes at the fill's snapshot: W's world graph 5.5–6.4 MB; G30's grids' graphs 2.8–3.0 MB for the 131 houses with
+their margin chunks (2,243–2,445 parts, 116–130 k cells), the world graph not arrived yet at that moment (D745), the
+`walkGraph` row 16 MiB at low; links 0 at that snapshot (the world's near parts not there). The 5db10a23 snapshots lost
+their host diagnostics (D749). **Play test**: the grid house's porch to its room by `ctx.voxels.findPath`, over the grid's
+own graph: found, 4.5 m, its last waypoint in the room, none in a wall's cell, answered 76 ms after the command (the
+command's round trip included); the Play test 1.9 min (gate-fast-20261122-085826; 1.8–2.0 before).
+
+**What a 2-cell-wide walker would meet** (D735, 47a.8): in its own graph a grid's 1 m door is its two cells exactly at
+every yaw, so clearance over two columns there is the grid's own; a link is a single cell's step, so a wide walker needs
+the link to keep its footprint too. In P-stamp a turned 1 m door is narrowed by up to a cell at each edge (47a.1b:
+12–18 % of rays through it stop): a 2-cell walker would not pass it.
+
+**P-own's design limits:** a link reaches a diagonal and one cell up or down: a door whose outside lies more than a cell
+below its threshold (a house on a slope, the Play test's porch over the hill) links nowhere (question 4: the ground is
+left alone); the world's cells beside a turned wall are the stamp's, so a world cell's middle may lie up to 0.08 cells
+(4 cm) inside a turned wall's corner (once, in the edit's path at 30°); a way between two points of one graph never goes
+through a grid (in one door, out another), nor between two touching grids; the doors tried are the best three by straight
+lines, so a house with more doors may be given the dearer one; walkers of another height or with drops, and `reach`,
+search the world graph alone (D748).
+
+**Recommendation:** P-own — each structure grid walks in its own graph, linked to the world's at its doorsteps and
+foundation edges, the world's walker blocked by the grid's stamp — is on (47a.8 builds its door state and walker width on
+it); the stamp alone (P-stamp) cannot carry a turned staircase and was measured, not kept on.
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -751,6 +847,12 @@ gate-rerun-20261122-063506 GREEN; `area play` with the leak test gate-area-20261
   2.3–4.2× the walk and a second loop on the GPU. The price, for the owner's page: a door or window turned 30°–45°
   passes 12–18 % less light than drawn, and surfaces the light sees are up to 0.5 m off the drawn ones. The exact CPU
   walk (`walkWithGrids`) is kept for `ctx.voxels.raycast` through grids (47a.5).
+- 2026-11-22 (47a.1c; default chosen, owner to confirm): **structure grids are walked in their own walk graphs,
+  linked to the world's** (R40's "walk graph per grid stitched at doors/foundations"): the world's walker is blocked by
+  the grids' stamps and carries nothing there; a link reaches a diagonal (0.71 m) and one cell up or down with the
+  grid's own cells clear along it; a path between graphs searches the legs of the best three doors (by straight lines)
+  and takes the cheapest. The stamp walked as world cells (P-stamp) loses 4–7 of 17 turned staircases' tops and is kept
+  only as a measured option (§8a 47a.1c). Other walkers and `reach` stay on the world graph alone until 47a.8 (D748).
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 

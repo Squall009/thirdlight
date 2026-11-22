@@ -42,7 +42,14 @@ page in the same commit.
   queue queries served in order within the simulation frame's `pathfinding` share (span `path finding`; the steps a
   tick runs share it): one A* over the
   cells first, a long path over the pieces' exits (straight-line costs across a piece) and then the cells of the
-  route's pieces and their neighbours; past chunks not known the answer is `unknown`, never `unreachable`.
+  route's pieces and their neighbours; past chunks not known the answer is `unknown`, never `unreachable`. With
+  structure grids, each grid keeps a walk graph of its own in its own frame (its own derived navigation: exact floors,
+  stairs and doors), the world's walker is blocked by the grids' stamps and stands nowhere inside a footprint, and
+  **links** join a grid's standable cell to the nearest world one a step away (a diagonal's reach, one cell up or down,
+  room at both ends, the grid's own cells free along the way: doorsteps, foundation edges), made again with either
+  side's chunk (`walk-graph-links.ts`); a path between graphs takes the cheapest of the best three doors' legs, each
+  graph's own query (`walk-graph-linked.ts`, runtime `voxel-world-paths.ts`). Other walkers and `reach` search the world
+  graph alone (D748).
 - **Light coverage with props**: objects whose model is marked `affectsLighting` are stamped into the world's prop
   coverage channel (`prop-channel.ts`, a byte a cell over the resident chunks, never saved): each prop sampled once
   into its own cells where it stands (its collider, else its model's bounds; 4³ samples a cell), a chunk its props
@@ -78,9 +85,10 @@ page in the same commit.
   leaves, sampled in the derive slice; nothing is stored, and with no grid nothing is made. It is off by up to a cell:
   a turned door or window is narrowed (12–18 % of rays through a 1 m one stop at 30°–45°), closed turned walls let
   almost nothing through, rooms are found whole. Exact stepping of each grid in its own frame exists on the CPU only
-  (`grid-walk.ts` `walkWithGrids`: the reference). The walk graph, the far field, `ctx.voxels` reads, solid rays,
+  (`grid-walk.ts` `walkWithGrids`: the reference). Paths walk each grid in its own graph, linked to the world's (the walk
+  graph above). The far field, `ctx.voxels` reads, solid rays,
   edits and saves, the Scene view and exports see the world grid alone; past its load ring a grid is not drawn
-  (plan-47a §8a, 47a.1a, 47a.1a2, 47a.1b).
+  (plan-47a §8a, 47a.1a, 47a.1a2, 47a.1b, 47a.1c).
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
   water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); `liquid` is
   excluded by scattered checks, not one predicate; a liquid edit re-derives mesh, collision, navigation and
