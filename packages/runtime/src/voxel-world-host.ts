@@ -307,7 +307,7 @@ export interface VoxelHostStats {
   /** The coarse floor's bodies now and since the world opened: added, removed, handed to the fine ground, bodies lifted. */
   readonly floors?: { readonly count: number; readonly added: number; readonly removed: number; readonly handedOver: number; readonly lifted: number };
   readonly propChannelBytes: number;
-  readonly pool?: { readonly workers: number; readonly queued: number; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly cancelledQueued: number; readonly cancelledSent: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
+  readonly pool?: { readonly workers: number; readonly queued: number; readonly queuedKinds: Readonly<Record<string, number>>; readonly inFlight: number; readonly done: number; readonly queueFull: number; readonly cancelledQueued: number; readonly cancelledSent: number; readonly runMs: { readonly p50: number; readonly p95: number }; readonly workerMs: { readonly p50: number } };
   /** The open regions stitched (counts, bytes held) and the derive µs of a section's regions beside its mesh and its whole derive. */
   readonly regions?: Readonly<Record<string, unknown>> & { readonly regions: number; readonly enclosed: number; readonly portals: number; readonly bytes: number };
   /** The walk graph (chunks, cells, pieces, exits, made and kept, bytes) and its queries (queued, nodes and queries served). */
@@ -321,7 +321,7 @@ export interface VoxelHostStats {
    */
   readonly readRing?: { readonly setM: number; readonly nowM: number; readonly reachM: number | null };
   /** The structure grids streamed beside the world grid: how many, their resident chunks and bytes, their bodies (absent: none). */
-  readonly grids?: { readonly count: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly bodies: number; readonly shapes: number; readonly bodyBuilds: number; readonly bodyBuildMs: number; readonly updates: number; readonly skipped: number; readonly bytesPerGrid: { readonly min: number; readonly max: number }; readonly nearest: Readonly<Record<string, unknown>> | null };
+  readonly grids?: { readonly count: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly bodies: number; readonly shapes: number; readonly bodyBuilds: number; readonly bodyBuildMs: number; readonly updates: number; readonly skipped: number; readonly waits: Readonly<Record<string, number>>; readonly bytesPerGrid: { readonly min: number; readonly max: number }; readonly nearest: Readonly<Record<string, unknown>> | null };
 }
 
 export class VoxelWorldHost {
@@ -829,7 +829,7 @@ export class VoxelWorldHost {
       bodies: this.bodies?.count ?? 0,
       ...(this.floors !== null ? { floors: { count: this.floors.count, ...this.floors.counters } } : {}),
       propChannelBytes: this.channel?.stats().bytes ?? 0,
-      ...(pool !== undefined ? { pool: { workers: pool.size, queued: pool.queued, inFlight: pool.inFlight, done: pool.stats.done, queueFull: pool.stats.queueFull, cancelledQueued: pool.stats.cancelledQueued, cancelledSent: pool.stats.cancelledSent, runMs: { p50: pool.stats.runMs.quantile(0.5), p95: pool.stats.runMs.quantile(0.95) }, workerMs: { p50: pool.stats.workerUs.quantile(0.5) / 1000 } } } : {}),
+      ...(pool !== undefined ? { pool: { workers: pool.size, queued: pool.queued, queuedKinds: pool.queuedKinds(), inFlight: pool.inFlight, done: pool.stats.done, queueFull: pool.stats.queueFull, cancelledQueued: pool.stats.cancelledQueued, cancelledSent: pool.stats.cancelledSent, runMs: { p50: pool.stats.runMs.quantile(0.5), p95: pool.stats.runMs.quantile(0.95) }, workerMs: { p50: pool.stats.workerUs.quantile(0.5) / 1000 } } } : {}),
       ...(m !== undefined ? { coverage: m.coverage } : {}),
       ...(this.grids.length > 0 ? { grids: gridStats(this.grids.map((g) => g.stats())) } : {}),
       ...(this.streamer !== null ? { readRing: { setM: this.streamer.readReach.sceneRing.loadRadius * VOXEL_SIZE_M, nowM: this.streamer.ring.loadRadius * VOXEL_SIZE_M, reachM: this.streamer.readReach.cells === null ? null : this.streamer.readReach.cells * VOXEL_SIZE_M } } : {}),

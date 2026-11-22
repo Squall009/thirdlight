@@ -234,8 +234,8 @@ export class StreamSeams {
   }
 
   /** Whether seam work can go on now (for the streamer's idle check). */
-  pending(): boolean {
-    if (this.jobs.size > 0 || this.requeued > 0 || this.stale) return true;
+  pending(out = true): boolean {
+    if ((out && this.jobs.size > 0) || this.requeued > 0 || this.stale) return true;
     for (const id of this.dirty) {
       const e = this.entries.get(id);
       if (e !== undefined && !e.leaving && this.input(e.key) !== null) return true;

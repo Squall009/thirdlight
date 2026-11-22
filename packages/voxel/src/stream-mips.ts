@@ -420,12 +420,13 @@ export class StreamMips {
   }
 
   /** Whether any mip work can go on now (for the streamer's idle check). */
-  pending(): boolean {
-    if (this.jobs.size > 0) return true;
-    if (this.dormant) return this.lod.pending() || this.seams.pending();
+  pending(out = true): boolean {
+    // `out` false: jobs out (node cells, derives, seams, a swap waiting on its seams) are not counted, only what could go.
+    if (out && this.jobs.size > 0) return true;
+    if (this.dormant) return this.lod.pending(out) || this.seams.pending(out);
     for (const m of this.stale.nodes()) if (this.childrenSettled(m)) return true;
     for (const n of this.unfresh) if (this.derivable(n)) return true;
-    return this.lod.pending() || this.seams.pending();
+    return this.lod.pending(out) || this.seams.pending(out);
   }
 
   /** Sends what can go: node rebuilds lowest level first, then derives, within `ms` of main-thread time and the pool's room. */

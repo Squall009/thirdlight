@@ -174,8 +174,8 @@ export class StreamLod {
   }
 
   /** Whether a choice is to be made or a swap is being built (for the streamer's idle check). */
-  pending(): boolean {
-    return this.building !== null || this.dirty || this.moved();
+  pending(out = true): boolean {
+    return (out && this.building !== null) || this.dirty || this.moved();
   }
 
   /** Chooses the levels when something changed, and starts the swap to the choice when it differs from what is drawn. */

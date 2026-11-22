@@ -293,9 +293,9 @@ async function main(): Promise<void> {
         const st = (window as unknown as { __tlProfiler?: { read(): { counters?: { stats?: { drawCalls?: number; triangles?: number } | null } } } }).__tlProfiler?.read().counters?.stats ?? null;
         return st === null ? null : { drawCalls: st.drawCalls ?? null, triangles: st.triangles ?? null };
       }),
-      host: (((await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<{ world?: string; grids?: Record<string, unknown>; bodies?: number; resident?: number; bytes?: number }> } } | undefined)?.runtime?.voxelWorlds ?? [])
+      host: (((await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<{ world?: string; grids?: Record<string, unknown>; bodies?: number; resident?: number; bytes?: number; pool?: unknown }> } } | undefined)?.runtime?.voxelWorlds ?? [])
         .filter((v) => v.world === WORLD)
-        .map((v) => ({ grids: v.grids === undefined ? null : { ...v.grids, nearest: undefined }, worldBodies: v.bodies, worldResident: v.resident, worldBytes: v.bytes }))[0] ?? null,
+        .map((v) => ({ grids: v.grids ?? null, worldBodies: v.bodies, worldResident: v.resident, worldBytes: v.bytes, pool: v.pool ?? null }))[0] ?? null,
     };
     // Memory at the town once filled: the page's heap and the GPU process's (the editor's page included: Play runs in it).
     const cdp = await browser.newBrowserCDPSession();

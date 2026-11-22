@@ -942,10 +942,16 @@ export class VoxelStreamer {
    * moves: how a host streaming many grids skips a grid's update.
    */
   idle(quiet = false): boolean {
-    if (quiet && !this.plan.atRest) return false;
-    if (this.reads > 0 || this.refreshes.live > 0) return false;
-    for (const c of this.chunks.values()) if (c.phase === 'reading' || c.phase === 'decoding') return false;
-    if (this.derives?.pending() === true || this.mips?.pending() === true || this.collision?.pending() === true) return false;
+    if (quiet) {
+      // Quiet looks past work out (reads, decodes, jobs: each ends with a poke, moving `activity`) at what could be
+      // asked for now: stored chunks held for the pool's room, sections, nodes and bodies' ground that could go out.
+      if (!this.plan.atRest || this.plan.held.length > 0 || this.refreshes.live > 0) return false;
+    } else {
+      if (this.reads > 0 || this.refreshes.live > 0) return false;
+      for (const c of this.chunks.values()) if (c.phase === 'reading' || c.phase === 'decoding') return false;
+    }
+    const out = !quiet;
+    if (this.derives?.pending(out) === true || this.mips?.pending(out) === true || this.collision?.pending(out) === true) return false;
     for (let i = this.cursor; i < this.wanted.length; i++) {
       const w = this.wanted[i]!;
       if (w.d2 >= this.horizon) continue;

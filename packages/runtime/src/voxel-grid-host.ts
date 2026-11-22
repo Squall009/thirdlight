@@ -179,7 +179,7 @@ export function streamerCollisionFeed(streamer: VoxelStreamer): CollisionRingFee
 }
 
 /** The grids' stats summed for the diagnostics (bytes a grid: the least and the most). */
-export function gridStats(list: readonly ReturnType<VoxelGridHost['stats']>[]): { count: number; resident: number; reading: number; decoding: number; deriving: number; bytes: number; bodies: number; shapes: number; bodyBuilds: number; bodyBuildMs: number; updates: number; skipped: number; bytesPerGrid: { min: number; max: number }; nearest: ReturnType<VoxelGridHost['stats']> | null } {
+export function gridStats(list: readonly ReturnType<VoxelGridHost['stats']>[]): { count: number; resident: number; reading: number; decoding: number; deriving: number; bytes: number; bodies: number; shapes: number; bodyBuilds: number; bodyBuildMs: number; updates: number; skipped: number; waits: Record<string, number>; bytesPerGrid: { min: number; max: number }; nearest: ReturnType<VoxelGridHost['stats']> | null } {
   const sum = (f: (g: ReturnType<VoxelGridHost['stats']>) => number): number => list.reduce((n, g) => n + f(g), 0);
   return {
     count: list.length,
@@ -194,6 +194,7 @@ export function gridStats(list: readonly ReturnType<VoxelGridHost['stats']>[]): 
     bodyBuildMs: Math.round(sum((g) => g.body?.buildMs ?? 0) * 100) / 100,
     updates: sum((g) => g.updates),
     skipped: sum((g) => g.skipped),
+    waits: list.reduce<Record<string, number>>((o, g) => ({ ...o, [g.waits]: (o[g.waits] ?? 0) + 1 }), {}),
     bytesPerGrid: { min: Math.min(...list.map((g) => g.bytes)), max: Math.max(...list.map((g) => g.bytes)) },
     // The grid nearest the stream focus, as its streamer sees it (diagnostics: its frame, level choice, held detail).
     nearest: [...list].sort((a, b) => Math.hypot(...a.focusM) - Math.hypot(...b.focusM))[0] ?? null,
@@ -408,8 +409,19 @@ export class VoxelGridHost {
     this.unresident();
   }
 
+  /** What keeps its streamer from being quiet now (diagnostics): `none`, or the first of reads, derives, levels, collision, time, wanted. */
+  private waits(m: ReturnType<VoxelStreamer['metrics']>): string {
+    const s = this.streamer;
+    if (s.idle(true)) return 'none';
+    if (m.reading + m.decoding > 0) return 'reads';
+    if (m.deriving > 0) return 'derives';
+    if (s.mips?.pending() === true) return s.mips.lod.pending() ? 'levels: choice' : 'levels: nodes';
+    if (s.collision?.pending() === true) return 'collision';
+    return s.idle() ? 'time' : 'wanted';
+  }
+
   /** What the grid holds (diagnostics): its id, resident chunks and bytes, its body. */
-  stats(): { readonly grid: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly body: VoxelGridBodyStats | null; readonly focusM: readonly number[]; readonly detailHeld: boolean; readonly lod: Readonly<Record<string, number>> | null; readonly drawnAt: readonly number[]; readonly updates: number; readonly skipped: number } {
+  stats(): { readonly grid: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly body: VoxelGridBodyStats | null; readonly focusM: readonly number[]; readonly detailHeld: boolean; readonly lod: Readonly<Record<string, number>> | null; readonly drawnAt: readonly number[]; readonly updates: number; readonly skipped: number; readonly waits: string } {
     const m = this.streamer.metrics();
     // Of the chunks the grid holds, those drawn at level 0, and the level-1 nodes over them drawn.
     const drawnAt = [0, 0];
@@ -419,6 +431,6 @@ export class VoxelGridHost {
       if (lod.drawn(0, x, y, z)) drawnAt[0]!++;
       if (lod.drawn(1, x >> 1, y >> 1, z >> 1)) drawnAt[1]!++;
     }
-    return { grid: this.frame.gridId, resident: m.resident, reading: m.reading, decoding: m.decoding, deriving: m.deriving, bytes: m.bytes.total, body: this.body?.stats() ?? null, focusM: this.focusM.map((v) => Math.round(v * 100) / 100), detailHeld: this.streamer.detail.held, lod: this.streamer.mips?.lod.counters ?? null, drawnAt, updates: this.updates, skipped: this.skipped };
+    return { grid: this.frame.gridId, resident: m.resident, reading: m.reading, decoding: m.decoding, deriving: m.deriving, bytes: m.bytes.total, body: this.body?.stats() ?? null, focusM: this.focusM.map((v) => Math.round(v * 100) / 100), detailHeld: this.streamer.detail.held, lod: this.streamer.mips?.lod.counters ?? null, drawnAt, updates: this.updates, skipped: this.skipped, waits: this.waits(m) };
   }
 }

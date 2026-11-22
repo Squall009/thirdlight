@@ -284,6 +284,13 @@ export class WorkerPool {
     return Math.max(0, this.opts.maxQueued - this.back.size);
   }
 
+  /** Jobs waiting by kind and lane (`derive/near`, …; diagnostics: what fills the queue). */
+  queuedKinds(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const p of this.live.values()) if (!p.settled && p.worker < 0) out[`${p.job.kind}/${p.job.lane}`] = (out[`${p.job.kind}/${p.job.lane}`] ?? 0) + 1;
+    return out;
+  }
+
   /** Jobs sent and not yet answered (timed-out jobs still running not counted). */
   get inFlight(): number {
     let n = 0;

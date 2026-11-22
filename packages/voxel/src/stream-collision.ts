@@ -160,8 +160,8 @@ export class CollisionDerives {
   }
 
   /** Whether any job is out or could be sent (the streamer's idle check). */
-  pending(): boolean {
-    for (const e of this.entries.values()) if (e.job !== 0) return true;
+  pending(out = true): boolean {
+    if (out) for (const e of this.entries.values()) if (e.job !== 0) return true;
     return this.wantedNow().length > 0;
   }
 
