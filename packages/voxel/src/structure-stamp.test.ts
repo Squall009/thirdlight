@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { chunkGrid } from './coords';
 import { OCCUPANCY } from './derived-data';
 import { GridFrame } from './grid-place';
-import { walkWithGrids, type GridWalk } from './grid-walk';
+import { GridWalkIndex, walkWithGrids, type GridWalk } from './grid-walk';
 import { OpenRegionStitch, type RegionStreamerView } from './open-region-stitch';
 import { walkVoxels, type WalkBlockView, type WalkSource } from './occupancy-walk';
 import { PropLightChannel, type LitStamp } from './prop-channel';
@@ -260,5 +260,39 @@ describe('structure grids stamped into the world grid', () => {
       }
     }
     expect(hits).toBeGreaterThan(100);
+  });
+});
+
+describe('structure grids filed by tile for rays', () => {
+  it('a ray tests only the grids along its way and meets what testing every grid meets (a town of 64 houses at 0°, 30° and 45°)', () => {
+    const air = streamerWalkSource(airView, null);
+    const grids: GridWalk[] = [];
+    for (let i = 0; i < 64; i++) {
+      const deg = [0, 30, 45][i % 3]!;
+      const yaw = (deg * Math.PI) / 180;
+      grids.push({ frame: new GridFrame({ gridId: i + 1, position: [(i % 8) * 14 - 50, 0, Math.floor(i / 8) * 12 - 45], yawRad: yaw }), source: houseSource, box: { lo: [0, 0, 0], hi: [HOUSE[0] * M, HOUSE[1] * M, HOUSE[2] * M] } });
+    }
+    const index = new GridWalkIndex(grids);
+    let seed = 7;
+    const rnd = (): number => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    let along = 0;
+    let same = 0;
+    const N = 400;
+    for (let k = 0; k < N; k++) {
+      const o = [rnd() * 120 - 60, rnd() * 4 + 0.25, rnd() * 110 - 55];
+      const a = rnd() * Math.PI * 2;
+      const ray = walkRay(o, [Math.cos(a), rnd() * 0.2 - 0.1, Math.sin(a)])!;
+      const t = 5 + rnd() * 40;
+      const list = index.along(ray, t);
+      along += list.length;
+      const all = walkWithGrids(air, grids, ray, t, { stop: 'solid' });
+      const some = walkWithGrids(air, list, ray, t, { stop: 'solid' });
+      if ((all === null && some === null) || (all !== null && some !== null && all.gridId === some.gridId && all.t === some.t && all.hit.cell.every((v, i) => v === some.hit.cell[i]))) same++;
+    }
+    expect(same).toBe(N);
+    // A few boxes a ray, not the 64.
+    expect(along / N).toBeLessThan(12);
+    // A vertical ray tests its tile's grids alone.
+    expect(index.along(walkRay([grids[9]!.frame.position[0] + 1, 20, grids[9]!.frame.position[2] + 1], [0, -1, 0])!, 30).map((g) => g.frame.gridId)).toContain(10);
   });
 });

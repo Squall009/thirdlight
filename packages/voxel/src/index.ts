@@ -443,7 +443,7 @@ export { buildFaceSeam, seamBytes, SEAM_PIECE_PAD_CELLS, SEAM_RIM_CELLS, SEAM_WA
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCellBox, propCoverageChunk, propCoverageLocal, type PropLocalCoverage, type PropShape } from './prop-coverage';
 export { PROP_COVERAGE_PART, PropLightChannel, type LitShape, type LitStamp, type PropChannelHost } from './prop-channel';
 export { GRID_STAMP_URL_PARAM, gridStampBounds, gridStampCells, gridStampCellsOfChunks, STAMP_CLASS, STRUCTURE_STAMP_DEFAULT, STAMP_QUARTER_SAMPLES, stampClassOfValue, stampGrid, STRUCTURE_STAMP_RULES, type GridStampCells, type StructureStampLocal, type StructureStampRule } from './structure-stamp';
-export { gridWalkOf, walkWithGrids, type GridWalk, type GridWalkCounts, type GridWalkHit } from './grid-walk';
+export { GRID_WALK_TILE_M, GridWalkIndex, gridWalkOf, walkWithGrids, type GridWalk, type GridWalkCounts, type GridWalkHit } from './grid-walk';
 export { VoxelOverlay } from './voxel-overlay';
 export { canonicalShippedVoxelWorld, OPEN_REGION_FILES, shippedChunkSource, shippedFarFile, shippedFarSource, shippedVoxelWorldsProblem, wholeFileByteSource, type ShippedFarCache, type ShippedVoxelFile, type ShippedVoxelGrid, type ShippedVoxelWorld } from './shipped-world';
 export { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceOfSample, sampleOfDistance } from './distance-brick-format';

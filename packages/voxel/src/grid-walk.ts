@@ -80,3 +80,89 @@ export function walkWithGrids(world: WalkSource, grids: readonly GridWalk[], r: 
   }
   return best;
 }
+
+/** The edge (metres) of the square tiles {@link GridWalkIndex} files grids under: a storage chunk's. */
+export const GRID_WALK_TILE_M = 16;
+
+/** A tile's key (tiles within ±32,768 of the origin on each axis: ±524 km at 16 m). */
+const tileKey = (tx: number, tz: number): number => (tx + 32768) * 65536 + (tz + 32768);
+
+/**
+ * Structure grids filed by the square tiles (in x and z) their turned boxes cover, so a ray tests only the grids
+ * standing along its way: the tiles its path crosses up to its length, walked tile by tile, each grid once. A town's
+ * grids are then a few boxes a ray, not every grid in reach.
+ */
+export class GridWalkIndex {
+  private readonly tiles = new Map<number, number[]>();
+  private readonly seen: Int32Array;
+  private mark = 0;
+
+  constructor(
+    readonly grids: readonly GridWalk[],
+    private readonly tileM = GRID_WALK_TILE_M,
+  ) {
+    this.seen = new Int32Array(grids.length);
+    grids.forEach((g, k) => {
+      let x0 = Infinity;
+      let z0 = Infinity;
+      let x1 = -Infinity;
+      let z1 = -Infinity;
+      for (let c = 0; c < 4; c++) {
+        const w = g.frame.toWorld(c & 1 ? g.box.hi[0] : g.box.lo[0], 0, c & 2 ? g.box.hi[2] : g.box.lo[2]);
+        x0 = Math.min(x0, w[0]);
+        x1 = Math.max(x1, w[0]);
+        z0 = Math.min(z0, w[2]);
+        z1 = Math.max(z1, w[2]);
+      }
+      for (let tx = Math.floor(x0 / tileM); tx <= Math.floor(x1 / tileM); tx++) for (let tz = Math.floor(z0 / tileM); tz <= Math.floor(z1 / tileM); tz++) {
+        const key = tileKey(tx, tz);
+        let list = this.tiles.get(key);
+        if (list === undefined) this.tiles.set(key, (list = []));
+        list.push(k);
+      }
+    });
+  }
+
+  /** The grids whose tiles a ray's path up to `maxT` (metres) crosses, each once, in their order. */
+  along(r: WalkRay, maxT: number): GridWalk[] {
+    if (this.grids.length === 0) return [];
+    // The grids met so far this call are marked with its number (all cleared before the marks could run out).
+    if (this.mark >= 0x3fffffff) {
+      this.seen.fill(0);
+      this.mark = 0;
+    }
+    const m = ++this.mark;
+    const hit: number[] = [];
+    const s = this.tileM;
+    const ox = r.origin[0];
+    const oz = r.origin[2];
+    const dx = r.dir[0];
+    const dz = r.dir[2];
+    let tx = Math.floor(ox / s);
+    let tz = Math.floor(oz / s);
+    const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const stepZ = dz > 0 ? 1 : dz < 0 ? -1 : 0;
+    // Ray length to the next tile face on each axis, and between faces (2D DDA over the tiles).
+    let nextX = stepX === 0 ? Infinity : ((tx + (stepX > 0 ? 1 : 0)) * s - ox) / dx;
+    let nextZ = stepZ === 0 ? Infinity : ((tz + (stepZ > 0 ? 1 : 0)) * s - oz) / dz;
+    const dtX = stepX === 0 ? Infinity : s / Math.abs(dx);
+    const dtZ = stepZ === 0 ? Infinity : s / Math.abs(dz);
+    for (;;) {
+      for (const k of this.tiles.get(tileKey(tx, tz)) ?? []) {
+        if (this.seen[k] === m) continue;
+        this.seen[k] = m;
+        hit.push(k);
+      }
+      const t = Math.min(nextX, nextZ);
+      if (t > maxT) break;
+      if (nextX < nextZ) {
+        tx += stepX;
+        nextX += dtX;
+      } else {
+        tz += stepZ;
+        nextZ += dtZ;
+      }
+    }
+    return hit.sort((a, b) => a - b).map((k) => this.grids[k]!);
+  }
+}

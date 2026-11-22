@@ -21,7 +21,7 @@
  * Changes and their swaps are tracked here for the world grid and its structure grids alike ({@link VoxelChanges}):
  * a grid's swap groups are its own streamer's, so they are kept by (grid, group).
  */
-import { MATERIAL_AIR, VOXEL_SIZE_M, lightCoverageAt, walkWithGrids, type GridWalk, type SwapReport, type VoxelRecord, type VoxelStreamer, type WalkRay, type WalkSource } from '@thirdlight/voxel';
+import { GridWalkIndex, MATERIAL_AIR, VOXEL_SIZE_M, lightCoverageAt, walkWithGrids, type GridWalk, type SwapReport, type VoxelRecord, type VoxelStreamer, type WalkRay, type WalkSource } from '@thirdlight/voxel';
 
 import { voxelRayHit, type RegionCells, type VoxelBox, type VoxelChange, type VoxelRayHit, type VoxelRegion } from './voxel-api';
 import type { VoxelGridHost } from './voxel-grid-host';
@@ -73,6 +73,23 @@ export function cellCoverage(s: VoxelStreamer, cx: number, cy: number, cz: numbe
   return light === undefined ? prop : lightCoverageAt(light, ((((cx & m) << sec.shift) | (cz & m)) << sec.shift) | (cy & m), prop);
 }
 
+/** Each world's grids filed by tile for rays (a world's grid list is made once, when it opens). */
+const walkIndexes = new WeakMap<readonly VoxelGridHost[], GridWalkIndex>();
+
+/** The grids filed by the tiles they stand on: a ray tests the boxes along its way, not every grid of the world. */
+function walkIndexOf(grids: readonly VoxelGridHost[]): GridWalkIndex {
+  let i = walkIndexes.get(grids);
+  if (i === undefined) {
+    const walks: GridWalk[] = [];
+    for (const g of grids) {
+      const w = g.walkView();
+      if (w !== null) walks.push(w);
+    }
+    walkIndexes.set(grids, (i = new GridWalkIndex(walks)));
+  }
+  return i;
+}
+
 /** A grid point (metres in the grid's frame) or direction turned and moved into the world. */
 function dirToWorld(g: VoxelGridHost, d: P3): [number, number, number] {
   const o = g.frame.toWorld(0, 0, 0);
@@ -86,12 +103,7 @@ function dirToWorld(g: VoxelGridHost, d: P3): [number, number, number] {
  * the face's normal in the world.
  */
 export function raycastWithGrids(world: WalkSource, grids: readonly VoxelGridHost[], ray: WalkRay, maxT: number, stop: 'solid' | 'light'): VoxelRayHit | null {
-  const walks: GridWalk[] = [];
-  for (const g of grids) {
-    const w = g.walkView();
-    if (w !== null) walks.push(w);
-  }
-  const h = walkWithGrids(world, walks, ray, maxT, { stop });
+  const h = walkWithGrids(world, walkIndexOf(grids).along(ray, maxT), ray, maxT, { stop });
   if (h === null) return null;
   if (h.gridId === 0) return voxelRayHit(ray, h.hit);
   // A grid's walk starts where the ray meets its box: its hit's distance and point are the whole ray's.

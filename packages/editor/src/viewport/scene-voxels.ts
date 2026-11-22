@@ -149,6 +149,8 @@ export class SceneVoxels {
   /** Picks waiting for the worker's answer, by id. */
   private readonly picks = new Map<number, (hit: Extract<SceneVoxelsOut, { t: 'picked' }>['hit']) => void>();
   private pickSeq = 0;
+  /** Structure draws moved to their objects (a move, a turn, a drag's frame) and the ms it took in all (diagnostics). */
+  private readonly moved = { count: 0, ms: 0, lastMs: 0 };
 
   /** The view's texture streamer: the voxel arrays are its only streamed textures (the view's asset textures load whole). */
   readonly textureStreamer: TextureStreamer;
@@ -399,7 +401,11 @@ export class SceneVoxels {
       const drawn = s.drawn;
       if (drawn !== undefined && drawn.yawRad === now.yawRad && drawn.position.every((v, a) => v === now.position[a])) continue;
       s.drawn = now;
+      const t0 = performance.now();
       this.draws.placeGrid(gridDrawName(s.world, s.grid), now);
+      this.moved.lastMs = performance.now() - t0;
+      this.moved.count++;
+      this.moved.ms += this.moved.lastMs;
     }
   }
 
@@ -487,7 +493,7 @@ export class SceneVoxels {
   stamp(root: HTMLElement): void {
     if (this.open.size === 0 && this.stampMark === '') return;
     const drawn = this.draws.stats();
-    const mark = this.open.size === 0 ? '' : JSON.stringify({ worlds: drawn.worlds, replaced: drawn.replaced, batches: drawn.batches, states: Object.fromEntries(this.states), problems: Object.fromEntries(this.problems) });
+    const mark = this.open.size === 0 ? '' : JSON.stringify({ worlds: drawn.worlds, replaced: drawn.replaced, batches: drawn.batches, states: Object.fromEntries(this.states), problems: Object.fromEntries(this.problems), moved: this.moved });
     if (mark === this.stampMark) return;
     this.stampMark = mark;
     if (mark === '') root.removeAttribute('data-voxels');
