@@ -50,8 +50,9 @@ page in the same commit.
   steps in the derive slice on the simulation's thread. The walk's light stop reads one occupancy: a level-0 cell
   stops light where the voxels' coverage joined with the props' is at least half (`coverageAt`'s rule), so the light
   volume's rays and `ctx.voxels.raycast`'s light stop see lit props, moving ones too (a changed chunk's walk block
-  is sent again and the volume restarts what it reaches, as for an edit). The mips and far nodes are the voxels'
-  alone; kit pieces stamp nothing (the voxels they dress do).
+  is sent again and the volume restarts what it reaches, as for an edit). Structure grids are stamped into the same
+  channel (above); the mips see their stopping cells, never props'; the far nodes are the voxels' alone; kit pieces
+  stamp nothing (the voxels they dress do).
 - **Edits** go through `editVoxels` strokes (set, dig, add, brush, fill, stamp). The project's one `undo` /
   `redo` steps scene edits and strokes on one line in the order they were made (workspace `undo-timeline.ts`,
   in the backend, per project); a stroke's undo and redo write back the records its world's undo store keeps
@@ -68,9 +69,18 @@ page in the same commit.
   bodies whose collision reaches it (runtime `voxel-grid-host.ts`). The world grid and its grids share the world's one
   memory budget (grids first). Drawn under its place with its world's surface, its kit pieces in its world's piece
   batches turned and placed copy by copy (`voxel-world-draws.ts`, `VoxelPieceBatches`), so grids add chunk surfaces to
-  a frame, not draws a kind; collided as one compound static body a grid. The light volume, sun heights, open regions
-  and rooms, the walk graph, the far field, `ctx.voxels`, the Scene view and exports see the world grid alone; past
-  its load ring a grid is not drawn (plan-47a §8a, 47a.1a and 47a.1a2).
+  a frame, not draws a kind; collided as one compound static body a grid. **Light, sun heights and rooms see a grid
+  through its stamp** (`structure-stamp.ts`): its resident cells (a class a cell from its record: stopping, opening,
+  open) sampled into the world cells where it stands at 4³ points a cell by the share rule (as props: it stops at
+  half; `?gridStamp=` names another rule or `off` for a bench), held in the world's prop channel (coverage bytes joined
+  into the light stop; a class a cell read by the open regions as solid and portal cells, hence rooms, portals and
+  the sky heights, and by the walk's mip levels as stopping cells), made again when a chunk of the grid arrives or
+  leaves, sampled in the derive slice; nothing is stored, and with no grid nothing is made. It is off by up to a cell:
+  a turned door or window is narrowed (12–18 % of rays through a 1 m one stop at 30°–45°), closed turned walls let
+  almost nothing through, rooms are found whole. Exact stepping of each grid in its own frame exists on the CPU only
+  (`grid-walk.ts` `walkWithGrids`: the reference). The walk graph, the far field, `ctx.voxels` reads, solid rays,
+  edits and saves, the Scene view and exports see the world grid alone; past its load ring a grid is not drawn
+  (plan-47a §8a, 47a.1a, 47a.1a2, 47a.1b).
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
   water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); `liquid` is
   excluded by scattered checks, not one predicate; a liquid edit re-derives mesh, collision, navigation and
@@ -191,7 +201,7 @@ seen through its windows are not lit as the street is; not a minimum (no light f
 | # | Foundation | Used by | State |
 |---|---|---|---|
 | 1 | Fields derived from voxels (height, slope, material, role, sky, water, fog, spline distance), one arithmetic for worker, shader and tests | vegetation rules, water, fog, `ctx.voxels`, far placement | 47b |
-| 2 | Open-region labelling (a walk through connected non-solid cells) | rooms, cut-away, audio room size, stream priority, the water and fog fill, water bodies | exists: `@thirdlight/voxel` `open-regions.ts` (per level-0 unit in the derive job: open cells, i.e. not drawn as a body, labelled 6-connected, `opening` cells as portals apart, faces reached, face connectivity, the highest solid cell a column) and `open-region-stitch.ts` (`OpenRegionStitch`: chunks' components joined across faces into regions and portals as chunks arrive, change and leave; enclosed, complete, sky, volume, portals, each region's box and surface against solid cells, its parts' boxes; sky heights a column, sent to the page with the draw batches, `sky-columns.ts`); `ctx.voxels.regionAt` (a room, the outdoors, a portal or unknown; box, surface, mean free path 4V/S for a game's audio) and `portalsOf`; the voxel world page's tint overlay (`?regions=1`). **Rooms** (an enclosed region) are used by see-through and the camera's cut-away (the page sends where its subjects stand, the batches answer each one's room and its parts' boxes: `ChunkDrawBatcher.setFocus`, three-adapter `voxel-focus-rooms.ts`, `see-through.ts`) and by the light volume's indoor share (below; by the sky heights alone). Stream priority and the water and fog fill do not use it yet |
+| 2 | Open-region labelling (a walk through connected non-solid cells) | rooms, cut-away, audio room size, stream priority, the water and fog fill, water bodies | exists: `@thirdlight/voxel` `open-regions.ts` (per level-0 unit in the derive job: open cells, i.e. not drawn as a body, labelled 6-connected, `opening` cells as portals apart, faces reached, face connectivity, the highest solid cell a column) and `open-region-stitch.ts` (`OpenRegionStitch`: chunks' components joined across faces into regions and portals as chunks arrive, change and leave, structure grids' stamps read with each unit; enclosed, complete, sky, volume, portals, each region's box and surface against solid cells, its parts' boxes; sky heights a column, sent to the page with the draw batches, `sky-columns.ts`); `ctx.voxels.regionAt` (a room, the outdoors, a portal or unknown; box, surface, mean free path 4V/S for a game's audio) and `portalsOf`; the voxel world page's tint overlay (`?regions=1`). **Rooms** (an enclosed region) are used by see-through and the camera's cut-away (the page sends where its subjects stand, the batches answer each one's room and its parts' boxes: `ChunkDrawBatcher.setFocus`, three-adapter `voxel-focus-rooms.ts`, `see-through.ts`) and by the light volume's indoor share (below; by the sky heights alone). Stream priority and the water and fog fill do not use it yet |
 | 3 | Far-node side channels and one bake runner | far water, far fog, forest canopy, baked occlusion | 49; the runner exists (far cache) |
 | 4 | Camera-following window helper | wind, interaction field, ripples, water info, fog density and simulation | exists: `three-adapter` `camera-window.ts` (`CameraWindow`, `WindowTargets`); the wind map (`wind-field.ts`, its sample public as `MaterialLibrary.windSample`) and the interaction field (`interaction-field.ts`: 256² × 0.25 m, every `interactor` stamped by one compute pass, read by foliage; WebGPU only) sit on it |
 | 5 | Regenerated structures (a definition → voxels + overrides) | buildings, road and river splines, water bodies | 47a; `structure-overrides.ts` is a draft |
@@ -206,7 +216,7 @@ core (`scatter.ts`); the spline format and curve maths; the voxel `WorkerPool` a
 arrays reused by generation, bounded and resumable runs; the walk graph's searches; block layers' `block-walk.ts`
 keeps its own until it retires); one buffer grow (`@thirdlight/shared` `grownCapacity` / `grownArray`;
 `grownGpuBuffer` for raw GPU scratch buffers); one region-texture helper for a texture three owns (`region-texture.ts`:
-partial upload, grow by copy, the texture version rule; the private three hooks for it live there alone); one occupancy walk for rays (`@thirdlight/voxel` `occupancy-walk.ts`, 6-connected, level 0 then the mips and far nodes; on the GPU `voxelWalkWgsl` over the blocks the draw batches carry while something on the page reads that walk (the light volume, a bench's check; none, and nothing is packed), to the mips only: a second copy of the loop sharing three step helpers (`walk-steps.ts`), held equal by a 1,200-ray check, not one definition; `ctx.voxels.raycast` and the editor's picks; light rays stop at half coverage, the voxels' and lit props' joined at level 0); one scene realizer for the editor and games; one content closure for
+partial upload, grow by copy, the texture version rule; the private three hooks for it live there alone); one occupancy walk for rays (`@thirdlight/voxel` `occupancy-walk.ts`, 6-connected, level 0 then the mips and far nodes; on the GPU `voxelWalkWgsl` over the blocks the draw batches carry while something on the page reads that walk (the light volume, a bench's check; none, and nothing is packed), to the mips only: a second copy of the loop sharing three step helpers (`walk-steps.ts`), held equal by a 1,200-ray check, not one definition; `ctx.voxels.raycast` and the editor's picks; light rays stop at half coverage, the voxels', lit props' and structure stamps' joined at level 0; `walkWithGrids` walks a world and its structure grids each in its own frame, CPU only); one scene realizer for the editor and games; one content closure for
 Play and export.
 
 ## 7. What is planned on top (see the roadmap)

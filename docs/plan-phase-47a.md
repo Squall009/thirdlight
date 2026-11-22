@@ -167,7 +167,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | Item | Status |
 |---|---|
 | 47a.0 | Done 2026-11-21 (docs only, no gate): baseline at 58fac9ba (§8a; page ms at 128 lamps +2 ms against 46e.19, the 128-lamp room unusable). D740 not fixed: the surface WGSL equal in loads, samples, loops; `level0` equal at both commits, so the extra is the coarse levels' read meeting other data; D740 rewritten |
-| 47a.1 | (a) done 2026-11-22 (0980318c, 185114b6, bfed4123, 42363e34): grids in the manifest (F2), drawn turned, a body each; a grid's streamer runs only with work, its pieces in its world's draws, one budget. Town 131 grids: page 1.0–1.2 × W, piece draws as W, room 128; sim 1.9–2.1 × W moving (1.35 still): missed, cause in §8a; D745. b–d not started |
+| 47a.1 | (a) done 2026-11-22 (0980318c…42363e34). (b) done 2026-11-22 (3627dc6b, 06ecc288): grids stamped into the world's light, mips, sun heights, rooms (share rule, on): 0–7 of 24,000 rays leak through closed turned walls, 12–18 % through doors stopped, rooms 24/24, interiors dark as W; exact stepping 2.3–4.2× CPU rays, not on GPU. D746, D747. c–d not started |
 | 47a.2 | Proposed 2026-11-20 (f385e584, page `plan47a`); **owner's note 2026-11-20: F1–F7 approved as proposed**; the owner's question on piece-defined structures is open (§10): F1 may gain an add-only piece list, so 47a.3 waits for the answer |
 | 47a.3 | not started |
 | 47a.4 | not started |
@@ -532,6 +532,162 @@ the simulation's cost of a town of grids on a moving camera is about twice the w
 is left to take: a grid's update itself (its level choice over its margin chunks, the readiness walk: 0.2–0.35 ms), and
 a queue the world grid's near work cannot be crowded out of (D745). Neither needs a foundation rewritten.
 
+### 47a.1b — light and rooms for structure grids: the stamp against exact stepping
+
+**Built** (3627dc6b, 06ecc288; bench 0f4e6938, 973db982). **S, the stamp** (`@thirdlight/voxel` `structure-stamp.ts`,
+held by `prop-channel.ts` beside the props, derived and never stored): a grid's cells are read from its resident chunks
+(a class a cell from its record: stops light where a construction cell's integrity covers half or more or ground is
+half full; `opening`; open), cut to the box of its non-open cells, and sampled into the world cells of its turned box at
+4³ points a cell, as a prop is; a named rule makes each world cell's coverage byte (joined into the light stop with the
+voxels' and the props') and its class (a chunk's structure classes, a stop winning over an opening). The open regions
+read the classes with each unit (`stampedRegions`: a stamped stop is solid, a stamped opening a portal cell), so a
+turned house's rooms, portals and roof (the sky heights: sun field, indoor cover) are the world's own; the walk's mip
+levels read the stopping classes (a level's cell stops where one under it does, the world mips' rule), so rays past the
+detail ring meet the house too. Fed by `VoxelGridHost.stamp` from `VoxelWorldHost` whenever a chunk of the grid arrives
+or leaves (a moved or edited grid recombines only the chunks it left and entered), sampled in the derive slice
+(`frameSliceMs('voxelDerive')`, the props' stamping), the changed chunks' walk blocks sent again at every level. On by
+default where a world has grids (`STRUCTURE_STAMP_DEFAULT` = `share`); `?gridStamp=share|quarter|any|roles|majority|off`
+for a bench (forwarded to Play by the editor; found missing in the first run of the off check below). Memory: the
+channel's bytes and classes are the chunk's `propCoverage` budget part (the stream budget, `MEMORY_BUDGET_BY_TIER`); no
+new entry. With no grid nothing is made: the regions get no stamps, no class array exists, the walk views are the same
+objects (vitest), and the world-only A B below. **E, exact** (`grid-walk.ts` `walkWithGrids`, CPU only, the reference):
+the world walked as before, then each grid whose box the ray meets walked in its own frame from where the ray enters it
+to where it leaves or meets something nearer; nothing of it is on the GPU.
+
+**Ray agreement** (Node, 2026-11-22, `work/47a.1b/scratch/stamp-rays.ts`, raw `rays-6.json`, 12 s: `node bundle.cjs &&
+RAYS=1000 SOURCES=records node stamp-rays.mjs` in the 8G scope). The town box of the open-regions town test widened to
+8 × 3 × 8 chunks; the 24 houses whose turned plan fits it at 0°, 30° and 45° each derived in its own grid with the world
+rules; W = every house in the world grid, G = the world grid with ground, fences and ponds and each house in its grid
+turned about its footprint's middle. A house: 1,000 sky rays (cosine-weighted, 24 m) from points inside its rooms,
+1,000 rays from 3–6 m outside a wall cell to a point in a room, 1,000 rays from 2 m before a door or window cell through
+its face to 1 m inside: 72,000 rays a variant, E's answer the truth. **Leak** = S passes where E stops (light in a
+closed room); **block** = S stops where E passes; in brackets those with E's stop (or S's) **more than a cell from any
+opening**: the rest are an opening's edge moved.
+
+| yaw | rule | sky rays (of 24,000): leaks (away), blocks | across walls: leaks (away), blocks (away) | through openings: leaks, **blocks** | rooms, points lost | portals (houses with fewer) | room volume |
+|---|---|---|---|---|---|---|---|
+| 0° | every rule | 0, 0 | 0, 0 | 0, **0** | 24/24, 0 | 595/595 | 1.000 |
+| 30° | share | 17 (0), 10 | 615 (7), 234 (2) | 62, **2,970 (12.4 %)** | 24/24, 0 | 592 (3) | 0.979 |
+| 30° | quarter | 2 (0), 33 | 98 (0), 767 (4) | 0, **10,842 (45 %)** | 24/24, 0 | 586 (5) | 0.932 |
+| 30° | any | 0, 57 | 9 (0), 1,337 (12) | 0, **19,599 (82 %)** | 24/24, 0 | 522 (20) | 0.886 |
+| 30° | roles | 10 (0), 18 | 351 (0), 425 (16) | 11, **2,498 (10.4 %)** | 24/24, 0 | 592 (3) | 0.886 |
+| 30° | majority | 1 (0), 29 | 66 (0), 742 (14) | 0, **8,562 (36 %)** | 24/24, 0 | 592 (1) | 0.886 |
+| 45° | share | 18 (0), 13 | 665 (6), 258 (1) | 9, **4,429 (18.5 %)** | 24/24, 0 | 592 (2) | 0.982 |
+| 45° | quarter | 6 (0), 29 | 214 (0), 670 (4) | 2, **10,588 (44 %)** | 24/24, 0 | 582 (5) | 0.953 |
+| 45° | any | 0, 57 | 7 (0), 1,397 (13) | 0, **20,398 (85 %)** | 24/24, 0 | 495 (21) | 0.875 |
+| 45° | roles | 7 (0), 28 | 291 (0), 523 (19) | 48, **3,110 (13.0 %)** | 24/24, 0 | 588 (4) | 0.875 |
+| 45° | majority | 2 (0), 40 | 64 (0), 797 (16) | 0, **7,987 (33 %)** | 24/24, 0 | 583 (5) | 0.875 |
+
+Read: **no rule leaks through a closed turned wall**: away from openings at most 7 of 24,000 rays across walls (share;
+none for the conservative rules) and no sky ray; a one-cell wall turned 30° or 45° stamps as a staircase whose cells
+join by faces, so neither a 6-connected ray nor the regions' labelling slips through it. What the rules trade is the
+**openings**: share narrows a 1 m door or window so that 12–18 % of rays through its face stop (and its moved edge lets
+some by beside it: the 615–665 "leaks" at openings); roles keeps them best (10–13 %) but thickens every wall by about a
+cell (rooms 0.875–0.886 of their volume); any and quarter close most of them (45–85 %), so the regions lose portals.
+**No rule lost a room** (every interior point of the 24 houses in an enclosed region of the same count). Rooms and
+portals at 0° are the grid's own and W's for every house (24/24 rooms, 595/595 portals, the same cells), and S agrees
+with E on all 72,000 rays at 0°; both differ from W on 12 sky rays that leave through a window and meet a house past
+the 24 (W holds every house of the box; the grids only the 24): the test's set, not the stamp. A cell's class from its
+record equals the derive's light stop on every cell of the 24 houses (0 differ either way: the thin forms of these
+houses all stop light). **D741** (partial transmittance, 47a.12): of share's 694 (30°) and 692 (45°) leaks, all at an
+opening's edge, a ray carrying (1 − coverage) through the stamp's partly covered cells would keep under half its light
+on 347 and 229 and under a tenth on none: it would dim them, not close them; it changes no figure away from openings.
+
+**E's cost** (the same rays, best of three, CPU): the world grid alone 573 rays a millisecond; the world and the 24
+houses' grids 244 (1.02 grids entered a ray); the same rays with all 131 town houses' boxes tested 137; the stamped world
+(S's CPU walk, the props' joined views kept per block until the channel changes) 714 (it stops earlier). On the GPU, E
+would need, a ray: a box test against every grid in reach (two vec4 loads for the box, one for the place and yaw, about
+12 multiply-adds and 6 min/max; 131 in reach on the town orbit: about 400 loads before the first step, against 2–3 loads
+a step of a 20–60-step world walk) unless a 2D index of grids by tile is added (one or two lists a tile a ray crosses);
+for each grid entered, a frame change (8 multiply-adds), a second walk loop with its own block table (one table load a
+block, then the brick and cell words as today) and the branch between the two loops (divergent in a warp where
+neighbouring rays enter different grids). From the CPU ratio, 2.3× the walk's cost with the grids it meets, 4.2× with a
+town's boxes tested: the volume's update is paced to its GPU share, so that is 2–4× fewer rays a frame (slower settle
+and refresh) or 2–4× its 4–5.5 ms lighting row. Not built.
+
+**Stamp time and memory** (Node, `scratch/stamp-time.ts`, raw `stamp-time-30.json`): the town's 131 houses at 30°
+arriving at once: reading every grid's cells 65 ms (0.31 ms a grid at the median), sampling 523 ms (2.9 ms a grid, 26 ms
+the first), recombining about 90 ms: about 0.7 s of the derive slice spread over the steps; 240 world chunks hold a
+stamp: 15.6 MB (7.7 MB of it the classes) and 3.7 MB of sampled stamps. In Play (headroom's snapshot, `gridStamps`):
+131 samples (one a grid: no stamp made again on the orbit), 3.1 and 3.2 ms at the median, **18.4 and 35.5 ms the
+longest** (one grid's sampling is one piece: D747). An edit in a grid house (a 1 × 1 m window dug by a direct write to
+its grid's store: **no edit path into grids exists yet**) restamped in 6.3 ms (read 0.4, sample 3.4), one world chunk
+changed; on the page that chunk's walk blocks go again and the volume restarts what they reach, the path a prop's move
+takes (not measured for a grid in the browser: unverified).
+
+**Play test** (`voxel-world.e2e.ts`): the grid house gains a flat roof and a door of opening cells; with the stamp
+`ctx.voxels.regionAt` in it answers a room with one portal, and the light volume's 0.5 m cell over its floor holds
+0.59 against 7.05 over its porch (all faces' brightness, the store switched on for the check with the house's camera
+live: 3.1–3.6 s to light both). Run once with `&gridStamp=off` (`work/47a.1b/pw/play-off2.log`): it fails at the room
+("2,1": the outdoors). Its picture through the door is no measure (the sun shines through the door onto the back wall:
+`pw/grid-house-run1.png`). Play test 1.8–2.0 min before, 1.9–2.0 min after (alone and in the gate).
+
+**Browser** 2026-11-22 06:38–08:21 UTC, head 973db982 (product code of 06ecc288), base 3e673ac0 built in a scratch
+worktree with its own `@thirdlight` links (removed after), low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone
+(`uptime` beside each; 1-minute load 0.9–3.3), `run.mjs headroom --quality low --rounds 2`, second rounds read. Work
+folder `~/.cache/thirdlight-phase47a/work/47a.1b/` (`measure.sh`, `lib.sh`, `mkbase.sh`, `summ.py`, `m/` every raw run).
+
+World grid alone (the town as first written, no grids), head against 3e673ac0, A B A B: room 128, 128 against 128, 120;
+page ms 5.53, 5.77 against 5.39, 5.80; simulation 2.15, 2.23 against 2.12, 2.10; GPU `near` 3.86, 5.12 against 2.76,
+below; `lighting` 5.46, 3.76 against 4.57, 5.64 (resolution 0.2–2.0 ms); page `lighting` 1.02, 0.91 against 0.96, 0.96:
+equal within the spread (not resolved).
+
+| town orbit, two runs | W | G30, stamp (share) | G30, `&gridStamp=off` |
+|---|---|---|---|
+| room (copies; misses at no load) | 128, 128 (0, 0) | 128, 120 (0, 0) | 128, 128 (0, 0) |
+| GPU near / far / lighting ms (resolution) | 4.71, 3.97 / 3.09, 4.57 / 4.80, 5.60 (2.5, 1.4) | 4.95, 4.99 / 3.39, 3.54 / 4.78, 5.39 (1.2, 0.7) | 4.10, 4.67 / 2.68, 3.09 / 3.85, 4.28 (0.7, 0.6) |
+| page ms a frame; `render`; `lighting` (of 2.0) | 5.54, 5.42; 4.30, 4.04; 0.79, 0.97 | 6.84, 6.50; 5.03, 4.74; 0.90, 0.91 | 6.30, 7.01; 5.00, 5.35; 0.64, 0.79 |
+| simulation ms a frame (`voxelStream`) | 2.23, 2.19 (1.80, 1.79) | 4.25, 3.86 (3.60, 3.31) | 4.25, 4.35 (3.39, 3.66) |
+| page heap / GPU MiB | 624, 645 / 991, 972 | 620, 618 / 1,024, 1,068 | 735, 638 / 1,153, 1,018 |
+| the stamp: channel MB (classes); grids stamped; sampling ms median, longest | — (0) | 15.6 (7.7); 131; 3.1, 18.4 / 3.2, 35.5 | — (0: proven off: no `gridStamps`, channel 0 B) |
+| fill s | 8.3, 7.4 | 17.1, 17.0 | 23.2, 16.6 |
+
+Read: with the stamp the volume's GPU `lighting` and page `lighting` read as W's (the volume sees the houses as it sees
+W's; off, it lights open air there and reads 0.5–1.0 ms lower), the simulation is G30's own (the grids' streaming,
+47a.1a2; the stamp runs at arrival, not on the orbit), room and page ms as without it. The orbit's region counts are
+taken before the world grid's near field arrives in G (D745), so regions are compared settled, at the light shots:
+**W 132 regions, 131 enclosed, 3,446 portals; G0 the same (131, 3,446); G30 131 enclosed, 3,487 portals; G45 131,
+3,512** (an opening at 30°–45° can stamp as two portal pieces); the room camera's room: W 653 m³ and 24 portals, G0 653
+and 24, G30 637 and 24, G45 625 and 24.
+
+**Pictures** (`light-shots --only street-noon,room-window,house-60m,house-above,night-lamps --edits 0`, the room
+cameras turned with the centre house by the new `--turn-room 30|45`: eye turned about the house's footprint middle,
+look turned the same; `m/S-<variant>/`), looked at beside W's:
+- `room-window`: W and G0 alike, the room dark, its windows bright, floor and walls dim; G30 and G45 as dark (the lit
+  interiors of 47a.1a2 gone), their walls a shade lighter and bluer than W's; **G45 shows two thin bright vertical lines
+  at the room's inner corners** (the volume's read beside a drawn corner falls in a world cell the stamp leaves outside:
+  D746); no room lit by a window black; no light line along a turned wall.
+- `house-60m`: windows of the grid houses dark as W's (bright in 47a.1a2's `m/S-g30/house-60m.png`); **specks on the
+  eaves fewer but not gone** on several grid houses at 30° and 45° (and two or three on G0's, a few on W's): D744 stays
+  open, narrowed.
+- `street-noon`: G30 and G45 windows dark as W's, walls lit as W's, shade under the eaves, no leak line; `night-lamps`
+  (W, G30): the lamps light the fronts alike, windows dark, a few small specks far down the G30 street; `house-above`
+  (G30): the turned roof and its eave pieces, its shadow on the grass.
+Not looked at: W and G45 `house-above`, G0 `street-noon` and `night-lamps`, G45 `night-lamps` (taken, in the folders).
+
+**What S cannot do by design.** Its light, rooms and sun shade are the house resampled at 0.5 m: a surface it sees can
+be up to a cell (0.5 m) off the drawn one, so a bounce or a shadow edge from a turned wall is up to 0.5 m off, and the
+volume's read beside a drawn surface can fall in a cell on the stamp's other side (D746's corners at 45°). A door or
+window turned 30° or 45° is narrowed by up to a cell at each edge: 12 % (30°) and 18 % (45°) of rays through a 1 m
+opening's face stop under share; an opening narrower than about two cells would close. A wall is whole cells in its own
+grid, so no wall is thinner than the one cell measured; it closes under every rule. The walk's far nodes do not see a
+grid (slice d), the mips see it as stopping cells only.
+
+**E's cost** (above): 2.3–4.2× the CPU walk with the town's grids, a GPU walk with a second loop, a second block table
+and a box test a grid in reach; nothing built on the GPU.
+
+**Recommendation:** stamp structure grids with the share rule (the props' own: 4³ samples, stop at half; no new
+threshold) for light, sun heights and rooms, as built and on by default; keep E (`walkWithGrids`) for exact
+`ctx.voxels.raycast` answers through grids (47a.5) and as the reference; neither 47a.5 nor 47a.8 needs exact stepping
+on the GPU. If narrowed doors matter, the next step is the stamp's openings (an opening cell's samples counted toward
+open before the share), not the GPU walk.
+
+**D-rows**: D744 narrowed (open); D746 (corner lines at 45°), D747 (one grid's sampling in one piece). **Unverified:**
+medium and high tiers; WebGL 2 (its smoke test only); anything in motion beyond the orbit numbers; edit → light for a
+grid house in the browser (no edit path into grids); a turned house on a slope; the off run's light check (the off run
+stopped at the room check). Gates: gate-fast-20261122-061112 (RED on `project-items.e2e.ts`, D410),
+gate-rerun-20261122-063506 GREEN.
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -569,6 +725,17 @@ a queue the world grid's near work cannot be crowded out of (D745). Neither need
   gap to the grid** (a cell at least, half the level rings' hysteresis at most); bodies every cell.
 - 2026-11-22 (47a.1a2; default chosen, owner to confirm): **a grid draws with its world's surface and piece batches**;
   a grid's relief ring is not drawn (the shared surface is placed by its world's ring; relief is off on every tier).
+- 2026-11-22 (47a.1b; default chosen, owner to confirm, as plan §10 question 2 allows): **a turned building's soft
+  light, rooms and sun shade come from a stamp of it in the world grid** (share rule, on wherever a world has grids);
+  what is seen and collided with stays the grid's own. Exact stepping stays a CPU reference for rays (47a.5), not a GPU
+  walk: it would cost 2–4× the volume's rays a frame for 0.03 % fewer leaks and 12–18 % fewer doors narrowed (§8a).
+- 2026-11-22 (47a.1b; default chosen, owner to confirm): **a grid cell's class for its stamp comes from its record**
+  (not from its derived light stop), so a grid far past its own detail ring is stamped too; on the town's houses the
+  two agree on every cell.
+- 2026-11-22 (47a.1b; default chosen, owner to confirm): **the stamp's memory is the chunk's prop channel part of the
+  stream budget** (15.6 MB for the town's 131 houses at low), not a new budget entry.
+- 2026-11-22 (47a.1b): the Play test's grid house has a roof and a door of opening cells (a portal), so its room is a
+  room; its collision and picture checks are unchanged.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
