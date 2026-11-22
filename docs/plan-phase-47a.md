@@ -1124,6 +1124,14 @@ showing the component (not checked: 47a.6); a structure on a slope; more than on
 with structures (D755). **Left out** (as the brief): the Scene view drawing grids, editor tools and handles (47a.6);
 `ctx.voxels` in grids (47a.5); props, `pieces`, splines, water.
 
+**Gates:** gate-fast-20261122-152801 (every area; vitest 793 files green) RED on e2e load flakes (block-editor,
+terrain-cdlod, frame-rate-cap; the Play test at the GPU measure's ballast check, before its grid checks; load peak
+12.4); gate-rerun-20261122-160524 RED (the Play test: the profiler's `jobs` lane without bars, as in 47a.3; the other
+three passed); gate-rerun-20261122-161039 GREEN (the Play test 2.3 min, its grid checks on the structure house:
+wall stop at grid z −0.31, door in to 4.19, the room darker than the porch, a path into it); the Export test passed in
+the first run (32 s; the character stopped at −0.31 before the house's wall); `area play` with the leak test
+gate-area-20261122-161421 GREEN (24 passed).
+
 **D-rows:** D753 (two region files for an anchored house in a stacked world), D754 (the far follow-up's cost on a
 structure command), D755 (the fine bake and columns outside the world grid's don't see grids).
 
