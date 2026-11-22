@@ -35,6 +35,7 @@ import { chunkInWorld, chunkKey, type ChunkGrid, type SectionEdge } from './coor
 import type { CollisionSource } from './derived-collision';
 import { collisionPartBytes, type CollisionPart } from './derived-data';
 import type { DirtyTracker } from './dirty-tracker';
+import type { ChunkBox } from './grid-place';
 import type { PieceTable } from './piece-table';
 import { DERIVED_PART } from './record';
 import type { DeriveInput, DeriveOutput } from './stream-job';
@@ -64,6 +65,8 @@ export interface CollisionDeriveHost {
   readonly radius: number;
   readonly rules: AssemblyRuleSet;
   readonly sectionEdge: SectionEdge;
+  /** The only chunks the streamer reads (a structure grid's; absent or null: any): the foci ask within them alone. */
+  readonly extent?: ChunkBox | null;
   pieceTable(): PieceTable | null;
   isResident(cx: number, cy: number, cz: number): boolean;
   /** Whether every section of the chunk has had its full result (or is stranded at the load ring's edge). */
@@ -193,13 +196,17 @@ export class CollisionDerives {
     const { radius, height } = this.bounds;
     const out = new Map<number, { cx: number; cy: number; cz: number; d2: number }>();
     if (radius <= 0) return [];
+    // A structure grid holds a few chunks: its foci's rings are cut to them, not scanned round each focus.
+    const b = h.extent ?? null;
+    const lo = (v: number, a: number): number => (b === null ? v : Math.max(v, b.min[a]!));
+    const hi = (v: number, a: number): number => (b === null ? v : Math.min(v, b.max[a]!));
     for (const f of this.foci) {
-      const x0 = Math.floor((f.x - radius) / e);
-      const x1 = Math.floor((f.x + radius) / e);
-      const z0 = Math.floor((f.z - radius) / e);
-      const z1 = Math.floor((f.z + radius) / e);
-      const y0 = Math.floor((f.y - height) / e);
-      const y1 = Math.floor((f.y + height) / e);
+      const x0 = lo(Math.floor((f.x - radius) / e), 0);
+      const x1 = hi(Math.floor((f.x + radius) / e), 0);
+      const z0 = lo(Math.floor((f.z - radius) / e), 2);
+      const z1 = hi(Math.floor((f.z + radius) / e), 2);
+      const y0 = lo(Math.floor((f.y - height) / e), 1);
+      const y1 = hi(Math.floor((f.y + height) / e), 1);
       for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
         const gx = f.x < cx * e ? cx * e - f.x : f.x > cx * e + e ? f.x - cx * e - e : 0;
         const gz = f.z < cz * e ? cz * e - f.z : f.z > cz * e + e ? f.z - cz * e - e : 0;

@@ -14,7 +14,9 @@
  * them), not the whole load ring of an empty frame.
  *
  * A town holds many such grids, so a grid costs nothing while it has nothing to do: a step moves its streamer only
- * when the focus has moved a cell in its frame, something landed or changed in it since its last update
+ * when the focus has moved past what its last plan holds (the least gap from its chunks and the nodes over them to a
+ * ring they are compared with: `VoxelStreamer.quietReach`; a share of its gap to the grid where that cannot be said),
+ * something landed or changed in it since its last update
  * (the streamer's `counters.activity`), or that update left work (`idle(true)`); a grid whose box (its chunks and their margin) lies
  * past the load ring's unload bounds is not stepped at all once it has let go of what it held; the collision foci it
  * is given are only those whose keep bounds reach its box. What it holds counts against its world's one budget (the
@@ -266,6 +268,8 @@ export class VoxelGridHost {
   /** Its last update left nothing to do (`VoxelStreamer.idle(true)`); and whether the box was in reach then. */
   private quiet = false;
   private inReach = false;
+  /** How far (cells) the focus may move from where the grid last planned before that plan could change (0: unknown). */
+  private planHolds = 0;
   /** Updates run and steps that skipped one (diagnostics). */
   updates = 0;
   skipped = 0;
@@ -352,6 +356,7 @@ export class VoxelGridHost {
     if (this.disposed) return;
     this.quiet = false;
     this.skipAt = null;
+    this.planHolds = 0;
     applyWorldRings(this.streamer, settings);
     const b = this.collisionBounds(settings);
     this.ring?.setBounds(b);
@@ -417,11 +422,13 @@ export class VoxelGridHost {
     }
     const within = (a: Focus, b: Focus, d: number): boolean => Math.abs(a.x - b.x) < d && Math.abs(a.y - b.y) < d && Math.abs(a.z - b.z) < d;
     const f = toCells(at);
-    // Bodies are told every cell they move (what they touch); the stream focus by its share of the gap.
-    const refocus = Math.min((s.mips?.lod.levelRings.hysteresis ?? 2) / 2, Math.max(1, (Math.hypot(h, v) / VOXEL_SIZE_M) * GRID_REFOCUS_SHARE));
-    const still = this.steppedAt !== null && within(f, toCells(this.steppedAt), refocus) && bodies.length === this.steppedFoci.length && bodies.every((b, i) => within(b, this.steppedFoci[i]!, 1));
+    // Bodies are told every cell they move (what they touch); the stream focus by its share of the gap, or as far as
+    // its last plan holds, whichever is more.
+    const refocus = Math.max(this.planHolds, Math.min((s.mips?.lod.levelRings.hysteresis ?? 2) / 2, Math.max(1, (Math.hypot(h, v) / VOXEL_SIZE_M) * GRID_REFOCUS_SHARE)));
+    const last = this.steppedAt === null ? null : toCells(this.steppedAt);
+    const still = last !== null && Math.hypot(f.x - last.x, f.y - last.y, f.z - last.z) < refocus && bodies.length === this.steppedFoci.length && bodies.every((b, i) => within(b, this.steppedFoci[i]!, 1));
     if (this.quiet && still && s.counters.activity === this.steppedActivity && inReach === this.inReach) {
-      // Measured from where it was last told, by a distance a turn cannot stretch (each axis is within it then).
+      // Measured from where it was last told.
       this.skipAt = this.steppedWorld;
       this.skipM = refocus * VOXEL_SIZE_M;
       this.skipped++;
@@ -447,8 +454,16 @@ export class VoxelGridHost {
     this.inReach = inReach;
     this.quiet = s.idle(true);
     this.steppedActivity = s.counters.activity;
+    // With no body near and the camera's own ground not asked for, the plan holds until the focus crosses a ring
+    // the grid's chunks are compared with (its streamer's reach), comes within the bodies' keep bounds, or crosses
+    // the reach test above: a house well inside a ring is not planned again as the camera moves about.
+    const alone = this.quiet && bodies.length === 0 && this.extent !== null;
+    const toNear = Math.abs(Math.max(h - (cb.keepRadius * VOXEL_SIZE_M + slack), v - (cb.keepHeight * VOXEL_SIZE_M + slack)));
+    const toReach = inReach ? Math.min(-outH, -outV) : Math.max(outH, outV);
+    const reach = alone ? s.quietReach(this.extent!, foci.length === 0 ? undefined : cb) : 0;
+    this.planHolds = Math.min(reach, Math.max(0, Math.min(toNear, toReach)) / VOXEL_SIZE_M);
     this.skipAt = stream;
-    this.skipM = refocus * VOXEL_SIZE_M;
+    this.skipM = Math.max(refocus, this.planHolds) * VOXEL_SIZE_M;
   }
 
   /** The grid's share of its world's budget from now on (bytes; its streamer evicts down to it at its next update). */
@@ -461,6 +476,7 @@ export class VoxelGridHost {
     this.streamer.clearOverlay();
     this.stampDirty = true;
     this.quiet = false;
+    this.planHolds = 0;
     this.skipAt = null;
   }
 

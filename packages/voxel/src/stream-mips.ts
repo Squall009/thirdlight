@@ -400,6 +400,11 @@ export class StreamMips {
    * is the streamer's): results past their new ring go, nodes now inside
    * it are derived as they can be, and the levels drawn are chosen again.
    */
+  /** Each level's radius (cells) as set: where its nodes are derived. */
+  get ringRadii(): ReadonlyMap<number, number> {
+    return this.rings;
+  }
+
   setRings(rings: readonly MipRing[]): void {
     const next = mipRingMap(rings);
     if (next.size !== this.rings.size || [...next.keys()].some((l) => !this.rings.has(l))) throw new RangeError(`mip rings for levels ${[...next.keys()].join(', ')}, kept ${[...this.rings.keys()].join(', ')}`);

@@ -69,10 +69,12 @@ import type { PieceTable } from './piece-table';
 import { StreamPieces } from './stream-pieces';
 import type { ReliefRing, ReliefRingSettings } from './relief-ring';
 import { StreamRelief, type ReliefEvent } from './stream-relief';
+import { quietReach as quietReachOf } from './stream-quiet';
 import { chunkInWorld, chunkKey, DEFAULT_SECTION_EDGE, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { DirtyTracker } from './dirty-tracker';
 import type { ChunkBox } from './grid-place';
+import type { CollisionRingBounds } from './collision-ring';
 import { applyEdit, editBounds, editChunks, EditRefused, type ChunkUndo, type EditOutcome } from './edit-apply';
 import type { VoxelEditCommand } from './edit-command';
 import { createWorldStore, type PaletteStore } from './palette-store';
@@ -512,6 +514,7 @@ export class VoxelStreamer {
               counters: this.counters,
               rings: { apronMs: this.apronMs, apronBytes: this.apronBytes, deriveUs: this.deriveUs, joinUs: this.joinUs },
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
+              extent: opts.extent ?? null,
               coming: (cx, cy, cz) => {
                 const c = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
                 if (c !== undefined) return c.phase === 'reading' || c.phase === 'decoding';
@@ -549,6 +552,7 @@ export class VoxelStreamer {
             radius: this.radius,
             rules: opts.rules,
             sectionEdge: derives.sections.edge as SectionEdge,
+            extent: opts.extent ?? null,
             pieceTable: () => this.pieces.table,
             isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
             fullReady: (cx, cy, cz) => derives.chunkReady(cx, cy, cz),
@@ -960,6 +964,21 @@ export class VoxelStreamer {
     return true;
   }
 
+  /**
+   * How far (cells) the focus may move from where it was at the last {@link update} before an update could choose
+   * anything else (stream-quiet.ts), for a streamer with an extent that is {@link idle}(true) after it; 0 when it
+   * cannot say so cheaply: no extent, other foci for the level choice, level 0 held or the ring narrowed for speed,
+   * near only, relief, a far field, or loads held back by the budget. `held`: the chunks of the extent that hold
+   * cells; `collision`: the focus is also the collision ring's one focus, with these bounds.
+   */
+  quietReach(held?: ChunkBox, collision?: CollisionRingBounds): number {
+    const e = this.opts.extent ?? null;
+    const mips = this.mips;
+    if (e === null || mips === null || this.far !== null || !this.plan.atRest || this.detail.nearOnly || this.horizon !== Infinity) return 0;
+    if ((this.relief?.ring.n ?? 0) !== 0 || mips.lod.extraFoci.length > 0) return 0;
+    return quietReachOf({ grid: this.grid, extent: e, focus: this.focus, lead: this.plan.lead, ring: this.ring, levelRings: mips.lod.levelRings, maxLevel: mips.maxLevel, mipRadii: mips.ringRadii, ...(held === undefined ? {} : { held }), ...(collision === undefined ? {} : { collision }) });
+  }
+
   private poke(): void {
     this.counters.activity++;
     const w = this.wake;
@@ -1321,7 +1340,7 @@ export class VoxelStreamer {
       .then(
         (reads) => list.forEach((c, i) => this.onRefreshRead(c, token, versions[i]!, reads[i]!)),
         () => {
-          for (const c of list) if (c.refresh === token) this.refreshDropped(c);
+          for (const c of list) if (c.refresh === token) refreshDropped(c, this.counters, this.derives);
         },
       )
       .finally(() => {
@@ -1331,16 +1350,11 @@ export class VoxelStreamer {
     return group;
   }
 
-  private refreshDropped(c: Chunk): void {
-    c.refresh = 0;
-    this.counters.refreshDropped++;
-    this.derives?.contentDropped(c.cx, c.cy, c.cz);
-  }
 
   private onRefreshRead(c: Chunk, token: number, version: number, r: RegionChunkRead): void {
     if (this.chunks.get(c.key) !== c || c.phase !== 'resident' || c.refresh !== token) return;
     if (r.kind === 'damaged') {
-      this.refreshDropped(c);
+      refreshDropped(c, this.counters, this.derives);
       return;
     }
     if (r.kind !== 'stored') {
@@ -1357,7 +1371,7 @@ export class VoxelStreamer {
       this.refreshes.live--;
       this.poke();
       if (o.status !== 'done') {
-        if (c.refresh === token) this.refreshDropped(c);
+        if (c.refresh === token) refreshDropped(c, this.counters, this.derives);
         return;
       }
       this.swapIn(c, token, version, o.output.payload);
@@ -1369,7 +1383,7 @@ export class VoxelStreamer {
     if (this.chunks.get(c.key) !== c || c.phase !== 'resident' || c.refresh !== token) return;
     const ref = jobRef(this, c);
     if (this.tracker.version(ref) !== version) {
-      this.refreshDropped(c);
+      refreshDropped(c, this.counters, this.derives);
       return;
     }
     c.refresh = 0;
@@ -1523,6 +1537,13 @@ function unionBox(a: CellBox, b: CellBox): CellBox {
  * off, the near field's rings are as they were. A streamer without a far field draws none; one given its own mip
  * rings has the load ring's again.
  */
+/** A refresh of a chunk that will not land: the chunk no longer counts it, and its sections stop waiting for its content. */
+function refreshDropped(c: Chunk, counters: StreamCounters, derives: SectionDerives | null): void {
+  c.refresh = 0;
+  counters.refreshDropped++;
+  derives?.contentDropped(c.cx, c.cy, c.cz);
+}
+
 export function setFineBricks(streamer: VoxelStreamer, on: boolean): void {
   const far = streamer.far;
   if (far === null) return;

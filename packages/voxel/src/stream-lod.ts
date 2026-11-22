@@ -191,7 +191,7 @@ export class StreamLod {
     // ring splits, exactly where it is drawn with every ring (a stand-in would reach a level-1 node farther). Held back
     // at speed, what is derived next to the focus still stands in, as with every ring.
     const nearOnly = this.nearOnly;
-    const { drawn, stats } = chooseLevels({ grid: host.grid, maxLevel: host.maxLevel, rings, foci, roots: this.roots(foci[0]!), ready: (l, x, y, z) => (nearOnly && l > 0 ? false : host.ready(l, x, y, z)), previous: this.chosen, standIns: !nearOnly || !this.detail });
+    const { drawn, stats } = chooseLevels({ grid: host.grid, maxLevel: host.maxLevel, rings, foci, roots: this.roots(foci[0]!), ready: (l, x, y, z) => (nearOnly && l > 0 ? false : host.ready(l, x, y, z)), previous: this.chosen, standIns: !nearOnly || !this.detail, extent: host.extent ?? null });
     this.counters.choices++;
     this.counters.unbalanced = stats.unbalanced;
     this.chosen = drawn;

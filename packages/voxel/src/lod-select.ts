@@ -25,6 +25,7 @@
  * Pure: the caller says what is ready and which nodes to cover.
  */
 import { chunkKeyOrNone, type ChunkGrid } from './coords';
+import type { ChunkBox } from './grid-place';
 import type { Focus } from './stream-ring';
 import type { LevelSelection } from './stream-seams';
 
@@ -139,6 +140,12 @@ export interface LevelChoice {
    * (another field draws past the rings, and a stand-in would draw the finer level farther than its ring).
    */
   readonly standIns?: boolean;
+  /**
+   * The only chunks that can be ready (a structure grid's read box; absent or null: any). A node over none of them is
+   * not covered and is not looked into: nothing under it is ready, so covering it would answer "not covered" after
+   * asking each of its chunks (a level-2 node over a house's corner is 64 of them).
+   */
+  readonly extent?: ChunkBox | null;
 }
 
 export interface LevelChoiceStats {
@@ -171,6 +178,12 @@ export function chooseLevels(c: LevelChoice): { readonly drawn: DrawnLevels; rea
   const out = new DrawnLevels(c.grid, c.maxLevel);
   const dist = (n: LevelNode): number => (c.foci.length === 0 ? Infinity : levelNodeDistance(c.grid, c.foci, n));
   const ready = (n: LevelNode): boolean => c.ready(n.level, n.nx, n.ny, n.nz);
+  const e = c.extent ?? null;
+  const outside = (n: LevelNode): boolean => {
+    if (e === null) return false;
+    const s = n.level;
+    return n.nx < e.min[0] >> s || n.nx > e.max[0] >> s || n.ny < e.min[1] >> s || n.ny > e.max[1] >> s || n.nz < e.min[2] >> s || n.nz > e.max[2] >> s;
+  };
   /** A finer level stands in for a coarser one only within one node of the next level past its own ring (and the hysteresis once it does). */
   const standIn = (n: LevelNode): boolean => {
     if (n.level >= c.maxLevel) return true;
@@ -180,7 +193,7 @@ export function chooseLevels(c: LevelChoice): { readonly drawn: DrawnLevels; rea
 
   /** Covers node n into `list`; true when every part of it is covered. */
   const cover = (n: LevelNode, list: LevelNode[], asStandIn: boolean): boolean => {
-    if (!inWorld(c.grid, n) || (asStandIn && (c.standIns === false || !standIn(n)))) return false;
+    if (!inWorld(c.grid, n) || outside(n) || (asStandIn && (c.standIns === false || !standIn(n)))) return false;
     if (n.level === 0) {
       if (!ready(n)) return false;
       list.push(n);

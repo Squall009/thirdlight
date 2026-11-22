@@ -43,6 +43,7 @@ import { EDGE_REACH } from './edge-cases';
 import type { DirtyTracker } from './dirty-tracker';
 import { ALL_DERIVED_PARTS, DERIVED_PART } from './record';
 import type { VoxelStoreCandidate } from './store';
+import type { ChunkBox } from './grid-place';
 import type { CellBox } from './stroke';
 import type { DeriveInput, DeriveOutput, JobLane } from './stream-job';
 import type { SeamSurface } from './lod-seam';
@@ -116,6 +117,8 @@ export interface SectionHost {
   readonly counters: { derives: number; shaderDerives: number; staleRefused: number; deriveChecks: number; swaps: number; airDerives: number; cancelledDerives: number };
   readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing; readonly joinUs: SampleRing };
   isResident(cx: number, cy: number, cz: number): boolean;
+  /** The only chunks that can ever be resident (a structure grid's read box; absent or null: any). */
+  readonly extent?: ChunkBox | null;
   /** Whether a chunk that is not resident is on its way (being read or decoded, or inside the load ring and not held back by the budget). */
   coming(cx: number, cy: number, cz: number): boolean;
   /** Lane and distance² for a chunk's work outside an edit. */
@@ -163,6 +166,8 @@ interface Section {
   heldTimes: SectionResult['times'] | null;
   /** The pending derive is wanted only because the relief ring changed round it (its other outputs cannot change). */
   reliefOnly: boolean;
+  /** It reaches a chunk past the streamer's extent, which is never resident (worked out when first asked). */
+  pastExtent?: boolean;
 }
 
 interface EditGroup {
@@ -374,7 +379,17 @@ export class SectionDerives {
 
   /** A section that has never had a result and cannot have one while the world stays as loaded: a chunk it reaches is neither resident nor coming. */
   private stranded(s: Section): boolean {
-    return s.derived === null && s.job === 0 && !this.neighboursComing(s);
+    if (s.derived !== null || s.job !== 0) return false;
+    // A structure grid's margin sections reach past its read box for good: asked on every level choice, so kept.
+    s.pastExtent ??= this.reachesPastExtent(s);
+    return s.pastExtent || !this.neighboursComing(s);
+  }
+
+  private reachesPastExtent(s: Section): boolean {
+    const b = this.host.extent ?? null;
+    if (b === null) return false;
+    for (const [x, y, z] of this.reach(s)) if (x < b.min[0] || x > b.max[0] || y < b.min[1] || y > b.max[1] || z < b.min[2] || z > b.max[2]) return true;
+    return false;
   }
 
   /**

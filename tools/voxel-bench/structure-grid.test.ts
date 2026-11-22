@@ -254,6 +254,33 @@ describe('many structure grids in one world', () => {
     expect(held(world!) + gridsHeld).toBeLessThanOrEqual(budget * 1.05);
     expect([1, 2].map((id) => byGrid.get(id)!.counters.evictions)).toEqual([0, 0]);
     expect(budget).toBeLessThan(VOXEL_STREAM_BUDGET_BYTES.low);
+    // A plan holds until a ring its chunks are compared with is crossed: away from the bodies' bounds, a focus moving
+    // less than a grid's reach (streamer.quietReach over the chunks it holds) runs no update of that grid, and walking
+    // on across its rings does.
+    const near = [1, 2].map((id) => ({ s: byGrid.get(id)!, held: grids[id - 1]!.extent! }));
+    let found: { p: [number, number, number]; s: VoxelStreamer; m: number } | null = null;
+    // A place where a near grid's plan holds for metres (the least gap to any ring of its box: found by looking).
+    for (let k = 0; k < 36 && found === null; k++) {
+      const p: [number, number, number] = [10 + (k % 6) * 23, 12, 70 + Math.floor(k / 6) * 19];
+      // A fresh array a step, as the runtime's foci are: the grid host remembers the one it last looked from.
+      for (let i = 0; i < 2000 && (i < 4 || ![...byGrid.values()].every((s) => s.idle(true))); i++) {
+        host.step({ stream: [...p], collide: [] });
+        if (i >= 3) await new Promise((d) => setTimeout(d, 5));
+      }
+      for (const g of near) {
+        const m = g.s.quietReach(g.held) * 0.5;
+        if (m >= 3 && found === null) found = { p, s: g.s, m };
+      }
+    }
+    expect(found).not.toBeNull();
+    const { p, s: still, m } = found!;
+    const planned = still.planMs.count;
+    const steps = Math.floor((m - 0.5) / 0.25);
+    for (let i = 1; i <= steps; i++) host.step({ stream: [p[0] + i * 0.25, p[1], p[2]], collide: [] });
+    expect(steps).toBeGreaterThan(8);
+    expect(still.planMs.count).toBe(planned);
+    for (let i = 1; i <= 200; i++) host.step({ stream: [p[0] + i, p[1], p[2] + i], collide: [] });
+    expect(still.planMs.count).toBeGreaterThan(planned);
     host.dispose();
     pool.close();
   }, 90_000);
