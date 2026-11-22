@@ -30,8 +30,8 @@ function heldWorker(): { create: () => PoolWorker; answer: () => number | null; 
   };
 }
 
-describe('the pool queue keeps room for the lanes before the coarse ones', () => {
-  it('lets the mip lane fill half and the far lane with it three quarters; near work still queues, goes first, and nothing queued starves', async () => {
+describe('the pool queue keeps room for the lanes before the far one', () => {
+  it('lets the far lane, with the mip lane, fill three quarters; near work still queues, goes first, and nothing queued starves', async () => {
     const w = heldWorker();
     const pool = new WorkerPool({ size: 1, create: w.create, timeoutMs: 60_000, maxQueued: 16 });
     let id = 0;
@@ -42,14 +42,14 @@ describe('the pool queue keeps room for the lanes before the coarse ones', () =>
         if (o.status === 'done') done.push({ id: job, lane });
       });
     };
-    // The one worker takes the first job; the rest wait. A producer of the mip lane queues while it has room.
+    // The one worker takes the first job; the rest wait. Mip-lane producers queue a few, far-lane ones while they have room.
     submit('mip', 0);
-    while (pool.room('mip') > 0) submit('mip', id);
-    expect(pool.queuedIn('mip')).toBe(16 * LANE_QUEUE_SHARES.mip);
-    expect(pool.room('far')).toBe(16 * LANE_QUEUE_SHARES.far - 8);
+    for (let i = 0; i < 4; i++) submit('mip', id);
+    expect(pool.room('mip')).toBe(16 * LANE_QUEUE_SHARES.mip - 4);
+    expect(pool.room('far')).toBe(16 * LANE_QUEUE_SHARES.far - 4);
     while (pool.room('far') > 0) submit('far', id);
-    expect(pool.queuedIn('far')).toBe(4);
-    expect([pool.room('mip'), pool.room('far'), pool.room('near'), pool.room()]).toEqual([0, 0, 4, 4]);
+    expect(pool.queuedIn('far')).toBe(8);
+    expect([pool.room('far'), pool.room('near'), pool.room()]).toEqual([0, 4, 4]);
     // The near field's work still has room, and is sent before every coarser job already waiting.
     for (let i = 0; i < 4; i++) submit('near', 100 + i);
     expect(pool.room('near')).toBe(0);
@@ -62,11 +62,11 @@ describe('the pool queue keeps room for the lanes before the coarse ones', () =>
     // A queued far job moved into the near ring counts in its new lane.
     const far = id - 4;
     expect(pool.reprioritize(far, 'near', 0)).toBe(true);
-    expect(pool.queuedIn('far')).toBe(3);
+    expect(pool.queuedIn('far')).toBe(7);
     // Drained: every job queued was answered, the coarse ones too.
     while (w.answer() !== null) await Promise.resolve();
     expect(done.length).toBe(id);
-    expect(done.filter((d) => d.lane === 'mip').length).toBe(9);
+    expect(done.filter((d) => d.lane === 'mip').length).toBe(5);
     expect([pool.queuedIn('mip'), pool.queuedIn('far'), pool.queuedIn('near'), pool.queued]).toEqual([0, 0, 0, 0]);
     pool.close();
   });

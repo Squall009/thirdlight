@@ -16,8 +16,8 @@
  *   answered `queue_full` at once, and `room()` tells a producer how many
  *   more it may queue, so a fast flight never queues the whole ring.
  *   `room(lane)` keeps part of the queue for the lanes before it
- *   ({@link LANE_QUEUE_SHARES}): a world's and its structure grids' coarse
- *   levels cannot fill the queue the near field's loads and derives wait for.
+ *   ({@link LANE_QUEUE_SHARES}): far-lane work cannot fill the queue the
+ *   near field's loads and derives wait for.
  * - **Timeouts.** A job not answered within `timeoutMs` of being sent is
  *   answered `timeout`; its late reply is ignored by id. The worker stays
  *   busy until it does reply, and one silent for `hangMs` is replaced.
@@ -65,12 +65,14 @@ export const STREAM_POOL_SETTINGS = Object.freeze({ timeoutMs: 5000, maxQueued: 
 
 /**
  * The share of the queue a lane's producers may fill together with every lane after it (`room(lane)`): the edit and
- * near lanes all of it, the far lane three quarters, the mip lane half. The queue is bounded by count, so without this
- * a town's structure grids and the world's coarse levels filled it with mip-lane node jobs (252 of 256 while a world
- * of 131 houses loaded) and the ground's level 0 at the camera waited for room; lanes order what is queued, this
- * keeps room for it to be queued at all. Producers that ask `room()` (no lane) see the whole queue.
+ * near lanes all of it, the far lane (with the mip lane's jobs) three quarters, the mip lane all. The queue is bounded
+ * by count, so far-lane loads and derives of a world and its structure grids could fill it while the near field's
+ * waited for room; lanes order what is queued, this keeps room for near work to be queued at all. The mip lane is not
+ * held back: capped at half (and at three quarters) the level-0 ring took twice as long to draw again after a 150 m/s
+ * stop (coverage bench: 9.9 s and 6.1 s against 4.0–4.6 s), its nearest nodes waiting behind farther ones queued first.
+ * Producers that ask `room()` (no lane) see the whole queue.
  */
-export const LANE_QUEUE_SHARES: Readonly<Record<JobLane, number>> = Object.freeze({ edit: 1, near: 1, far: 0.75, mip: 0.5 });
+export const LANE_QUEUE_SHARES: Readonly<Record<JobLane, number>> = Object.freeze({ edit: 1, near: 1, far: 0.75, mip: 1 });
 
 /** The share of a pool's workers kept for background jobs while they wait (at least one worker). */
 export const BACKGROUND_WORKER_SHARE = 0.25;

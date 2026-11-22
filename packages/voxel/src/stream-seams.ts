@@ -271,7 +271,9 @@ export class StreamSeams {
   /** Works out the wanted faces when stale, and sends rebuilds of dirty faces, as far as the pool has room. */
   request(): void {
     if (this.stale) this.refresh(this.batch);
-    let room = this.host.pool.room('mip');
+    // The whole queue, though seams go in the mip lane: a swap of the near field waits for its seams, so they are not
+    // held back with the coarse nodes' work.
+    let room = this.host.pool.room();
     for (const id of this.dirty) {
       if (room <= 0) return;
       const e = this.entries.get(id);
