@@ -21,13 +21,18 @@
  *   a grid's cells placed by its frame. `unknown` when no candidate was found
  *   and a leg ran into chunks not known; `unreachable` when every leg was known.
  *
+ * - **Other walkers.** A walker of another height or with drops crosses at
+ *   the links too, each leg searched with its options; a link made for the
+ *   default walker is taken by a taller one only where both its ends have room
+ *   for it (their clearance, as a step between them needs).
+ *
  * Not searched: a way between two points of one graph that is shorter through
- * a grid (in at one door, out at another); a structure grid's walkers other
- * than the default (another height or drops search the world's graph alone).
+ * a grid (in at one door, out at another); a reach (`reach` searches the
+ * world's graph alone).
  */
 import type { GridFrame } from './grid-place';
 import type { WalkGraph } from './walk-graph';
-import { walkCellOf, DEFAULT_WALK_AGENT } from './walk-graph-cells';
+import { walkCellOf, DEFAULT_WALK_AGENT, stepFits } from './walk-graph-cells';
 import type { WalkGraphLinks, WalkLink } from './walk-graph-links';
 import { WalkQueries, type WalkPathAnswer, type WalkQueryCost, type WalkQueryOptions, type WalkStatus } from './walk-graph-queries';
 
@@ -224,9 +229,8 @@ class LinkedJob {
   begin(): void {
     const a = this.q.locate(this.from);
     const b = this.q.locate(this.to);
-    // Not a default walker, or both ends in one graph: that graph's own query.
-    const plain = this.options.height !== undefined || (this.options.maxDrop ?? 0) >= 2;
-    if (a === null || b === null || plain || a.grid === b.grid) {
+    // Both ends in one graph: that graph's own query.
+    if (a === null || b === null || a.grid === b.grid) {
       const grid = a !== null && b !== null && a.grid === b.grid ? a.grid : 0;
       const from = grid === 0 ? this.from : a!.cell;
       const to = grid === 0 ? this.to : b!.cell;
@@ -248,8 +252,11 @@ class LinkedJob {
     const worldCell = (l: WalkLink): P3 => walkCellOf(l.world, l.w);
     const gAt = (l: WalkLink): P3 => q.placeOf(l.grid, gridCell(l));
     const wAt = (l: WalkLink): P3 => [(worldCell(l)[0] + 0.5) * M, worldCell(l)[1] * M, (worldCell(l)[2] + 0.5) * M];
+    // Links are made for the default walker: a taller one takes a link only where both its ends have room for it.
+    const h = this.options.height ?? DEFAULT_WALK_AGENT.height;
+    const fits = (l: WalkLink): boolean => h <= DEFAULT_WALK_AGENT.height || stepFits(l.world.clear[l.w]!, l.part.clear[l.g]!, Math.round((gAt(l)[1] - wAt(l)[1]) / M), h);
     const doors = (list: WalkLink[], est: (l: WalkLink) => number): WalkLink[] => {
-      const sorted = list.map((l) => [est(l), l] as const).sort((x, y) => x[0] - y[0]);
+      const sorted = list.filter(fits).map((l) => [est(l), l] as const).sort((x, y) => x[0] - y[0]);
       const out: WalkLink[] = [];
       for (const [, l] of sorted) {
         if (out.length >= LINKED_PATH_DOORS) break;

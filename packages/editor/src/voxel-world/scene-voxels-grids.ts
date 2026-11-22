@@ -13,7 +13,7 @@
  * one) names the grid's chunks: only those are read and derived again. A change reaching past the box the grid
  * streams round (a taller house) opens the grid again round its new chunks.
  */
-import { ChunkDrawBatcher, GRID_EXTENT_MARGIN_CHUNKS, GridFrame, gridDrawName, grownChunkBox, streamerWalkSource, VOXEL_SIZE_M, worldStreamer, type CellBox, type GridWalk, type ChunkBox, type ChunkDrawBatch, type DirtyTracker, type GridPlacement, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
+import { ChunkDrawBatcher, GRID_EXTENT_MARGIN_CHUNKS, GridFrame, gridDrawName, gridWalkOf, grownChunkBox, streamerWalkSource, VOXEL_SIZE_M, worldStreamer, type CellBox, type GridWalk, type ChunkBox, type ChunkDrawBatch, type DirtyTracker, type GridPlacement, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
 import type { RangeWorld } from './range-world';
 import type { SceneVoxelsIn } from './scene-voxels-wire';
 
@@ -64,9 +64,7 @@ export class SceneGridStream {
 
   /** The grid as a ray walks it: its frame, its cells, the box of the chunks it holds (grid metres). */
   walk(): GridWalk {
-    const cm = this.streamer.grid.edge * VOXEL_SIZE_M;
-    const e = this.extent;
-    return { frame: this.frame, source: this.walkSource, box: { lo: [e.min[0] * cm, e.min[1] * cm, e.min[2] * cm], hi: [(e.max[0] + 1) * cm, (e.max[1] + 1) * cm, (e.max[2] + 1) * cm] } };
+    return gridWalkOf(this.frame, this.walkSource, this.extent, this.streamer.grid.edge, VOXEL_SIZE_M);
   }
 
   private async loop(): Promise<void> {

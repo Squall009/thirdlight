@@ -1,0 +1,391 @@
+/**
+ * `ctx.voxels` in a world with structure grids, at real boundaries: a real runtime (instantiateRuntime) whose scene
+ * carries a `voxelWorld` object and a script calling `ctx.voxels`, the world and three houses each in its own grid
+ * (turned 0°, 30° and 45°) opened from region files on disk, streamed and derived in `worker_threads` workers running
+ * the bundled worker, the engine's physics port holding the bodies.
+ *
+ * Checked: the grid a point lies in (a structure's cell that is not air, else the world's own) for reads, coverage
+ * and regions; rays meeting each turned house exactly (its grid, its cell, the face's normal in the world, solid and
+ * light stops, through its door to its back wall); changes over a region spanning a house and the ground (a dig
+ * opens both; a set replaces the wall's cells in the house and fills the air before it in the world grid), one change
+ * reported once both grids swapped; a save of a turned house's dug wall restored into a fresh run of the same files
+ * (the hole is back), each grid chunk's entry made against its shipped chunk's hash; and saves met by other files:
+ * one made before a structure existed (nothing to report, the house stands), one whose structure is gone (its pieces
+ * reported, never applied), one whose structure was rebuilt since (the base-mismatch rule, as for the world's own).
+ */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
+import { createBehaviorModuleSpec, createSimulationRegistry, instantiateRuntime, neutralFrame, registerSimulationModule, type BehaviorArtifact, type BehaviorVoxels, type VoxelWorldConnection } from '@thirdlight/runtime';
+import {
+  anchoredDefinition,
+  baseChunkHash,
+  BUILDING_GENERATOR,
+  BUILDING_GENERATOR_VERSION,
+  boxChunks,
+  chunkGrid,
+  createDenseChunk,
+  createWorldStore,
+  gridChunkExtent,
+  GridFrame,
+  parseStructureDefinition,
+  readSave,
+  VOXEL_ROLE,
+  VOXEL_SIZE_M,
+  WorkerPool,
+  type GridPlacement,
+  type PaletteStore,
+  type StructureDefinition,
+} from '@thirdlight/voxel';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { RegionSet } from './regions';
+import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID } from './stream-node';
+
+const grid = chunkGrid(32);
+const M = VOXEL_SIZE_M;
+const DT = 1 / 60;
+const DECL = { properties: [] } as never;
+const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+/** The ground's material (rows −8 … −1 over a 64 m square round the origin) and the houses'. */
+const GROUND = 3;
+const STONE = 9;
+const OTHER = 11;
+
+/** A 6 × 5 m room, walls 3 m (rows 1 … 6), a flat roof (row 7), a door 1.5 m wide and 2.5 m tall in its front wall (z 0). */
+const HOUSE = { w: 12, d: 10, h: 6, door: [5, 7], doorH: 5 } as const;
+function houseDefinition(storeys = 1): StructureDefinition {
+  return anchoredDefinition(
+    parseStructureDefinition({
+      footprint: [{ id: 'room', points: [[0, 0], [HOUSE.w, 0], [HOUSE.w, HOUSE.d], [0, HOUSE.d]] }],
+      storeys,
+      storeyHeight: HOUSE.h + 1,
+      foundationDepth: 0,
+      roof: { shape: 'flat', overhang: 0, axis: 'x' },
+      materials: { wall: STONE, floor: STONE, roof: STONE, foundation: STONE, stair: STONE },
+      openings: [{ id: 'door', polygon: 'room', edge: 0, storey: 0, at: HOUSE.door[0], width: HOUSE.door[1] - HOUSE.door[0] + 1, height: HOUSE.doorH, sill: 0 }],
+      stairs: [],
+      generator: BUILDING_GENERATOR_VERSION,
+    }),
+  );
+}
+
+/** Three houses, each in its own grid turned about its footprint's middle (`centre`, metres; y its slab's underside). */
+const HOUSES = [
+  { id: 1, yawDeg: 0, centre: [-12, 0, -6] },
+  { id: 2, yawDeg: 30, centre: [2, 0, -10] },
+  { id: 3, yawDeg: 45, centre: [14, 0, -4] },
+] as const;
+
+function placeOf(id: number, yawDeg: number, centre: readonly number[]): GridPlacement {
+  const yawRad = (yawDeg * Math.PI) / 180;
+  const mid = [(HOUSE.w * M) / 2, 0, (HOUSE.d * M) / 2];
+  const t = new GridFrame({ gridId: id, position: [0, 0, 0], yawRad }).toWorld(mid[0]!, mid[1]!, mid[2]!);
+  return { gridId: id, position: [centre[0]! - t[0], centre[1]!, centre[2]! - t[2]], yawRad };
+}
+const PLACES = HOUSES.map((h) => placeOf(h.id, h.yawDeg, h.centre));
+const frameOf = (id: number): GridFrame => new GridFrame(PLACES.find((p) => p.gridId === id)!);
+/** A house cell's middle in the world (metres). */
+const cellAt = (id: number, x: number, y: number, z: number): [number, number, number] => frameOf(id).toWorld((x + 0.5) * M, (y + 0.5) * M, (z + 0.5) * M);
+
+let dir = '';
+let workerFile = '';
+const disks: DiskRegions[] = [];
+/** The runtimes made, disposed after (their worlds' pools end with them). */
+const runtimes: { dispose(): unknown }[] = [];
+/** Each house's cells as written (its grid's shipped chunks). */
+const houseStores = new Map<string, PaletteStore>();
+
+/** Writes a store's region files (grid `gridId`) into a folder. */
+function writeStore(store: PaletteStore, folder: string, gridId: number): string[] {
+  mkdirSync(folder, { recursive: true });
+  const names: string[] = [];
+  for (const [name, b] of new RegionSet(store, 'stacked', 512, TEST_WORLD_ID, gridId).allFiles()) {
+    writeFileSync(join(folder, name), b);
+    names.push(name);
+  }
+  return names;
+}
+
+function houseStore(def: StructureDefinition): PaletteStore {
+  const s = createWorldStore(grid);
+  const out = createDenseChunk(grid);
+  for (const c of boxChunks(grid, BUILDING_GENERATOR.box(def))) if (BUILDING_GENERATOR.chunk(def, grid, c.cx, c.cy, c.cz, out)) s.importChunk(c.cx, c.cy, c.cz, out);
+  return s;
+}
+
+beforeAll(async () => {
+  const base = join(REPO, 'dist', 'voxel-bench');
+  mkdirSync(base, { recursive: true });
+  dir = mkdtempSync(join(base, 'world-host-grids-'));
+  workerFile = await bundleWorker('stream-worker-node', join(base, `world-host-grids-worker-${process.pid}.mjs`));
+  const ground = createWorldStore(grid);
+  const g = { material: GROUND, role: VOXEL_ROLE.terrain, shape: 15, wetness: 0 };
+  for (let x = -128; x < 128; x++) for (let z = -128; z < 128; z++) for (let y = -8; y < 0; y++) ground.setVoxel(x, y, z, g);
+  writeStore(ground, join(dir, 'world'), 0);
+  for (const [name, def] of [['1', houseDefinition()], ['2', houseDefinition()], ['3', houseDefinition()], ['2-tall', houseDefinition(2)]] as const) {
+    const s = houseStore(def);
+    houseStores.set(name, s);
+    writeStore(s, join(dir, `grid-${name}`), Number(name.split('-')[0]));
+  }
+}, 120_000);
+
+afterAll(async () => {
+  for (const rt of runtimes) rt.dispose();
+  for (const d of disks) await d.close();
+  rmSync(dir, { recursive: true, force: true });
+  rmSync(workerFile, { force: true });
+});
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** A running game over the test world with the houses `grids` names (each grid's folder, by its id): `inStep` runs a function in the script's next step. */
+async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder: string }>): Promise<{ inStep<R>(fn: (v: BehaviorVoxels) => R | undefined, what: string): Promise<R>; changes: BehaviorVoxels['changes'][number][]; mismatches: BehaviorVoxels['mismatches'][number][] }> {
+  const r = await createPhysicsPort3D({ character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } }, noCharacter: true, statics: [], solver: { hz: 60, gravityY: -9.81 }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: 0.8, minSlopeSlideRad: 0.9, autostep: false } });
+  if (!r.ok) throw new Error(r.error.message);
+  const ports = {
+    open: async (): Promise<VoxelWorldConnection> => {
+      const disk = new DiskRegions(join(dir, 'world'));
+      disks.push(disk);
+      const pool = new WorkerPool({ size: 2, create: () => nodePoolWorker(workerFile), timeoutMs: 10_000, maxQueued: 256 });
+      const opened = await Promise.all(
+        grids.map(async (g) => {
+          const d = new DiskRegions(join(dir, g.folder));
+          disks.push(d);
+          const source = d.source(grid, 'stacked', 512, 64, g.id);
+          const names = [...new RegionSet(houseStores.get(g.folder.replace('grid-', ''))!, 'stacked', 512, TEST_WORLD_ID, g.id).allFiles()].map(([n]) => n);
+          return { place: PLACES.find((p) => p.gridId === g.id)!, source, extent: await gridChunkExtent(source, 'stacked', names) };
+        }),
+      );
+      return { grid, worldId: TEST_WORLD_ID, source: disk.source(grid, 'stacked', 512), pool, grids: opened };
+    },
+  };
+  let job: ((v: BehaviorVoxels) => boolean) | null = null;
+  const changes: BehaviorVoxels['changes'][number][] = [];
+  const mismatches: BehaviorVoxels['mismatches'][number][] = [];
+  let seen: unknown = null;
+  const art: BehaviorArtifact = {
+    behaviorId: 'probe',
+    sourceDigest: 'a'.repeat(64),
+    manifestDigest: 'b'.repeat(64),
+    outputDigest: 'c'.repeat(64),
+    ownedTransforms: [],
+    requiredModules: [],
+    enginePins: [],
+    namespace: {
+      default: {
+        instantiate: () => ({}),
+        step: (_s: unknown, ctx: { voxels: BehaviorVoxels }) => {
+          if (ctx.voxels.changes !== seen) {
+            seen = ctx.voxels.changes;
+            changes.push(...ctx.voxels.changes);
+            mismatches.push(...ctx.voxels.mismatches);
+          }
+          if (job?.(ctx.voxels) === true) job = null;
+        },
+        dispose: () => {},
+      },
+    },
+  } as never;
+  const spec = createBehaviorModuleSpec({ declaration: DECL, artifact: art });
+  const registry = createSimulationRegistry();
+  registerSimulationModule(registry, spec.id, spec);
+  const snapshot = {
+    snapshotId: 'grids-0001@r1',
+    projectId: 'grids-0001',
+    revision: 1,
+    scene: {
+      schemaVersion: 4,
+      sceneId: 'scene-main',
+      revision: 1,
+      entities: [
+        { id: 'world', components: { transform: { position: [0, 1, -6], ...T }, voxelWorld: { world: 'a', ring: { loadRadius: 40, loadHeight: 24 }, collision: { radius: 24, height: 16 } } } },
+        { id: 'probe', components: { transform: { position: [0, 0, 0], ...T }, behavior: { behaviorId: 'probe', values: {} } } },
+      ],
+    },
+    scenes: [{ sceneId: 'scene-main', start: true, entityIds: ['world', 'probe'] }],
+  };
+  const now = { t: 0 };
+  const res = instantiateRuntime({ snapshot, registry, modules: [spec.id], actions: { sample: (i: number) => neutralFrame(i) }, physics: r.port, settings: {}, clock: () => now.t, driver: { kind: 'manual' }, voxels: ports } as never);
+  if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify(res.error)}`);
+  const rt = res.runtime;
+  runtimes.push(rt);
+  expect(rt.start().ok).toBe(true);
+  const inStep = async <R>(fn: (v: BehaviorVoxels) => R | undefined, what: string): Promise<R> => {
+    let out = null as { r: R } | null;
+    job = (v) => {
+      const x = fn(v);
+      if (x !== undefined) out = { r: x };
+      return out !== null;
+    };
+    const t0 = performance.now();
+    while (out === null) {
+      if (performance.now() - t0 > 60_000) throw new Error(`timed out waiting for ${what}`);
+      now.t += DT;
+      const t = rt.tick(now.t);
+      if (!t.ok) throw new Error(`tick failed: ${JSON.stringify(t.error)}`);
+      await sleep(1);
+    }
+    return out!.r;
+  };
+  return { inStep, changes, mismatches };
+}
+
+const ALL = HOUSES.map((h) => ({ id: h.id, folder: `grid-${h.id}` }));
+/** Every house and the ground round them: what the checks read and change. */
+const AREA = { min: [-22, -4, -20] as [number, number, number], max: [24, 8, 6] as [number, number, number] };
+/** Until every house's cells and the ground round them are loaded and every chunk's derive is in (coverage reads it). */
+const ready = (v: BehaviorVoxels): true | undefined => (v.isResident(AREA) && HOUSES.every((h) => v.coverageAt(...cellAt(h.id, 3, 2, 0)) !== null && v.coverageAt(...cellAt(h.id, 3, 2, 4)) !== null) ? true : undefined);
+
+describe('ctx.voxels in a world with structure grids', () => {
+  it('reads answer from the grid a point lies in: a structure cell that is not air, else the world’s own; regions name the structure round a room', async () => {
+    const g = await game(ALL);
+    await g.inStep(ready, 'the houses loaded and derived');
+    const out = await g.inStep((v) => {
+      const room = v.regionAt(...cellAt(2, 6, 3, 5));
+      if (room === null) return undefined;
+      return {
+        wall: HOUSES.map((h) => v.get(...cellAt(h.id, 3, 2, 0))),
+        door: v.get(...cellAt(2, 6, 2, 0)),
+        room: v.get(...cellAt(2, 6, 3, 5)),
+        under: v.get(...cellAt(2, 6, -2, 5)),
+        cover: [v.coverageAt(...cellAt(2, 3, 2, 0)), v.coverageAt(...cellAt(2, 6, 3, 5))],
+        material: v.materialAt(...cellAt(2, 3, 2, 0)),
+        region: { kind: room.kind, grid: room.grid },
+        outside: v.regionAt(...cellAt(2, 6, 3, -8))?.grid ?? null,
+      };
+    }, 'the room stitched');
+    for (const w of out.wall) expect(w).toMatchObject({ material: STONE, role: VOXEL_ROLE.wall, shape: 15 });
+    // The door's cells are openings of the house (not air: the structure's); the room is the world's own air; the ground under it the world's.
+    expect(out.door).toMatchObject({ material: STONE, role: VOXEL_ROLE.opening });
+    expect(out.room).toMatchObject({ material: 0 });
+    expect(out.under).toMatchObject({ material: GROUND });
+    expect(out.cover).toEqual([1, 0]);
+    expect(out.region).toEqual({ kind: 'room', grid: 2 });
+    expect(out.outside).toBe(0);
+  }, 120_000);
+
+  it('a ray meets each turned house exactly (0°, 30°, 45°): its grid, its cell, the face turned into the world; through the door to the back wall', async () => {
+    const g = await game(ALL);
+    await g.inStep(ready, 'the houses loaded and derived');
+    const rays = await g.inStep((v) =>
+      HOUSES.map((h) => {
+        const f = frameOf(h.id);
+        const dir = f.toWorld(0, 0, 1).map((c, a) => c - f.toWorld(0, 0, 0)[a]!) as [number, number, number];
+        const from = f.toWorld(2.25, 1.25, -3);
+        const door = f.toWorld(3.25, 1.25, -3);
+        return { yaw: h.yawDeg, solid: v.raycast(from, dir, 20), light: v.raycast(from, dir, 20, { stop: 'light' }), door: v.raycast(door, dir, 20), dir };
+      }),
+    'the rays',
+    );
+    for (const r of rays) {
+      const s = Math.sin((r.yaw * Math.PI) / 180);
+      const c = Math.cos((r.yaw * Math.PI) / 180);
+      for (const hit of [r.solid, r.light]) {
+        expect(hit, `${r.yaw}°`).not.toBeNull();
+        expect(hit!.grid).toBe(HOUSES.find((h) => h.yawDeg === r.yaw)!.id);
+        expect(hit!.cell).toEqual([4, 2, 0]);
+        expect(hit!.distance).toBeCloseTo(3, 6);
+        expect(hit!.normal[0]).toBeCloseTo(-s, 6);
+        expect(hit!.normal[1]).toBeCloseTo(0, 6);
+        expect(hit!.normal[2]).toBeCloseTo(-c, 6);
+        expect(hit!.voxel).toMatchObject({ material: STONE, role: VOXEL_ROLE.wall });
+      }
+      // The door's opening cells stop nothing: the ray meets the back wall's inside face.
+      expect(r.door?.grid).toBe(HOUSES.find((h) => h.yawDeg === r.yaw)!.id);
+      expect(r.door?.cell[2]).toBe(HOUSE.d - 1);
+      expect(r.door?.distance).toBeCloseTo(3 + (HOUSE.d - 1) * M, 6);
+    }
+  }, 120_000);
+
+  it('a change spanning a house and the ground changes both, each in its own cells, as one change; a set replaces the wall and fills the air before it in the world grid', async () => {
+    const g = await game(ALL);
+    await g.inStep(ready, 'the houses loaded and derived');
+    // A ball on the 30° house's front wall at its foot: the wall's cells and the ground under it.
+    const foot = cellAt(2, 3, 0, 0);
+    const ball = { center: [foot[0], foot[1], foot[2]] as [number, number, number], radius: 1.1 };
+    const dug = await g.inStep((v) => v.dig(ball), 'the dig');
+    expect(dug.ok).toBe(true);
+    const after = await g.inStep((v) => ({ wall: v.get(...cellAt(2, 3, 1, 0)), ground: v.get(foot[0], foot[1] - 0.75, foot[2]), again: v.dig(ball) }), 'the reads');
+    expect(after.wall).toMatchObject({ material: 0 });
+    expect(after.ground).toMatchObject({ material: 0 });
+    expect(after.again).toMatchObject({ ok: true, cells: 0 });
+    const edit = (dug as { edit: number }).edit;
+    const change = await g.inStep(() => g.changes.find((c) => c.edit === edit), 'the dig swapped in');
+    // The house's chunk (a turned box) and the ground's chunk, in one change.
+    expect(change.chunks.length).toBeGreaterThanOrEqual(2);
+    expect(change.shaderOnly).toBe(false);
+    // A set over the 45° house's front wall and the air before it: the wall in the house, the air in the world grid.
+    const f = frameOf(3);
+    const wall = cellAt(3, 3, 3, 0);
+    const before = f.toWorld(1.75, 1.75, -1.25);
+    const box = { min: [Math.min(wall[0], before[0]) - 0.1, wall[1] - 0.1, Math.min(wall[2], before[2]) - 0.1] as [number, number, number], max: [Math.max(wall[0], before[0]) + 0.1, wall[1] + 0.1, Math.max(wall[2], before[2]) + 0.1] as [number, number, number] };
+    const set = await g.inStep((v) => v.set(box, { material: OTHER, role: VOXEL_ROLE.wall }), 'the set');
+    expect(set.ok).toBe(true);
+    // Rays read the derived occupancy: the set's swap first (both grids').
+    await g.inStep(() => g.changes.find((c) => c.edit === (set as { edit: number }).edit), 'the set swapped in');
+    const dir = f.toWorld(0, 0, 1).map((c, a) => c - f.toWorld(0, 0, 0)[a]!) as [number, number, number];
+    const read = await g.inStep((v) => ({ wall: v.get(...wall), front: v.raycast(f.toWorld(1.75, 1.75, -3), dir, 10) }), 'the set read');
+    expect(read.wall).toMatchObject({ material: OTHER, role: VOXEL_ROLE.wall });
+    // From the street the ray meets the world grid's new cells before the wall; the wall cell itself is the house's.
+    expect(read.front?.grid).toBe(0);
+    expect(read.front?.voxel?.material).toBe(OTHER);
+  }, 120_000);
+
+  it('a save keeps a turned house’s dug wall (each grid chunk against its shipped hash) and a fresh run of the same files brings the hole back', async () => {
+    const g = await game(ALL);
+    await g.inStep(ready, 'the houses loaded and derived');
+    const hole = cellAt(2, 3, 2, 0);
+    expect((await g.inStep((v) => v.dig({ center: hole, radius: 0.6 }), 'the dig')).ok).toBe(true);
+    const id = await g.inStep((v) => v.save(), 'the save asked');
+    const save = await g.inStep((v) => v.saves.find((s) => s.save === id), 'the save answered');
+    expect(save.ok).toBe(true);
+    const entries = readSave(save.bytes!, grid, TEST_WORLD_ID, (b) => b).chunks;
+    const house = entries.filter((e) => e.grid === 2);
+    expect(house.length).toBeGreaterThan(0);
+    expect(entries.every((e) => e.grid === 2)).toBe(true);
+    const shipped = houseStores.get('2')!;
+    for (const e of house) expect([...e.base]).toEqual([...baseChunkHash(grid, shipped.encodeChunk(e.cx, e.cy, e.cz))]);
+    // A fresh run over the same files: the wall is whole until the save is restored, then the hole is there.
+    const h = await game(ALL);
+    await h.inStep(ready, 'the houses loaded and derived');
+    expect(await h.inStep((v) => v.get(...hole), 'the wall')).toMatchObject({ material: STONE });
+    expect((await h.inStep((v) => v.restore(save.text!, 'base'), 'the restore')).ok).toBe(true);
+    expect(await h.inStep((v) => v.get(...hole), 'the hole')).toMatchObject({ material: 0 });
+    expect(h.mismatches).toEqual([]);
+  }, 180_000);
+
+  it('saves met by other files: made before the structure existed (nothing reported), its structure gone (reported, left out), its structure rebuilt (the base-mismatch rule)', async () => {
+    // Before: a game without the houses digs the ground; restored into a world with them, nothing is reported.
+    const bare = await game([]);
+    await bare.inStep((v) => (v.isResident(AREA) ? true : undefined), 'the ground loaded');
+    const pit = [0, -0.25, 2] as [number, number, number];
+    expect((await bare.inStep((v) => v.dig({ center: pit, radius: 0.6 }), 'the dig')).ok).toBe(true);
+    const sid = await bare.inStep((v) => v.save(), 'the save asked');
+    const before = await bare.inStep((v) => v.saves.find((s) => s.save === sid), 'the save answered');
+    const full = await game(ALL);
+    await full.inStep(ready, 'the houses loaded and derived');
+    expect((await full.inStep((v) => v.restore(before.text!, 'save'), 'the restore')).ok).toBe(true);
+    expect(await full.inStep((v) => ({ pit: v.get(...pit), wall: v.get(...cellAt(2, 3, 2, 0)) }), 'the reads')).toMatchObject({ pit: { material: 0 }, wall: { material: STONE } });
+    // A save holding the 30° house's dug wall.
+    const hole = cellAt(2, 3, 2, 0);
+    expect((await full.inStep((v) => v.dig({ center: hole, radius: 0.6 }), 'the dig')).ok).toBe(true);
+    const hid = await full.inStep((v) => v.save(), 'the save asked');
+    const holed = await full.inStep((v) => v.saves.find((s) => s.save === hid), 'the save answered');
+    const pieces = readSave(holed.bytes!, grid, TEST_WORLD_ID, (b) => b).chunks.filter((e) => e.grid === 2).length;
+    // The structure gone from the world: its pieces are reported (grid 2, not kept), nothing crashes, the rest lands.
+    const gone = await game(ALL.filter((x) => x.id !== 2));
+    await gone.inStep((v) => (v.isResident(AREA) ? true : undefined), 'the world loaded');
+    expect((await gone.inStep((v) => v.restore(holed.text!, 'save'), 'the restore')).ok).toBe(true);
+    const reported = await gone.inStep(() => (gone.mismatches.length >= pieces ? gone.mismatches : undefined), 'the mismatches');
+    expect(reported.filter((m) => m.grid === 2)).toHaveLength(pieces);
+    expect(reported.every((m) => m.grid === 2 && !m.kept)).toBe(true);
+    expect(await gone.inStep((v) => v.get(...pit), 'the pit')).toMatchObject({ material: 0 });
+    // The structure rebuilt (a second storey): its chunk's hash differs, reported as the world's own are; `save` keeps the hole.
+    const rebuilt = await game([{ id: 1, folder: 'grid-1' }, { id: 2, folder: 'grid-2-tall' }, { id: 3, folder: 'grid-3' }]);
+    await rebuilt.inStep(ready, 'the houses loaded and derived');
+    expect((await rebuilt.inStep((v) => v.restore(holed.text!, 'save'), 'the restore')).ok).toBe(true);
+    const again = await rebuilt.inStep(() => (rebuilt.mismatches.some((m) => m.grid === 2) ? rebuilt.mismatches : undefined), 'the mismatch');
+    expect(again.some((m) => m.grid === 2 && m.kept)).toBe(true);
+    expect(await rebuilt.inStep((v) => v.get(...hole), 'the hole')).toMatchObject({ material: 0 });
+  }, 240_000);
+});

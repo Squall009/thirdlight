@@ -28,7 +28,7 @@ import { sameWalkChunk } from './walk-graph-cells';
 import { WalkGraph, type WalkGraphView } from './walk-graph';
 import { LinkedWalkQueries, type LinkedPathAnswer } from './walk-graph-linked';
 import { WalkGraphLinks } from './walk-graph-links';
-import { WalkQueries, type WalkPathAnswer } from './walk-graph-queries';
+import { WalkQueries, type WalkPathAnswer, type WalkQueryOptions } from './walk-graph-queries';
 import { stampedNav } from './walk-graph-stamp';
 
 const grid = chunkGrid(32);
@@ -173,9 +173,9 @@ function stamp(channel: PropLightChannel, house: World, frame: GridFrame): void 
   channel.place('grid:1', { stamp: true, bounds: () => gridStampBounds(cells, frame, M), sample: (m) => stampGrid(cells, frame, 'share', m) });
 }
 
-function linkedPath(l: Linked, from: P3, to: P3): LinkedPathAnswer {
+function linkedPath(l: Linked, from: P3, to: P3, options: WalkQueryOptions = {}): LinkedPathAnswer {
   let out: LinkedPathAnswer | null = null;
-  l.queries.path(from, to, {}, (a) => (out = a));
+  l.queries.path(from, to, options, (a) => (out = a));
   for (let k = 0; out === null && k < 10_000; k++) l.queries.serve(Infinity);
   return out!;
 }
@@ -260,6 +260,23 @@ describe('walk graph with structure grids: the stamp blocks, the grid walks, lin
     expect(round.status).toBe('found');
     expect(round.legs).toBe(1);
     expect(inWalls(round, f, l.house)).toBe(0);
+  });
+
+  it('other walkers cross at the links too: a shorter one and one that drops go in by the door, one taller than the door does not', () => {
+    const l = linked(30);
+    const f = l.frame;
+    const street = worldCellOf(f, ...STREET);
+    const room = worldCellOf(f, ...ROOM);
+    // The door is 4 cells tall (2 m), the room 5 cells under its upper floor.
+    for (const options of [{ height: 3 }, { maxDrop: 2 }, { height: 4, maxDrop: 4 }]) {
+      const g = linkedPath(l, street, room, options);
+      expect(g.status, JSON.stringify(options)).toBe('found');
+      expect(g.grids.some((id) => id === 1)).toBe(true);
+      expect(inWalls(g, f, l.house)).toBe(0);
+    }
+    const tall = linkedPath(l, street, room, { height: 5 });
+    expect(tall.status).not.toBe('found');
+    expect(tall.grids.some((id) => id === 1) && tall.points.length > 0 && inWalls(tall, f, l.house) > 0).toBe(false);
   });
 
   it('makes links as chunks arrive and drops them as they go, either side; an edit in the grid opens a new way', () => {

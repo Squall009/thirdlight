@@ -17,7 +17,7 @@
  * (structure-stamp.ts) are measured against.
  */
 import { rayBox } from './far-bricks-node';
-import type { GridFrame } from './grid-place';
+import type { ChunkBox, GridFrame } from './grid-place';
 import { walkVoxels, type WalkHit, type WalkOptions, type WalkSource } from './occupancy-walk';
 import { walkRay, type WalkRay } from './walk-steps';
 
@@ -26,6 +26,16 @@ export interface GridWalk {
   readonly frame: GridFrame;
   readonly source: WalkSource;
   readonly box: { readonly lo: readonly [number, number, number]; readonly hi: readonly [number, number, number] };
+}
+
+/** How far before a grid's box (metres along the ray) the walk through the grid starts. */
+const GRID_ENTRY_M = 1e-3;
+
+/** A structure grid as the walk steps it: `source` its cells, its box the chunks its files hold (`extent`, chunks of `edge` cells). */
+export function gridWalkOf(frame: GridFrame, source: WalkSource, extent: ChunkBox, edge: number, cellM: number): GridWalk {
+  const m = edge * cellM;
+  const e = extent;
+  return { frame, source, box: { lo: [e.min[0] * m, e.min[1] * m, e.min[2] * m], hi: [(e.max[0] + 1) * m, (e.max[1] + 1) * m, (e.max[2] + 1) * m] } };
 }
 
 /** A stop of a walk through a world and its grids: the world's hit, or a grid's (its id; its cell and normal in its own frame). */
@@ -58,7 +68,9 @@ export function walkWithGrids(world: WalkSource, grids: readonly GridWalk[], r: 
     const span = rayBox(o, d, { lo: [g.box.lo[0], g.box.lo[1], g.box.lo[2]], hi: [g.box.hi[0], g.box.hi[1], g.box.hi[2]] });
     if (span === null || span[0] > reach) continue;
     if (counts !== undefined) counts.entered++;
-    const t0 = span[0];
+    // Entered a hair before the box: a solid cell on the box's face (a house anchored on its grid's cell 0) is then met
+    // by its face, with its normal, not started inside.
+    const t0 = Math.max(0, span[0] - GRID_ENTRY_M);
     const gr = walkRay([o[0] + d[0] * t0, o[1] + d[1] * t0, o[2] + d[2] * t0], d);
     if (gr === null) continue;
     const h = walkVoxels(g.source, gr, Math.min(span[1], reach) - t0, { ...opts, far: false }).hit;

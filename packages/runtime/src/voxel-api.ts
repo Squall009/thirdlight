@@ -37,6 +37,18 @@
  * first voxel that stops it (a body, or what blocks light), on into the
  * coarser levels and the far field past the full-detail ring.
  *
+ * Structures (buildings standing in their own grids, turned by their object's
+ * yaw) are part of the world for every call, by one rule: a point lies in a
+ * structure where the structure's own cell holding it is not air; everywhere
+ * else it lies in the world's own cells (where two structures overlap, the
+ * lower grid id wins). Reads answer from the cells the point lies in; a ray
+ * meets the world and every structure exactly (each in its own grid) and says
+ * which it met (`grid`, 0: the world's own cells); a change over a region acts
+ * on the cells whose centres lie in it: `dig` and `paint` on the world's and
+ * every structure's, `set` on a structure's cells that are not air and on the
+ * world's everywhere else (never a world cell inside a structure's solid
+ * cell); a save keeps the changes to structures too.
+ *
  * Regions: `regionAt` names the open region a cell is in (connected open
  * cells, stitched across chunks as they load), whether it is enclosed, its
  * volume and whether the cell is under open sky; door and window openings
@@ -152,6 +164,10 @@ export interface VoxelRayHit {
   readonly voxel: VoxelValue | null;
   /** Met in the far field or a coarser level than full detail. */
   readonly far: boolean;
+  /** Whose cells it met: 0 the world's own, else the structure's grid id (its object's `voxelStructure.grid`). */
+  readonly grid: number;
+  /** The cell met, in that grid's own cells (a structure's are turned with it: `at` is the same cell in world metres). */
+  readonly cell: readonly [number, number, number];
 }
 
 /**
@@ -188,6 +204,12 @@ export interface VoxelRegionInfo {
   readonly portals: number;
   /** A room, the outdoors, a portal, or not known yet ({@link VoxelRegionKind}). */
   readonly kind: VoxelRegionKind;
+  /**
+   * The structure whose box (of its cells that are not air, in its own turned grid) holds the point: its grid id (0:
+   * none). A room inside a building names the building's grid; the region itself is the world's (the structure is
+   * stamped into the world's regions).
+   */
+  readonly grid: number;
   /** The box its cells fill (world metres; the loaded part while not complete). */
   readonly bounds: VoxelBox;
   /** Its surface against solid voxels in m² (cell faces of 0.25 m²; door and window openings are not surface). */
@@ -213,12 +235,13 @@ export interface VoxelPortalInfo {
 
 /** A walk's hit as scripts read it. */
 export function voxelRayHit(ray: WalkRay, hit: WalkHit): VoxelRayHit {
+  const cell = Object.freeze([hit.cell[0], hit.cell[1], hit.cell[2]] as [number, number, number]);
   const s = VOXEL_SIZE_M;
   const point = ray.origin.map((o, a) => o + ray.dir[a]! * hit.t) as [number, number, number];
   const at = hit.cell.map((c) => (c + 0.5) * s) as [number, number, number];
   const r = hit.record;
   const voxel = r === null ? null : Object.freeze({ material: valueMaterial(r), role: valueRole(r), shape: valueShape(r), wetness: valueWetness(r) });
-  return Object.freeze({ distance: hit.t, point: Object.freeze(point), at: Object.freeze(at), normal: Object.freeze([hit.normal[0] + 0, hit.normal[1] + 0, hit.normal[2] + 0] as [number, number, number]), voxel, far: hit.far || hit.level > 0 });
+  return Object.freeze({ distance: hit.t, point: Object.freeze(point), at: Object.freeze(at), normal: Object.freeze([hit.normal[0] + 0, hit.normal[1] + 0, hit.normal[2] + 0] as [number, number, number]), voxel, far: hit.far || hit.level > 0, grid: 0, cell });
 }
 
 /** A box in world metres. */
@@ -233,13 +256,13 @@ export function cellBoxMetres(min: readonly number[], max: readonly number[]): V
   return Object.freeze({ min: Object.freeze([min[0]! * s, min[1]! * s, min[2]! * s] as [number, number, number]), max: Object.freeze([(max[0]! + 1) * s, (max[1]! + 1) * s, (max[2]! + 1) * s] as [number, number, number]) });
 }
 
-/** A stitched region's summary as scripts read it (`cellSky`: the queried cell is under open sky). */
-export function voxelRegionInfo(info: OpenRegionInfo, cellSky: boolean): VoxelRegionInfo {
+/** A stitched region's summary as scripts read it (`cellSky`: the queried cell is under open sky; `grid`: the structure whose box holds it, 0 none). */
+export function voxelRegionInfo(info: OpenRegionInfo, cellSky: boolean, grid = 0): VoxelRegionInfo {
   const s = VOXEL_SIZE_M;
   const volume = info.cells * s * s * s;
   const surface = info.faces * s * s;
   const kind: VoxelRegionKind = info.portal ? 'portal' : info.enclosed ? 'room' : info.sky ? 'outdoors' : 'unknown';
-  return Object.freeze({ id: info.id, portal: info.portal, enclosed: info.enclosed, complete: info.complete, volume, sky: cellSky, seesSky: info.sky, portals: info.portals, kind, bounds: cellBoxMetres(info.min, info.max), surface, meanFreePath: surface > 0 ? (4 * volume) / surface : 0 });
+  return Object.freeze({ id: info.id, portal: info.portal, enclosed: info.enclosed, complete: info.complete, volume, sky: cellSky, seesSky: info.sky, portals: info.portals, kind, bounds: cellBoxMetres(info.min, info.max), surface, meanFreePath: surface > 0 ? (4 * volume) / surface : 0, grid });
 }
 
 /** A stitched portal as scripts read it. */
@@ -352,15 +375,17 @@ export interface BehaviorVoxelWorld {
   /** The world's name (its `voxelWorld` component's `world`). */
   readonly name: string;
   /**
-   * The voxel at a world position, or null where the world is not loaded there (never air for that).
+   * The voxel at a world position, or null where the world is not loaded there (never air for that). Inside a
+   * structure: its voxel where its cell is not air, else the world's own.
    * @graphPure
    * @graphNode Voxel at
    */
   get(x: number, y: number, z: number): VoxelValue | null;
   /**
    * How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined
-   * with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the
-   * world is not loaded there, or the cell's piece is not built yet.
+   * with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). In a structure's
+   * cell that is not air, the structure's own coverage. Null where the world is not loaded there, or the cell's piece
+   * is not built yet.
    * @graphPure
    * @graphNode Light coverage at
    */
@@ -371,14 +396,17 @@ export interface BehaviorVoxelWorld {
    * the full-detail ring it continues through the coarser levels and the far field drawn, so a ray toward a
    * distant mountain still meets it (`far`, cells of 2 m and more there). What stops it is `options.stop`:
    * `solid` (default: a voxel drawn as a body, what a pick hits) or `light` (one that blocks light: half covered or
-   * more). Liquid, openings and air never stop it; where nothing is loaded it passes as through air.
+   * more). Liquid, openings and air never stop it; where nothing is loaded it passes as through air. Structures are
+   * met exactly, each in its own turned grid: `grid` names the one met (0: the world's own cells), `cell` its cell in
+   * that grid, `normal` the face in world space.
    * @graphNode skip a ray's origin and direction are points, which a graph input cannot take yet
    */
   raycast(origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions): VoxelRayHit | null;
   /**
    * The open region the cell at a world position is in: its id, whether it is enclosed, its volume (m³), whether the
-   * cell is under open sky, and its portals (door and window openings). Null where the cell is solid, or the world
-   * is not loaded there or its regions are not stitched yet (a moment after a chunk arrives or an edit lands).
+   * cell is under open sky, and its portals (door and window openings), and the structure whose box holds the point
+   * (`grid`). Null where the cell is solid, or the world is not loaded there or its regions are not stitched yet (a
+   * moment after a chunk arrives or an edit lands).
    * @graphNode skip a region is an object, which a graph output cannot take yet
    */
   regionAt(x: number, y: number, z: number): VoxelRegionInfo | null;
@@ -416,17 +444,21 @@ export interface BehaviorVoxelWorld {
    */
   materialOf(id: number): VoxelMaterialInfo | null;
   /**
-   * Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap).
+   * Write a voxel into every cell of a region (readable at once; meshes and colliders follow in one swap): a
+   * structure's cells there that are not air take it in the structure, the world's own cells everywhere else (none
+   * inside a structure's solid cell).
    * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
   set(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult;
   /**
-   * Empty every cell of a region to air.
+   * Empty every cell of a region to air: the world's own cells and every structure's whose centres lie in it (a dig
+   * through a house's wall into the ground opens both).
    * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
   dig(region: VoxelRegion): VoxelEditResult;
   /**
-   * Change the material or wetness of the non-air cells of a region, keeping their shape and role (only shader data changes).
+   * Change the material or wetness of the non-air cells of a region (the world's and every structure's), keeping their
+   * shape and role (only shader data changes).
    * @graphNode skip a region is a point, a box or a ball, which a graph input cannot take yet
    */
   paint(region: VoxelRegion, paint: VoxelPaint): VoxelEditResult;
@@ -459,14 +491,15 @@ export interface BehaviorVoxelWorld {
    */
   setRings(change: VoxelRingChange | null): VoxelRingsResult;
   /**
-   * Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves`
-   * at a later step with the save's bytes (and the same as text for a save document).
+   * Make a save of the game's changes to the world (its structures' too): returns the save's id, answered in
+   * `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document).
    * @graphNode Save voxel changes
    */
   save(): number;
   /**
    * Restore a save (its bytes, or its text) in place of the game's changes: loaded cells read it at once,
-   * the rest as they load. `onMismatch`: what wins where the world's files changed since the save.
+   * the rest as they load. `onMismatch`: what wins where the world's files changed since the save (a structure's too;
+   * the pieces of a structure the world no longer holds are reported and left out).
    * @graphNode skip a save is bytes, which a graph input cannot take
    */
   restore(save: Uint8Array | string, onMismatch: VoxelMismatchChoice): VoxelRestoreResult;
@@ -516,6 +549,12 @@ export interface VoxelSaveAnswer {
 /** A restored piece of the world whose files changed since its save. */
 export interface VoxelMismatch {
   readonly world: string;
+  /**
+   * Whose piece: 0 the world's own cells, else a structure's grid id. A piece of a structure the running world does
+   * not hold (removed since the save) is reported and never applied (`kept` false): there are no cells to put it in.
+   */
+  readonly grid: number;
+  /** The piece's box in world metres (a structure's turned box's bounds; of a structure not held, its box in its own grid's metres). */
   readonly chunk: VoxelBox;
   /** True: the player's cells were kept over the new files (`save`); false: the new files stand (`base`). */
   readonly kept: boolean;

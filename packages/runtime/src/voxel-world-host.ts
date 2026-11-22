@@ -41,6 +41,13 @@
  * chunks that left are read again, answered at a later step; `restore()`
  * replaces the overlay with a save's entries (never the base store), laid
  * over loaded chunks at once and over the others as they load.
+ *
+ * Structure grids: `ctx.voxels` reaches the grid a point lies in
+ * (voxel-grid-access.ts: a structure's cell that is not air, else the
+ * world's own): reads, exact rays through each grid in its own frame,
+ * changes written to each grid's overlay (its chunks derived again, its
+ * stamp read again, its links and body following its swap), and saves
+ * holding every grid's changes, restored into each grid by its id.
  */
 import { canonicalVoxelWorldRings, COLLIDER_3D_LIMITS, decodeBase64, encodeBase64, resolveVoxelWorld, validateVoxelWorldRings, type ModelErrorV2, type QualityLevelConfig, type ResolvedVoxelWorld, type VoxelWorldComponent, type VoxelWorldRings, type VoxelMaterialInfo, voxelMaterialInfos } from '@thirdlight/project-model';
 import {
@@ -56,7 +63,6 @@ import {
   EditCommandError,
   EditRefused,
   FarGround,
-  lightCoverageAt,
   MATERIAL_AIR,
   planeMask,
   PropLightChannel,
@@ -107,6 +113,7 @@ import { gridStats, streamerCollisionFeed, VoxelGridHost, type VoxelGridConnecti
 import { floorColumns, VoxelFloors } from './voxel-floor';
 import { noPathAnswer, noReachAnswer, voxelReachAnswer, walkCellAt, walkOptionsOf } from './voxel-paths';
 import { WorldPaths } from './voxel-world-paths';
+import { cellCoverage, gridCellsIn, gridChunkBox, gridResident, raycastWithGrids, structureAt, structureBoxAt, VoxelChanges } from './voxel-grid-access';
 import {
   regionCellList,
   regionCells,
@@ -287,16 +294,6 @@ class PortBodies implements CollisionBodies {
   }
 }
 
-/** A change waiting for its swap. */
-interface PendingChange {
-  readonly edit: number;
-  /** Edit groups of it not swapped yet, and those swapped. */
-  readonly groups: Set<number>;
-  readonly swapped: Set<number>;
-  readonly chunks: Map<string, VoxelBox>;
-  shaderOnly: boolean;
-}
-
 /** What the host reports to the world list. */
 export interface VoxelHostEvents {
   /** A change swapped in (to `ctx.voxels.changes` at the next step). */
@@ -387,12 +384,12 @@ export class VoxelWorldHost {
   private readonly gridStampUs = new SampleRing();
   private disposed = false;
   private readonly waits: { readonly cells: RegionCells; readonly id: number }[] = [];
-  /** Changes by their edit groups, until their swaps. */
-  private readonly pending = new Map<number, PendingChange>();
-  /** Storage chunks announced since the last swap, and whether only their shader data changed. */
-  private shaderOnlyChunks = new Map<string, boolean>();
-  /** The change whose commands are being applied (a group may swap before its edit call returns). */
-  private applying: PendingChange | null = null;
+  /** Changes until their swaps, in the world grid and its structure grids. */
+  private readonly changes: VoxelChanges;
+  /** The world's cells as a light ray through structure grids walks them: the lit props, not the grids' stamps (null: no grid). */
+  private lightWalk: WalkSource | null = null;
+  /** The props' coverage without the grids' stamps (null: no grid). */
+  private propsView: ReturnType<PropLightChannel['propsOnly']> | null = null;
   /** Resident chunks whose derive results arrived (their bodies are their ground, not a placeholder). */
   private readonly derived = new Set<number>();
   /** The world is being opened (bodies wait for it; a world that cannot open holds nothing up). */
@@ -419,6 +416,7 @@ export class VoxelWorldHost {
     const settings = resolveVoxelWorld(component, level);
     this.name = settings.world;
     this.settings = settings;
+    this.changes = new VoxelChanges(this.name, (c) => events.changed(c));
     this.savedFields = settings.savedFields;
     this.api = Object.freeze({
       name: this.name,
@@ -527,6 +525,20 @@ export class VoxelWorldHost {
       const host = new VoxelGridHost(this.name, conn.grid, g, s, { pool: conn.pool, tracker: streamer.tracker, ...(conn.pieces !== undefined ? { pieces: conn.pieces } : {}), ...(conn.budgetBytes !== undefined ? { budgetBytes: conn.budgetBytes } : {}) }, this.physics);
       this.grids.push(host);
       conn.presentGrid?.(g.place, host.streamer, s.sectionEdge);
+      // A change of `ctx.voxels` in the grid is reported once its swap is in, its pieces as world boxes.
+      const id = g.place.gridId;
+      host.streamer.on((e) => {
+        if (this.disposed) return;
+        if (e.type === 'chunk') this.changes.chunk(id, e.cx, e.cy, e.cz, e.shaderOnly);
+        else if (e.type === 'swap') this.changes.swap(id, e.report, (cx, cy, cz) => gridChunkBox(host, cx, cy, cz));
+        else if (e.type === 'mismatch') this.events.mismatch(Object.freeze({ world: this.name, grid: id, chunk: gridChunkBox(host, e.cx, e.cy, e.cz), kept: e.applied }));
+      });
+    }
+    // The lower grid id wins where structures overlap: the grids are kept in that order.
+    this.grids.sort((a, b) => a.frame.gridId - b.frame.gridId);
+    if (this.grids.length > 0) {
+      this.propsView = channel.propsOnly();
+      this.lightWalk = streamerWalkSource(streamer, farWalk, { props: this.propsView });
     }
     paths.linkGrids(this.grids);
   }
@@ -619,37 +631,15 @@ export class VoxelWorldHost {
         this.regions?.touch(e.cx, e.cy, e.cz);
         this.walk?.touch(e.cx, e.cy, e.cz);
       }
-      const id = `${e.cx},${e.cy},${e.cz}`;
-      this.shaderOnlyChunks.set(id, (this.shaderOnlyChunks.get(id) ?? true) && e.shaderOnly);
+      this.changes.chunk(0, e.cx, e.cy, e.cz, e.shaderOnly);
     } else if (e.type === 'collision') {
       // A collision-only result: the body stands for the chunk's ground until its full result replaces it (the same surface).
       this.ring?.changed(e.cx, e.cy, e.cz);
     } else if (e.type === 'mismatch') {
-      this.events.mismatch(Object.freeze({ world: this.name, chunk: this.chunkBox(e.cx, e.cy, e.cz), kept: e.applied }));
+      this.events.mismatch(Object.freeze({ world: this.name, grid: 0, chunk: this.chunkBox(e.cx, e.cy, e.cz), kept: e.applied }));
     } else if (e.type === 'swap') {
-      const only = this.shaderOnlyChunks;
-      this.shaderOnlyChunks = new Map();
-      const done = new Set<PendingChange>();
-      for (const g of e.report.groups) {
-        // A group that swaps inside the edit call that made it belongs to the change being applied.
-        const p = this.pending.get(g) ?? this.applying;
-        if (p === null) continue;
-        this.pending.delete(g);
-        p.groups.delete(g);
-        p.swapped.add(g);
-        for (const [cx, cy, cz] of e.report.chunks) {
-          const id = `${cx},${cy},${cz}`;
-          p.chunks.set(id, this.chunkBox(cx, cy, cz));
-          p.shaderOnly &&= only.get(id) ?? false;
-        }
-        if (p.groups.size === 0 && p !== this.applying) done.add(p);
-      }
-      for (const p of done) this.report(p);
+      this.changes.swap(0, e.report, (cx, cy, cz) => this.chunkBox(cx, cy, cz));
     }
-  }
-
-  private report(p: PendingChange): void {
-    this.events.changed(Object.freeze({ world: this.name, edit: p.edit, chunks: Object.freeze([...p.chunks.values()]), shaderOnly: p.shaderOnly }));
   }
 
   private chunkBox(cx: number, cy: number, cz: number): VoxelBox {
@@ -826,7 +816,7 @@ export class VoxelWorldHost {
     this.paths?.clear();
     this.streamer?.clearOverlay();
     for (const g of this.grids) g.reset();
-    this.pending.clear();
+    this.changes.clear();
     this.savedFields = this.settings.savedFields;
     this.run++;
   }
@@ -842,7 +832,9 @@ export class VoxelWorldHost {
     this.conn?.pool.close();
     this.conn?.close?.();
     for (const w of this.waits.splice(0)) this.events.answered(w.id, false);
-    this.pending.clear();
+    this.changes.clear();
+    this.lightWalk = null;
+    this.propsView = null;
     this.streamer = null;
     this.unresident?.();
     this.unresident = null;
@@ -935,6 +927,10 @@ export class VoxelWorldHost {
   private get(x: number, y: number, z: number): VoxelValue | null {
     const s = this.streamer;
     if (s === null || ![x, y, z].every(Number.isFinite)) return null;
+    // A structure's cell that is not air is the answer (the grid a point lies in, voxel-grid-access.ts).
+    const at = this.grids.length === 0 ? null : structureAt(this.grids, x, y, z, this.cell);
+    if (at === 'unknown') return null;
+    if (at !== null) return Object.freeze({ material: this.cell.material, role: this.cell.role, shape: this.cell.shape, wetness: this.cell.wetness });
     const cx = Math.floor(x / VOXEL_SIZE_M);
     const cy = Math.floor(y / VOXEL_SIZE_M);
     const cz = Math.floor(z / VOXEL_SIZE_M);
@@ -953,20 +949,17 @@ export class VoxelWorldHost {
   private coverageAt(x: number, y: number, z: number): number | null {
     const s = this.streamer;
     if (s === null || this.channel === null || ![x, y, z].every(Number.isFinite)) return null;
-    const cx = Math.floor(x / VOXEL_SIZE_M);
-    const cy = Math.floor(y / VOXEL_SIZE_M);
-    const cz = Math.floor(z / VOXEL_SIZE_M);
-    const sh = s.grid.shift;
-    if (!s.isResident(cx >> sh, cy >> sh, cz >> sh)) return null;
-    const sec = s.sections;
-    const d = s.derivedOf(cx >> sec.shift, cy >> sec.shift, cz >> sec.shift, true);
-    if (d === null) return null;
-    const prop = this.channel.at(cx, cy, cz);
-    const light = d.assembly?.light;
-    const m = sec.mask;
-    // A result without an assembly is air all around: only the props block light there.
-    const v = light === undefined ? prop : lightCoverageAt(light, ((((cx & m) << sec.shift) | (cz & m)) << sec.shift) | (cy & m), prop);
-    return v / 255;
+    // In a structure's cell that is not air, the structure's own coverage; elsewhere the world's with the lit props
+    // (the structures' stamps are not the answer there: the structure's own cell, air, is).
+    const at = this.grids.length === 0 ? null : structureAt(this.grids, x, y, z, this.cell);
+    if (at === 'unknown') return null;
+    if (at !== null) {
+      const g = cellCoverage(at.host.streamer, at.cell[0], at.cell[1], at.cell[2], 0);
+      return g === null ? null : g / 255;
+    }
+    const [cx, cy, cz] = [x, y, z].map((m) => Math.floor(m / VOXEL_SIZE_M)) as [number, number, number];
+    const v = cellCoverage(s, cx, cy, cz, (this.propsView ?? this.channel).at(cx, cy, cz));
+    return v === null ? null : v / 255;
   }
 
   /** A ray's first hit through the world's occupancy (occupancy-walk.ts), or null (nothing within the distance, or no world). */
@@ -979,6 +972,8 @@ export class VoxelWorldHost {
     if (ray === null) return null;
     threadProfiler.begin(RAYCAST_SPAN);
     try {
+      // With structure grids, each is walked in its own frame (a light ray reads the world's props without their stamps).
+      if (this.grids.length > 0) return raycastWithGrids(stop === 'light' ? (this.lightWalk ?? src) : src, this.grids, ray, maxDistance, stop);
       const hit = walkVoxels(src, ray, maxDistance, { stop }).hit;
       return hit === null ? null : voxelRayHit(ray, hit);
     } finally {
@@ -996,7 +991,7 @@ export class VoxelWorldHost {
     const cz = Math.floor(z / s);
     const info = r.regionAt(cx, cy, cz);
     if (info === null) return null;
-    return voxelRegionInfo(info, r.skyAt(cx, cy, cz) ?? true);
+    return voxelRegionInfo(info, r.skyAt(cx, cy, cz) ?? true, this.grids.length === 0 ? 0 : structureBoxAt(this.grids, x, y, z));
   }
 
   /** A region's portals (open-region-stitch.ts), in metres. */
@@ -1059,7 +1054,8 @@ export class VoxelWorldHost {
     for (let cx = r.minX >> sh; cx <= r.maxX >> sh; cx++) for (let cz = r.minZ >> sh; cz <= r.maxZ >> sh; cz++) for (let cy = r.minY >> sh; cy <= r.maxY >> sh; cy++) {
       if (chunkInWorld(s.grid, cx, cy, cz) && !s.isResident(cx, cy, cz)) return false;
     }
-    return true;
+    // The structures' cells a region reaches too (what a change of it reads and writes).
+    return this.grids.every((g) => gridResident(g, r));
   }
 
   private isResident(region: VoxelRegion): boolean {
@@ -1100,8 +1096,10 @@ export class VoxelWorldHost {
       queueMicrotask(() => failed(`voxel world "${this.name}" is not loaded yet`));
       return id;
     }
-    s.saveChunks(this.savedFields).then(
-      (chunks) => {
+    // The world grid's changes and each structure grid's, one save (its entries keyed by grid, then chunk).
+    Promise.all([s.saveChunks(this.savedFields), ...this.grids.map((g) => g.streamer.saveChunks(this.savedFields))]).then(
+      (parts) => {
+        const chunks = parts.flat();
         const bytes = writeSave({ worldId: conn.worldId, grid: conn.grid, chunks }, 'none', (b) => b);
         answer({ ok: true, bytes, text: encodeBase64(bytes), chunks: chunks.length });
       },
@@ -1111,8 +1109,9 @@ export class VoxelWorldHost {
   }
 
   /**
-   * One change, like an edit: its group holds every loaded chunk the
-   * game's changes left or the save's entries reach, swapped together.
+   * One change, like an edit: its group holds every loaded chunk the game's changes left or the save's entries reach,
+   * in the world grid and each structure grid, swapped together. A save's pieces of a structure grid the world does
+   * not hold are reported as mismatches and left out.
    */
   private restore(save: Uint8Array | string, onMismatch: VoxelMismatchChoice): VoxelRestoreResult {
     const s = this.streamer;
@@ -1129,24 +1128,26 @@ export class VoxelWorldHost {
       if (e instanceof SaveFileError) return this.refuse('invalid', e.message);
       throw e;
     }
-    const edit = this.nextEdit();
-    const change: PendingChange = { edit, groups: new Set(), swapped: new Set(), chunks: new Map(), shaderOnly: false };
-    this.applying = change;
-    let group = 0;
+    const change = this.changes.begin(this.nextEdit(), false);
     try {
-      group = s.restoreSave(chunks, onMismatch);
+      this.changes.joined(change, 0, s.restoreSave(chunks, onMismatch));
+      for (const g of this.grids) {
+        this.changes.joined(change, g.frame.gridId, g.streamer.restoreSave(chunks, onMismatch));
+        g.stampDirty = true;
+      }
     } finally {
-      this.applying = null;
+      this.changes.end(change);
     }
-    if (group !== 0 && !change.swapped.has(group)) {
-      change.groups.add(group);
-      this.pending.set(group, change);
+    const held = new Set([0, ...this.grids.map((g) => g.frame.gridId)]);
+    const m = s.grid.edge * VOXEL_SIZE_M;
+    for (const e of chunks) {
+      if (held.has(e.grid)) continue;
+      this.events.mismatch(Object.freeze({ world: this.name, grid: e.grid, chunk: Object.freeze({ min: Object.freeze([e.cx * m, e.cy * m, e.cz * m] as const), max: Object.freeze([(e.cx + 1) * m, (e.cy + 1) * m, (e.cz + 1) * m] as const) }), kept: false }));
     }
-    if (change.groups.size === 0 && change.swapped.size > 0) this.report(change);
-    return Object.freeze({ ok: true, edit, chunks: chunks.length });
+    return Object.freeze({ ok: true, edit: change.edit, chunks: chunks.length });
   }
 
-  /** Applies commands as one change (one id, one report once all their groups swapped). */
+  /** Applies commands (each in its grid: the world's, or a structure's) as one change (one id, one report once all their groups swapped). */
   private apply(commands: readonly VoxelEditCommand[]): VoxelEditResult {
     const s = this.streamer;
     if (s === null) return this.refuse('not_resident', `voxel world "${this.name}" is not loaded yet`);
@@ -1157,28 +1158,26 @@ export class VoxelWorldHost {
       if (e instanceof EditCommandError) return this.refuse('invalid', e.message);
       throw e;
     }
-    const edit = this.nextEdit();
-    const change: PendingChange = { edit, groups: new Set(), swapped: new Set(), chunks: new Map(), shaderOnly: true };
+    const change = this.changes.begin(this.nextEdit(), true);
     let cells = 0;
-    this.applying = change;
     try {
       for (const cmd of checked) {
-        const o = s.edit(cmd);
+        const g = cmd.grid === 0 ? null : (this.grids.find((h) => h.frame.gridId === cmd.grid) ?? null);
+        const o = (g?.streamer ?? s).edit(cmd);
         cells += o.cells;
-        if (o.cells > 0 && !change.swapped.has(o.group)) {
-          change.groups.add(o.group);
-          this.pending.set(o.group, change);
-        }
+        if (o.cells === 0) continue;
+        this.changes.joined(change, cmd.grid, o.group);
+        // A structure's cells changed: its stamp into the world's light, sun heights and rooms is read again.
+        if (g !== null) g.stampDirty = true;
       }
     } catch (e) {
       // Residency was checked for the whole region first, so a refusal here is a command the format refuses.
       if (e instanceof EditRefused) return this.refuse(e.code === 'chunk_not_loaded' ? 'not_resident' : 'invalid', e.message);
       throw e;
     } finally {
-      this.applying = null;
+      this.changes.end(change);
     }
-    if (change.groups.size === 0 && change.swapped.size > 0) this.report(change);
-    return Object.freeze({ ok: true, edit, cells });
+    return Object.freeze({ ok: true, edit: change.edit, cells });
   }
 
   private regionOrRefuse(region: VoxelRegion): RegionCells | VoxelEditResult {
@@ -1189,45 +1188,68 @@ export class VoxelWorldHost {
     return r;
   }
 
+  /** The structure grids' cells of a region that are not air, a command each (`kind` made from a grid's id and cells). */
+  private gridCommands(region: VoxelRegion, r: RegionCells, make: (grid: number, cells: number[]) => VoxelEditCommand | readonly VoxelEditCommand[]): VoxelEditCommand[] {
+    const out: VoxelEditCommand[] = [];
+    for (const g of this.grids) {
+      const cells = gridCellsIn(g, region, r, (v) => v.material !== MATERIAL_AIR, this.cell);
+      if (cells.length > 0) out.push(...[make(g.frame.gridId, cells)].flat());
+    }
+    return out;
+  }
+
+  /** A set writes the structures' cells that are not air there, and the world's own cells whose centres lie in no structure's solid cell. */
   private set(region: VoxelRegion, voxel: VoxelWrite): VoxelEditResult {
     const r = this.regionOrRefuse(region);
     if ('ok' in r) return r;
     const v = writeRecord(voxel);
     if (v === null) return this.refuse('invalid', 'a voxel is { material, role, shape?, wetness? } with each field in its range');
     if (v.material === MATERIAL_AIR || v.shape === 0) return this.dig(region);
-    return this.apply([{ v: 2, grid: 0, kind: 'set', cells: regionCellList(r), voxel: v }]);
+    let cells = regionCellList(r);
+    if (this.grids.length > 0) {
+      const kept: number[] = [];
+      const s = VOXEL_SIZE_M;
+      const probe: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+      for (let i = 0; i < cells.length; i += 3) if (structureAt(this.grids, (cells[i]! + 0.5) * s, (cells[i + 1]! + 0.5) * s, (cells[i + 2]! + 0.5) * s, probe) === null) kept.push(cells[i]!, cells[i + 1]!, cells[i + 2]!);
+      cells = kept;
+    }
+    const world: VoxelEditCommand[] = cells.length > 0 ? [{ v: 2, grid: 0, kind: 'set', cells, voxel: v }] : [];
+    return this.apply([...world, ...this.gridCommands(region, r, (grid, c) => ({ v: 2, grid, kind: 'set', cells: c, voxel: v }))]);
   }
 
+  /** A dig empties the world's own cells and every structure's whose centres lie in the region. */
   private dig(region: VoxelRegion): VoxelEditResult {
     const r = this.regionOrRefuse(region);
     if ('ok' in r) return r;
-    return this.apply([{ v: 2, grid: 0, kind: 'dig', cells: regionCellList(r) }]);
+    return this.apply([{ v: 2, grid: 0, kind: 'dig', cells: regionCellList(r) }, ...this.gridCommands(region, r, (grid, cells) => ({ v: 2, grid, kind: 'dig', cells }))]);
   }
 
   /**
    * Paint keeps each cell's shape and role, which differ from cell to cell:
-   * the cells are written by one exact set a resulting voxel, all applied in
-   * this task so they swap together as one change.
+   * the cells are written by one exact set a resulting voxel (each in its
+   * grid: the world's own cells, every structure's), all applied in this
+   * task so they swap together as one change.
    */
   private paint(region: VoxelRegion, paint: VoxelPaint): VoxelEditResult {
     const r = this.regionOrRefuse(region);
     if ('ok' in r) return r;
     if (!validPaint(paint)) return this.refuse('invalid', 'a paint is { material?, wetness? } (at least one; material 1 or more)');
-    const s = this.streamer!;
-    const groups = new Map<string, { voxel: VoxelRecord; cells: number[] }>();
-    const list = regionCellList(r);
     const v = this.cell;
-    for (let i = 0; i < list.length; i += 3) {
-      s.voxelAt(list[i]!, list[i + 1]!, list[i + 2]!, v);
-      if (v.material === MATERIAL_AIR) continue;
-      const material = paint.material ?? v.material;
-      const wetness = paint.wetness ?? v.wetness;
-      if (material === v.material && wetness === v.wetness) continue;
-      const key = `${material},${v.role},${v.shape},${wetness}`;
-      let g = groups.get(key);
-      if (g === undefined) groups.set(key, (g = { voxel: { material, role: v.role, shape: v.shape, wetness }, cells: [] }));
-      g.cells.push(list[i]!, list[i + 1]!, list[i + 2]!);
-    }
-    return this.apply([...groups.values()].map((g) => ({ v: 2, grid: 0, kind: 'set', cells: g.cells, voxel: g.voxel }) as const));
+    const painted = (grid: number, st: VoxelStreamer, list: readonly number[]): VoxelEditCommand[] => {
+      const groups = new Map<string, { voxel: VoxelRecord; cells: number[] }>();
+      for (let i = 0; i < list.length; i += 3) {
+        st.voxelAt(list[i]!, list[i + 1]!, list[i + 2]!, v);
+        if (v.material === MATERIAL_AIR) continue;
+        const material = paint.material ?? v.material;
+        const wetness = paint.wetness ?? v.wetness;
+        if (material === v.material && wetness === v.wetness) continue;
+        const key = `${material},${v.role},${v.shape},${wetness}`;
+        let g = groups.get(key);
+        if (g === undefined) groups.set(key, (g = { voxel: { material, role: v.role, shape: v.shape, wetness }, cells: [] }));
+        g.cells.push(list[i]!, list[i + 1]!, list[i + 2]!);
+      }
+      return [...groups.values()].map((g) => ({ v: 2, grid, kind: 'set', cells: g.cells, voxel: g.voxel }) as const);
+    };
+    return this.apply([...painted(0, this.streamer!, regionCellList(r)), ...this.gridCommands(region, r, (grid, cells) => painted(grid, this.grids.find((h) => h.frame.gridId === grid)!.streamer, cells))]);
   }
 }

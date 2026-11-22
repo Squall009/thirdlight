@@ -36,9 +36,12 @@
  * chunks arrive, change and leave; its world links it to the world's graph
  * (walk-graph-links.ts).
  *
+ * `ctx.voxels`: reads, rays, changes and saves reach the grid a point lies
+ * in (voxel-grid-access.ts): the world's host reads and changes its cells
+ * through its streamer (its overlay, saved with the world's).
+ *
  * Not done in a structure grid (the world grid's alone): its own open
- * regions, the props' lighting channel, the coarse floor and the far field;
- * `ctx.voxels` reads, rays, edits and saves answer from the world grid.
+ * regions, the props' lighting channel, the coarse floor and the far field.
  */
 import { COLLIDER_3D_LIMITS, type ResolvedVoxelWorld } from '@thirdlight/project-model';
 import {
@@ -52,8 +55,10 @@ import {
   GridFrame,
   gridStampBounds,
   gridStampCellsOfChunks,
+  gridWalkOf,
   grownChunkBox,
   stampGrid,
+  streamerWalkSource,
   VOXEL_SIZE_M,
   WalkGraph,
   worldStreamer,
@@ -67,6 +72,7 @@ import {
   type DirtyTracker,
   type Focus,
   type GridPlacement,
+  type GridWalk,
   type PieceTable,
   type StreamEvent,
   type StructureStampLocal,
@@ -237,7 +243,11 @@ export class VoxelGridHost {
   /** The stream focus as last moved into the grid's frame (metres). */
   private focusM: readonly [number, number, number] = [0, 0, 0];
   /** The chunks the grid's files hold (null: none). */
-  private readonly extent: ChunkBox | null;
+  readonly extent: ChunkBox | null;
+  /** The box of its cells that are not open (its own cells: low corner and size), as last read for its stamp (null: none read). */
+  solidCells: { readonly lo: readonly [number, number, number]; readonly size: readonly [number, number, number] } | null = null;
+  /** The walk through its cells in its own frame (made when a ray first asks). */
+  private walkCache: GridWalk | null = null;
   /** The box its streamer reads (the extent and its margin), metres in its frame. */
   private readonly box: { readonly min: readonly number[]; readonly max: readonly number[] } | null;
   /** The stream focus (grid metres) and collision foci (cells) its streamer was last updated with, and its activity then. */
@@ -324,10 +334,17 @@ export class VoxelGridHost {
     this.stampDirty = false;
     const s = this.streamer;
     const cells = this.extent === null ? null : gridStampCellsOfChunks(s.grid, this.extent, (cx, cy, cz, out) => s.isResident(cx, cy, cz) && s.overlay.exportChunk(cx, cy, cz, out));
+    this.solidCells = cells === null ? null : { lo: cells.lo, size: cells.size };
     if (cells === null) return null;
     const frame = this.frame;
     const b = gridStampBounds(cells, frame, cellM);
     return { bounds: () => b, sample: (m) => stampGrid(cells, frame, rule, m) };
+  }
+
+  /** The grid as a ray walks it: its frame, its cells (its own derived occupancy), the box of the chunks it holds (null: none). */
+  walkView(): GridWalk | null {
+    if (this.extent === null) return null;
+    return (this.walkCache ??= gridWalkOf(this.frame, streamerWalkSource(this.streamer, null), this.extent, this.streamer.grid.edge, VOXEL_SIZE_M));
   }
 
   /** New distances (a quality level or a script's rings): as the world grid's. */
@@ -439,9 +456,10 @@ export class VoxelGridHost {
     this.streamer.budgetBytes = Math.max(1, bytes);
   }
 
-  /** A new run: the game's changes dropped (none reach a structure grid yet). */
+  /** A new run: the game's changes dropped (the grid reads as its files again; its stamp is read again). */
   reset(): void {
     this.streamer.clearOverlay();
+    this.stampDirty = true;
     this.quiet = false;
     this.skipAt = null;
   }

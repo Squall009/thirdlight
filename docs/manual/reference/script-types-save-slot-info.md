@@ -1,8 +1,37 @@
-# Script API types (from `SaveResult`)
+# Script API types (from `SaveSlotInfo`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-save-slot-info"></a>
+## `SaveSlotInfo`
+
+```ts
+/** One used slot as the slot list shows it (`ctx.saves.slots()`). */
+export interface SaveSlotInfo {
+  /** The slot number (1 – the project's slot count). */
+  readonly slot: number;
+  /** The texts the game gave when it saved (empty when none). */
+  readonly title: string;
+  readonly chapter: string;
+  readonly location: string;
+  /** Play time in seconds when it was saved. */
+  readonly playSeconds: number;
+  /** When it was saved (ISO 8601, the player's clock). */
+  readonly savedAt: string;
+  /** The save document's schema version. */
+  readonly version: number;
+  /** The size of the stored document (bytes of JSON). */
+  readonly bytes: number;
+  /** Whether the slot has a picture of the view. */
+  readonly thumbnail: boolean;
+  /** The game's own fields the save gave (`meta`: names → texts within `SAVE_LIMITS.metaBytes`; {} when none). */
+  readonly meta: Readonly<Record<string, string>>;
+  /** Set when the stored slot cannot be read (it is never loaded). */
+  readonly damaged?: string;
+}
+```
 
 <a id="script-type-save-result"></a>
 ## `SaveResult`
@@ -586,6 +615,10 @@ export interface VoxelRayHit {
   readonly voxel: VoxelValue | null;
   /** Met in the far field or a coarser level than full detail. */
   readonly far: boolean;
+  /** Whose cells it met: 0 the world's own, else the structure's grid id (its object's `voxelStructure.grid`). */
+  readonly grid: number;
+  /** The cell met, in that grid's own cells (a structure's are turned with it: `at` is the same cell in world metres). */
+  readonly cell: readonly [number, number, number];
 }
 ```
 
@@ -620,6 +653,12 @@ export interface VoxelRegionInfo {
   readonly portals: number;
   /** A room, the outdoors, a portal, or not known yet ({@link VoxelRegionKind}). */
   readonly kind: VoxelRegionKind;
+  /**
+   * The structure whose box (of its cells that are not air, in its own turned grid) holds the point: its grid id (0:
+   * none). A room inside a building names the building's grid; the region itself is the world's (the structure is
+   * stamped into the world's regions).
+   */
+  readonly grid: number;
   /** The box its cells fill (world metres; the loaded part while not complete). */
   readonly bounds: VoxelBox;
   /** Its surface against solid voxels in m² (cell faces of 0.25 m²; door and window openings are not surface). */

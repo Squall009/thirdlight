@@ -1218,6 +1218,39 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   await expect.poll(gpath, { timeout: 20_000, intervals: [500], message: "a path from the turned house's porch into its room: found, its last waypoint in the room, none in a wall" }).toBe('1,1,0');
   const pathInfo = { inRoom: Math.floor(packed / 1e5) % 1000, cm: packed % 1e5, ms: Date.now() - pathT0 };
   expect(pathInfo.inRoom, 'waypoints in the room').toBeGreaterThan(0);
+  // `ctx.voxels.raycast` at the front wall left of the door meets the house's own cells (grid 1, the wall's row z 0,
+  // its face turned outward, 1.5 m on); a dig through that wall opens it: the character then walks in there, and the
+  // light in the room rises (the volume on, the house's camera live; the time from the dig to the room's light moving).
+  const n0 = Math.floor((await counter('gray')) / 1e8);
+  await control('gridedit', { what: 'ray' });
+  await expect.poll(async () => Math.floor((await counter('gray')) / 1e8), { timeout: 10_000 }).toBeGreaterThan(n0);
+  const gray = (await counter('gray')) % 1e8;
+  expect({ grid: Math.floor(gray / 1e6), cellZ: (Math.floor(gray / 1e4) % 100) - 50, normal: Math.floor(gray / 1e3) % 10, cm: gray % 1e3 }, 'the ray meets the turned wall').toEqual({ grid: 1, cellZ: 0, normal: 1, cm: 150 });
+  await counted('cam', 'camLive', { id: o.camera, target: o.target });
+  await hook('setStore', 'volume');
+  const settled = async (what: string): Promise<number> => {
+    let c: VolumeCell[] = [];
+    await expect.poll(async () => { c = (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? []; return c.length === 2 && c.every((x) => x.updates >= LIGHT_UPDATES); }, { timeout: 60_000, intervals: [250], message: what }).toBe(true);
+    return lightOf(c[0]);
+  };
+  const shut = await settled("the room's light before the dig");
+  const changes = await counter('changes');
+  const dugAt = Date.now();
+  await counted('gridedit', 'gridDug', { what: 'dig' });
+  // The room's light moves (an edit restarts what its rays reach: the house's stamp is read again with the hole).
+  let moved = shut;
+  await expect.poll(async () => { const c = (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? []; moved = lightOf(c[0]); return Math.abs(moved - shut) > 0.2 * Math.max(shut, 0.05); }, { timeout: 30_000, intervals: [100], message: "the room's light moves after the dig" }).toBe(true);
+  const editToLightMs = Date.now() - dugAt;
+  const holed = await settled("the room's light after the dig");
+  // The house through its porch camera with the hole (beside `grid-house.png`, taken before it, without the volume).
+  await still('grid-house-dug');
+  await hook('setStore', 'off');
+  await counted('uncam', 'camOff', { id: o.camera });
+  await expect.poll(() => counter('changes'), { timeout: 10_000, message: 'the dig swapped in' }).toBeGreaterThan(changes);
+  const holeInZ = await walkAt(1.25);
+  console.log(`[voxel-play] structure grid edit: ray ${gray}; room light ${shut.toFixed(3)} → ${holed.toFixed(3)}, moved ${editToLightMs} ms after the dig; walked in through the hole to grid z ${holeInZ.toFixed(2)}`);
+  expect(holed, 'the room lighter with a hole in its wall').toBeGreaterThan(shut);
+  expect(holeInZ, 'through the hole, into the room').toBeGreaterThan(o.house.doorWallZ + 0.6);
   // The grid's kit pieces draw in its world's batches (no draw a kind of its own; the world's count holds its copies),
   // and its streamer is left alone on the steps that have nothing for it.
   const worlds = await o.drawn();

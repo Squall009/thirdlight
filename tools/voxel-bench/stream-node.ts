@@ -73,8 +73,9 @@ export class DiskRegions {
     };
   }
 
-  source(grid: ChunkGrid, layout: RegionLayout, footprint: RegionFootprint, maxOpen = 64): RegionChunkSource {
-    return new RegionChunkSource({ worldId: TEST_WORLD_ID, gridId: WORLD_GRID_ID, grid, layout, footprint, open: (n) => this.open(n), maxOpen });
+  /** The folder's files as one grid's chunks (default the world grid; a structure grid's files carry its id). */
+  source(grid: ChunkGrid, layout: RegionLayout, footprint: RegionFootprint, maxOpen = 64, gridId = WORLD_GRID_ID): RegionChunkSource {
+    return new RegionChunkSource({ worldId: TEST_WORLD_ID, gridId, grid, layout, footprint, open: (n) => this.open(n), maxOpen });
   }
 
   async close(): Promise<void> {

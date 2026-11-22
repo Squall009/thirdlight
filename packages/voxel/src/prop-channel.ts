@@ -217,6 +217,66 @@ export class PropLightChannel {
     return this.built.get(chunkKey(this.host.grid, cx, cy, cz));
   }
 
+  /**
+   * The channel without the structure stamps: each built chunk's coverage from the props alone (a chunk no stamp
+   * touches is its own bytes; one a stamp touches is combined again without the stamps, kept until the channel
+   * changes), no stopping cells at the mip levels. What reads a world's structure grids themselves reads the props
+   * through it (an exact ray through grids; a coverage read where a structure's cell is not the answer).
+   */
+  propsOnly(): { chunk(cx: number, cy: number, cz: number): Uint8Array | null | undefined; at(x: number, y: number, z: number): number; readonly version: number } {
+    // Chunks combined without the stamps, all let go when the channel changes (no chunk is kept past a change).
+    const kept = new Map<number, Uint8Array | null>();
+    let keptAt = -1;
+    const ch = this;
+    const chunk = (cx: number, cy: number, cz: number): Uint8Array | null | undefined => {
+      const g = ch.host.grid;
+      const key = chunkKeyOrNone(g, cx, cy, cz);
+      const own = ch.built.get(key);
+      if (own === undefined || own === null) return own;
+      const over = [...(ch.over.get(key) ?? [])].filter((p) => p.cover !== null && p.cover.cells > 0);
+      if (!over.some((p) => p.cover!.classes !== undefined)) return own;
+      if (keptAt !== ch.version) {
+        kept.clear();
+        keptAt = ch.version;
+      }
+      const had = kept.get(key);
+      if (had !== undefined) return had;
+      const sh = g.shift;
+      const [x0, y0, z0] = [cx << sh, cy << sh, cz << sh];
+      let out: Uint8Array | null = null;
+      for (const p of over.filter((q) => q.cover!.classes === undefined).sort((a, b) => a.order - b.order)) {
+        const cv = p.cover!;
+        const lo = [Math.max(x0, cv.lo[0]), Math.max(y0, cv.lo[1]), Math.max(z0, cv.lo[2])];
+        const hi = [Math.min(x0 + g.edge, cv.lo[0] + cv.size[0]), Math.min(y0 + g.edge, cv.lo[1] + cv.size[1]), Math.min(z0 + g.edge, cv.lo[2] + cv.size[2])];
+        for (let x = lo[0]!; x < hi[0]!; x++) for (let z = lo[2]!; z < hi[2]!; z++) {
+          const src = ((x - cv.lo[0]) * cv.size[2] + (z - cv.lo[2])) * cv.size[1] - cv.lo[1];
+          const row = ((((x - x0) << sh) | (z - z0)) << sh) - y0;
+          for (let y = lo[1]!; y < hi[1]!; y++) {
+            const b = cv.bytes[src + y]!;
+            if (b === 0) continue;
+            out ??= new Uint8Array(g.cellsPerChunk);
+            out[row + y] = combineCoverage(out[row + y]!, b);
+          }
+        }
+      }
+      kept.set(key, out);
+      return out;
+    };
+    return {
+      chunk,
+      at: (x, y, z) => {
+        const g = ch.host.grid;
+        const c = chunk(x >> g.shift, y >> g.shift, z >> g.shift);
+        if (c === undefined || c === null) return 0;
+        const m = g.mask;
+        return c[((((x & m) << g.shift) | (z & m)) << g.shift) | (y & m)]!;
+      },
+      get version() {
+        return ch.version;
+      },
+    };
+  }
+
   /** A resident chunk's structure classes ({@link STAMP_CLASS} a cell, local index; null: none there or not built). */
   rooms(cx: number, cy: number, cz: number): Uint8Array | null {
     return this.classes.get(chunkKey(this.host.grid, cx, cy, cz)) ?? null;

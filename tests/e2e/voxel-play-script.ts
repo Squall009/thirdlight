@@ -139,6 +139,28 @@ export function playScriptSource(at: readonly number[], gridRoom?: readonly numb
       '    }',
       "    if (state.gp !== undefined) put('gpath', state.gp);",
     ]),
+    // A ray from the porch at the front wall left of the door (grid x 1.75 m, 1.25 m over the slab's underside,
+    // 1.5 m out), along the grid's +z: packed in one counter, answers × 10⁸ + the grid met × 10⁶ + (its cell's z + 50) ×
+    // 10⁴ + the face's normal the wall's turned outward (1) × 10³ + its distance (cm). Then a hole dug through that wall
+    // (the box round grid x 0.75 … 2.75 m, 0.5 … 3 m up, z −0.25 … 0.75 m: the world box of its turned corners). One
+    // command for both (a game has at most 32).
+    ...(gridPath === undefined ? [] : [
+      `    const gyaw = ${gridPath.yawRad}, gP = [${gridPath.position.join(', ')}];`,
+      '    const gw = (x: number, y: number, z: number) => [Math.cos(gyaw) * x + Math.sin(gyaw) * z + gP[0], y + gP[1], -Math.sin(gyaw) * x + Math.cos(gyaw) * z + gP[2]];',
+      "    for (const c of ctx.debug.command('gridedit', { description: 'Cast a ray at the house wall (ray) or dig a hole through it (dig)', args: [{ name: 'what', type: 'string' }] })) {",
+      "      if (c.what === 'dig') {",
+      '        const cs = [[0.75, 0.5, -0.25], [2.75, 3, 0.75]];',
+      '        const pts = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => gw(cs[k & 1][0], cs[(k >> 1) & 1][1], cs[(k >> 2) & 1][2]));',
+      '        const lo = [0, 1, 2].map((a) => Math.min(...pts.map((p) => p[a]))), hi = [0, 1, 2].map((a) => Math.max(...pts.map((p) => p[a])));',
+      "        ctx.game.add(v.dig({ min: lo, max: hi }).ok ? 'gridDug' : 'gridDigRefused', 1);",
+      '        continue;',
+      '      }',
+      '      const h = v.raycast(gw(1.75, 1.25, -1.5), [Math.sin(gyaw), 0, Math.cos(gyaw)], 10);',
+      '      const nOk = h !== null && Math.abs(h.normal[0] + Math.sin(gyaw)) < 1e-6 && Math.abs(h.normal[1]) < 1e-6 && Math.abs(h.normal[2] + Math.cos(gyaw)) < 1e-6 ? 1 : 0;',
+      "      state.gray = (Math.floor((state.gray ?? 0) / 1e8) + 1) * 1e8 + (h === null ? 0 : Math.min(h.grid, 99) * 1e6 + (h.cell[2] + 50) * 1e4 + nOk * 1e3 + Math.min(Math.round(h.distance * 100), 999));",
+      '    }',
+      "    if (state.gray !== undefined) put('gray', state.gray);",
+    ]),
     // The structure grid's house as the world's regions see it (its stamp): its room's kind (1 room, 2 outdoors) and portals.
     ...(gridRoom === undefined ? [] : [`    { const g = v.regionAt(${gridRoom[0]}, ${gridRoom[1]}, ${gridRoom[2]}); put('gridRoomKind', g === null ? 0 : g.kind === 'room' ? 1 : 2); put('gridRoomPortals', g?.portals ?? -1); }`]),
     '    if (state.rooms) {',
