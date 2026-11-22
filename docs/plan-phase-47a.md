@@ -1230,8 +1230,9 @@ graph (unreachable).
   (alone: 866 ms) after the dig command, from 0.585 to 1.593 settled (0.571 → 1.304 alone);
   `pics/grid-house.png` (before, without the volume) and `pics/grid-house-dug.png` (after, with it) looked at: the
   hole is through the front wall and into the door beside it (the world box round the turned shape, D757), the room
-  inside lit, the magenta boards at the hole's new edges. Edit → mesh in the grid house is not read separately (the
-  Play test's edit hook list holds the pit's, not the dig's).
+  inside lit, the magenta boards at the hole's new edges. Edit → screen in the grid house (the play page's edit hook, the
+  dig's swap in `far#1`): 81.8 ms, the swap 50.2 ms after the command, 8 chunks (gate-fast-20261122-182413; light there
+  0.597 → 1.163, moved 842 ms after the dig).
 - *Saves*: the round trip and the mismatch cases are vitest (above); their bytes and time were not measured.
 - *The town orbit* (the default path, no grid): 2026-11-22 17:47–18:24 UTC, `run.mjs headroom --quality low --rounds 2`, the
   head 6003c541 against base fe171617 (built in a scratch worktree with its own `@thirdlight` links, removed after),
@@ -1245,14 +1246,15 @@ graph (unreachable).
 
 **Unverified:** medium and high tiers; WebGL 2 (its smoke test only); a turned house on a slope; anything in motion
 but the drag's numbers and its one picture; exports' `ctx.voxels` in grids (the runtime is the same code; no export
-test casts or digs a grid); the editor's preview beyond Play's runtime; the Inspector; edit → mesh in a grid house.
+test casts or digs a grid); the editor's preview beyond Play's runtime; the Inspector.
 **Left out** (slice b and later, as the brief): many grids' simulation on a moving camera (D743, D745), the stamp in
 one piece (D747), the far rebuild blocking commands (D754), the fine bake (D755), eave specks and corner lines (D744,
 D746); `reach` across grids (D748); an object id on hits (D756).
 
 **Gates:** gate-fast-20261122-164434 (the Scene view commit; every touched area) RED on the Play test's profiler `jobs`
 lane (known flaky), gate-rerun-20261122-165707 GREEN; gate-fast-20261122-171852 (`ctx.voxels`) GREEN (Play test 2.0
-min). The docs commit: see §7 and the report.
+min). The docs commit 6eea8f2e: gate-fast-20261122-182413 GREEN (31 e2e files; Play test 2.0 min); `area play` with
+the leak test gate-area-20261122-184436 GREEN (24 passed).
 
 **D-rows:** D748 narrowed; D756 (hits and regions name the grid, not the object), D757 (a world-box region round a
 turned wall), D758 (a Scene view grid reopened whole past its box).
