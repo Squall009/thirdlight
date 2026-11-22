@@ -67,6 +67,7 @@
  *                 camera, and each shot keeps the simulation's stamping and walk packing spans (`propSpans`)
  *   --rooms MODE  off|see-through|cut-away: the bench subject (bench-rooms.ts) in the room cameras' rooms, the camera's
  *                 occlusion that mode, and the floating L-shaped room built (cameras house-above, lroom-above)
+ *   --turn-room DEG  the cameras in the room camera's house turned DEG about its footprint's middle (a town of grids)
  *   --particles   a lit particle panel (bench-particles.ts) 2.5 m in front of each of the four near cameras and a red
  *                 lamp 2 m behind the night camera's panel, made before Play and deleted after; each shot keeps the
  *                 picture's middle colour (`panel`): the panel as it is lit
@@ -91,7 +92,7 @@ import { commandEnvelope } from '../../tests/support/commands';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MASK_FILE, BENCH_GLOW_MASK_FOLDER, GLOW_GROUND_CM_OFFSET, BENCH_GLOW_MATERIALS, benchMaskedLava, MANY_LAMP_CAMERAS, MANY_LAMP_SHOT_NAMES, type LightingCamera, GLOW_COMMANDS, GLOW_PROBES, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
+import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MASK_FILE, BENCH_GLOW_MASK_FOLDER, GLOW_GROUND_CM_OFFSET, BENCH_GLOW_MATERIALS, benchMaskedLava, MANY_LAMP_CAMERAS, MANY_LAMP_SHOT_NAMES, type LightingCamera, GLOW_COMMANDS, GLOW_PROBES, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, ROOM_HOUSE, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import type { Picture } from './lighting-cameras';
 import { openPlay, type PlayGame } from './travel-page';
@@ -114,7 +115,21 @@ const ROOMS = parseRoomsOption(process.argv.slice(2));
 /** `--particles`: the lit panels in front of the near cameras. */
 const PARTICLES = process.argv.includes('--particles');
 const ONLY: readonly string[] = SCENE !== null && !process.argv.includes('--only') ? [...O.only, ...MANY_LAMP_SHOT_NAMES] : O.only;
-const CAMERAS: readonly LightingCamera[] = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS, ...MANY_LAMP_CAMERAS];
+/**
+ * `--turn-room DEG`: the cameras standing in the room camera's house (`ROOM_HOUSE`) turned DEG about its footprint's
+ * middle, eye and look alike, for a town whose houses stand in their own grids turned that much (`town-grids`).
+ */
+const TURN_ROOM = (() => { const i = process.argv.indexOf('--turn-room'); return i < 0 ? 0 : Number(process.argv[i + 1]); })();
+const turnedInRoom = (c: LightingCamera): LightingCamera => {
+  const [lo, hi] = [ROOM_HOUSE.min, ROOM_HOUSE.max];
+  if (TURN_ROOM === 0 || c.eye[0] < lo[0] || c.eye[0] > hi[0] || c.eye[2] < lo[2] || c.eye[2] > hi[2] || c.eye[1] > hi[1] + 3) return c;
+  const t = (TURN_ROOM * Math.PI) / 180;
+  const [mx, mz] = [(lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2];
+  const [dx, dz] = [c.eye[0] - mx, c.eye[2] - mz];
+  // A turn about +y, as a structure grid's yaw turns its cells.
+  return { ...c, eye: [mx + Math.cos(t) * dx + Math.sin(t) * dz, c.eye[1], mz - Math.sin(t) * dx + Math.cos(t) * dz], yaw: c.yaw + t };
+};
+const CAMERAS: readonly LightingCamera[] = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS, ...MANY_LAMP_CAMERAS].map(turnedInRoom);
 const DATA_ROOT = join(homedir(), 'thirdlight-staging-p45');
 const PROJECT_DIR = join(DATA_ROOT, 'projects', O.project);
 const TOKEN = readFileSync(O.tokenFile ?? join(DATA_ROOT, 'owner-token'), 'utf8').trim();
