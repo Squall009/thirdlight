@@ -84,7 +84,7 @@ import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRec
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceTextureArrays } from './voxel-surface';
-import { LightStoreChoice, voxelLightStoreFromUrl, voxelPathsFromUrl, voxelShadowsFromUrl, voxelSunFromUrl, type VoxelLightStore } from './voxel-surface-path';
+import { LightStoreChoice, voxelLightStoreFromUrl, voxelLiquidFromUrl, voxelPathsFromUrl, voxelShadowsFromUrl, voxelSunFromUrl, type VoxelLightStore } from './voxel-surface-path';
 import { SunFieldHost, type SunFieldRenderer } from './voxel-sun-field';
 import { sceneShadowsOf, type SceneShadowLink } from './shadow-casters';
 import { farFeedbackFromUrl } from './voxel-far-feedback';
@@ -671,7 +671,7 @@ export class VoxelWorldDraws {
       const shadows = this.opts.shadows === true && voxelShadowsFromUrl(pageSearch());
       const link = shadows ? sceneShadowsOf(scene) : null;
       const grid = chunkGrid(edge as ChunkEdge);
-      const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface: base.surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), sharedPieces: base.view.pieces });
+      const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface: base.surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), liquid: voxelLiquidFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), sharedPieces: base.view.pieces });
       view.rebuilt = () => this.rebuilt(name);
       view.root.name = `voxel-world ${name}`;
       const at = this.places.get(name) ?? place;

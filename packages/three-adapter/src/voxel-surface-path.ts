@@ -29,6 +29,14 @@ export function voxelPathsFromUrl(search: string): boolean {
  */
 export const VOXEL_SHADOWS_URL_PARAM = 'voxelShadows';
 
+/** The page flag that leaves the liquid parts undrawn (`?voxelLiquid=off`: what drawing them costs, by comparison). */
+export const VOXEL_LIQUID_URL_PARAM = 'voxelLiquid';
+
+/** Whether a page's query string draws the liquid parts (anything but `off`). */
+export function voxelLiquidFromUrl(search: string): boolean {
+  return new URLSearchParams(search).get(VOXEL_LIQUID_URL_PARAM) !== 'off';
+}
+
 /** Whether a page's query string leaves voxel shadows on (anything but `off`). */
 export function voxelShadowsFromUrl(search: string): boolean {
   return new URLSearchParams(search).get(VOXEL_SHADOWS_URL_PARAM) !== 'off';

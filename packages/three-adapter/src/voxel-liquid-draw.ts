@@ -156,14 +156,15 @@ export class VoxelLiquidDraws {
   constructor(
     surface: VoxelSurface,
     private readonly shadows: boolean,
+    private readonly drawn: boolean,
     private readonly find: (cx: number, cy: number, cz: number) => LiquidHolder | undefined,
   ) {
     this.look = new VoxelLiquidLook(surface);
   }
 
-  /** A chunk's liquid mesh (null: no liquid face), culled whole like its surface; counted once {@link shown}. */
+  /** A chunk's liquid mesh (null: no liquid face, or liquid not drawn), culled whole like its surface; counted once {@link shown}. */
   mesh(part: LiquidPart | null | undefined): THREE.Mesh | null {
-    const mesh = liquidMesh(part, this.look, this.shadows);
+    const mesh = this.drawn ? liquidMesh(part, this.look, this.shadows) : null;
     if (mesh !== null) markOccludee(mesh, 'single');
     return mesh;
   }

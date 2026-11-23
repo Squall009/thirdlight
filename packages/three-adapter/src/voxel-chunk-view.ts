@@ -357,6 +357,8 @@ export interface VoxelChunkViewOptions {
    * own; the view never disposes them.
    */
   readonly sharedPieces?: VoxelPieceBatches;
+  /** Draw the chunks' liquid parts (default true; false: a comparison of what drawing them costs). */
+  readonly liquid?: boolean;
 }
 
 /** GPU bytes an instance takes in a piece draw: its matrix and its `pieceU` (voxel-trim-u.ts). */
@@ -428,7 +430,7 @@ export class VoxelChunkView {
     this.shadows = opts.shadows === true || this.statics !== null;
     this.fastPaths = opts.fastPaths !== false;
     this.plainCasters = opts.reliefCasters !== 'relief';
-    this.liquids = new VoxelLiquidDraws(opts.surface, this.shadows, (cx, cy, cz) => this.levels[0]?.get(chunkKey(this.grid, cx, cy, cz)));
+    this.liquids = new VoxelLiquidDraws(opts.surface, this.shadows, opts.liquid !== false, (cx, cy, cz) => this.levels[0]?.get(chunkKey(this.grid, cx, cy, cz)));
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
     if (opts.sharedPieces !== undefined) this.pieces = opts.sharedPieces;
     else {

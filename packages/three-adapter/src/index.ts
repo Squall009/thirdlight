@@ -411,7 +411,7 @@ export { CRACK_TEXELS, crackTexelsFromPixels, engineCrackTexels, browserCrackDec
 export { createVoxelSurface, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_GRID_MAX_EDGE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, VoxelShaderGrids, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceLayout, type VoxelReliefSettings, type VoxelSurfaceObject, type VoxelSurfaceOptions, type VoxelSurfaceTextureArrays } from './voxel-surface';
 export { SURFACE_READ_URL_PARAM } from './adapter-surface-light';
 export { VOLUME_SETTINGS_URL_PARAM } from './voxel-light-volume-settings';
-export { VOXEL_LIGHT_STORES, VOXEL_LIGHT_URL_PARAM, VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM, VOXEL_SUN_URL_PARAM, voxelLightStoreFor, voxelLightStoreFromUrl, type VoxelLightStore } from './voxel-surface-path';
+export { VOXEL_LIGHT_STORES, VOXEL_LIGHT_URL_PARAM, VOXEL_LIQUID_URL_PARAM, VOXEL_PATHS_URL_PARAM, VOXEL_SHADOWS_URL_PARAM, VOXEL_SUN_URL_PARAM, voxelLightStoreFor, voxelLightStoreFromUrl, type VoxelLightStore } from './voxel-surface-path';
 export { FAR_FEEDBACK_URL_PARAM } from './voxel-far-feedback';
 export { FINE_BRICKS_URL_PARAM, FINE_BUILD_CELLS_PER_FRAME, FINE_BUILD_SLOTS, FineBrickBuilder, fineBricksFromUrl, type FineBrickCheck, type FineBrickResult } from './voxel-fine-bricks';
 export { VoxelWalkGpu, walkBenchRays, type WalkBenchKind, type WalkBenchSpec, type WalkGpuCheck, type WalkGpuHit, type WalkGpuRay } from './voxel-walk-gpu';
