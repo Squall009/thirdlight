@@ -21,9 +21,9 @@ import { createWorldStore, type PaletteStore } from './palette-store';
 import { SHAPE_FULL, VOXEL_ROLE, voxel } from './record';
 import { WORLD_RULES } from './rule-registry';
 import type { DeriveOutput } from './stream-job';
-import { NO_WALK_PIECE, sameWalkChunk, WALK_CLEARANCE_MAX, type WalkChunk } from './walk-graph-cells';
+import { DEFAULT_WALK_AGENT, NO_WALK_PIECE, sameWalkChunk, WALK_CLEARANCE_MAX, type WalkChunk } from './walk-graph-cells';
 import { WalkGraph, type WalkGraphView } from './walk-graph';
-import { WalkQueries, type WalkPathAnswer, type WalkQueryOptions, type WalkReachAnswer } from './walk-graph-queries';
+import { WALK_QUERY_WAIT_SERVES, WalkQueries, type WalkPathAnswer, type WalkQueryOptions, type WalkReachAnswer } from './walk-graph-queries';
 
 const grid = chunkGrid(32);
 const SECTIONS: CellGrid = sectionGrid(16);
@@ -120,9 +120,11 @@ const cellsOf = (a: { readonly cells: Int32Array | null }): P3[] => {
 
 /**
  * The brute force: the step rule written out over the store's cells, a Dijkstra over every cell of the loaded box.
- * Standable: free over a body; clearance: free cells up to the rule's limit; a step to the 8 columns round, one cell up
- * or down, room for the walker at both ends and a cell more at the lower end; a diagonal inside one chunk, both
- * columns beside walked the same way.
+ * Standable: free over a body; clearance: free cells up to the rule's limit, and for a walker `span` cells across the
+ * least, over the footprint's other columns (from `(span − 1) >> 1` back to `span >> 1` forward on x and z), of one
+ * plus the free run from the cell over the floor; a step to the 8 columns round, one cell up or down, room for the
+ * walker at both ends and a cell more at the lower end; a diagonal inside one chunk, both columns beside walked the
+ * same way.
  */
 class Brute {
   constructor(
@@ -130,7 +132,20 @@ class Brute {
     readonly lo: P3,
     readonly hi: P3,
     readonly h = 4,
+    readonly span = DEFAULT_WALK_AGENT.span,
   ) {}
+
+  /** The footprint's clearance at a standable cell (its own column's for one cell). */
+  wclear(x: number, y: number, z: number): number {
+    let least = this.clear(x, y, z);
+    for (let ox = -((this.span - 1) >> 1); ox <= this.span >> 1; ox++) for (let oz = -((this.span - 1) >> 1); oz <= this.span >> 1; oz++) {
+      if (ox === 0 && oz === 0) continue;
+      let f = 0;
+      while (f < WALK_CLEARANCE_MAX - 1 && !this.w.body(x + ox, y + 1 + f, z + oz)) f++;
+      least = Math.min(least, 1 + f);
+    }
+    return least;
+  }
 
   inBox(x: number, y: number, z: number): boolean {
     return [x, y, z].every((v, a) => v >= this.lo[a]! * 32 && v <= this.hi[a]! * 32 + 31);
@@ -143,13 +158,13 @@ class Brute {
   }
 
   standable(x: number, y: number, z: number): boolean {
-    return this.inBox(x, y, z) && !this.w.body(x, y, z) && this.w.body(x, y - 1, z) && this.clear(x, y, z) >= this.h;
+    return this.inBox(x, y, z) && !this.w.body(x, y, z) && this.w.body(x, y - 1, z) && this.wclear(x, y, z) >= this.h;
   }
 
   fits(a: P3, b: P3): boolean {
     const dy = b[1] - a[1];
-    const ca = this.clear(...a);
-    const cb = this.clear(...b);
+    const ca = this.wclear(...a);
+    const cb = this.wclear(...b);
     if (dy === 0) return ca >= this.h && cb >= this.h;
     if (dy === 1) return ca >= this.h + 1 && cb >= this.h;
     if (dy === -1) return ca >= this.h && cb >= this.h + 1;
@@ -221,7 +236,7 @@ function ground(w: TestWorld, nx: number, nz: number, top = 7): void {
 }
 
 describe('walk graph: the step rule on hand scraps', () => {
-  it('steps up a cell, not two (a 1 m wall), walks a stair run, and passes a one-cell doorway but not a low ceiling', () => {
+  it('steps up a cell, not two (a 1 m wall), walks a stair run, and passes doorways as wide as the walker but not a low ceiling', () => {
     const w = new TestWorld();
     ground(w, 1, 1);
     // A one-cell step at x 6 (y 8 becomes the floor), a two-cell wall at x 12 across z 0 … 9.
@@ -230,10 +245,12 @@ describe('walk graph: the step rule on hand scraps', () => {
     // A stair: one cell up a cell along z, from z 20 to 25, x 20 … 21, to a landing 6 cells up.
     for (let k = 0; k < 6; k++) w.fill([20, 8 + k, 20 + k, 21, 8 + k, 20 + k], WALL);
     w.fill([20, 8, 26, 23, 13, 29], WALL);
-    // A wall at z 14 across x 13 … 31 with a doorway one cell wide (x 16, 4 cells high), and a low passage under a
-    // ceiling 3 cells up (x 26).
+    // A wall at z 14 across x 13 … 31 with doorways 4 cells high, one cell (0.5 m) wide at x 16, two (1 m) at x 18 … 19,
+    // three (1.5 m) at x 22 … 24, and a low passage under a ceiling 3 cells up (x 26), a cell wide.
     w.fill([13, 8, 14, 31, 15, 14], WALL);
     w.fill([16, 8, 14, 16, 11, 14], AIR);
+    w.fill([18, 8, 14, 19, 11, 14], AIR);
+    w.fill([22, 8, 14, 24, 11, 14], AIR);
     w.fill([26, 8, 14, 26, 10, 14], AIR);
     const g = loadAll(w, [0, 0, 0], [0, 0, 0]);
     // On the floor at y 8: up onto the step (y 9) and on.
@@ -248,14 +265,28 @@ describe('walk graph: the step rule on hand scraps', () => {
     const stair = path(g, [20, 8, 18], [21, 14, 28]);
     expect(stair.status).toBe('found');
     expect(cellsOf(stair).filter(([, y]) => y > 8 && y < 14).length).toBe(5);
-    // Through the doorway at x 16 (2 m: exactly a walker's height), never through the 1.5 m gap at x 26.
+    // The default walker (two cells across: a 0.3–0.5 m radius) goes through the 1 m doorway with its footprint's
+    // middle on the doorway's (its cell x 18, the corner at x 19), never through the one-cell gap at x 16; a walker one
+    // cell across (radius ≤ 0.25 m) takes the gap (2 m: exactly a walker's height).
     const door = path(g, [16, 8, 12], [16, 8, 16]);
     expect(door.status).toBe('found');
-    expect(cellsOf(door).some(([x, , z]) => x === 16 && z === 14)).toBe(true);
-    const low = path(g, [26, 8, 12], [26, 8, 16]);
+    expect(door.span).toBe(2);
+    expect(cellsOf(door).some(([x, , z]) => x === 16 && z === 14)).toBe(false);
+    expect(cellsOf(door).some(([x, , z]) => x === 18 && z === 14)).toBe(true);
+    const thin = path(g, [16, 8, 12], [16, 8, 16], { span: 1 });
+    expect(cellsOf(thin).some(([x, , z]) => x === 16 && z === 14)).toBe(true);
+    // Three cells across (a 0.7 m radius): through the 1.5 m doorway (its middle cell x 23), not the 1 m one.
+    const wide = path(g, [18, 8, 12], [18, 8, 16], { span: 3 });
+    expect(wide.status).toBe('found');
+    expect(cellsOf(wide).filter(([, , z]) => z === 14).map(([x]) => x)).toEqual([23]);
+    // Four across (2 m): no doorway is wide enough; it goes round the wall's end at x 12.
+    const cart = path(g, [18, 8, 11], [18, 8, 17], { span: 4 });
+    expect(cart.status).toBe('found');
+    expect(cellsOf(cart).some(([x, , z]) => z === 14 && x > 12)).toBe(false);
+    const low = path(g, [26, 8, 12], [26, 8, 16], { span: 1 });
     expect(cellsOf(low).some(([x, , z]) => x === 26 && z === 14)).toBe(false);
-    // A walker 1.5 m tall goes under it (the cell level alone: the pieces are the default walker's).
-    const short = path(g, [26, 8, 12], [26, 8, 16], { height: 3 });
+    // A walker 1.5 m tall and a cell across goes under it (the cell level alone: the pieces are the default walker's).
+    const short = path(g, [26, 8, 12], [26, 8, 16], { height: 3, span: 1 });
     expect(short.status).toBe('found');
     expect(short.hierarchy).toBe(false);
     expect(cellsOf(short).some(([x, , z]) => x === 26 && z === 14)).toBe(true);
@@ -269,7 +300,7 @@ describe('walk graph: the step rule on hand scraps', () => {
     // walk round it is four straight steps (2 m), not √2 + √2.
     w.fill([10, 8, 10, 10, 11, 10], WALL);
     const g = loadAll(w, [0, 0, 0], [1, 0, 0]);
-    const a = path(g, [9, 8, 9], [11, 8, 11]);
+    const a = path(g, [9, 8, 9], [11, 8, 11], { span: 1 });
     expect(a.status).toBe('found');
     expect(a.cost).toBeCloseTo(4 * M, 9);
     expect(cellsOf(a).some(([x, , z]) => x === 10 && z === 10)).toBe(false);
@@ -542,7 +573,7 @@ describe('walk graph: stitching', () => {
     w.fill([36, 6, 16, 44, 7, 24], ROCK);
     w.fill([36, 8, 16, 44, 20, 24], AIR);
     w.fill([40, 6, 1, 40, 20, 62], WALL);
-    w.fill([40, 8, 20, 40, 11, 20], AIR);
+    w.fill([40, 8, 20, 40, 11, 21], AIR);
     const g = loadAll(w, [0, -1, 0], [1, 1, 1]);
     const s: P3 = [37, 8, 20];
     const t: P3 = [43, 8, 20];
@@ -552,7 +583,7 @@ describe('walk graph: stitching', () => {
     // Wall the doorway up: an edit inside chunk (1, 0, 0) (x 40 is its local 8).
     const before = g.stats();
     const doorY = 8;
-    w.fill([40, doorY, 20, 40, doorY + 3, 20], WALL);
+    w.fill([40, doorY, 20, 40, doorY + 3, 21], WALL);
     for (const c of [[1, 0, 0]] as P3[]) {
       w.derive(...c);
       g.touch(...c);
@@ -562,7 +593,7 @@ describe('walk graph: stitching', () => {
     expect(after.built - before.built).toBe(1);
     expect(path(g, s, t).status).toBe('unreachable');
     // Dig it again: found, one chunk made again.
-    w.fill([40, doorY, 20, 40, doorY + 3, 20], AIR);
+    w.fill([40, doorY, 20, 40, doorY + 3, 21], AIR);
     w.derive(1, 0, 0);
     g.touch(1, 0, 0);
     // Its neighbours derived again with nothing changed for them stand (the streamer sends them too).
@@ -647,6 +678,54 @@ describe('walk graph: queries', () => {
     expect(slices).toBeGreaterThan(10);
   });
 
+  it('waits for the chunks it reads: a path asked between an edit and its swap answers the new truth, after the graph makes them; past its bound it answers stale; never for what is not loaded', () => {
+    const w = scrap(51);
+    w.fill([36, 6, 16, 44, 7, 24], ROCK);
+    w.fill([36, 8, 16, 44, 20, 24], AIR);
+    w.fill([40, 6, 1, 40, 20, 62], WALL);
+    const g = loadAll(w, [0, -1, 0], [1, 1, 1]);
+    const s: P3 = [37, 8, 20];
+    const t: P3 = [43, 8, 20];
+    expect(path(g, s, t).status).toBe('unreachable');
+    // The doorway dug (its cells in chunk (1, 0, 0)): the edit is sent (group 7), the path asked at once.
+    const events: string[] = [];
+    const q = new WalkQueries(g);
+    g.editSent(7, [[1, 0, 0]]);
+    w.fill([40, 8, 20, 40, 11, 21], AIR);
+    q.path(s, t, {}, (a) => events.push(`answered ${a.status} waits ${a.run.waits}${a.stale === true ? ' stale' : ''}`));
+    for (let k = 0; k < 3; k++) q.serve(Infinity);
+    events.push('served while the edit is out');
+    // Its results arrive and its group swaps: still waiting until the graph has made the chunk.
+    w.derive(1, 0, 0);
+    g.touch(1, 0, 0);
+    g.editSwapped([7]);
+    q.serve(Infinity);
+    events.push('served before the graph made it');
+    g.update();
+    events.push('made');
+    q.serve(Infinity);
+    expect(events).toEqual(['served while the edit is out', 'served before the graph made it', 'made', 'answered found waits 1']);
+    expect(q.served.waits).toBe(1);
+    // An edit that never swaps: the query waits its bound out and answers from what is made, saying so.
+    g.editSent(8, [[1, 0, 0]]);
+    let late: WalkPathAnswer | null = null;
+    q.path(s, t, {}, (a) => (late = a));
+    let serves = 0;
+    while (late === null && serves < WALK_QUERY_WAIT_SERVES + 50) {
+      q.serve(Infinity);
+      serves++;
+    }
+    expect(serves).toBeGreaterThanOrEqual(WALK_QUERY_WAIT_SERVES);
+    expect(late!.status).toBe('found');
+    expect(late!.stale).toBe(true);
+    g.editSwapped([8]);
+    // A path toward a chunk not loaded waits for nothing: unknown, at once (chunks x 1 left out).
+    const half = loadAll(w, [0, -1, 0], [0, 1, 1]);
+    const far = path(half, [20, 8, 20], [44, 8, 20]);
+    expect(far.status).toBe('unknown');
+    expect(far.run.waits).toBe(0);
+  });
+
   it('ends a query past its maxNodes partial, with the path to where it got closest', () => {
     const w = scrap(81);
     const g = loadAll(w, [0, -1, 0], [1, 1, 1]);
@@ -689,13 +768,25 @@ describe('walk graph: shut doors', () => {
     const through = path(g, from, to, { doors: 'shut-too' });
     expect(through.status).toBe('found');
     expect(through.cost).toBeCloseTo(open.cost, 6);
-    // Its cells are in no piece while shut (the levels never cross it).
+    // Its cells are a piece of their own while shut, flagged: the door's edges in the levels, which a walker through
+    // shut doors takes (the levels at once: the same way within the levels' few per cent) and the default walker never.
+    // (A two-cell door is one cell of the two-cell walker's: the other cell's footprint takes in the jamb.)
     const c = g.chunkAt(1, 0, 0)!;
+    let inPiece = 0;
     for (const [x, y, z] of door) {
       const k = c.colStart[(x - 32) * 32 + z]!;
       expect(c.ys[k]).toBe(y);
-      expect(c.piece[k]).toBe(NO_WALK_PIECE);
+      if (c.piece[k] === NO_WALK_PIECE) continue;
+      inPiece++;
+      expect(c.pieces[c.piece[k]!]!.shut).toBe(true);
     }
+    expect(inPiece).toBe(1);
+    const levels = path(g, from, to, { doors: 'shut-too', flatFirst: 0 });
+    expect(levels.status).toBe('found');
+    expect(levels.hierarchy).toBe(true);
+    expect(levels.cost).toBeLessThanOrEqual(open.cost * 1.08);
+    expect(cellsOf(levels).some(([x, , z]) => x === 40 && (z === 10 || z === 11))).toBe(true);
+    expect(path(g, from, to, { flatFirst: 0 }).status).toBe('unreachable');
     g.setShut('door', null);
     g.update();
     expect(path(g, from, to).status).toBe('found');

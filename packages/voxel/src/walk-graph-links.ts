@@ -5,14 +5,18 @@
  * **link** joins a standable cell of a grid to a standable cell of the world
  * grid a walker can step between: at a doorstep, along a foundation's edge.
  *
- * A link is made where a grid cell (its floor's middle, placed in the world
- * by the grid's frame) has a world cell whose floor's middle lies within
- * {@link WALK_LINK_REACH_CELLS} horizontally and one cell up or down, with
- * room for the walker at both ends (one cell more at the lower end, as a
- * step up has), and the grid's own cells leave the walker room along the way
- * between them (it cuts no jamb's corner): the nearest such world cell, one
- * link a grid cell. Both cells must be in a
- * piece (the default walker's). The world's graph must not
+ * A link is made where a grid cell (where a walker stands on it, placed in
+ * the world by the grid's frame) has a world cell whose standing place lies
+ * within {@link WALK_LINK_REACH_CELLS} horizontally and one cell up or down,
+ * with room for the walker at both ends (its height and its footprint: one
+ * cell more at the lower end, as a step up has), and the grid's own cells
+ * leave the walker room along the way between them (it cuts no jamb's
+ * corner): the nearest such world cell, for each footprint span from one cell
+ * to `WALK_SPAN_MAX` (a wider walker stands elsewhere and may need another
+ * world cell); a link says the spans it was made for, and a walker takes it
+ * only with its own span among them, so a doorstep link exists for a walker
+ * only where both sides fit it. A link is made for the default walker's
+ * height; a taller one takes it where both ends have room. The world's graph must not
  * walk the footprint itself: its walker is blocked by the grid's stamp and
  * stands nowhere inside it (walk-graph-stamp.ts without `supports`), so a
  * link is the one way between the two.
@@ -24,7 +28,7 @@
  */
 import { chunkKeyOrNone } from './coords';
 import type { GridFrame } from './grid-place';
-import { DEFAULT_WALK_AGENT, NO_WALK_PIECE, standableIn, stepFits, walkCellOf, type WalkChunk } from './walk-graph-cells';
+import { clearOf, DEFAULT_WALK_AGENT, standableIn, stepFits, WALK_SPAN_MAX, walkCellOf, walkSpanOffset, type WalkChunk } from './walk-graph-cells';
 import type { WalkGraph } from './walk-graph';
 
 /**
@@ -35,8 +39,19 @@ import type { WalkGraph } from './walk-graph';
  */
 export const WALK_LINK_REACH_CELLS = Math.SQRT2;
 
+/**
+ * How far a link reaches for a walker `span` cells across (cells, between where it stands at the two ends): a
+ * diagonal, and half its footprint's extra width along a diagonal more. A wide walker stands with its whole footprint
+ * on free cells at both ends, so beside a turned wall its world end lies that much farther out than a one-cell
+ * walker's; the way between is read in the grid's own cells and the world's ({@link WalkGraphLinks}' clearWay).
+ */
+export function linkReachCells(span: number): number {
+  return WALK_LINK_REACH_CELLS + (span - 1) * Math.SQRT1_2;
+}
+
 /** Points along a link's step at which the grid's own cells must leave the walker room (no corner cut at a jamb). */
 const LINK_CHECKS = [0.25, 0.5, 0.75] as const;
+
 
 /** A link between a grid cell and a world cell (both standable, in pieces): one way across, either way. */
 export interface WalkLink {
@@ -47,8 +62,10 @@ export interface WalkLink {
   /** The world grid's part and cell. */
   readonly world: WalkChunk;
   readonly w: number;
-  /** The step's cost (metres, between the floor middles). */
+  /** The step's cost (metres, between where the walker stands at the two ends, for the narrowest span it was made for). */
   readonly cost: number;
+  /** The footprint spans it was made for: bit `span − 1` (a walker takes it only with its own span's bit). */
+  readonly spans: number;
 }
 
 /** A structure grid as the links read it: its id, where it stands and its own walk graph. */
@@ -124,6 +141,20 @@ export class WalkGraphLinks {
   /** Links to make again wait. */
   get pending(): boolean {
     return this.dirty.size > 0;
+  }
+
+  /** Links of one grid to make again wait. */
+  pendingFor(id: number): boolean {
+    return (this.dirty.get(id)?.size ?? 0) > 0;
+  }
+
+  /** The world chunks (keys) under a grid's chunks where something stands, as its links were last made. */
+  worldUnder(id: number): number[] {
+    const gl = this.grids.get(id);
+    if (gl === undefined) return [];
+    const out = new Set<number>();
+    for (const u of gl.under.values()) for (const k of u.keys) out.add(k);
+    return [...out];
   }
 
   private mark(id: number, cx: number, cy: number, cz: number): void {
@@ -202,43 +233,53 @@ export class WalkGraphLinks {
     }
     if (part !== null && part.ys.length > 0) {
       const h = DEFAULT_WALK_AGENT.height;
-      const reach = WALK_LINK_REACH_CELLS * M;
       for (let i = 0; i < part.ys.length; i++) {
-        // A shut door's cells are in no piece but still link (a walker through shut doors steps onto them; the
-        // queries leave such a link to that walker alone).
-        if ((part.piece[i] === NO_WALK_PIECE && part.shut?.[i] !== 1) || part.clear[i]! < h) continue;
+        // Any cell with room for the default height links (a shut door's cells too: the queries leave such a link to a
+        // walker through shut doors; one in no piece to the walkers that search the cells).
+        if (part.clear[i]! < h) continue;
         const [gx, gy, gz] = walkCellOf(part, i);
         // A cell with its grid's floor on all four sides is inside: no world cell is a step from it.
         if (inside(graph, gx, gy, gz)) continue;
-        const p = f.toWorld((gx + 0.5) * M, gy * M, (gz + 0.5) * M);
-        const fx = p[0] / M;
-        const fy = p[1] / M;
-        const fz = p[2] / M;
-        const wx0 = Math.floor(fx);
-        const wz0 = Math.floor(fz);
-        const wy0 = Math.round(fy);
-        let best: WalkLink | null = null;
-        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-          const wx = wx0 + dx;
-          const wz = wz0 + dz;
-          const horiz = Math.hypot((wx + 0.5 - fx) * M, (wz + 0.5 - fz) * M);
-          if (horiz > reach + 1e-9) continue;
-          for (let dy = -1; dy <= 1; dy++) {
-            const wy = wy0 + dy;
-            const c = this.world.lookup(Math.floor(wx / we), Math.floor(wy / we), Math.floor(wz / we));
-            if (c == null) continue;
-            const j = standableIn(c, wx - c.cx * we, wy - c.cy * we, wz - c.cz * we);
-            if (j < 0 || c.piece[j] === NO_WALK_PIECE) continue;
-            // The step from the world cell to the grid's, by whole cells up or down.
-            const rise = Math.round(fy - wy);
-            if (rise < -1 || rise > 1 || !stepFits(c.clear[j]!, part.clear[i]!, rise, h)) continue;
-            const cost = Math.hypot(horiz, (fy - wy) * M);
-            if (best !== null && cost >= best.cost) continue;
-            if (!this.clearWay(graph, f, p, [(wx + 0.5) * M, wy * M, (wz + 0.5) * M], gy, rise, h)) continue;
-            best = { grid: id, part, g: i, world: c, w: j, cost };
+        const mine: WalkLink[] = [];
+        for (let span = 1; span <= WALK_SPAN_MAX; span++) {
+          if (clearOf(part, i, span) < h) break;
+          const o = 0.5 + walkSpanOffset(span);
+          const reach = linkReachCells(span) * M;
+          const p = f.toWorld((gx + o) * M, gy * M, (gz + o) * M);
+          const fx = p[0] / M;
+          const fy = p[1] / M;
+          const fz = p[2] / M;
+          const wx0 = Math.floor(fx - o + 0.5);
+          const wz0 = Math.floor(fz - o + 0.5);
+          const wy0 = Math.round(fy);
+          let best: { c: WalkChunk; j: number; cost: number } | null = null;
+          for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+            const wx = wx0 + dx;
+            const wz = wz0 + dz;
+            const horiz = Math.hypot((wx + o - fx) * M, (wz + o - fz) * M);
+            if (horiz > reach + 1e-9) continue;
+            for (let dy = -1; dy <= 1; dy++) {
+              const wy = wy0 + dy;
+              const c = this.world.lookup(Math.floor(wx / we), Math.floor(wy / we), Math.floor(wz / we));
+              if (c == null) continue;
+              const j = standableIn(c, wx - c.cx * we, wy - c.cy * we, wz - c.cz * we);
+              if (j < 0) continue;
+              // The step from the world cell to the grid's, by whole cells up or down.
+              const rise = Math.round(fy - wy);
+              if (rise < -1 || rise > 1 || !stepFits(clearOf(c, j, span), clearOf(part, i, span), rise, h)) continue;
+              const cost = Math.hypot(horiz, (fy - wy) * M);
+              if (best !== null && cost >= best.cost) continue;
+              if (!this.clearWay(graph, f, p, [(wx + o) * M, wy * M, (wz + o) * M], gy, rise, h, span)) continue;
+              best = { c, j, cost };
+            }
           }
+          // The spans are nested (a wider walker fits fewer cells): the narrower span's link stands for this one when it fits.
+          if (best === null) break;
+          const same = mine.find((l) => l.world === best!.c && l.w === best!.j);
+          if (same !== undefined) (same as { spans: number }).spans |= 1 << (span - 1);
+          else mine.push({ grid: id, part, g: i, world: best.c, w: best.j, cost: best.cost, spans: 1 << (span - 1) });
         }
-        if (best !== null) links.push(best);
+        links.push(...mine);
       }
     }
     const was = gl.under.get(key);
@@ -265,14 +306,27 @@ export class WalkGraphLinks {
    * (feet at its cell `gy`) to a world floor middle `b` (world metres), from the higher of the two feet up: what the
    * world sees of the grid there is its stamp, a cell off; the grid's derived navigation is exact.
    */
-  private clearWay(graph: WalkGraph, f: GridFrame, a: readonly number[], b: readonly number[], gy: number, rise: number, h: number): boolean {
+  private clearWay(graph: WalkGraph, f: GridFrame, a: readonly number[], b: readonly number[], gy: number, rise: number, h: number, span: number): boolean {
     const M = graph.cellM;
     const feet = Math.max(gy, gy - rise);
+    // The ends' footprints are read whole (their clearances); between them the grid's columns are read within the
+    // footprint's half-width less half a cell of each point (the middle's column alone for one cell): the ends are cells,
+    // so the line between them is off the way a body really walks by up to that much.
+    const half = ((span - 1) / 2) * M;
     for (const t of LINK_CHECKS) {
       const q = f.toGrid(a[0]! + (b[0]! - a[0]!) * t, 0, a[2]! + (b[2]! - a[2]!) * t);
-      const x = Math.floor(q[0] / M);
-      const z = Math.floor(q[2] / M);
-      for (let y = feet; y < feet + h; y++) if (graph.blocks(x, y, z) === true) return false;
+      const x0 = Math.floor((q[0] - half) / M);
+      const x1 = Math.floor((q[0] + half) / M);
+      const z0 = Math.floor((q[2] - half) / M);
+      const z1 = Math.floor((q[2] + half) / M);
+      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = feet; y < feet + h; y++) if (graph.blocks(x, y, z) === true) return false;
+      // The world's own cells there too, over its floor (a link a footprint wide reaches past a step's length).
+      const wx0 = Math.floor((a[0]! + (b[0]! - a[0]!) * t - half) / M);
+      const wx1 = Math.floor((a[0]! + (b[0]! - a[0]!) * t + half) / M);
+      const wz0 = Math.floor((a[2]! + (b[2]! - a[2]!) * t - half) / M);
+      const wz1 = Math.floor((a[2]! + (b[2]! - a[2]!) * t + half) / M);
+      const wFeet = Math.round(b[1]! / M);
+      for (let x = wx0; x <= wx1; x++) for (let z = wz0; z <= wz1; z++) for (let y = wFeet + 1; y < wFeet + h; y++) if (this.world.blocks(x, y, z) === true) return false;
     }
     return true;
   }

@@ -21,20 +21,30 @@
  *   a grid's cells placed by its frame. `unknown` when no candidate was found
  *   and a leg ran into chunks not known; `unreachable` when every leg was known.
  *
- * - **Other walkers.** A walker of another height or with drops crosses at
- *   the links too, each leg searched with its options; a link made for the
- *   default walker is taken by a taller one only where both its ends have room
- *   for it (their clearance, as a step between them needs).
+ * - **Other walkers.** A walker of another height, width or with drops
+ *   crosses at the links too, each leg searched with its options; it takes a
+ *   link made for its footprint's span (walk-graph-links.ts), and a taller one
+ *   only where both its ends have room for it (their clearance, as a step
+ *   between them needs).
+ * - **It waits for the links.** A query whose ends lie in a grid, or near a
+ *   grid whose graph is not current where they lie, waits (as a graph's own
+ *   query does: `WALK_QUERY_WAIT_SERVES` in all) until those grids' graphs,
+ *   their links and the world's chunks under them are made, so a path asked
+ *   before a house's links exist is not answered `unreachable` from a graph
+ *   half made.
+ * - **A reach** (walk-graph-linked-reach.ts) runs in the graph of its start,
+ *   then from the links its places meet into each grid's graph (and back out)
+ *   with what is left of the distance.
  *
  * Not searched: a way between two points of one graph that is shorter through
- * a grid (in at one door, out at another); a reach (`reach` searches the
- * world's graph alone).
+ * a grid (in at one door, out at another).
  */
 import type { GridFrame } from './grid-place';
 import type { WalkGraph } from './walk-graph';
-import { walkCellOf, DEFAULT_WALK_AGENT, stepFits } from './walk-graph-cells';
+import { clearOf, walkCellOf, DEFAULT_WALK_AGENT, stepFits, walkSpanOffset, WALK_CLEARANCE_MAX, WALK_SPAN_MAX, type WalkAgent } from './walk-graph-cells';
 import type { WalkGraphLinks, WalkLink } from './walk-graph-links';
-import { WalkQueries, type WalkPathAnswer, type WalkQueryCost, type WalkQueryOptions, type WalkStatus } from './walk-graph-queries';
+import { LinkedReach, type LinkedReachAnswer } from './walk-graph-linked-reach';
+import { WALK_QUERY_WAIT_SERVES, WalkQueries, type WalkPathAnswer, type WalkQueryCost, type WalkQueryOptions, type WalkReachAnswer, type WalkStatus } from './walk-graph-queries';
 
 /** Links (doors, as a rule) whose legs a query between graphs searches before it takes the cheapest found. */
 export const LINKED_PATH_DOORS = 3;
@@ -56,18 +66,20 @@ export interface LinkedPathAnswer {
   /** Graphs walked (1: one graph's own query) and the links whose legs were searched. */
   readonly legs: number;
   readonly tried: number;
+  /** It waited its bound out with a graph or a link not made: the answer is the graphs' as they were. */
+  readonly stale?: true;
   readonly run: WalkQueryCost;
 }
 
 /** A structure grid as the queries read it. */
-interface QueryGrid {
+export interface QueryGrid {
   readonly id: number;
   readonly frame: GridFrame;
   readonly graph: WalkGraph;
   readonly queries: WalkQueries;
 }
 
-interface Located {
+export interface Located {
   /** 0: the world grid. */
   readonly grid: number;
   /** Its standable cell (that graph's cells) and its floor's middle in world metres. */
@@ -83,10 +95,25 @@ interface Leg {
 
 const dist = (a: P3, b: P3): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
+/** The walker a query's options describe (cells; what the links and the snaps read), as the graphs' queries clamp it. */
+export function linkedAgent(o: WalkQueryOptions): WalkAgent {
+  const height = Math.min(WALK_CLEARANCE_MAX, Math.max(1, Math.round(o.height ?? DEFAULT_WALK_AGENT.height)));
+  const span = Math.min(WALK_SPAN_MAX, Math.max(1, Math.round(o.span ?? DEFAULT_WALK_AGENT.span)));
+  return { height, maxDrop: 0, span, ...(o.doors === 'shut-too' ? { throughShut: true } : {}) };
+}
+
+/** Whether a walker takes a link: made for its span, room for its height at both ends, and not into a shut door unless it goes through them. */
+export function linkFits(l: WalkLink, a: WalkAgent, rise: number): boolean {
+  if (((l.spans >>> (a.span - 1)) & 1) === 0) return false;
+  if (a.throughShut !== true && l.part.shut?.[l.g] === 1) return false;
+  return a.height <= DEFAULT_WALK_AGENT.height || stepFits(clearOf(l.world, l.w, a.span), clearOf(l.part, l.g, a.span), rise, a.height);
+}
+
 /** The world's queries and its grids', and the queries between them (the module comment). */
 export class LinkedWalkQueries {
   private readonly grids = new Map<number, QueryGrid>();
   private readonly jobs: LinkedJob[] = [];
+  private readonly reaches: LinkedReach[] = [];
 
   constructor(
     readonly world: WalkQueries,
@@ -117,9 +144,16 @@ export class LinkedWalkQueries {
     job.begin();
   }
 
+  /** The places within a cost of a world cell, in its graph and through the links in the others; answered by `done` once served. */
+  reach(from: P3, maxCost: number, options: WalkQueryOptions & { readonly cells?: boolean }, done: (a: LinkedReachAnswer) => void): void {
+    const r = new LinkedReach(this, from, maxCost, options, done);
+    this.reaches.push(r);
+    r.begin();
+  }
+
   /** Queries waiting: the joined ones, and every graph's own legs. */
   get queued(): number {
-    let n = this.jobs.length + this.world.queued;
+    let n = this.jobs.length + this.reaches.length + this.world.queued;
     for (const g of this.grids.values()) n += g.queries.queued;
     return n;
   }
@@ -127,6 +161,8 @@ export class LinkedWalkQueries {
   /** Serves the world's queue and the grids' within `ms` (the world's first); returns the legs answered. */
   serve(ms: number): number {
     const t0 = performance.now();
+    // Joined queries waiting for grids' graphs and links try again (each serve counts towards their bound).
+    for (const j of this.jobs) if (j.waitingForGrids) j.retry();
     let n = this.world.serve(ms);
     for (const g of this.grids.values()) {
       if (g.queries.queued === 0) continue;
@@ -136,8 +172,10 @@ export class LinkedWalkQueries {
     }
     for (let i = 0; i < this.jobs.length; ) if (this.jobs[i]!.finished) this.jobs.splice(i, 1);
     else i++;
+    for (let i = 0; i < this.reaches.length; ) if (this.reaches[i]!.finished) this.reaches.splice(i, 1);
+    else i++;
     // A grid's searches are let go once its legs are answered: a town holds many grids, few searched at once.
-    for (const [id, g] of this.grids) if (g.queries.queued === 0) this.grids.delete(id);
+    for (const [id, g] of this.grids) if (g.queries.queued === 0 && !this.held(id)) this.grids.delete(id);
     return n;
   }
 
@@ -155,12 +193,34 @@ export class LinkedWalkQueries {
     this.grids.clear();
   }
 
-  /** @internal where a world cell is: the nearest standable cell of the world's graph or a grid's at or under it. */
-  locate(p: P3): Located | null {
+  /** Whether a waiting joined query or a reach still holds a grid's queries. */
+  private held(id: number): boolean {
+    return this.reaches.some((r) => r.holds(id));
+  }
+
+  /**
+   * @internal whether the grids a query reads are current: each one's graph, its links and the world's chunks under it
+   * made (a grid's links are made after both sides' parts).
+   */
+  gridsCurrent(ids: Iterable<number>): boolean {
+    for (const id of ids) {
+      if (id === 0) continue;
+      const g = this.links.grid(id);
+      if (g === null) continue;
+      if (g.graph.anyStale || this.links.pendingFor(id) || this.links.worldUnder(id).some((k) => this.world.graph.staleKey(k))) return false;
+    }
+    return true;
+  }
+
+  /**
+   * @internal where a world cell is: the nearest standable cell of the world's graph or a grid's at or under it, for
+   * a walker `agent`. `stale` collects the grids whose graph is not current where the point lies.
+   */
+  locate(p: P3, agent: WalkAgent = DEFAULT_WALK_AGENT, stale: Set<number> | null = null): Located | null {
     const M = this.world.graph.cellM;
     let best: Located | null = null;
     let bestD = Infinity;
-    const w = this.world.snap(p, DEFAULT_WALK_AGENT);
+    const w = this.world.snap(p, agent);
     if (w !== null && w !== 'unknown') {
       const c = walkCellOf(w.chunk, w.cell);
       const at: P3 = [(c[0] + 0.5) * M, c[1] * M, (c[2] + 0.5) * M];
@@ -172,8 +232,12 @@ export class LinkedWalkQueries {
       const e = g.graph.grid.edge;
       const q = g.frame.toGrid(pm[0], pm[1], pm[2]);
       const gc: P3 = [Math.floor(q[0] / M), Math.floor(q[1] / M), Math.floor(q[2] / M)];
-      if (g.graph.chunkAt(Math.floor(gc[0] / e), Math.floor(gc[1] / e), Math.floor(gc[2] / e)) === null) continue;
-      const s = this.gridQueries(g.id)!.queries.snap(gc, DEFAULT_WALK_AGENT);
+      const gcx = Math.floor(gc[0] / e);
+      const gcy = Math.floor(gc[1] / e);
+      const gcz = Math.floor(gc[2] / e);
+      if (g.graph.stale(gcx, gcy, gcz)) stale?.add(g.id);
+      if (g.graph.chunkAt(gcx, gcy, gcz) === null) continue;
+      const s = this.gridQueries(g.id)!.queries.snap(gc, agent);
       if (s === null || s === 'unknown') continue;
       const c = walkCellOf(s.chunk, s.cell);
       const at = g.frame.toWorld((c[0] + 0.5) * M, c[1] * M, (c[2] + 0.5) * M);
@@ -186,21 +250,30 @@ export class LinkedWalkQueries {
     return best;
   }
 
-  /** @internal a cell of a graph at its floor's middle in world metres. */
-  placeOf(grid: number, c: P3): P3 {
+  /** @internal where a walker `span` cells across stands on a cell of a graph, at its floor, in world metres (one cell: the cell's middle). */
+  placeOf(grid: number, c: P3, span = 1): P3 {
     const M = this.world.graph.cellM;
-    if (grid === 0) return [(c[0] + 0.5) * M, c[1] * M, (c[2] + 0.5) * M];
-    return this.gridQueries(grid)!.frame.toWorld((c[0] + 0.5) * M, c[1] * M, (c[2] + 0.5) * M);
+    const o = 0.5 + walkSpanOffset(span);
+    if (grid === 0) return [(c[0] + o) * M, c[1] * M, (c[2] + o) * M];
+    return this.gridQueries(grid)!.frame.toWorld((c[0] + o) * M, c[1] * M, (c[2] + o) * M);
   }
 
   /** @internal a leg queued in its graph's queries. */
   leg(l: Leg, options: WalkQueryOptions, done: (a: WalkPathAnswer) => void): void {
     const q = l.grid === 0 ? this.world : this.gridQueries(l.grid)?.queries;
     if (q === undefined) {
-      done({ status: 'unknown', cells: new Int32Array(0), cost: 0, hierarchy: false, corridor: 0, run: { coarse: 0, cells: 0, inner: 0, slices: 0, ms: 0, restarts: 0 } });
+      done({ status: 'unknown', cells: new Int32Array(0), cost: 0, hierarchy: false, corridor: 0, span: linkedAgent(options).span, run: { coarse: 0, cells: 0, inner: 0, slices: 0, ms: 0, restarts: 0, waits: 0, waited: 0 } });
       return;
     }
     q.path(l.from, l.to, options, done);
+  }
+
+  /** @internal a reach queued in a graph's queries, from seeds (its cells at their costs). */
+  reachIn(grid: number, seeds: readonly { readonly at: P3; readonly cost: number }[] | P3, maxCost: number, options: WalkQueryOptions, done: (a: WalkReachAnswer) => void): boolean {
+    const q = grid === 0 ? this.world : this.gridQueries(grid)?.queries;
+    if (q === undefined) return false;
+    q.reach(seeds, maxCost, { ...options, cells: true }, done);
+    return true;
   }
 }
 
@@ -213,7 +286,12 @@ interface Candidate {
 
 class LinkedJob {
   finished = false;
-  private run = { coarse: 0, cells: 0, inner: 0, slices: 0, ms: 0, restarts: 0 };
+  /** It waits for grids' graphs and links to be made before its legs (served again by {@link retry}). */
+  waitingForGrids = false;
+  private waitServes = 0;
+  private waits = 0;
+  private stale = false;
+  private run: WalkQueryCost = { coarse: 0, cells: 0, inner: 0, slices: 0, ms: 0, restarts: 0, waits: 0, waited: 0 };
   private tried = 0;
   private best: { cost: number; legs: Leg[]; answers: WalkPathAnswer[] } | null = null;
   private anyUnknown = false;
@@ -226,15 +304,38 @@ class LinkedJob {
     private readonly done: (a: LinkedPathAnswer) => void,
   ) {}
 
+  /** A leg's options: what is left of the query's wait goes to it (its legs before it and its own wait for the grids spent the rest). */
+  private legOptions(): WalkQueryOptions {
+    return { ...this.options, waitServes: Math.max(0, (this.options.waitServes ?? WALK_QUERY_WAIT_SERVES) - this.waitServes - this.run.waited) };
+  }
+
+  /** A serve while it waits: it tries again, and past its bound goes on with what is made. */
+  retry(): void {
+    this.waitServes++;
+    this.begin();
+  }
+
   begin(): void {
-    const a = this.q.locate(this.from);
-    const b = this.q.locate(this.to);
+    const agent = linkedAgent(this.options);
+    const stale = new Set<number>();
+    const a = this.q.locate(this.from, agent, stale);
+    const b = this.q.locate(this.to, agent, stale);
+    for (const g of [a?.grid ?? 0, b?.grid ?? 0]) if (g !== 0) stale.add(g);
+    if (!this.q.gridsCurrent(stale)) {
+      if (this.waitServes < (this.options.waitServes ?? WALK_QUERY_WAIT_SERVES)) {
+        if (!this.waitingForGrids) this.waits++;
+        this.waitingForGrids = true;
+        return;
+      }
+      this.stale = true;
+    }
+    this.waitingForGrids = false;
     // Both ends in one graph: that graph's own query.
     if (a === null || b === null || a.grid === b.grid) {
       const grid = a !== null && b !== null && a.grid === b.grid ? a.grid : 0;
       const from = grid === 0 ? this.from : a!.cell;
       const to = grid === 0 ? this.to : b!.cell;
-      this.q.leg({ grid, from, to }, this.options, (w) => this.finish(w.status, [{ grid, from, to }], [w], w.cost, w.reason));
+      this.q.leg({ grid, from, to }, this.legOptions(), (w) => this.finish(w.status, [{ grid, from, to }], [w], w.cost, w.reason));
       return;
     }
     const cands = this.candidates(a, b);
@@ -250,13 +351,12 @@ class LinkedJob {
     const M = q.world.graph.cellM;
     const gridCell = (l: WalkLink): P3 => walkCellOf(l.part, l.g);
     const worldCell = (l: WalkLink): P3 => walkCellOf(l.world, l.w);
-    const gAt = (l: WalkLink): P3 => q.placeOf(l.grid, gridCell(l));
-    const wAt = (l: WalkLink): P3 => [(worldCell(l)[0] + 0.5) * M, worldCell(l)[1] * M, (worldCell(l)[2] + 0.5) * M];
-    // Links are made for the default walker: a taller one takes a link only where both its ends have room for it.
-    const h = this.options.height ?? DEFAULT_WALK_AGENT.height;
-    // A link onto a cell in a shut door's opening is taken only by a walker through shut doors.
-    const throughShut = this.options.doors === 'shut-too';
-    const fits = (l: WalkLink): boolean => (throughShut || l.part.shut?.[l.g] !== 1) && (h <= DEFAULT_WALK_AGENT.height || stepFits(l.world.clear[l.w]!, l.part.clear[l.g]!, Math.round((gAt(l)[1] - wAt(l)[1]) / M), h));
+    const agent = linkedAgent(this.options);
+    const gAt = (l: WalkLink): P3 => q.placeOf(l.grid, gridCell(l), agent.span);
+    const o = 0.5 + walkSpanOffset(agent.span);
+    const wAt = (l: WalkLink): P3 => [(worldCell(l)[0] + o) * M, worldCell(l)[1] * M, (worldCell(l)[2] + o) * M];
+    // A link made for the walker's span, room for its height, not into a shut door unless it goes through them.
+    const fits = (l: WalkLink): boolean => linkFits(l, agent, Math.round((gAt(l)[1] - wAt(l)[1]) / M));
     const doors = (list: WalkLink[], est: (l: WalkLink) => number): WalkLink[] => {
       const sorted = list.filter(fits).map((l) => [est(l), l] as const).sort((x, y) => x[0] - y[0]);
       const out: WalkLink[] = [];
@@ -295,7 +395,7 @@ class LinkedJob {
         this.next(cands, k + 1);
         return;
       }
-      this.q.leg(c.legs[i]!, this.options, (w) => {
+      this.q.leg(c.legs[i]!, this.legOptions(), (w) => {
         this.count(w);
         if (w.status !== 'found') {
           if (w.status === 'unknown' || w.status === 'partial') this.anyUnknown = true;
@@ -311,7 +411,7 @@ class LinkedJob {
 
   private count(w: WalkPathAnswer): void {
     const r = this.run;
-    this.run = { coarse: r.coarse + w.run.coarse, cells: r.cells + w.run.cells, inner: r.inner + w.run.inner, slices: r.slices + w.run.slices, ms: r.ms + w.run.ms, restarts: r.restarts + w.run.restarts };
+    this.run = { coarse: r.coarse + w.run.coarse, cells: r.cells + w.run.cells, inner: r.inner + w.run.inner, slices: r.slices + w.run.slices, ms: r.ms + w.run.ms, restarts: r.restarts + w.run.restarts, waits: r.waits + w.run.waits, waited: r.waited + w.run.waited };
   }
 
   private finish(status: WalkStatus, legs: readonly Leg[], answers: readonly WalkPathAnswer[], cost: number, reason?: 'from' | 'to'): void {
@@ -321,10 +421,12 @@ class LinkedJob {
     const points = new Float64Array(n * 3);
     const grids = new Int32Array(n);
     let k = 0;
+    let stale = this.stale;
     answers.forEach((a, i) => {
       const grid = legs[i]!.grid;
+      if (a.stale === true) stale = true;
       for (let j = 0; j < a.cells.length; j += 3, k++) {
-        const p = this.q.placeOf(grid, [a.cells[j]!, a.cells[j + 1]!, a.cells[j + 2]!]);
+        const p = this.q.placeOf(grid, [a.cells[j]!, a.cells[j + 1]!, a.cells[j + 2]!], a.span);
         points[k * 3] = p[0];
         points[k * 3 + 1] = p[1];
         points[k * 3 + 2] = p[2];
@@ -332,6 +434,7 @@ class LinkedJob {
       }
     });
     this.finished = true;
-    this.done(Object.freeze({ status, ...(reason !== undefined ? { reason } : {}), points, grids, cost, legs: answers.length, tried: this.tried, run: this.run }));
+    const run = { ...this.run, waits: this.run.waits + this.waits, waited: this.run.waited + this.waitServes };
+    this.done(Object.freeze({ status, ...(reason !== undefined ? { reason } : {}), points, grids, cost, legs: answers.length, tried: this.tried, ...(stale ? { stale: true as const } : {}), run }));
   }
 }

@@ -27,8 +27,9 @@ import { gridStampBounds, gridStampCells, STAMP_CLASS, stampClassOfValue, stampG
 import { sameWalkChunk } from './walk-graph-cells';
 import { WalkGraph, type WalkGraphView } from './walk-graph';
 import { LinkedWalkQueries, type LinkedPathAnswer } from './walk-graph-linked';
+import type { LinkedReachAnswer } from './walk-graph-linked-reach';
 import { WalkGraphLinks } from './walk-graph-links';
-import { WalkQueries, type WalkPathAnswer, type WalkQueryOptions } from './walk-graph-queries';
+import { WALK_QUERY_WAIT_SERVES, WalkQueries, type WalkPathAnswer, type WalkQueryOptions } from './walk-graph-queries';
 import { stampedNav } from './walk-graph-stamp';
 
 const grid = chunkGrid(32);
@@ -180,6 +181,20 @@ function linkedPath(l: Linked, from: P3, to: P3, options: WalkQueryOptions = {})
   return out!;
 }
 
+function linkedReach(l: Linked, from: P3, cost: number, options: WalkQueryOptions): LinkedReachAnswer {
+  let out: LinkedReachAnswer | null = null;
+  l.queries.reach(from, cost, { ...options, cells: true }, (a) => (out = a));
+  for (let k = 0; out === null && k < 10_000; k++) l.queries.serve(Infinity);
+  return out!;
+}
+
+/** A link's grid cell (its grid's cells). */
+const walkCellOfLink = (k: { readonly part: { readonly col: Uint16Array; readonly ys: Uint8Array; readonly cx: number; readonly cy: number; readonly cz: number; readonly edge: number }; readonly g: number }): P3 => {
+  const e = k.part.edge;
+  const c = k.part.col[k.g]!;
+  return [k.part.cx * e + ((c / e) | 0), k.part.cy * e + k.part.ys[k.g]!, k.part.cz * e + (c % e)];
+};
+
 function worldPath(g: WalkGraph, from: P3, to: P3): WalkPathAnswer {
   const q = new WalkQueries(g);
   let out: WalkPathAnswer | null = null;
@@ -194,15 +209,23 @@ function worldCellOf(f: GridFrame, x: number, y: number, z: number): P3 {
   return [Math.floor(p[0] / M), Math.floor(p[1] / M), Math.floor(p[2] / M)];
 }
 
-/** Points walked whose walker column (feet and three cells over, at the point) lies in a cell of the house that stops (its own cells as its store holds them). */
+/**
+ * Points walked whose walker column (feet and three cells over, at the point) lies in a cell of the house that stops
+ * (its own cells as its store holds them). A wide walker's point is its footprint's middle, on a cell's edge or corner:
+ * it is inside a wall only where every cell it touches stops (a point on a riser's face is on the step, not in it).
+ */
 function inWalls(a: LinkedPathAnswer, f: GridFrame, house: World): number {
   let n = 0;
   const v = voxel();
+  const E = 1e-4;
+  const stops = (x: number, y: number, z: number): boolean => {
+    house.store.voxelAt(Math.floor(x / M), Math.floor(y / M), Math.floor(z / M), v);
+    return stampClassOfValue(valueOf(v)) === STAMP_CLASS.stop;
+  };
   for (let k = 0; k < a.points.length; k += 3) {
     for (let dy = 0; dy < 4; dy++) {
       const q = f.toGrid(a.points[k]!, a.points[k + 1]! + (dy + 0.5) * M, a.points[k + 2]!);
-      house.store.voxelAt(Math.floor(q[0] / M), Math.floor(q[1] / M), Math.floor(q[2] / M), v);
-      if (stampClassOfValue(valueOf(v)) === STAMP_CLASS.stop) {
+      if (stops(q[0] - E, q[1], q[2] - E) && stops(q[0] + E, q[1], q[2] - E) && stops(q[0] - E, q[1], q[2] + E) && stops(q[0] + E, q[1], q[2] + E)) {
         n++;
         break;
       }
@@ -228,12 +251,13 @@ describe('walk graph with structure grids: the stamp blocks, the grid walks, lin
       expect(g.status).toBe('found');
       expect(g.legs).toBe(2);
       expect(g.cost).toBeCloseTo(w.cost, 6);
-      // The same cells walked: the world's cells, then the house's (placed at the same world cells).
+      // The same cells walked: the world's cells, then the house's (placed at the same world cells), each point where
+      // the two-cell walker's middle is (its cell's corner, a half-cell on x and z).
       expect(g.points.length).toBe(w.cells.length);
       for (let k = 0; k < w.cells.length; k += 3) {
-        expect(g.points[k]).toBeCloseTo((w.cells[k]! + 0.5) * M, 6);
+        expect(g.points[k]).toBeCloseTo((w.cells[k]! + 1) * M, 6);
         expect(g.points[k + 1]).toBeCloseTo(w.cells[k + 1]! * M, 6);
-        expect(g.points[k + 2]).toBeCloseTo((w.cells[k + 2]! + 0.5) * M, 6);
+        expect(g.points[k + 2]).toBeCloseTo((w.cells[k + 2]! + 1) * M, 6);
       }
     }
   });
@@ -324,6 +348,84 @@ describe('walk graph with structure grids: the stamp blocks, the grid walks, lin
     expect(after.status).toBe('found');
     expect(after.cost).toBeLessThan(before.cost * 0.6);
     expect(inWalls(after, l.frame, l.house)).toBe(0);
+  });
+
+  it('the walker\'s width at a link: the default walker (0.3 m, two cells) goes in by the 1 m door at 0° and 30°, one three cells across (0.7 m) does not, and no link is made for it there', () => {
+    for (const yaw of [0, 30]) {
+      const l = linked(yaw);
+      const f = l.frame;
+      const street = worldCellOf(f, ...STREET);
+      const room = worldCellOf(f, ...ROOM);
+      const thin = linkedPath(l, street, room, { span: 1 });
+      const human = linkedPath(l, street, room);
+      const wide = linkedPath(l, street, room, { span: 3 });
+      expect(thin.status, `${yaw}°`).toBe('found');
+      expect(human.status, `${yaw}°`).toBe('found');
+      expect(human.grids.some((id) => id === 1)).toBe(true);
+      expect(inWalls(human, f, l.house)).toBe(0);
+      expect(wide.status, `${yaw}°`).toBe('unreachable');
+      // Links: some for one and two cells across at the door (z 0 … 1 of the house), none for three.
+      const door = l.links.linksOf(1).filter((k) => walkCellOfLink(k)[2] <= 1);
+      expect(door.some((k) => (k.spans & 2) !== 0)).toBe(true);
+      expect(door.some((k) => (k.spans & 4) !== 0)).toBe(false);
+    }
+  });
+
+  it('a reach crosses the links: from the street within 12 m it stands in the house\'s room; a wide walker\'s stays outside', () => {
+    const l = linked(30);
+    const f = l.frame;
+    const street = worldCellOf(f, ...STREET);
+    const r = linkedReach(l, street, 12, {});
+    expect(r.status).toBe('found');
+    expect(r.graphs).toBe(2);
+    let inGrid = 0;
+    for (let k = 0; k < r.grids!.length; k++) if (r.grids![k] === 1) inGrid++;
+    expect(inGrid).toBeGreaterThan(20);
+    // A place in the room (house cells x 10 … 16, z 4 … 10, floor y 1) is among them, at its floor in world metres.
+    const roomAt = l.frame.toWorld(13.5 * M, 1 * M, 8.5 * M);
+    let near = Infinity;
+    for (let k = 0; k < r.points!.length; k += 3) if (r.grids![k / 3] === 1) near = Math.min(near, Math.hypot(r.points![k]! - roomAt[0], r.points![k + 1]! - roomAt[1], r.points![k + 2]! - roomAt[2]));
+    expect(near).toBeLessThan(M);
+    const wide = linkedReach(l, street, 12, { span: 3 });
+    expect(wide.graphs).toBe(1);
+    // The world graph's reach alone (a reach of the world's queries) never enters the footprint: as before.
+    expect(r.count).toBeGreaterThan(wide.count);
+  });
+
+  it('a path asked before a house\'s links are made waits for them (answered found once they are, not unreachable from a half-made graph)', () => {
+    const l = linked(30);
+    const f = l.frame;
+    // The back wall dug (a direct write to the grid's store, derived again): the house's part and then its links are to
+    // be made again, and a path from behind the house is asked before they are.
+    for (const x of [12, 13]) for (let y = 1; y <= 4; y++) l.house.store.setVoxel(x, y, HD - 1, AIR);
+    l.house.derive(0, 0, 0);
+    l.houseGraph.touch(0, 0, 0);
+    const back = worldCellOf(f, 13, 0, HD + 4);
+    let out: LinkedPathAnswer | null = null;
+    l.queries.path(back, worldCellOf(f, ...ROOM), {}, (a) => (out = a));
+    for (let k = 0; k < 5; k++) l.queries.serve(Infinity);
+    expect(out).toBeNull();
+    l.houseGraph.update();
+    for (let k = 0; k < 5 && out === null; k++) l.queries.serve(Infinity);
+    expect(out).toBeNull();
+    l.links.update();
+    for (let k = 0; k < 50 && out === null; k++) l.queries.serve(Infinity);
+    expect(out!.status).toBe('found');
+    expect(out!.stale).toBeUndefined();
+    expect(out!.run.waits).toBeGreaterThan(0);
+    // Through the new hole: shorter than round to the door.
+    expect(out!.cost).toBeLessThan(8);
+    // Under a graph that is never made the query waits its bound out and answers from what is made, saying so.
+    l.houseGraph.touch(0, 0, 0);
+    let late: LinkedPathAnswer | null = null;
+    l.queries.path(worldCellOf(f, ...STREET), worldCellOf(f, ...ROOM), {}, (a) => (late = a));
+    let serves = 0;
+    while (late === null && serves < WALK_QUERY_WAIT_SERVES + 100) {
+      l.queries.serve(Infinity);
+      serves++;
+    }
+    expect(late!.stale).toBe(true);
+    expect(serves).toBeGreaterThanOrEqual(WALK_QUERY_WAIT_SERVES);
   });
 
   it('costs nothing with no grid: no stamp reads give the same parts, and a section with no stamped cell is the same object', () => {

@@ -28,7 +28,7 @@
  */
 import { chunkInWorld, chunkKeyOrNone, localIndex, type CellGrid, type ChunkGrid } from './coords';
 import { OCCUPANCY } from './derived-data';
-import { DEFAULT_WALK_AGENT, NO_WALK_PIECE, buildWalkChunk, sameWalkChunk, walkChunkBytes, WalkStepper, type ChunkNavReader, type WalkChunk, type WalkChunkLookup } from './walk-graph-cells';
+import { DEFAULT_WALK_AGENT_THROUGH_SHUT, NO_WALK_PIECE, buildWalkChunk, sameWalkChunk, walkChunkBytes, WalkStepper, type ChunkNavReader, type WalkChunk, type WalkChunkLookup } from './walk-graph-cells';
 import type { DeriveOutput } from './stream-job';
 import { stampedNav, type WalkStampsUse } from './walk-graph-stamp';
 
@@ -52,6 +52,8 @@ export interface WalkExit {
   readonly b: number;
   /** The step's cost (metres). */
   readonly cost: number;
+  /** It lands in a shut door's piece: taken only by a walker through shut doors (a door's edge in the levels). */
+  readonly shut: boolean;
   alive: boolean;
   /** Its landing piece's costs from `b` to each of that piece's exits (in {@link WalkGraph.exitsOf}'s order), once worked out. */
   dists: Float64Array | null;
@@ -67,10 +69,15 @@ export const WALK_GRAPH_NEIGHBOURS: readonly (readonly [number, number, number])
 /** Each neighbour's opposite (pairs side by side in the list). */
 const opposite = (d: number): number => d ^ 1;
 
+/** The hashes of a chunk not known (it reads as free). */
+const NO_SIGS: readonly [number, number] = Object.freeze([0, 0]) as readonly [number, number];
+
 /** A chunk's links to the chunks round it. */
 interface Links {
   /** Exits toward each neighbour ({@link WALK_GRAPH_NEIGHBOURS} order). */
   readonly out: WalkExit[][];
+  /** Exits between its own pieces: into and out of a shut door's pieces (the doors' edges). */
+  inner: WalkExit[];
   /** Cells whose steps may go into each neighbour not known yet. */
   readonly frontier: number[][];
   /** Bumped whenever its exits or frontier change. */
@@ -106,6 +113,11 @@ export class WalkGraph {
   private readonly links = new Map<WalkChunk, Links>();
   private readonly dirty = new Map<number, readonly [number, number, number]>();
   private readonly dirtyPairs = new Set<WalkChunk>();
+  /** Per chunk key: the face and lower-half hashes its navigation was last read with (a chunk not known: none, 0). */
+  private readonly sigs = new Map<number, readonly [number, number]>();
+  /** Chunks an edit was sent for, by edit group, until its swap (what a query waits for: {@link stale}). */
+  private readonly editing = new Map<number, number[]>();
+  private readonly editCount = new Map<number, number>();
   private readonly exitById: (WalkExit | null)[] = [];
   private readonly freeIds: number[] = [];
   /** Ids of exits gone while a search may still hold them: free once no search runs ({@link releaseIds}). */
@@ -188,6 +200,55 @@ export class WalkGraph {
     }
   }
 
+  /**
+   * An edit was sent for cells of these chunks (its edit group): their parts read as stale ({@link stale}) until the
+   * group's swap, whose results then touch them, so a query asked between the edit and its swap waits for the new truth.
+   */
+  editSent(group: number, chunks: readonly (readonly [number, number, number])[]): void {
+    const keys: number[] = [];
+    for (const [cx, cy, cz] of chunks) {
+      const k = chunkKeyOrNone(this.view.grid, cx, cy, cz);
+      if (k < 0) continue;
+      keys.push(k);
+      this.editCount.set(k, (this.editCount.get(k) ?? 0) + 1);
+    }
+    const was = this.editing.get(group);
+    this.editing.set(group, was === undefined ? keys : [...was, ...keys]);
+  }
+
+  /** Edit groups swapped in (their chunks' results came first): their chunks no longer wait on them. */
+  editSwapped(groups: readonly number[]): void {
+    for (const gr of groups) {
+      const keys = this.editing.get(gr);
+      if (keys === undefined) continue;
+      this.editing.delete(gr);
+      for (const k of keys) {
+        const n = (this.editCount.get(k) ?? 1) - 1;
+        if (n <= 0) this.editCount.delete(k);
+        else this.editCount.set(k, n);
+      }
+    }
+  }
+
+  /**
+   * Whether a chunk's part is not current: an edit was sent for it and has not swapped in, or its results arrived,
+   * changed or left and it is not made again yet. A chunk not loaded is not stale (nothing is coming for it).
+   */
+  stale(cx: number, cy: number, cz: number): boolean {
+    const k = chunkKeyOrNone(this.view.grid, cx, cy, cz);
+    return k >= 0 && (this.dirty.has(k) || this.editCount.has(k));
+  }
+
+  /** Whether a chunk (by key) is stale ({@link stale}). */
+  staleKey(k: number): boolean {
+    return this.dirty.has(k) || this.editCount.has(k);
+  }
+
+  /** Whether any chunk is stale ({@link stale}). */
+  get anyStale(): boolean {
+    return this.dirty.size > 0 || this.editCount.size > 0;
+  }
+
   /** Chunks to make or crossings to recompute wait. */
   get pending(): boolean {
     return this.dirty.size > 0 || this.dirtyPairs.size > 0;
@@ -247,6 +308,23 @@ export class WalkGraph {
   private remake(key: number, cx: number, cy: number, cz: number): void {
     const old = this.chunks.get(key);
     const next = this.make(key, cx, cy, cz);
+    const g = this.view.grid;
+    // The chunks whose footprints or clearance read this one's navigation: made again when what they read changed.
+    const was = this.sigs.get(key) ?? NO_SIGS;
+    const now: readonly [number, number] = next === null ? NO_SIGS : [next.bandSig, next.bottomSig];
+    if (now === NO_SIGS) this.sigs.delete(key);
+    else this.sigs.set(key, now);
+    if (was[0] !== now[0]) {
+      for (let dy = -1; dy <= 0; dy++) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        if (dx === 0 && dz === 0) continue;
+        const n = this.chunks.get(chunkKeyOrNone(g, cx + dx, cy + dy, cz + dz));
+        if (n !== undefined && n.ys.length > 0) this.dirty.set(n.key, [n.cx, n.cy, n.cz]);
+      }
+    }
+    if (was[1] !== now[1]) {
+      const below = this.chunks.get(chunkKeyOrNone(g, cx, cy - 1, cz));
+      if (below !== undefined && below.ys.length > 0) this.dirty.set(below.key, [cx, cy - 1, cz]);
+    }
     if (old !== undefined && next !== null && sameWalkChunk(old, next)) {
       this.kept++;
       return;
@@ -255,16 +333,17 @@ export class WalkGraph {
     this.onPart?.(cx, cy, cz);
     if (next !== null) {
       this.chunks.set(key, next);
-      this.links.set(next, { out: WALK_GRAPH_NEIGHBOURS.map(() => []), frontier: WALK_GRAPH_NEIGHBOURS.map(() => []), version: 0, pieceExits: null, pieceFrontier: null, piecesAt: -1 });
+      const l: Links = { out: WALK_GRAPH_NEIGHBOURS.map(() => []), inner: [], frontier: WALK_GRAPH_NEIGHBOURS.map(() => []), version: 0, pieceExits: null, pieceFrontier: null, piecesAt: -1 };
+      this.links.set(next, l);
       this.cellCount += next.ys.length;
       this.pieceCount += next.pieces.length;
       this.partBytes += walkChunkBytes(next);
       this.built++;
       this.changes++;
       this.dirtyPairs.add(next);
+      l.inner = this.doorExits(next);
     }
     // Its neighbours' crossings into it (or their frontier toward it, once gone).
-    const g = this.view.grid;
     for (const [dx, dy, dz] of WALK_GRAPH_NEIGHBOURS) {
       const n = this.chunks.get(chunkKeyOrNone(g, cx + dx, cy + dy, cz + dz));
       if (n !== undefined) this.dirtyPairs.add(n);
@@ -272,6 +351,32 @@ export class WalkGraph {
     // The chunk below read its clearance into this one.
     const below = this.chunks.get(chunkKeyOrNone(g, cx, cy - 1, cz));
     if (below !== undefined && (below.dependsAbove || !below.aboveKnown)) this.dirty.set(below.key, [cx, cy - 1, cz]);
+  }
+
+  /** The steps between a chunk's own pieces into and out of its shut doors' pieces, as exits (none without a shut door). */
+  private doorExits(c: WalkChunk): WalkExit[] {
+    if (c.shut == null || !c.pieces.some((p) => p.shut)) return [];
+    const from: number[] = [];
+    const to: number[] = [];
+    const cost: number[] = [];
+    let at = 0;
+    const only: WalkChunkLookup = () => null;
+    const sink = (t: WalkChunk, j: number, k: number): void => {
+      const pj = t.piece[j]!;
+      if (t !== c || pj === NO_WALK_PIECE || pj === c.piece[at]) return;
+      from.push(at);
+      to.push(j);
+      cost.push(k);
+    };
+    for (let i = 0; i < c.ys.length; i++) {
+      // From a door's cells out, then their pairs make the way in: each crossing gives both ways.
+      if (c.shut[i] !== 1 || c.piece[i] === NO_WALK_PIECE) continue;
+      at = i;
+      this.stepper.steps(only, c, i, DEFAULT_WALK_AGENT_THROUGH_SHUT, sink);
+    }
+    if (from.length === 0) return [];
+    const [outs, backs] = this.exitsOfCrossings(c, c, from, to, cost);
+    return [...outs, ...backs];
   }
 
   /** A chunk's part from its sections' drawn results (null: some section has none: not known). */
@@ -284,14 +389,19 @@ export class WalkGraph {
     const use = this.stamps;
     const stamps = use?.stamps ?? null;
     const supports = use?.supports === true;
+    // Sections by offset from the chunk's first: its own, the chunk above's lowest, and those beside it (−1, per).
     const nav: ChunkNavReader = (sx, sy, sz) => {
+      const qx = cx + Math.floor(sx / per);
+      const qy = cy + Math.floor(sy / per);
+      const qz = cz + Math.floor(sz / per);
       const r = this.view.derivedOf(cx * per + sx, cy * per + sy, cz * per + sz, true);
-      if (r === null) return chunkInWorld(g, cx, cy + ((sy / per) | 0), cz) ? undefined : null;
+      if (r === null) return chunkInWorld(g, qx, qy, qz) ? undefined : null;
       const own = r.assembly === null ? null : r.assembly.nav;
       if (stamps === null) return own;
-      const qy = cy + ((sy / per) | 0);
-      const ly = sy % per;
-      return stampedNav(own, stamps.rooms(cx, qy, cz), supports && ly === 0 ? stamps.rooms(cx, qy - 1, cz) : null, sx * se, ly * se, sz * se, g.shift, se, supports);
+      const lx = sx - (qx - cx) * per;
+      const ly = sy - (qy - cy) * per;
+      const lz = sz - (qz - cz) * per;
+      return stampedNav(own, stamps.rooms(qx, qy, qz), supports && ly === 0 ? stamps.rooms(qx, qy - 1, qz) : null, lx * se, ly * se, lz * se, g.shift, se, supports);
     };
     const t = performance.now();
     const shut = this.shutByChunk.get(key);
@@ -311,6 +421,7 @@ export class WalkGraph {
     this.changes++;
     this.chunks.delete(c.key);
     const l = this.links.get(c)!;
+    this.kill(l.inner);
     for (let d = 0; d < WALK_GRAPH_NEIGHBOURS.length; d++) {
       this.kill(l.out[d]!);
       const [dx, dy, dz] = WALK_GRAPH_NEIGHBOURS[d]!;
@@ -402,7 +513,7 @@ export class WalkGraph {
       const cells: number[] = [];
       const none = (): void => undefined;
       each((i) => {
-        this.stepper.steps(look, c, i, DEFAULT_WALK_AGENT, none);
+        this.stepper.steps(look, c, i, DEFAULT_WALK_AGENT_THROUGH_SHUT, none);
         if (this.stepper.unknown) cells.push(i);
       });
       l.frontier[d] = cells;
@@ -421,7 +532,7 @@ export class WalkGraph {
     };
     each((i) => {
       at = i;
-      this.stepper.steps(look, c, i, DEFAULT_WALK_AGENT, sink);
+      this.stepper.steps(look, c, i, DEFAULT_WALK_AGENT_THROUGH_SHUT, sink);
     });
     if (from.length === 0) return;
     const [outs, backs] = this.exitsOfCrossings(c, n, from, to, cost);
@@ -482,7 +593,7 @@ export class WalkGraph {
 
   private newExit(from: WalkChunk, a: number, to: WalkChunk, b: number, cost: number): WalkExit {
     const id = this.freeIds.pop() ?? this.exitById.length;
-    const x: WalkExit = { id, from, fromPiece: from.piece[a]!, a, to, toPiece: to.piece[b]!, b, cost, alive: true, dists: null, distsAt: -1 };
+    const x: WalkExit = { id, from, fromPiece: from.piece[a]!, a, to, toPiece: to.piece[b]!, b, cost, shut: to.pieces[to.piece[b]!]!.shut, alive: true, dists: null, distsAt: -1 };
     this.exitById[id] = x;
     this.exitCount++;
     this.changes++;
@@ -547,6 +658,7 @@ export class WalkGraph {
       const ex: WalkExit[][] = c.pieces.map(() => []);
       const fr: number[][] = c.pieces.map(() => []);
       for (const list of l.out) for (const x of list) ex[x.fromPiece]!.push(x);
+      for (const x of l.inner) ex[x.fromPiece]!.push(x);
       for (const list of l.frontier) for (const i of list) fr[c.piece[i]!]!.push(i);
       l.pieceExits = ex;
       l.pieceFrontier = fr;
@@ -588,6 +700,9 @@ export class WalkGraph {
     }
     this.chunks.clear();
     this.links.clear();
+    this.sigs.clear();
+    this.editing.clear();
+    this.editCount.clear();
     this.dirty.clear();
     this.dirtyPairs.clear();
     this.exitById.length = 0;

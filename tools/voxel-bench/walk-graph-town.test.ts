@@ -67,7 +67,8 @@ describe('walk graph on the town', () => {
     const up = ask(g, room, upper, { flatFirst: 0 });
     expect(up.status).toBe('found');
     const stairs = cellsOf(up).filter(([x, y, z]) => y > 1 && y < STOREY + 1 && x >= at(1, 0, 0)[0] && x <= at(2, 0, 0)[0] && z >= at(0, 0, 2)[2] && z <= at(0, 0, 6)[2]);
-    expect(stairs.length).toBe(STOREY - 1);
+    // Every rise of the flight walked once (a two-cell walker may step aside on a stair's first or last step).
+    expect(new Set(stairs.map(([, y]) => y)).size).toBe(STOREY - 1);
     console.log(`[walk graph town] room → street ${out.cost.toFixed(2)} m (one A* ${flat.cost.toFixed(2)}), ${JSON.stringify(out.run)} / ${JSON.stringify(flat.run)}; room → upper floor ${up.cost.toFixed(2)} m ${JSON.stringify(up.run)}`);
   });
 

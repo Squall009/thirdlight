@@ -27,17 +27,36 @@
  *   walker's head over the ledge. A drop goes one way.
  * The cost of a step is the distance between the cells' centres (metres).
  *
- * **The walker** is a column of cells: a height in cells (default
- * {@link NAV_CLEARANCE_CELLS}, 2 m) and a footprint inside one cell, so a
- * radius up to half a cell (0.25 m): a diagonal passes the corner of four
- * free columns, which a disc that wide stays inside. A wider walker would
- * need clearance over several columns, which this graph does not keep.
+ * **The walker** is a column of cells `height` tall standing on a square
+ * of columns `span` cells across (its footprint): a disc of radius up to
+ * `span` / 2 cells fits inside the square, so a radius r stands on
+ * ceil(2r / cell) cells ({@link walkSpanOf}). It stands at a cell where its
+ * own column has its height free and every other column of its footprint is
+ * free from one cell over the floor to its head: a column of the footprint may
+ * hold a step's cell at the floor's own height (as the walker may step onto
+ * it), never more. The footprint is the cell's column and, for a wider span,
+ * the columns round it: from `(span − 1) >> 1` columns back to `span >> 1`
+ * forward on x and on z, so an even span's middle is the corner a half-cell
+ * forward on both (where a waypoint puts it) and a 2-cell walker passes a door
+ * two cells wide with its middle on the door's. That square holds the disc
+ * wherever the walker's middle is on the way between two cells it steps
+ * between (a straight step sweeps the two footprints' union; a diagonal needs
+ * both columns beside it walked, so the four footprints' union holds its
+ * sweep): the rule keeps every answer conservative, never a way through a gap
+ * the disc cannot pass. Each standable cell keeps its footprint clearance for
+ * spans 2 … {@link WALK_SPAN_MAX} (a byte each: the least of the footprint's
+ * free runs, from columns read across the chunk's faces too), so a step reads
+ * one number for any span. A column of a chunk not known yet counts as free,
+ * as the chunk above does for the clearance, and the chunk is made again when
+ * one beside it arrives or changes at its faces ({@link WalkChunk.bandSig}).
  *
  * **Pieces**: a chunk's cells joined by steps inside the chunk, for the
  * default walker (no drops: steps go both ways), are its pieces, the coarse
- * level of the walk graph (walk-graph.ts). A cell whose clearance is below
- * the default height is in no piece (a shorter walker reaches it through the
- * cell level alone).
+ * level of the walk graph (walk-graph.ts). A cell whose footprint
+ * clearance is below the default walker's is in no piece (a shorter or
+ * narrower walker reaches it through the cell level alone). The cells of a
+ * shut door's opening are pieces of their own, flagged `shut`: the door's
+ * edges in the levels, taken only by a walker through shut doors.
  */
 import { NAV_CLEARANCE_CELLS, OCCUPANCY, type NavOut } from './derived-data';
 
@@ -50,18 +69,48 @@ export const WALK_STEP_CELLS = 1;
 /** No piece (a cell whose clearance is below the default walker's height). */
 export const NO_WALK_PIECE = 0xffff;
 
+/**
+ * The widest footprint the graph keeps clearance for (cells across): 2 m, a walker up to 1 m in radius (a cart, a
+ * large creature); a wider one would need a coarser graph, not more bytes a cell.
+ */
+export const WALK_SPAN_MAX = 4;
+
+/** Bytes of footprint clearance a cell keeps: one a span from 2 to {@link WALK_SPAN_MAX}. */
+const WIDE = WALK_SPAN_MAX - 1;
+
+/** Columns a footprint reaches back from its cell, and forward (the widest span's). */
+const FOOT_BACK = (WALK_SPAN_MAX - 1) >> 1;
+const FOOT_FWD = WALK_SPAN_MAX >> 1;
+
+/** The span (cells across) a walker of `radiusM` metres stands on: the least square of cells its disc fits in (null: wider than the graph keeps). */
+export function walkSpanOf(radiusM: number, cellM: number): number | null {
+  const span = Math.max(1, Math.ceil((2 * radiusM) / cellM - 1e-9));
+  return span > WALK_SPAN_MAX ? null : span;
+}
+
+/** Where a walker of `span` stands from its cell's middle (cells, forward on x and on z): an even span stands on the corner. */
+export function walkSpanOffset(span: number): number {
+  return span % 2 === 0 ? 0.5 : 0;
+}
+
 /** A walker's shape and what it may do (cells). */
 export interface WalkAgent {
   /** Height in cells (1 … {@link WALK_CLEARANCE_MAX}). */
   readonly height: number;
   /** The deepest drop it walks off (cells; below 2: none). */
   readonly maxDrop: number;
+  /** Cells across its square footprint (1 … {@link WALK_SPAN_MAX}; the module comment). */
+  readonly span: number;
   /** It steps into cells behind a shut door too (a game whose characters open doors); absent: it does not. */
   readonly throughShut?: boolean;
 }
 
-/** The walker the pieces are made for: 2 m tall, no drops. */
-export const DEFAULT_WALK_AGENT: WalkAgent = Object.freeze({ height: NAV_CLEARANCE_CELLS, maxDrop: 0 });
+/**
+ * The walker the pieces are made for: 2 m tall, no drops, two cells (1 m) across, so a disc up to 0.5 m in radius:
+ * the engine's default character (project-model `DEFAULT_CONTROLLER_CAPSULE`, 0.3 m, which the walk queries take
+ * as their default radius; the runtime's tests hold the two together) stands on two cells.
+ */
+export const DEFAULT_WALK_AGENT: WalkAgent = Object.freeze({ height: NAV_CLEARANCE_CELLS, maxDrop: 0, span: 2 });
 
 /** A piece of a chunk (its cells joined by steps inside it); what the stitching adds to it is walk-graph.ts's. */
 export interface WalkPieceBase {
@@ -69,6 +118,8 @@ export interface WalkPieceBase {
   readonly index: number;
   /** Its cells. */
   readonly cells: number;
+  /** Its cells stand in a shut door's opening: a walker through shut doors alone steps into it. */
+  readonly shut: boolean;
 }
 
 /** One chunk's part of the walk graph. */
@@ -85,8 +136,17 @@ export interface WalkChunk {
   readonly ys: Uint8Array;
   readonly col: Uint16Array;
   readonly clear: Uint8Array;
+  /** Per cell, its footprint clearance for spans 2 … {@link WALK_SPAN_MAX} ({@link clearOf}). */
+  readonly wide: Uint8Array;
   readonly piece: Uint16Array;
   readonly pieces: WalkPieceBase[];
+  /**
+   * A hash of the blocking of its own columns on its faces (the two first and the last on x and on z: what the
+   * footprints of the chunks beside it read), 0 where all are free (as a chunk not known reads); and of its lower half
+   * (what the clearance of the chunk below reads). A chunk made again whose hash changed has those chunks made again.
+   */
+  readonly bandSig: number;
+  readonly bottomSig: number;
   /** Some cell's free run reached the chunk's top before the clearance's end: the chunk above's cells count. */
   readonly dependsAbove: boolean;
   /** Whether the chunk above was known when it was made (what its clearance read there). */
@@ -109,44 +169,137 @@ export type SectionNav = NavOut | null | undefined;
  */
 export type ChunkNavReader = (sx: number, sy: number, sz: number) => SectionNav;
 
-function navBlocksAt(nav: SectionNav, i: number): boolean {
-  if (nav == null) return false;
-  if (nav.blocking === OCCUPANCY.empty) return false;
-  if (nav.blocking === OCCUPANCY.solid) return true;
-  return ((nav.blocks![i >>> 5]! >>> (i & 31)) & 1) === 1;
-}
-
 /** Column starts of a part with no cells, by edge: one array every such part shares (never written). */
 const EMPTY_COLUMNS = new Map<number, Uint16Array>();
 const NO_BYTES = new Uint8Array(0);
 const NO_WORDS = new Uint16Array(0);
 
 /** An empty part (a known chunk where nothing stands): most of a ring (rock below, air above), so it holds no arrays of its own. */
-export function emptyWalkChunk(cx: number, cy: number, cz: number, key: number, edge: number): WalkChunk {
+export function emptyWalkChunk(cx: number, cy: number, cz: number, key: number, edge: number, bandSig = 0, bottomSig = 0): WalkChunk {
   let cols = EMPTY_COLUMNS.get(edge);
   if (cols === undefined) EMPTY_COLUMNS.set(edge, (cols = new Uint16Array(edge * edge + 1)));
-  return { cx, cy, cz, key, edge, colStart: cols, ys: NO_BYTES, col: NO_WORDS, clear: NO_BYTES, piece: NO_WORDS, pieces: [], dependsAbove: false, aboveKnown: true, alive: true };
+  return { cx, cy, cz, key, edge, colStart: cols, ys: NO_BYTES, col: NO_WORDS, clear: NO_BYTES, wide: NO_BYTES, piece: NO_WORDS, pieces: [], bandSig, bottomSig, dependsAbove: false, aboveKnown: true, alive: true };
+}
+
+/** Bits a..b−1 of a 32-bit word (0 ≤ a < b ≤ 32). */
+const bitRange = (a: number, b: number): number => ((b >= 32 ? 0xffffffff : (1 << b) - 1) & ~((1 << a) - 1)) >>> 0;
+
+/**
+ * Blocking bits by column over a chunk and a band of columns round it: a column's cells from the chunk's floor up
+ * through the clearance's reach over its top (`edge` + {@link WALK_CLEARANCE_MAX} bits, low word then high), one bit a
+ * blocking cell; a section not known adds none (free).
+ */
+class ColumnBits {
+  readonly lo: Uint32Array;
+  readonly hi: Uint32Array;
+  /** Columns along an axis: the chunk's and the band's. */
+  readonly width: number;
+
+  constructor(
+    readonly edge: number,
+    /** Band columns round the chunk (back, forward). */
+    readonly back: number,
+    readonly fwd: number,
+  ) {
+    this.width = edge + back + fwd;
+    this.lo = new Uint32Array(this.width * this.width);
+    this.hi = new Uint32Array(this.width * this.width);
+  }
+
+  /** A column's index (chunk-local x, z; the band's are negative or past the edge). */
+  col(x: number, z: number): number {
+    return (x + this.back) * this.width + z + this.back;
+  }
+
+  /** Adds a section's blocking cells (`sx`, `sy`, `sz`: its offset from the chunk's first section, in sections). */
+  add(n: SectionNav, sx: number, sy: number, sz: number, se: number): void {
+    if (n == null || n.blocking === OCCUPANCY.empty) return;
+    const y0 = sy * se;
+    const top = this.edge + WALK_CLEARANCE_MAX;
+    if (y0 >= top) return;
+    const x0 = Math.max(sx * se, -this.back);
+    const x1 = Math.min(sx * se + se, this.edge + this.fwd);
+    const z0 = Math.max(sz * se, -this.back);
+    const z1 = Math.min(sz * se + se, this.edge + this.fwd);
+    const yEnd = Math.min(y0 + se, top);
+    const solid = n.blocking === OCCUPANCY.solid;
+    const words = 32 % se === 0 && yEnd - y0 === se && (y0 % 32) + se <= 32;
+    for (let x = x0; x < x1; x++) for (let z = z0; z < z1; z++) {
+      const c = this.col(x, z);
+      if (solid) {
+        this.set(c, y0, yEnd);
+        continue;
+      }
+      const base = ((x - sx * se) * se + (z - sz * se)) * se;
+      if (words) {
+        // A column's cells of a section are one run of bits of its blocking words: moved in at once.
+        const bits = (n.blocks![base >>> 5]! >>> (base & 31)) & (se === 32 ? 0xffffffff : (1 << se) - 1);
+        if (bits === 0) continue;
+        if (y0 < 32) this.lo[c] = (this.lo[c]! | (bits << y0)) >>> 0;
+        else this.hi[c] = (this.hi[c]! | (bits << (y0 - 32))) >>> 0;
+        continue;
+      }
+      for (let y = y0; y < yEnd; y++) {
+        const i = base + y - y0;
+        if (((n.blocks![i >>> 5]! >>> (i & 31)) & 1) === 1) this.set(c, y, y + 1);
+      }
+    }
+  }
+
+  private set(c: number, a: number, b: number): void {
+    if (a < 32) this.lo[c] = (this.lo[c]! | bitRange(a, Math.min(b, 32))) >>> 0;
+    if (b > 32) this.hi[c] = (this.hi[c]! | bitRange(Math.max(a, 32) - 32, b - 32)) >>> 0;
+  }
+
+  /** Free cells in a column from cell `s` upward (s ≤ 32), at most `cap`. */
+  run(c: number, s: number, cap: number): number {
+    const w = s === 0 ? this.lo[c]! : s < 32 ? (this.lo[c]! >>> s) | (this.hi[c]! << (32 - s)) : this.hi[c]! >>> (s - 32);
+    if (w === 0) return cap;
+    const t = 31 - Math.clz32(w & -w);
+    return t < cap ? t : cap;
+  }
+
+  /**
+   * The hashes {@link WalkChunk.bandSig} and {@link WalkChunk.bottomSig} of the chunk's own columns: 0 where every
+   * column read is free, so a chunk not known and an all-air one agree.
+   */
+  sigs(): [number, number] {
+    const e = this.edge;
+    let band = 0;
+    let bottom = 0;
+    for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
+      const w = this.lo[this.col(x, z)]!;
+      if (w === 0) continue;
+      const k = x * e + z;
+      if (x < 2 || z < 2 || x === e - 1 || z === e - 1) band = Math.imul(band ^ Math.imul(k + 1, 0x9e3779b1) ^ w, 16777619) >>> 0 || 1;
+      const low = w & 0xffff;
+      if (low !== 0) bottom = Math.imul(bottom ^ Math.imul(k + 1, 0x85ebca6b) ^ low, 16777619) >>> 0 || 1;
+    }
+    return [band, bottom];
+  }
 }
 
 /**
- * A chunk's part from its sections' navigation (`nav`): its standable cells by column with their clearance, and its
- * pieces for the default walker. `se`: the section edge; the chunk has `edge / se` sections an axis.
+ * A chunk's part from its sections' navigation (`nav`): its standable cells by column with their clearance and
+ * footprint clearances, and its pieces for the default walker. `se`: the section edge; the chunk has `edge / se`
+ * sections an axis; `nav` is also asked for the sections beside it (offsets −1 and `edge / se`), whose columns the
+ * footprints of its cells on its faces read.
  */
 export function buildWalkChunk(cx: number, cy: number, cz: number, key: number, edge: number, se: number, nav: ChunkNavReader, shutAt: ((x: number, y: number, z: number) => boolean) | null = null): WalkChunk {
   const per = edge / se;
-  const navs: SectionNav[] = [];
   // Own sections, then the chunk above's lowest layer (the clearance reads at most WALK_CLEARANCE_MAX cells past the top).
   const layers = per + Math.ceil(WALK_CLEARANCE_MAX / se);
-  for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) for (let sy = 0; sy < layers; sy++) navs[(sx * per + sz) * layers + sy] = nav(sx, sy, sz);
+  const side = per + 2;
+  const navs: SectionNav[] = new Array(side * side * layers);
+  const at = (sx: number, sy: number, sz: number): number => ((sx + 1) * side + (sz + 1)) * layers + sy;
+  for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) for (let sy = 0; sy < layers; sy++) navs[at(sx, sy, sz)] = nav(sx, sy, sz);
   let aboveKnown = true;
-  for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) for (let sy = per; sy < layers; sy++) if (navs[(sx * per + sz) * layers + sy] === undefined) aboveKnown = false;
-  const navAt = (x: number, y: number, z: number): SectionNav => navs[(((x / se) | 0) * per + ((z / se) | 0)) * layers + ((y / se) | 0)];
-  const local = (x: number, y: number, z: number): number => ((x % se) * se + (z % se)) * se + (y % se);
+  for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) for (let sy = per; sy < layers; sy++) if (navs[at(sx, sy, sz)] === undefined) aboveKnown = false;
   // Count each column's standable cells, then place them upward.
   const counts = new Uint16Array(edge * edge + 1);
   let total = 0;
   for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) for (let sy = 0; sy < per; sy++) {
-    const n = navs[(sx * per + sz) * layers + sy];
+    const n = navs[at(sx, sy, sz)];
     if (n == null) continue;
     for (const i of n.standable) {
       const x = sx * se + ((i / (se * se)) | 0);
@@ -155,17 +308,33 @@ export function buildWalkChunk(cx: number, cy: number, cz: number, key: number, 
       total++;
     }
   }
-  if (total === 0) return emptyWalkChunk(cx, cy, cz, key, edge);
+  const bits = new ColumnBits(edge, total === 0 ? 0 : FOOT_BACK, total === 0 ? 0 : FOOT_FWD);
+  for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) for (let sy = 0; sy < layers; sy++) bits.add(navs[at(sx, sy, sz)], sx, sy, sz, se);
+  if (total === 0) {
+    const [band, bottom] = bits.sigs();
+    return emptyWalkChunk(cx, cy, cz, key, edge, band, bottom);
+  }
+  // The band of columns beside the chunk its footprints read: only a chunk where something stands asks for them.
+  for (let sx = -1; sx <= per; sx++) for (let sz = -1; sz <= per; sz++) {
+    if (sx >= 0 && sx < per && sz >= 0 && sz < per) continue;
+    for (let sy = 0; sy < layers; sy++) {
+      const n = nav(sx, sy, sz);
+      navs[at(sx, sy, sz)] = n;
+      bits.add(n, sx, sy, sz, se);
+    }
+  }
+  const [bandSig, bottomSig] = bits.sigs();
   const colStart = new Uint16Array(edge * edge + 1);
   for (let c = 0; c < edge * edge; c++) colStart[c + 1] = colStart[c]! + counts[c]!;
   const fill = colStart.slice(0, edge * edge);
   const ys = new Uint8Array(total);
   const col = new Uint16Array(total);
   const clear = new Uint8Array(total);
+  const wide = new Uint8Array(total * WIDE);
   let dependsAbove = false;
   // Sections upward, so a column's cells land in rising y.
   for (let sy = 0; sy < per; sy++) for (let sx = 0; sx < per; sx++) for (let sz = 0; sz < per; sz++) {
-    const n = navs[(sx * per + sz) * layers + sy];
+    const n = navs[at(sx, sy, sz)];
     if (n == null) continue;
     for (const i of n.standable) {
       const x = sx * se + ((i / (se * se)) | 0);
@@ -175,10 +344,24 @@ export function buildWalkChunk(cx: number, cy: number, cz: number, key: number, 
       const k = fill[c]!++;
       ys[k] = y;
       col[k] = c;
-      let free = 0;
-      while (free < WALK_CLEARANCE_MAX && !navBlocksAt(navAt(x, y + free, z), local(x, y + free, z))) free++;
+      const free = bits.run(bits.col(x, z), y, WALK_CLEARANCE_MAX);
       if (free < WALK_CLEARANCE_MAX ? y + free >= edge : y + WALK_CLEARANCE_MAX > edge) dependsAbove = true;
       clear[k] = free;
+      // Each wider footprint: the narrower one's least, and the free runs over the floor of the columns it adds.
+      let least = free;
+      for (let span = 2; span <= WALK_SPAN_MAX; span++) {
+        const back = (span - 1) >> 1;
+        const fwd = span >> 1;
+        const pb = (span - 2) >> 1;
+        const pf = (span - 1) >> 1;
+        for (let ox = -back; ox <= fwd; ox++) for (let oz = -back; oz <= fwd; oz++) {
+          if (ox >= -pb && ox <= pf && oz >= -pb && oz <= pf) continue;
+          const r = 1 + bits.run(bits.col(x + ox, z + oz), y + 1, WALK_CLEARANCE_MAX - 1);
+          if (y + r >= edge) dependsAbove = true;
+          if (r < least) least = r;
+        }
+        wide[k * WIDE + span - 2] = least;
+      }
     }
   }
   let shut: Uint8Array | null = null;
@@ -188,9 +371,14 @@ export function buildWalkChunk(cx: number, cy: number, cz: number, key: number, 
       if (shutAt((c / edge) | 0, ys[k]!, c % edge)) (shut ??= new Uint8Array(total))[k] = 1;
     }
   }
-  const chunk: WalkChunk = { cx, cy, cz, key, edge, colStart, ys, col, clear, piece: new Uint16Array(total).fill(NO_WALK_PIECE), pieces: [], dependsAbove, aboveKnown, shut, alive: true };
+  const chunk: WalkChunk = { cx, cy, cz, key, edge, colStart, ys, col, clear, wide, piece: new Uint16Array(total).fill(NO_WALK_PIECE), pieces: [], bandSig, bottomSig, dependsAbove, aboveKnown, shut, alive: true };
   labelPieces(chunk);
   return chunk;
+}
+
+/** A cell's clearance for a walker `span` cells across: its own column's for one, else its footprint's. */
+export function clearOf(c: WalkChunk, i: number, span: number): number {
+  return span <= 1 ? c.clear[i]! : c.wide[i * WIDE + span - 2]!;
 }
 
 /** The cell of a chunk at local (x, y, z) that is standable (−1: none). */
@@ -246,7 +434,8 @@ export class WalkStepper {
   steps(look: WalkChunkLookup, c: WalkChunk, i: number, agent: WalkAgent, sink: WalkStepSink): void {
     this.unknown = false;
     const h = agent.height;
-    const ca = c.clear[i]!;
+    const w = agent.span;
+    const ca = clearOf(c, i, w);
     if (ca < h) return;
     const e = c.edge;
     const colI = c.col[i]!;
@@ -275,7 +464,7 @@ export class WalkStepper {
         }
         if (t === null) continue;
         const j = standableIn(t, tx - t.cx * e, ty - t.cy * e, tz - t.cz * e);
-        if (j < 0 || !stepFits(ca, t.clear[j]!, dy, h)) continue;
+        if (j < 0 || !stepFits(ca, clearOf(t, j, w), dy, h)) continue;
         if (t.shut?.[j] === 1 && agent.throughShut !== true) {
           found = true;
           continue;
@@ -303,12 +492,14 @@ export class WalkStepper {
         const dy = k === 0 ? 0 : k === 1 ? 1 : -1;
         if (ly + dy < 0 || ly + dy >= e) continue;
         const j = standableIn(c, lx + dx, ly + dy, lz + dz);
-        if (j < 0 || !stepFits(ca, c.clear[j]!, dy, h)) continue;
+        if (j < 0) continue;
+        const cj = clearOf(c, j, w);
+        if (!stepFits(ca, cj, dy, h)) continue;
         if (c.shut?.[j] === 1 && agent.throughShut !== true) break;
         // Each straight neighbour on to the diagonal's end: the same rule from where its step landed.
         const ja = this.orthoCell[oa]!;
         const jb = this.orthoCell[ob]!;
-        if (!stepFits(c.clear[ja]!, c.clear[j]!, dy - this.orthoDy[oa]!, h) || !stepFits(c.clear[jb]!, c.clear[j]!, dy - this.orthoDy[ob]!, h)) break;
+        if (!stepFits(clearOf(c, ja, w), cj, dy - this.orthoDy[oa]!, h) || !stepFits(clearOf(c, jb, w), cj, dy - this.orthoDy[ob]!, h)) break;
         sink(c, j, s * Math.sqrt(2 + dy * dy));
         break;
       }
@@ -333,7 +524,7 @@ export class WalkStepper {
       if (j < 0) continue;
       // The first floor below decides: the column must be free from it to the walker's head over the ledge.
       if (t.shut?.[j] === 1 && agent.throughShut !== true) return;
-      if (t.clear[j]! >= k + agent.height) sink(t, j, this.cellM * Math.sqrt(1 + k * k));
+      if (clearOf(t, j, agent.span) >= k + agent.height) sink(t, j, this.cellM * Math.sqrt(1 + k * k));
       return;
     }
   }
@@ -348,28 +539,42 @@ export class WalkStepper {
   }
 }
 
-/** The pieces of a chunk: its cells joined by the default walker's steps inside it (a flood a piece). */
+/** The default walker through shut doors: what floods a shut door's cells into their pieces and makes the door's edges. */
+export const DEFAULT_WALK_AGENT_THROUGH_SHUT: WalkAgent = Object.freeze({ ...DEFAULT_WALK_AGENT, throughShut: true });
+
+/**
+ * The pieces of a chunk: its cells joined by the default walker's steps inside it (a flood a piece); then the cells
+ * of shut doors' openings joined among themselves, pieces flagged `shut`.
+ */
 function labelPieces(c: WalkChunk): void {
   const stepper = new WalkStepper(1);
   const only: WalkChunkLookup = () => null;
   const queue = new Int32Array(c.ys.length);
   let id = 0;
   let tail = 0;
+  let shutOnly = false;
   const sink: WalkStepSink = (_t, j) => {
-    if (c.piece[j] !== NO_WALK_PIECE) return;
+    if (c.piece[j] !== NO_WALK_PIECE || (shutOnly && c.shut?.[j] !== 1)) return;
     c.piece[j] = id;
     queue[tail++] = j;
   };
   const pieces = c.pieces;
-  for (let seed = 0; seed < c.ys.length; seed++) {
-    if (c.piece[seed] !== NO_WALK_PIECE || c.clear[seed]! < DEFAULT_WALK_AGENT.height || c.shut?.[seed] === 1) continue;
-    id = pieces.length;
-    c.piece[seed] = id;
-    let head = 0;
-    tail = 0;
-    queue[tail++] = seed;
-    while (head < tail) stepper.steps(only, c, queue[head++]!, DEFAULT_WALK_AGENT, sink);
-    pieces.push({ chunk: c, index: id, cells: tail });
+  const h = DEFAULT_WALK_AGENT.height;
+  const w = DEFAULT_WALK_AGENT.span;
+  for (const pass of [false, true]) {
+    if (pass && c.shut == null) break;
+    shutOnly = pass;
+    const agent = pass ? DEFAULT_WALK_AGENT_THROUGH_SHUT : DEFAULT_WALK_AGENT;
+    for (let seed = 0; seed < c.ys.length; seed++) {
+      if (c.piece[seed] !== NO_WALK_PIECE || clearOf(c, seed, w) < h || (c.shut?.[seed] === 1) !== pass) continue;
+      id = pieces.length;
+      c.piece[seed] = id;
+      let head = 0;
+      tail = 0;
+      queue[tail++] = seed;
+      while (head < tail) stepper.steps(only, c, queue[head++]!, agent, sink);
+      pieces.push({ chunk: c, index: id, cells: tail, shut: pass });
+    }
   }
 }
 
@@ -383,7 +588,7 @@ export function walkCellOf(c: WalkChunk, i: number): [number, number, number] {
 /** Bytes a part holds (its arrays; the pieces' objects at a rough 64 bytes each; an empty part its object alone). */
 export function walkChunkBytes(c: WalkChunk): number {
   if (c.ys.length === 0) return 96;
-  return c.colStart.byteLength + c.ys.byteLength + c.col.byteLength + c.clear.byteLength + c.piece.byteLength + c.pieces.length * 64;
+  return c.colStart.byteLength + c.ys.byteLength + c.col.byteLength + c.clear.byteLength + c.wide.byteLength + c.piece.byteLength + c.pieces.length * 64;
 }
 
 /** Whether two parts hold the same cells, clearances and pieces (a chunk made again with no change stands). */
@@ -391,5 +596,6 @@ export function sameWalkChunk(a: WalkChunk, b: WalkChunk): boolean {
   if (a.ys.length !== b.ys.length || a.pieces.length !== b.pieces.length) return false;
   for (let k = 0; k < a.colStart.length; k++) if (a.colStart[k] !== b.colStart[k]) return false;
   for (let k = 0; k < a.ys.length; k++) if (a.ys[k] !== b.ys[k] || a.clear[k] !== b.clear[k] || a.piece[k] !== b.piece[k] || (a.shut?.[k] ?? 0) !== (b.shut?.[k] ?? 0)) return false;
+  for (let k = 0; k < a.wide.length; k++) if (a.wide[k] !== b.wide[k]) return false;
   return true;
 }

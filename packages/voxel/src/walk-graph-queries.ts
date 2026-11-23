@@ -25,18 +25,32 @@
  * - **The graph changes under a query** (chunks arrive, edits land): a query
  *   whose search read a part since made again starts over, as does one whose
  *   route used an exit since gone.
+ * - **A query reads the world as it is.** A search that reads a chunk whose
+ *   part is not current (an edit sent for it and not swapped in, or results
+ *   arrived and not made yet: `WalkGraph.stale`) stops and waits until every
+ *   such chunk it read is made, then starts over, so a path asked in the step
+ *   of a dig goes through the hole. Chunks not loaded are not waited for (the
+ *   answer past them stays `unknown`). A query waits at most
+ *   {@link WALK_QUERY_WAIT_SERVES} serves in all; past that it runs on what is
+ *   made and its answer says `stale`.
+ * - **The walker's width** (`span`, cells across: walk-graph-cells.ts) is
+ *   read by every step; the levels are the default walker's (2 m, two cells
+ *   across), with shut doors as flagged edges a walker through shut doors
+ *   takes; any other walker searches over the cells alone.
  * - **Bounded.** A query's `maxNodes` (none by default) ends it `partial`,
  *   with the path to where it got closest.
  */
 import { PathSearch, type SearchGraph } from '@thirdlight/shared';
 import { NAV_CLEARANCE_CELLS } from './derived-data';
-import { DEFAULT_WALK_AGENT, NO_WALK_PIECE, standableIn, WALK_CLEARANCE_MAX, WalkStepper, type WalkAgent, type WalkChunk } from './walk-graph-cells';
+import { clearOf, DEFAULT_WALK_AGENT, DEFAULT_WALK_AGENT_THROUGH_SHUT, NO_WALK_PIECE, standableIn, WALK_CLEARANCE_MAX, WALK_SPAN_MAX, WalkStepper, type WalkAgent, type WalkChunk, type WalkChunkLookup } from './walk-graph-cells';
 import type { WalkExit, WalkGraph } from './walk-graph';
 
 /** How a query walks (cells). */
 export interface WalkQueryOptions {
   /** The walker's height (cells; default {@link NAV_CLEARANCE_CELLS}). */
   readonly height?: number;
+  /** Cells across its footprint (1 … {@link WALK_SPAN_MAX}; default the default walker's, two). */
+  readonly span?: number;
   /** The deepest drop it walks off (cells; default 0: none). */
   readonly maxDrop?: number;
   /** At most this many nodes expanded (default: no bound); past it the answer is `partial`. */
@@ -56,9 +70,14 @@ export interface WalkQueryOptions {
   readonly exitCosts?: 'straight' | 'walk';
   /**
    * Doors whose portal is shut to walkers: `open-only` (default) the path goes round them or finds none; `shut-too` it
-   * goes through them (a game whose characters open doors), over the cells alone.
+   * goes through them (a game whose characters open doors).
    */
   readonly doors?: 'open-only' | 'shut-too';
+  /**
+   * Serves it may still wait for chunks it reads to be made (default {@link WALK_QUERY_WAIT_SERVES}): a query made of
+   * legs (a path across structure grids) gives each leg what its legs before it left.
+   */
+  readonly waitServes?: number;
 }
 
 /**
@@ -67,6 +86,14 @@ export interface WalkQueryOptions {
  * the cells alone; one that is not found by then is long, and the levels bound it.
  */
 export const FLAT_FIRST_NODES = 2048;
+
+/**
+ * Serves a query spends waiting, in all, for chunks it read to be made ({@link WalkGraph.stale}): an edit's swap and
+ * the walk graph's making take a few steps (a dig's swap 50–100 ms, its chunks the next derive slice), so this is
+ * several seconds at the 30 Hz cap; past it a query under edits that never stop answers on what is made, marked
+ * `stale`.
+ */
+export const WALK_QUERY_WAIT_SERVES = 90;
 
 /** How a query ended. */
 export type WalkStatus = 'found' | 'partial' | 'unreachable' | 'unknown';
@@ -82,6 +109,9 @@ export interface WalkQueryCost {
   readonly ms: number;
   /** Times it started over because the graph changed under it. */
   readonly restarts: number;
+  /** Times it stopped to wait for chunks it read to be made, and the serves it waited. */
+  readonly waits: number;
+  readonly waited: number;
 }
 
 /** A path query's answer (cells: world cells, x y z flat, the standable cells walked, from start to end). */
@@ -96,6 +126,10 @@ export interface WalkPathAnswer {
   readonly hierarchy: boolean;
   /** Pieces on the first level's route (0 without it). */
   readonly corridor: number;
+  /** The walker's span (cells across): an even one stands on its cell's corner ({@link walkSpanOffset}). */
+  readonly span: number;
+  /** It waited its bound out and read chunks not made yet: the answer is the graph's as it was. */
+  readonly stale?: true;
   readonly run: WalkQueryCost;
 }
 
@@ -108,8 +142,12 @@ export interface WalkReachAnswer {
   /** The box of the cells (world cells, inclusive; null: none). */
   readonly min: readonly [number, number, number] | null;
   readonly max: readonly [number, number, number] | null;
-  /** The cells (x y z flat), when the query asked for them. */
+  /** The cells (x y z flat), when the query asked for them, and each one's cost walked (metres). */
   readonly cells: Int32Array | null;
+  readonly costs: Float64Array | null;
+  /** The walker's span (cells across). */
+  readonly span: number;
+  readonly stale?: true;
   readonly run: WalkQueryCost;
 }
 
@@ -143,14 +181,25 @@ class CellSpace implements SearchGraph {
   /** The most cost a frontier node counts at (a reach's limit). */
   frontierCost = Infinity;
   costOf: ((node: number) => number) | null = null;
+  /** A reach from several cells: their ids and costs, stepped to from {@link virtualStart} (null: one start). */
+  seeds: (readonly [number, number])[] | null = null;
+  /** The node a search from several cells starts at (an id no part is given). */
+  readonly virtualStart = 0x7ffffffe;
 
   private readonly cellM: number;
+  /** The graph's lookup, noting chunks read whose parts are not current ({@link WalkQueries.saw}). */
+  readonly look: WalkChunkLookup;
 
   constructor(
     private readonly graph: WalkGraph,
     private readonly stepper: WalkStepper,
+    saw: (cx: number, cy: number, cz: number) => void,
   ) {
     this.cellM = graph.cellM;
+    this.look = (cx, cy, cz) => {
+      saw(cx, cy, cz);
+      return graph.lookup(cx, cy, cz);
+    };
     this.sink = (t, j, cost) => {
       const c = this.corridor;
       if (c !== null && c.get(t)?.has(t.piece[j]!) !== true) return;
@@ -168,6 +217,7 @@ class CellSpace implements SearchGraph {
     this.frontierD = Infinity;
     this.frontierCost = Infinity;
     this.costOf = null;
+    this.seeds = null;
   }
 
   idOf(c: WalkChunk, i: number): number {
@@ -211,11 +261,15 @@ class CellSpace implements SearchGraph {
   };
 
   steps(node: number, step: (to: number, cost: number) => void): void {
+    if (node === this.virtualStart && this.seeds !== null) {
+      for (const [id, cost] of this.seeds) step(id, cost);
+      return;
+    }
     this.relay = step;
     this.locate(node);
     const chunk = this.atChunk!;
     const cell = this.atCell;
-    this.stepper.steps(this.graph.lookup, chunk, cell, this.agent, this.sink);
+    this.stepper.steps(this.look, chunk, cell, this.agent, this.sink);
     if (this.stepper.unknown && (this.costOf === null || this.costOf(node) <= this.frontierCost)) {
       const d = distCells(chunk, cell, this.end);
       if (d < this.frontierD) {
@@ -242,7 +296,8 @@ class PieceSpace implements SearchGraph {
 
   steps(node: number, step: (to: number, cost: number) => void): void {
     this.relay = step;
-    this.stepper.steps(this.only, this.chunk!, node, DEFAULT_WALK_AGENT, this.sink);
+    // Inside one piece: a shut door's piece is walked as any other.
+    this.stepper.steps(this.only, this.chunk!, node, DEFAULT_WALK_AGENT_THROUGH_SHUT, this.sink);
   }
 }
 
@@ -266,10 +321,14 @@ interface Job {
   step(nodes: number): boolean;
   /** The graph ends (its world went): answered with what it has. */
   abandon(): void;
+  /** It waits for chunks it read to be made (served again once they are). */
+  waiting(): boolean;
   /** Slices it was served in, the milliseconds of those before this one, and when this one began. */
   slices: number;
   ms: number;
   sliceStart: number;
+  /** Serves it spent waiting. */
+  waitServes: number;
 }
 
 /** The searches a world's queries share (one query runs at a time) and the queue that serves them. */
@@ -285,10 +344,13 @@ export class WalkQueries {
   private servedNodes = 0;
   private servedJobs = 0;
   private restartCount = 0;
+  private waitCount = 0;
   private longestUnit = 0;
+  /** Chunks the running query read whose parts were not current (keys of the graph's grid, cleared by the query). */
+  readonly staleRead = new Map<string, readonly [number, number, number]>();
 
   constructor(readonly graph: WalkGraph) {
-    this.cells = new CellSpace(graph, new WalkStepper(graph.cellM));
+    this.cells = new CellSpace(graph, new WalkStepper(graph.cellM), (cx, cy, cz) => this.saw(cx, cy, cz));
     this.inner = new PieceSpace(new WalkStepper(graph.cellM));
     this.endPiece = new PieceSpace(new WalkStepper(graph.cellM));
   }
@@ -298,8 +360,11 @@ export class WalkQueries {
     this.queue.push(new PathJob(this, from, to, options, done));
   }
 
-  /** The standable cells within `maxCost` metres of a world cell, answered by `done` once served (`cells`: list them). */
-  reach(from: readonly [number, number, number], maxCost: number, options: WalkQueryOptions & { readonly cells?: boolean }, done: (a: WalkReachAnswer) => void): void {
+  /**
+   * The standable cells within `maxCost` metres of a world cell, or of several cells each at a cost walked already
+   * (`WalkReachSeed`s), answered by `done` once served (`cells`: list them with their costs).
+   */
+  reach(from: readonly [number, number, number] | readonly WalkReachSeed[], maxCost: number, options: WalkQueryOptions & { readonly cells?: boolean }, done: (a: WalkReachAnswer) => void): void {
     this.queue.push(new ReachJob(this, from, maxCost, options, done));
   }
 
@@ -314,13 +379,29 @@ export class WalkQueries {
   }
 
   /** Nodes expanded and queries answered since the start. */
-  get served(): { readonly nodes: number; readonly queries: number; readonly restarts: number; readonly longestUnitMs: number } {
-    return { nodes: this.servedNodes, queries: this.servedJobs, restarts: this.restartCount, longestUnitMs: Number(this.longestUnit.toFixed(2)) };
+  get served(): { readonly nodes: number; readonly queries: number; readonly restarts: number; readonly waits: number; readonly longestUnitMs: number } {
+    return { nodes: this.servedNodes, queries: this.servedJobs, restarts: this.restartCount, waits: this.waitCount, longestUnitMs: Number(this.longestUnit.toFixed(2)) };
   }
 
   /** @internal a query started over (the graph changed under it). */
   restarted(): void {
     this.restartCount++;
+  }
+
+  /** @internal a query stopped to wait for chunks it read. */
+  waited(): void {
+    this.waitCount++;
+  }
+
+  /** @internal a chunk a search reads: noted when its part is not current. */
+  saw(cx: number, cy: number, cz: number): void {
+    if (this.graph.stale(cx, cy, cz)) this.staleRead.set(`${cx},${cy},${cz}`, [cx, cy, cz]);
+  }
+
+  /** @internal whether any chunk of a list is still not current. */
+  anyStale(list: Iterable<readonly [number, number, number]>): boolean {
+    for (const [cx, cy, cz] of list) if (this.graph.stale(cx, cy, cz)) return true;
+    return false;
   }
 
   /** @internal a job's expansions, for the counters. */
@@ -339,9 +420,14 @@ export class WalkQueries {
     let units = 0;
     let answered = 0;
     let job: Job | null = null;
-    while (this.queue.length > 0 && (units === 0 || performance.now() - t0 < ms)) {
-      const head = this.queue[0]!;
+    // Queries waiting for chunks to be made let the ones behind them go first; a serve counts towards each one's wait.
+    for (const j of this.queue) if (j.waiting()) j.waitServes++;
+    while (units === 0 || performance.now() - t0 < ms) {
+      const at = this.queue.findIndex((j) => !j.waiting());
+      if (at < 0) break;
+      const head = this.queue[at]!;
       if (head !== job) {
+        if (job !== null) job.ms += performance.now() - job.sliceStart;
         job = head;
         head.sliceStart = performance.now();
         head.slices++;
@@ -353,7 +439,7 @@ export class WalkQueries {
       if (u > this.longestUnit) this.longestUnit = u;
       if (done) {
         job = null;
-        this.queue.shift();
+        this.queue.splice(at, 1);
         answered++;
         this.servedJobs++;
       }
@@ -382,14 +468,14 @@ export class WalkQueries {
       const z = p[2] + oz;
       for (let k = 0; k <= SNAP_DOWN + 1; k++) {
         const y = k <= SNAP_DOWN ? p[1] - k : p[1] + 1;
-        const c = g.lookup(Math.floor(x / e), Math.floor(y / e), Math.floor(z / e));
+        const c = this.cells.look(Math.floor(x / e), Math.floor(y / e), Math.floor(z / e));
         if (c === undefined) {
           unknown = true;
           continue;
         }
         if (c === null) continue;
         const i = standableIn(c, x - c.cx * e, y - c.cy * e, z - c.cz * e);
-        if (i >= 0 && c.clear[i]! >= agent.height) return { chunk: c, cell: i };
+        if (i >= 0 && clearOf(c, i, agent.span) >= agent.height) return { chunk: c, cell: i };
       }
     }
     return unknown ? 'unknown' : null;
@@ -400,10 +486,15 @@ export class WalkQueries {
 function agentOf(o: WalkQueryOptions): WalkAgent {
   const height = Math.min(WALK_CLEARANCE_MAX, Math.max(1, Math.round(o.height ?? DEFAULT_WALK_AGENT.height)));
   const maxDrop = Math.max(0, Math.min(WALK_CLEARANCE_MAX - height, Math.round(o.maxDrop ?? 0)));
+  const span = Math.min(WALK_SPAN_MAX, Math.max(1, Math.round(o.span ?? DEFAULT_WALK_AGENT.span)));
   const throughShut = o.doors === 'shut-too';
-  // A walker through shut doors searches the cells alone: the pieces are the default walker's, split at shut doors.
-  return height === DEFAULT_WALK_AGENT.height && maxDrop < 2 && !throughShut ? DEFAULT_WALK_AGENT : Object.freeze({ height, maxDrop, ...(throughShut ? { throughShut } : {}) });
+  // The default walker, through shut doors or not, searches the levels (its pieces, the doors' edges flagged).
+  if (height === DEFAULT_WALK_AGENT.height && maxDrop < 2 && span === DEFAULT_WALK_AGENT.span) return throughShut ? DEFAULT_WALK_AGENT_THROUGH_SHUT : DEFAULT_WALK_AGENT;
+  return Object.freeze({ height, maxDrop, span, ...(throughShut ? { throughShut } : {}) });
 }
+
+/** Whether a walker is one the levels are made for (the default walker, through shut doors or not). */
+const levelled = (a: WalkAgent): boolean => a === DEFAULT_WALK_AGENT || a === DEFAULT_WALK_AGENT_THROUGH_SHUT;
 
 const NO_CELLS = new Int32Array(0);
 
@@ -415,11 +506,66 @@ const anyDead = (parts: Iterable<WalkChunk>): boolean => {
   return false;
 };
 
-/** A path query (the module comment). */
-class PathJob implements Job {
+/**
+ * What path and reach queries share: their serving counts, and the wait for chunks they read to be made (the module
+ * comment): a unit that read a chunk not made stops the query, which starts over once those chunks are made.
+ */
+abstract class WaitingJob implements Job {
   slices = 0;
   ms = 0;
   sliceStart = 0;
+  waitServes = 0;
+  protected waits = 0;
+  /** The chunks it waits to be made (null: not waiting). */
+  private waitingOn: (readonly [number, number, number])[] | null = null;
+  /** It read chunks not made after its wait's bound: its answer says so. */
+  protected staleRead = false;
+
+  /** Serves it may wait in all. */
+  protected readonly waitBound: number;
+
+  constructor(
+    protected readonly q: WalkQueries,
+    options: WalkQueryOptions,
+  ) {
+    this.waitBound = Math.max(0, options.waitServes ?? WALK_QUERY_WAIT_SERVES);
+  }
+
+  abstract step(nodes: number): boolean;
+  abstract abandon(): void;
+  /** Back to its start, its search let go (to start over once the chunks it waits for are made). */
+  protected abstract reset(): void;
+
+  waiting(): boolean {
+    if (this.waitingOn === null) return false;
+    // Past its bound it runs on (and its answer says it read chunks not made).
+    if (this.waitServes < this.waitBound && this.q.anyStale(this.waitingOn)) return true;
+    this.waitingOn = null;
+    return false;
+  }
+
+  /**
+   * Whether the unit just run read a chunk not made yet and the query may still wait: then it stops, to start over once
+   * those chunks are made. Past its bound it goes on, and its answer says it read them.
+   */
+  protected holdForStale(): boolean {
+    const read = this.q.staleRead;
+    if (read.size === 0) return false;
+    if (this.waitServes >= this.waitBound) {
+      this.staleRead = true;
+      return false;
+    }
+    this.waitingOn = [...read.values()];
+    read.clear();
+    this.waits++;
+    this.q.waited();
+    this.reset();
+    return true;
+  }
+}
+
+/** A path query (the module comment). */
+class PathJob extends WaitingJob {
   private phase: 'snap' | 'probe' | 'coarse' | 'refine' | 'flat' = 'snap';
   /** The levels ran. */
   private leveled = false;
@@ -440,14 +586,15 @@ class PathJob implements Job {
   private readonly touched = new Set<WalkChunk>();
 
   constructor(
-    private readonly q: WalkQueries,
+    q: WalkQueries,
     private readonly from: readonly [number, number, number],
     to: readonly [number, number, number],
     private readonly options: WalkQueryOptions,
     private readonly done: (a: WalkPathAnswer) => void,
   ) {
+    super(q, options);
     this.agent = agentOf(options);
-    this.levels = options.hierarchy !== false && this.agent === DEFAULT_WALK_AGENT;
+    this.levels = options.hierarchy !== false && levelled(this.agent);
     this.endAt = to;
   }
 
@@ -456,6 +603,12 @@ class PathJob implements Job {
   }
 
   step(nodes: number): boolean {
+    this.q.staleRead.clear();
+    const done = this.unit(nodes);
+    return done || (this.holdForStale() && false);
+  }
+
+  private unit(nodes: number): boolean {
     if (this.phase !== 'snap' && (anyDead(this.touched) || this.q.cells.list.some((c) => !c.alive))) this.restart();
     const max = this.options.maxNodes ?? Infinity;
     if (this.phase === 'snap') return this.begin();
@@ -491,7 +644,7 @@ class PathJob implements Job {
   private startLevels(): false {
     const q = this.q;
     this.leveled = true;
-    this.coarse = new CoarseSpace(q, this.start!, this.end, this.endAt, this.touched, this.options.exitCosts === 'walk');
+    this.coarse = new CoarseSpace(q, this.start!, this.end, this.endAt, this.touched, this.options.exitCosts === 'walk', this.throughShut);
     q.coarseSearch.start(this.coarse, { from: 0, target: 1, estimate: this.coarse.estimate });
     this.phase = 'coarse';
     return false;
@@ -500,6 +653,10 @@ class PathJob implements Job {
   private restart(): void {
     this.restarts++;
     this.q.restarted();
+    this.reset();
+  }
+
+  protected reset(): void {
     this.phase = 'snap';
     this.leveled = false;
     this.innerBefore += this.coarse?.innerExpanded ?? 0;
@@ -526,6 +683,11 @@ class PathJob implements Job {
     this.startCells(null, this.end);
     this.phase = this.levels ? 'probe' : 'flat';
     return false;
+  }
+
+  /** Whether the first level takes doors' edges (a walker through shut doors). */
+  private get throughShut(): boolean {
+    return this.agent.throughShut === true;
   }
 
   private startCells(corridor: Map<WalkChunk, Set<number>> | null, to: Spot | null): void {
@@ -579,7 +741,7 @@ class PathJob implements Job {
     for (const [ch, p] of onRoute) add(ch, p);
     // With straight costs the route only guesses each piece's crossing: the pieces next to it come too, so the cells'
     // search can go round what the guess missed (a wall across a piece the straight line ran through).
-    if (this.options.exitCosts !== 'walk') for (const [ch, p] of onRoute) for (const x of this.q.graph.exitsOf(ch, p)) add(x.to, x.toPiece);
+    if (this.options.exitCosts !== 'walk') for (const [ch, p] of onRoute) for (const x of this.q.graph.exitsOf(ch, p)) if (this.throughShut || !x.shut) add(x.to, x.toPiece);
     this.startCells(corridor, this.aim);
     this.phase = 'refine';
     return false;
@@ -606,7 +768,9 @@ class PathJob implements Job {
     return this.answer('unreachable', [this.start!]);
   }
 
-  private answer(status: WalkStatus, path: Spot[] | null, reason?: 'from' | 'to', cost = 0): true {
+  private answer(status: WalkStatus, path: Spot[] | null, reason?: 'from' | 'to', cost = 0, force = false): boolean {
+    // An answer from a chunk not made yet waits (and starts over) while its bound allows.
+    if (!force && this.holdForStale()) return false;
     const cells = path === null ? NO_CELLS : new Int32Array(path.length * 3);
     if (path !== null) {
       path.forEach((sp, k) => {
@@ -624,13 +788,15 @@ class PathJob implements Job {
       cost,
       hierarchy: this.leveled,
       corridor: this.corridorSize,
-      run: Object.freeze({ coarse: this.expandedCoarse, cells: this.expandedCells, inner: this.innerBefore + (this.coarse?.innerExpanded ?? 0), slices: this.slices, ms: servedMs(this), restarts: this.restarts }),
+      span: this.agent.span,
+      ...(this.staleRead ? { stale: true as const } : {}),
+      run: Object.freeze({ coarse: this.expandedCoarse, cells: this.expandedCells, inner: this.innerBefore + (this.coarse?.innerExpanded ?? 0), slices: this.slices, ms: servedMs(this), restarts: this.restarts, waits: this.waits, waited: this.waitServes }),
     }));
     return true;
   }
 
   abandon(): void {
-    this.answer('unknown', null);
+    this.answer('unknown', null, undefined, 0, true);
   }
 }
 
@@ -659,6 +825,8 @@ class CoarseSpace implements SearchGraph {
     private readonly touched: Set<WalkChunk>,
     /** Crossing a piece costs its walk (else the straight line between the cells). */
     private readonly walked: boolean,
+    /** It takes the doors' edges (exits into a shut door's piece). */
+    private readonly throughShut: boolean,
   ) {
     const g = q.graph;
     const m = g.cellM;
@@ -672,7 +840,7 @@ class CoarseSpace implements SearchGraph {
       q.endSearch.run();
       this.innerExpanded += q.endSearch.expanded;
     }
-    this.startExits = g.exitsOf(start.chunk, this.startPiece);
+    this.startExits = g.exitsOf(start.chunk, this.startPiece).filter((x) => throughShut || !x.shut);
     this.startCosts = walked ? this.walk(start.chunk, this.startPiece, start.cell, this.startExits) : Float64Array.from(this.startExits, (x) => cellGap(start.chunk, start.cell, x.from, x.a) * m);
     this.estimate = (n: number): number => {
       if (n === 1) return 0;
@@ -728,8 +896,10 @@ class CoarseSpace implements SearchGraph {
     const x = g.exit(node - 2);
     if (x === null) return;
     this.touched.add(x.to);
+    this.q.saw(x.to.cx, x.to.cy, x.to.cz);
     this.frontierOf(node, x.to, x.toPiece);
-    const exits = g.exitsOf(x.to, x.toPiece);
+    const all = g.exitsOf(x.to, x.toPiece);
+    const exits = this.throughShut ? all : all.filter((e) => !e.shut);
     if (this.walked) {
       const at = g.linksVersion(x.to);
       if (x.dists === null || x.distsAt !== at || x.dists.length !== exits.length) {
@@ -763,51 +933,93 @@ class CoarseSpace implements SearchGraph {
   }
 }
 
-/** A reach query: a Dijkstra over the cells within the cost. */
-class ReachJob implements Job {
-  slices = 0;
-  ms = 0;
-  sliceStart = 0;
+/** Where a reach starts: a cell (world cells of its graph) at a cost already walked to it. */
+export interface WalkReachSeed {
+  readonly at: readonly [number, number, number];
+  readonly cost: number;
+}
+
+/**
+ * A reach query: a Dijkstra over the cells within the cost, from one place (snapped to a standable cell) or from
+ * several cells each at the cost walked to it (a reach coming in through structure grids' links).
+ */
+class ReachJob extends WaitingJob {
   private started = false;
   private readonly agent: WalkAgent;
   private restarts = 0;
+  /** The seeds' ids in the search (after the virtual start, node 0, whose steps go to them). */
+  private seedIds: number[] = [];
 
   constructor(
-    private readonly q: WalkQueries,
-    private readonly from: readonly [number, number, number],
+    q: WalkQueries,
+    private readonly from: readonly [number, number, number] | readonly WalkReachSeed[],
     private readonly maxCost: number,
     private readonly options: WalkQueryOptions & { readonly cells?: boolean },
     private readonly done: (a: WalkReachAnswer) => void,
   ) {
+    super(q, options);
     this.agent = agentOf(options);
+  }
+
+  protected reset(): void {
+    this.started = false;
   }
 
   step(nodes: number): boolean {
     const q = this.q;
+    q.staleRead.clear();
     if (this.started && q.cells.list.some((c) => !c.alive)) {
       this.restarts++;
       this.q.restarted();
       this.started = false;
     }
     if (!this.started) {
-      const s = q.snap(this.from, this.agent);
-      if (s === 'unknown' || s === null) return this.answer(s === null ? 'unreachable' : 'unknown', true);
       const cells = q.cells;
       cells.reset();
       cells.agent = this.agent;
-      cells.end = this.from;
+      const seeds = this.seeds();
+      if (seeds === 'unknown' || seeds === null) return this.holdForStale() ? false : this.answer(seeds === null ? 'unreachable' : 'unknown', true);
+      cells.end = seeds[0]!.p;
       cells.frontierCost = this.maxCost;
       cells.costOf = (n) => q.cellSearch.cost(n);
-      q.cellSearch.start(cells, { from: cells.idOf(s.chunk, s.cell), maxCost: this.maxCost });
+      if (seeds.length === 1 && seeds[0]!.cost === 0) {
+        this.seedIds = [];
+        q.cellSearch.start(cells, { from: cells.idOf(seeds[0]!.spot.chunk, seeds[0]!.spot.cell), maxCost: this.maxCost });
+      } else {
+        // Several starts at their costs: one virtual node before them, stepping to each at its cost.
+        cells.seeds = seeds.map((s) => [cells.idOf(s.spot.chunk, s.spot.cell), s.cost] as const);
+        this.seedIds = cells.seeds.map((s) => s[0]);
+        q.cellSearch.start(cells, { from: cells.virtualStart, maxCost: this.maxCost });
+      }
       this.started = true;
-      return false;
+      return this.holdForStale() && false;
     }
     const s = q.cellSearch;
     const before = s.expanded;
     const st = s.run(nodes);
     q.count(s.expanded - before);
+    if (this.holdForStale()) return false;
     if (st === 'open' && s.expanded < (this.options.maxNodes ?? Infinity)) return false;
     return this.answer(q.cells.frontier >= 0 || st === 'open' ? 'unknown' : 'found', false);
+  }
+
+  /** The starts on standable cells (null: none near the single start; 'unknown': not known there). */
+  private seeds(): { readonly spot: Spot; readonly cost: number; readonly p: readonly [number, number, number] }[] | 'unknown' | null {
+    const q = this.q;
+    if (isPoint(this.from)) {
+      const s = q.snap(this.from, this.agent);
+      if (s === 'unknown' || s === null) return s;
+      return [{ spot: s, cost: 0, p: this.from }];
+    }
+    const out: { spot: Spot; cost: number; p: readonly [number, number, number] }[] = [];
+    let unknown = false;
+    for (const seed of this.from) {
+      if (!(seed.cost <= this.maxCost)) continue;
+      const s = q.snap(seed.at, this.agent);
+      if (s === 'unknown') unknown = true;
+      else if (s !== null) out.push({ spot: s, cost: seed.cost, p: seed.at });
+    }
+    return out.length > 0 ? out : unknown ? 'unknown' : null;
   }
 
   private answer(status: 'found' | 'unreachable' | 'unknown', none: boolean): true {
@@ -816,8 +1028,10 @@ class ReachJob implements Job {
     const min = [Infinity, Infinity, Infinity];
     const max = [-Infinity, -Infinity, -Infinity];
     const list: number[] | null = this.options.cells === true ? [] : null;
+    const costs: number[] | null = this.options.cells === true ? [] : null;
     if (!none) {
-      q.cellSearch.forEachSettled((n) => {
+      q.cellSearch.forEachSettled((n, cost) => {
+        if (n === q.cells.virtualStart && this.seedIds.length > 0) return;
         const sp = q.cells.spotOf(n);
         const e = sp.chunk.edge;
         const colI = sp.chunk.col[sp.cell]!;
@@ -827,6 +1041,7 @@ class ReachJob implements Job {
           max[a] = Math.max(max[a]!, p[a]!);
         }
         list?.push(p[0]!, p[1]!, p[2]!);
+        costs?.push(cost);
         count++;
       });
     }
@@ -837,7 +1052,10 @@ class ReachJob implements Job {
       min: count > 0 ? (Object.freeze([min[0]!, min[1]!, min[2]!]) as readonly [number, number, number]) : null,
       max: count > 0 ? (Object.freeze([max[0]!, max[1]!, max[2]!]) as readonly [number, number, number]) : null,
       cells: list === null ? null : Int32Array.from(list),
-      run: Object.freeze({ coarse: 0, cells: none ? 0 : q.cellSearch.expanded, inner: 0, slices: this.slices, ms: servedMs(this), restarts: this.restarts }),
+      costs: costs === null ? null : Float64Array.from(costs),
+      span: this.agent.span,
+      ...(this.staleRead ? { stale: true as const } : {}),
+      run: Object.freeze({ coarse: 0, cells: none ? 0 : q.cellSearch.expanded, inner: 0, slices: this.slices, ms: servedMs(this), restarts: this.restarts, waits: this.waits, waited: this.waitServes }),
     }));
     return true;
   }
@@ -846,3 +1064,5 @@ class ReachJob implements Job {
     this.answer('unknown', true);
   }
 }
+
+const isPoint = (f: readonly [number, number, number] | readonly WalkReachSeed[]): f is readonly [number, number, number] => typeof f[0] === 'number';
