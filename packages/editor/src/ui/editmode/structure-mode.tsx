@@ -10,6 +10,11 @@
  * - **Hand edits**: Dig, Add and Paint with the shared brush (its size, a
  *   box or a ball) on the structure's own cells; Add writes the role and
  *   material picked, Paint a material.
+ * - **Openings**: a door or window size (or cells), a ghost of it on the
+ *   wall under the pointer and a click to place it; a click on an opening
+ *   selects it (its handle moves it along its wall, Delete removes it); the
+ *   openings listed with their props, the selected one's size, prop (the
+ *   project's models that fit it) and glass flag (`OpeningsPanel`).
  *
  * Every edit is an existing command (the structure tool, `useStructureTools`).
  * The view draws the structure with its world's ground round it (voxel
@@ -27,6 +32,8 @@ import { ADD_ROLES, definitionOf, misfitSummary, type StructureValue } from '../
 import type { StructureToolKind } from '../../viewport/structure-tool';
 import { useBrush } from '../brush/useBrush';
 import { StructureFields } from '../structure/StructureFields';
+import { OpeningSizePicker, OpeningsList, shapeOf, type OpeningSizeChoice } from '../structure/OpeningsPanel';
+import type { OpeningShape } from '../../session/structure-openings';
 import { brushPanels } from './brush-panels';
 import { Section, Segmented } from './controls';
 import { EditPanels } from './docks';
@@ -49,13 +56,17 @@ const HAND_TOOLS = [
   { id: 'paint', label: 'Paint', glyph: 'paint', key: 'P', hint: 'Drag over the structure to give its cells the material picked (each keeps its role).' },
 ] as const;
 
+const OPENING_TOOLS = [
+  { id: 'openings', label: 'Place', glyph: 'plus', key: 'O', hint: 'Over a wall: the ghost of the opening (red where it cannot go); click to place it. Click an opening to select it: drag its handle along the wall; Delete removes it.' },
+] as const;
+
 /** The hand-edit brush: one cell across to start (a voxel is the unit a hand edit means); size only. */
 const HAND_BRUSH = { ...DEFAULT_BRUSH, size: VOXEL_SIZE_M, falloff: 'constant' as const };
 const HAND_BOUNDS = { ...BRUSH_BOUNDS, size: [VOXEL_SIZE_M, 8] as const, heightStep: [0.5, 0.5] as const };
 const handStore = (): BrushStore => brushStore('structure', 'hand', HAND_BRUSH, HAND_BOUNDS);
 
 /** Remembered for the page: the tool of each column, the brush's shape, Add's role and the materials picked. */
-const remembered = { shape: 'shape' as StructureToolKind, hand: 'dig' as StructureToolKind, brushShape: 'box' as 'box' | 'sphere', role: VOXEL_ROLE.wall as number, material: null as number | null };
+const remembered = { shape: 'shape' as StructureToolKind, hand: 'dig' as StructureToolKind, brushShape: 'box' as 'box' | 'sphere', role: VOXEL_ROLE.wall as number, material: null as number | null, opening: { pick: 0, custom: { kind: 'window', width: 2, height: 2, sill: 2 } } as OpeningSizeChoice };
 
 /** The marker of the picked misfit, when it is this structure's. */
 function markerOf(view: EditModeView): readonly [number, number, number] | null {
@@ -69,16 +80,16 @@ function outdatedCount(entities: readonly ProjectedEntity[]): number {
 }
 
 /** Arms the structure tool for a column while it shows (off when it goes). */
-function useArm(view: EditModeView, tool: StructureToolKind, extra: { store?: BrushStore; voxel?: { material: number; role: number } | null; brushShape?: 'box' | 'sphere' }): boolean {
+function useArm(view: EditModeView, tool: StructureToolKind, extra: { store?: BrushStore; voxel?: { material: number; role: number } | null; brushShape?: 'box' | 'sphere'; opening?: { shape: OpeningShape; selected: string | null } }): boolean {
   const armed = useToolArmed();
   const value = valueOf(view.entity) ?? null;
   const marker = markerOf(view);
   const arm = view.host.structure.arm;
   const entityId = view.entity.id;
   const store = extra.store ?? null;
-  const key = JSON.stringify([tool, armed, value, marker, extra.voxel ?? null, extra.brushShape ?? 'box']);
+  const key = JSON.stringify([tool, armed, value, marker, extra.voxel ?? null, extra.brushShape ?? 'box', extra.opening ?? null]);
   useEffect(() => {
-    arm({ tool, navigate: !armed, entityId, value, store, brushShape: extra.brushShape ?? 'box', voxel: extra.voxel ?? null, marker });
+    arm({ tool, navigate: !armed, entityId, value, store, brushShape: extra.brushShape ?? 'box', voxel: extra.voxel ?? null, marker, ...(extra.opening !== undefined ? { opening: extra.opening } : {}) });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- every value the arm reads is in `key` (its objects are made again each render)
   }, [key, arm, entityId, store]);
   useEffect(() => () => arm(null), [arm]);
@@ -217,7 +228,34 @@ function HandColumn(view: EditModeView): JSX.Element {
   );
 }
 
-const COLUMNS: Readonly<Record<string, (v: EditModeView) => JSX.Element>> = { shape: ShapeColumn, hand: HandColumn };
+function OpeningsColumn(view: EditModeView): JSX.Element {
+  const [choice, setChoice] = useState(remembered.opening);
+  const s = view.host.structure;
+  const value = valueOf(view.entity)!;
+  const selected = s.opening?.entityId === view.entity.id ? s.opening.id : null;
+  const shape = shapeOf(choice);
+  useArm(view, 'openings', { opening: { shape, selected } });
+  useStructureStatus(view, 'Openings', OPENING_TOOLS[0].hint);
+  return (
+    <div className="tl-structure-mode" aria-label="structure openings tools">
+      <Section title="Tool">
+        <ToolGrid tools={OPENING_TOOLS} active="openings" onPick={() => undefined} aria="structure openings tool" cols={3} />
+      </Section>
+      <Section title="Size">
+        <OpeningSizePicker
+          choice={choice}
+          onChange={(c) => {
+            remembered.opening = c;
+            setChoice(c);
+          }}
+        />
+      </Section>
+      <OpeningsList entityId={view.entity.id} value={value} tools={s} selected={selected} onSelect={(id) => s.selectOpening(id === null ? null : { entityId: view.entity.id, id })} />
+    </div>
+  );
+}
+
+const COLUMNS: Readonly<Record<string, (v: EditModeView) => JSX.Element>> = { shape: ShapeColumn, hand: HandColumn, openings: OpeningsColumn };
 
 export const structureMode: ObjectEditModeKind = {
   kind: 'structure',
@@ -233,6 +271,7 @@ export const structureMode: ObjectEditModeKind = {
   rail: [
     { id: 'shape', label: 'Shape', glyph: 'select', hint: 'Drag the handles to reshape the building; Extend draws a wing.', navigate: 'A drag orbits; pick Shape (S) or Extend (E) to edit.' },
     { id: 'hand', label: 'Hand edits', glyph: 'paint', hint: 'Dig, add or paint cells of the structure; they are kept over what the definition makes.', navigate: 'A drag orbits; pick Dig (D), Add (A) or Paint (P).' },
+    { id: 'openings', label: 'Openings', glyph: 'place', hint: 'Place doors and windows on the walls; give each a prop that fits it.', keys: [{ keys: ['Del'], label: 'Delete the selected opening' }], navigate: 'A drag orbits; pick Place (O) to put openings in the walls.' },
   ],
   tools: ['structure'],
   bounds: (e) => {

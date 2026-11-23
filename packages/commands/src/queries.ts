@@ -222,6 +222,14 @@ function parseBooleanArg(
 }
 
 /** `queryAssets`: paged catalog summaries. */
+/** A model version's bounds as its import recorded them in its metrics (copied; undefined: not a model, or not recorded). */
+function modelBoundsOf(kind: string, metrics: unknown): AssetSummary['bounds'] {
+  if (kind !== 'model') return undefined;
+  const b = (metrics as { bounds?: { min?: unknown; max?: unknown } } | undefined)?.bounds;
+  const v3 = (v: unknown): v is [number, number, number] => Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
+  return b !== undefined && v3(b.min) && v3(b.max) ? { min: [...b.min], max: [...b.max] } : undefined;
+}
+
 export function queryAssets(
   state: CommandState<SceneDocument>,
   request: unknown,
@@ -294,6 +302,8 @@ export function queryAssets(
     }
     const audio = audioSummaryOf(a);
     if (audio !== undefined) summary.audio = audio;
+    const bounds = modelBoundsOf(a.kind, current?.metrics);
+    if (bounds !== undefined) summary.bounds = bounds;
     if (inc.value) {
       summary.versions = a.versions.map((v) => {
         const sourcePath = (v as { sourcePath?: string }).sourcePath;

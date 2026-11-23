@@ -5,7 +5,11 @@
  * `setComponent` for the definition, `setTransform` for a turn, `editVoxels`
  * on the structure's grid for a hand-edit stroke — and what the mode reads
  * back: the world's route (each grid's hand-edit count and last regenerate's
- * misfits), the tool's live readout and the last refusal.
+ * misfits), the tool's live readout and the last refusal; and the openings'
+ * props: the project's models with their bounds (the prop picker's fit), a
+ * prop put in an opening (`createEntity` of a child with a `voxelPortal`,
+ * the backend names it in the opening) or taken out (`deleteEntity`), its
+ * glass flag (`setComponent`).
  *
  * The editor never writes voxels itself: MCP sends the same commands.
  *
@@ -14,10 +18,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MaterialDef } from '@thirdlight/project-model';
 import { resolvedVoxelParts } from '@thirdlight/project-model/voxel-materials';
-import { VOXEL_SIZE_M, type StructureDefinition } from '@thirdlight/voxel';
+import { ASSET_QUERY_PAGE_MAX } from '@thirdlight/project-model/limits';
+import { VOXEL_SIZE_M, type StructureDefinition, type StructureOpening } from '@thirdlight/voxel';
 
 import type { ProjectedEntity } from '../../session/projection';
-import { defaultMaterials, newStructure, NO_CONSTRUCTION_MATERIAL, yawRotation, type MisfitLike, type StructureMaterialChoice, type StructureValue } from '../../session/structure-shape';
+import { propPlacement, type PropAsset } from '../../session/structure-openings';
+import { defaultMaterials, definitionOf, newStructure, NO_CONSTRUCTION_MATERIAL, yawRotation, type MisfitLike, type StructureMaterialChoice, type StructureValue } from '../../session/structure-shape';
 import type { StructureArm } from '../../viewport/structure-tool';
 import type { ClientRef, SetNotice, ViewportRef } from './commands';
 
@@ -53,6 +59,17 @@ export interface StructureTools {
   /** The misfit picked in the list (its marker draws in the view), and picking one (null: none). */
   readonly picked: { readonly entityId: string; readonly misfit: MisfitLike } | null;
   pick(p: { entityId: string; misfit: MisfitLike } | null): void;
+  /** The open scenes' objects (an opening's prop is one: its name and state). */
+  readonly entities: readonly ProjectedEntity[];
+  /** The opening selected in the view or the list (null: none). */
+  readonly opening: { readonly entityId: string; readonly id: string } | null;
+  selectOpening(o: { entityId: string; id: string } | null): void;
+  /** The project's models as the prop picker reads them (read again after every asset change; null: not read yet). */
+  readonly propAssets: readonly PropAsset[] | null;
+  /** Put a model in an opening as its prop (null: none, an open hole), replacing the prop it has; `glass`: light passes it while shut. */
+  setProp(structureId: string, value: StructureValue, opening: StructureOpening, asset: PropAsset | null, glass: boolean): Promise<void>;
+  /** A prop's glass flag (its `voxelPortal`'s `stops.light` the other way round). */
+  setGlass(propId: string, glass: boolean): Promise<void>;
 }
 
 interface Deps {
@@ -87,8 +104,12 @@ export function useStructureTools(deps: Deps): StructureTools {
   const [creating, setCreating] = useState(false);
   const [picked, pick] = useState<{ entityId: string; misfit: MisfitLike } | null>(null);
   const [infos, setInfos] = useState<ReadonlyMap<string, ReadonlyMap<number, StructureGridInfo>>>(new Map());
+  const [opening, selectOpening] = useState<{ entityId: string; id: string } | null>(null);
+  const [propAssets, setPropAssets] = useState<readonly PropAsset[] | null>(null);
   const latest = useRef(deps);
   latest.current = deps;
+  /** The structure the tool is armed on (what an opening picked in the view belongs to). */
+  const armedRef = useRef<string | null>(null);
 
   const materials = useMemo((): StructureMaterialChoice[] => {
     const parts = resolvedVoxelParts(deps.materials);
@@ -182,9 +203,14 @@ export function useStructureTools(deps: Deps): StructureTools {
     },
     refused: (m: string) => setRefusal(m),
     readout: (t: string | null) => setReadout(t),
+    selectOpening: (id: string | null) => {
+      const a = armedRef.current;
+      selectOpening(id === null || a === null ? null : { entityId: a, id });
+    },
   }), [clientRef, viewportRef, run, refresh, setNotice]);
 
   const arm = useCallback((a: (Omit<StructureArm, 'world'> & { world?: string }) | null): void => {
+    armedRef.current = a?.entityId ?? null;
     const v = viewportRef.current;
     if (v === null) return;
     if (a === null) {
@@ -247,5 +273,44 @@ export function useStructureTools(deps: Deps): StructureTools {
 
   const grids = useCallback((world: string) => infos.get(world) ?? null, [infos]);
 
-  return { startCreate, arm, materials, define, regenerateAll, grids, refresh, readout, refusal, creating, picked, pick };
+  // The project's models with their bounds (the prop picker), read page by page each time an opening is selected.
+  useEffect(() => {
+    const c = clientRef.current;
+    if (c === null || opening === null) return undefined;
+    let live = true;
+    void (async () => {
+      const out: PropAsset[] = [];
+      for (let offset = 0; ; offset += ASSET_QUERY_PAGE_MAX) {
+        const r = await c.queryAssets({ limit: ASSET_QUERY_PAGE_MAX, offset }).catch(() => null);
+        if (r === null || !r.ok) return;
+        for (const a of r.assets) if (a.kind === 'model') out.push({ assetId: a.assetId, displayName: a.displayName, bounds: a.bounds ?? null });
+        if (r.assets.length < ASSET_QUERY_PAGE_MAX) break;
+      }
+      if (live) setPropAssets(out);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [clientRef, opening]);
+
+  const setProp = useCallback(async (structureId: string, value: StructureValue, o: StructureOpening, asset: PropAsset | null, glass: boolean): Promise<void> => {
+    const c = clientRef.current;
+    if (c === null) return;
+    const old = o.prop === undefined ? undefined : latest.current.entities.find((e) => e.id === o.prop);
+    if (old !== undefined && !(await run('Prop', 'deleteEntity', { entityId: old.id }))) return;
+    if (asset === null) return;
+    const at = propPlacement(definitionOf(value), o, asset.bounds);
+    if (at === null) return;
+    const sceneId = latest.current.sceneId;
+    await run('Prop', 'createEntity', { ...(sceneId !== null ? { sceneId } : {}), parentId: structureId, kind: 'model', name: `${asset.displayName} (${o.id})`, model: { asset: { assetId: asset.assetId } }, transform: { position: at.position, rotation: at.rotation, scale: [1, 1, 1] }, components: { voxelPortal: { open: false, stops: { light: !glass, sight: true, walk: true } } } });
+  }, [clientRef, run]);
+
+  const setGlass = useCallback(async (propId: string, glass: boolean): Promise<void> => {
+    const e = latest.current.entities.find((x) => x.id === propId);
+    const portal = e?.components['voxelPortal'] as { open: boolean; stops: { light: boolean; sight: boolean; walk: boolean } } | undefined;
+    if (portal === undefined) return;
+    await run('Glass', 'setComponent', { entityId: propId, component: 'voxelPortal', value: { ...portal, stops: { ...portal.stops, light: !glass } } });
+  }, [run]);
+
+  return { startCreate, arm, materials, define, regenerateAll, grids, refresh, readout, refusal, creating, picked, pick, opening, selectOpening, propAssets, setProp, setGlass, entities: deps.entities };
 }

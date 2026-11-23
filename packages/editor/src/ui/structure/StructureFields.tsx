@@ -8,7 +8,9 @@
  *
  * The Inspector shows it for a `voxelStructure` in place of the record's
  * raw fields, and the structure mode's Shape column shows the same: the
- * footprint is edited by the handles in the Scene view, never as text.
+ * footprint is edited by the handles in the Scene view, never as text; its
+ * openings are listed (kind, size, wall, prop) to select or delete, the
+ * selected one's size and prop set below the list.
  * Each change is checked by the building generator's checks first; a
  * refused one is said here and not sent.
  *
@@ -20,6 +22,7 @@ import { BUILDING_GENERATOR, ROOF_AXES, ROOF_SHAPES, VOXEL_SIZE_M, type Structur
 import { definitionOf, misfitSummary, misfitWords, removePolygon, STRUCTURE_PARTS, structureProblem, type MisfitLike, type StructureValue } from '../../session/structure-shape';
 import { CommitField } from '../CommitField';
 import type { StructureTools } from '../shell/useStructureTools';
+import { OpeningsList } from './OpeningsPanel';
 
 const PART_LABELS: Readonly<Record<keyof StructureMaterials, string>> = { wall: 'Walls', floor: 'Floors', roof: 'Roof material', foundation: 'Foundation material', stair: 'Stairs' };
 
@@ -139,6 +142,7 @@ export function StructureFields({ entityId, value, tools, onMisfit, picked, outd
         <dt>Hand edits</dt>
         <dd data-count="hand-edits">{grid === undefined ? '…' : `${grid.overrides} kept`}</dd>
       </dl>
+      <OpeningsList entityId={entityId} value={value} tools={tools} selected={tools.opening?.entityId === entityId ? tools.opening.id : null} onSelect={(id) => tools.selectOpening(id === null ? null : { entityId, id })} />
       {def.footprint.length > 1 && (
         <ul className="tl-structure__polygons" aria-label="structure polygons">
           {def.footprint.map((p, i) => (

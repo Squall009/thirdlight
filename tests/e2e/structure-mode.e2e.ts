@@ -16,7 +16,8 @@ import { VOXEL_WORLDS_FOLDER, writeVoxelWorld } from '@thirdlight/workspace';
 import { mustCommand } from '../support/commands';
 import { flatGround } from '../../tools/voxel-bench/scenes';
 import { TEST_WORLD_ID } from '../../tools/voxel-bench/stream-node';
-import { startBackend, type E2EBackend } from './backend';
+import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { multiPieceGlb } from './multi-piece-glb';
 import { consoleErrors } from './console-errors';
 import { decodePng, type Image } from './png';
 import { expect, test, type Page } from './pw';
@@ -507,5 +508,279 @@ test('the structure editor: draw a house, widen, extend, add a storey, swap a ma
   }
   await expect.poll(async () => diff(final, await still(page, 'redone')).n, { timeout: 30_000, message: 'the house as it was before the undo' }).toBeLessThan(200);
   console.log(`[structure] release → drawn: ${JSON.stringify(timings)}; steps ${states.length - 1}; test ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  expect(errors).toEqual([]);
+});
+
+/** Pixels of the door leaf's brown (the fixture's own colour: no stone, grass or sky is this red over blue). */
+const brownCount = (img: Image): number => {
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, b] = img.pixel(x, y);
+    if (r > g + 25 && g > b + 25 && r > 70) n++;
+  }
+  return n;
+};
+/** Pixels of the pane's blue. */
+const blueCount = (img: Image): number => {
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, b] = img.pixel(x, y);
+    if (b > r + 60 && b > g + 20) n++;
+  }
+  return n;
+};
+
+test('openings: a door and a window placed on a wall by the pointer, a leaf and a pane put in them from the models that fit, the door moved along its wall, the house widened, the window deleted; undo all and redo all', async ({ page }) => {
+  test.setTimeout(180_000);
+  const t0 = Date.now();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const errors = consoleErrors(page);
+  // Fixture models: a leaf 1 × 2 m, a pane 1 × 1 m (each a cell deep at most), and a crate too big for any opening.
+  await publishBytes(be, multiPieceGlb([{ name: 'leaf', lods: [[1, 2, 0.1]], colors: [[0.35, 0.12, 0.03]], vertexColor: [1, 1, 1, 1] }], { centred: true }), 'model', 'fix-leaf', 'Door leaf');
+  await publishBytes(be, multiPieceGlb([{ name: 'pane', lods: [[1, 1, 0.05]], colors: [[0.05, 0.25, 0.9]], vertexColor: [1, 1, 1, 1] }], { centred: true }), 'model', 'fix-pane', 'Window pane');
+  await publishBytes(be, multiPieceGlb([{ name: 'crate', lods: [[3, 3, 1]] }], { centred: true }), 'model', 'fix-crate', 'Big crate');
+  // The yard's voxelWorld object (the first test's; made here when this test runs alone).
+  const all = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { components: Record<string, unknown> }[] }).entities;
+  if (!all.some((e) => (e.components['voxelWorld'] as { world?: string } | undefined)?.world === WORLD)) await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Yard', transform: { position: [0, 0, 0] }, components: { voxelWorld: { world: WORLD } } });
+  const W = 12;
+  const D = 10;
+  const made = await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Shop', transform: { position: [-22, 0, 12] }, components: { voxelStructure: { world: WORLD, footprint: [{ id: 'main', points: [[0, 0], [W, 0], [W, D], [0, D]] }], storeys: 1, storeyHeight: 6, foundationDepth: 1, roof: { shape: 'flat', overhang: 0, axis: 'x' }, materials: { wall: MAT.stone, floor: MAT.stone, roof: MAT.stone, foundation: MAT.stone, stair: MAT.stone }, openings: [], stairs: [] } } });
+  const id = String(made['createdId']);
+  const marker = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Marker 2', transform: { position: [400, 0, 0] } }))['createdId']);
+  await page.goto(editorUrlFor(be.editorUrl, 'webgpu'));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const view = page.locator('canvas.tl-viewport');
+  const box = (await view.boundingBox())!;
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
+  await inspector(page).getByRole('button', { name: 'Edit structure', exact: true }).click();
+  await expect(editMode(page)).toHaveAttribute('data-edit-mode', 'structure', { timeout: 15_000 });
+  const v0 = await structureOf(id);
+  const grid = v0.grid;
+  const drawName = `${WORLD}#${grid}`;
+  const drawn = async (): Promise<{ replaced: number; settled: boolean; chunks: number }> => {
+    const v = await sceneViewVoxels(page);
+    return { replaced: v?.replaced ?? 0, settled: v?.states[WORLD]?.grids?.[drawName]?.settled === true, chunks: v?.worlds[drawName]?.chunks ?? 0 };
+  };
+  await expect.poll(async () => { const d = await drawn(); return d.settled && d.chunks > 0; }, { timeout: 30_000, message: 'the shop draws' }).toBe(true);
+  const p0 = v0.footprint[0]!.points;
+  const [gx0, gz0] = [p0[0]![0]!, p0[0]![1]!];
+  const hint = page.locator('.tl-hints__text');
+  const tile = (name: string) => editMode(page).locator('button.tl-tool', { hasText: name });
+  const arm = async (name: string): Promise<void> => {
+    const t = tile(name);
+    if ((await t.getAttribute('aria-pressed')) !== 'true') await t.click();
+    await expect(t).toHaveAttribute('aria-pressed', 'true');
+  };
+  const handle = async (hid: string): Promise<{ x: number; y: number }> => {
+    let h: { x: number; y: number } | undefined;
+    await expect.poll(async () => (h = (await toolStamp(page))?.handles.find((x) => x.id === hid)) !== undefined, { timeout: 10_000, message: `handle ${hid} on screen` }).toBe(true);
+    return h!;
+  };
+  const redrawn = async (before: number): Promise<void> => {
+    await expect.poll(async () => { const d = await drawn(); return d.settled && d.replaced > before; }, { timeout: 30_000, intervals: [16], message: 'the regenerated shop drawn' }).toBe(true);
+  };
+  // The floor's plane on screen from the four corner handles (the Shape tool), as the first test maps it.
+  await arm('Shape');
+  const corners = [await handle('corner:0:0'), await handle('corner:0:1'), await handle('corner:0:2'), await handle('corner:0:3')];
+  const onScreen = floorToScreen([[gx0, gz0], [gx0 + W, gz0], [gx0 + W, gz0 + D], [gx0, gz0 + D]], corners);
+  // Each wall: its edge, its outward normal (grid), its length, the grid point of its cell j's outer face at the floor.
+  const walls = [0, 1, 2, 3].map((edge) => {
+    const a = p0[edge]!;
+    const b = p0[(edge + 1) % 4]!;
+    const len = Math.abs(b[0]! - a[0]! + b[1]! - a[1]!);
+    const sx = Math.sign(b[0]! - a[0]!);
+    const sz = Math.sign(b[1]! - a[1]!);
+    const n = [sz, 0, -sx];
+    const at = (j: number): [number, number] => [a[0]! + sx * (j + 0.5), a[1]! + sz * (j + 0.5)];
+    return { edge, n, len, at };
+  });
+  await editModeTab(page, 'Openings');
+  await arm('Place');
+  /** Hover up a wall's column j from its foot until the tool's ghost stands on that wall (null: the wall is not seen). */
+  const ghostOn = async (w: (typeof walls)[number], j: number): Promise<{ x: number; y: number; ghost: { opening: { edge: number; at: number; width: number }; problem: string | null } } | null> => {
+    const foot = onScreen(...w.at(j));
+    for (let dy = 4; dy <= 80; dy += 4) {
+      const at = { x: Math.round(foot.x), y: Math.round(foot.y - dy) };
+      await page.mouse.move(at.x, at.y);
+      let s: (ToolStamp & { opening?: { ghost: { opening: { edge: number; at: number; width: number }; problem: string | null } | null } }) | null = null;
+      await expect.poll(async () => { s = (await toolStamp(page)) as typeof s; return s?.hover?.at?.[0] === at.x && s.hover.at[1] === at.y; }, { timeout: 5_000 }).toBe(true);
+      const hover = s!.hover;
+      if (hover === null || hover.grid !== grid) continue;
+      if (hover.normal.join() !== w.n.join()) return null;
+      const g = s!.opening?.ghost ?? null;
+      if (g !== null && g.opening.edge === w.edge) return { ...at, ghost: g };
+      if (hover.cell[1]! > 3) return null;
+    }
+    return null;
+  };
+  // The first wall the view sees: a door a third of the way along it.
+  let wall: (typeof walls)[number] | null = null;
+  let doorAt: Awaited<ReturnType<typeof ghostOn>> = null;
+  for (const w of walls) {
+    doorAt = await ghostOn(w, Math.floor(w.len / 4));
+    if (doorAt !== null) {
+      wall = w;
+      break;
+    }
+  }
+  expect(wall, 'a wall of the shop seen from the view').not.toBeNull();
+  expect(doorAt!.ghost.problem).toBeNull();
+  await expect(hint).toContainText('Click: Door 1 × 2 m');
+  await look(page, '01-openings-tool-ghost');
+  const before = await still(page, 'openings-bare');
+  await page.mouse.move(doorAt!.x, doorAt!.y);
+  await expect.poll(async () => ((await toolStamp(page)) as { opening?: { ghost: unknown } } | null)?.opening?.ghost ?? null, { timeout: 5_000 }).not.toBeNull();
+  let mark = (await drawn()).replaced;
+  await page.mouse.down();
+  await page.mouse.up();
+  await redrawn(mark);
+  const withDoor = await structureOf(id);
+  const door = (withDoor['openings'] as { id: string; edge: number; at: number; width: number; height: number; sill: number; prop?: string }[])[0]!;
+  expect(door).toMatchObject({ id: 'door-1', polygon: 'main', edge: wall!.edge, at: doorAt!.ghost.opening.at, width: 2, height: 4, sill: 0 });
+  // The window: its size picked, the same wall two thirds along.
+  await editMode(page).getByLabel('opening size', { exact: true }).selectOption({ label: 'Window 1 × 1 m (sill 1 m)' });
+  const winAt = await ghostOn(wall!, Math.floor((wall!.len * 3) / 4));
+  expect(winAt, 'the wall two thirds along').not.toBeNull();
+  expect(winAt!.ghost.problem).toBeNull();
+  mark = (await drawn()).replaced;
+  await page.mouse.down();
+  await page.mouse.up();
+  await redrawn(mark);
+  const openings = async (): Promise<{ id: string; edge: number; at: number; width: number; height: number; sill: number; prop?: string }[]> => (await structureOf(id))['openings'] as never;
+  expect((await openings()).map((o) => o.id)).toEqual(['door-1', 'window-1']);
+  expect((await openings())[1]).toMatchObject({ edge: wall!.edge, width: 2, height: 2, sill: 2 });
+  await page.mouse.move(box.x + 30, box.y + 30);
+  const holes = await still(page, 'openings-holes');
+  expect(diff(before, holes).n, 'the two holes in the wall').toBeGreaterThan(300);
+  await look(page, '02-door-and-window-placed');
+  // The list says both, the door with no prop yet.
+  const list = editMode(page).getByLabel('structure openings', { exact: true });
+  await expect(list).toContainText('Door 1 × 2 m');
+  await expect(list).toContainText('Window 1 × 1 m, sill 1 m');
+
+  // ---- Props: the door's leaf, the window's pane (glass) -------------------------------------------------------
+  const children = async (): Promise<{ id: string; components: Record<string, unknown> }[]> => (((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; parentId: string | null; components: Record<string, unknown> }[] }).entities ?? []).filter((e) => e.parentId === id);
+  await list.locator('li[data-opening="door-1"] button').first().click();
+  const picker = editMode(page).getByLabel('opening prop', { exact: true });
+  await expect(picker).toBeEnabled({ timeout: 10_000 });
+  // The models that fit a 1 × 2 m door: the leaf (the pane fits it too); never the crate.
+  await expect(picker.locator('option')).toContainText(['none (an open hole)', 'Door leaf', 'Window pane']);
+  expect(await picker.locator('option', { hasText: 'Big crate' }).count()).toBe(0);
+  await look(page, '03-prop-picker');
+  await picker.selectOption({ label: 'Door leaf' });
+  await expect.poll(async () => (await openings())[0]!.prop ?? null, { timeout: 15_000, message: 'the door names its leaf' }).not.toBeNull();
+  const leafId = (await openings())[0]!.prop!;
+  const leafT0 = (((await query('queryEntity', { entityId: leafId })) as { entity: { components: { transform: { position: number[] }; voxelPortal: unknown } } }).entity.components);
+  expect(leafT0.voxelPortal).toEqual({ open: false, stops: { light: true, sight: true, walk: true } });
+  await list.locator('li[data-opening="window-1"] button').first().click();
+  // A window starts as glass; its picker has the pane, not the 1 × 2 m leaf.
+  await expect(editMode(page).getByLabel('opening prop glass')).toBeChecked();
+  await expect(picker.locator('option')).toContainText(['none (an open hole)', 'Window pane']);
+  expect(await picker.locator('option', { hasText: 'Door leaf' }).count()).toBe(0);
+  await picker.selectOption({ label: 'Window pane' });
+  await expect.poll(async () => (await openings())[1]!.prop ?? null, { timeout: 15_000, message: 'the window names its pane' }).not.toBeNull();
+  const paneId = (await openings())[1]!.prop!;
+  expect(((await query('queryEntity', { entityId: paneId })) as { entity: { components: { voxelPortal: unknown } } }).entity.components.voxelPortal).toEqual({ open: false, stops: { light: false, sight: true, walk: true } });
+  await expect(list).toContainText('Door leaf (door-1), shut');
+  await expect(list).toContainText('Window pane (window-1), shut, glass');
+  await page.mouse.move(box.x + 30, box.y + 30);
+  await expect.poll(async () => { const img = await still(page, 'openings-props'); return brownCount(img) > 150 && blueCount(img) > 60; }, { timeout: 20_000, message: 'the leaf and the pane drawn in their openings' }).toBe(true);
+  await look(page, '04-door-prop-and-pane');
+  const props = await still(page, 'openings-props');
+
+  // ---- The door moved along its wall by its handle: 1 m; its leaf follows -------------------------------------
+  await list.locator('li[data-opening="door-1"] button').first().click();
+  const dh = await handle('opening:door-1');
+  const s0 = onScreen(...wall!.at(5));
+  const s1 = onScreen(...wall!.at(6));
+  mark = (await drawn()).replaced;
+  await page.mouse.move(dh.x, dh.y);
+  await page.mouse.down();
+  let p = { ...dh };
+  for (let k = 0; k < 80 && !/\+1\.0 m along the wall/.test((await hint.textContent()) ?? ''); k++) {
+    p = { x: p.x + (s1.x - s0.x) / 6, y: p.y + (s1.y - s0.y) / 6 };
+    await page.mouse.move(p.x, p.y);
+  }
+  await expect(hint).toContainText('+1.0 m along the wall');
+  await page.mouse.up();
+  await redrawn(mark);
+  expect((await openings())[0]!.at).toBe(door.at + 2);
+  const leafT1 = (((await query('queryEntity', { entityId: leafId })) as { entity: { components: { transform: { position: number[] } } } }).entity.components.transform.position);
+  expect(Math.hypot(leafT1[0]! - leafT0.transform.position[0]!, leafT1[2]! - leafT0.transform.position[2]!), 'the leaf moved with its door').toBeCloseTo(1, 6);
+  await page.mouse.move(box.x + 30, box.y + 30);
+  await look(page, '05-opening-moved');
+  const movedShot = await still(page, 'openings-moved');
+  expect(diff(props, movedShot).n, 'the door and its leaf drawn a metre on').toBeGreaterThan(150);
+
+  // ---- The shop widened 1 m at the end of the door's wall: the openings and their props stay -------------------
+  const openingsBefore = JSON.stringify(await openings());
+  await editModeTab(page, 'Shape');
+  await arm('Shape');
+  const e = (wall!.edge + 1) % 4;
+  const eh = await handle(`edge:0:${e}`);
+  const n2 = walls[e]!.n;
+  const f0 = onScreen(...walls[e]!.at(2));
+  const f1 = onScreen(walls[e]!.at(2)[0] + n2[0]! * 2, walls[e]!.at(2)[1] + n2[2]! * 2);
+  const want = e % 2 === 1 ? /^7\.0 × 5\.0 m/ : /^6\.0 × 6\.0 m/;
+  await page.mouse.move(eh.x, eh.y);
+  await page.mouse.down();
+  p = { ...eh };
+  for (let k = 0; k < 60 && !want.test((await hint.textContent()) ?? ''); k++) {
+    p = { x: p.x + (f1.x - f0.x) / 8, y: p.y + (f1.y - f0.y) / 8 };
+    await page.mouse.move(p.x, p.y);
+  }
+  await expect(hint).toHaveText(want);
+  mark = (await drawn()).replaced;
+  await page.mouse.up();
+  await redrawn(mark);
+  expect(JSON.stringify(await openings()), 'the openings stay on their wall').toBe(openingsBefore);
+  expect((((await query('queryEntity', { entityId: leafId })) as { entity: { components: { transform: { position: number[] } } } }).entity.components.transform.position)).toEqual(leafT1);
+
+  // ---- The window deleted (selected, Delete): its pane goes with it, one step ----------------------------------
+  await editModeTab(page, 'Openings');
+  await arm('Place');
+  await editMode(page).getByLabel('structure openings', { exact: true }).locator('li[data-opening="window-1"] button').first().click();
+  await page.mouse.move(box.x + 30, box.y + 30);
+  mark = (await drawn()).replaced;
+  await page.keyboard.press('Delete');
+  await redrawn(mark);
+  expect((await openings()).map((o) => o.id)).toEqual(['door-1']);
+  await expect.poll(async () => (await children()).map((c) => c.id), { timeout: 10_000, message: 'the pane went with its window' }).toEqual([leafId]);
+  await page.mouse.move(box.x + 30, box.y + 30);
+  await expect.poll(async () => blueCount(await still(page, 'openings-no-window')), { timeout: 20_000, message: 'no pane drawn' }).toBeLessThan(20);
+
+  // ---- Leave; undo every step back to no opening, then redo every one: the pictures equal -----------------------
+  await editMode(page).getByRole('button', { name: /^Done/ }).click();
+  await expect(editMode(page)).toHaveCount(0);
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${marker}"]`).click();
+  const final = await still(page, 'openings-final');
+  const snapshot = async (): Promise<string> => JSON.stringify([(await structureOf(id))['openings'], (await structureOf(id)).footprint, (await children()).map((c) => c.id)]);
+  const want0 = JSON.stringify([[], v0.footprint, []]);
+  const finalState = await snapshot();
+  // Each press once the editor shows the project's revision (an undo sent against an older one is refused as a
+  // conflict) and the Scene view has drawn the shop's grid as it stands (pressed faster, its draw can stay a step
+  // behind, the audit lists it).
+  const caughtUp = async (): Promise<void> => {
+    const rev = Number(((await query('queryProject', {})) as { revision: number }).revision);
+    await expect(page.locator('.tl-statusbar')).toContainText(`revision ${rev}`, { timeout: 20_000 });
+    await expect.poll(async () => (await drawn()).settled, { timeout: 20_000 }).toBe(true);
+  };
+  // Placed door, window, leaf, pane, moved door, widened, deleted window: seven steps.
+  for (let k = 0; k < 7; k++) {
+    const was = await snapshot();
+    await caughtUp();
+    await page.keyboard.press('Control+z');
+    await expect.poll(snapshot, { timeout: 20_000, message: `undo ${k + 1}` }).not.toBe(was);
+  }
+  expect(await snapshot()).toBe(want0);
+  for (let k = 0; k < 7; k++) {
+    const was = await snapshot();
+    await caughtUp();
+    await page.keyboard.press('Control+Shift+z');
+    await expect.poll(snapshot, { timeout: 20_000, message: `redo ${k + 1}` }).not.toBe(was);
+  }
+  expect(await snapshot()).toBe(finalState);
+  await expect.poll(async () => diff(final, await still(page, 'openings-redone')).n, { timeout: 30_000, message: 'the shop as it was before the undo' }).toBeLessThan(200);
+  console.log(`[structure] openings test ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   expect(errors).toEqual([]);
 });

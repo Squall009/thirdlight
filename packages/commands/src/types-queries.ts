@@ -35,6 +35,8 @@ export interface AssetSummary {
   audio?: import('@thirdlight/project-model').AudioSummary;
   /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: import('@thirdlight/project-model').StoredVertexColors;
+  /** Model only: the current version's bounds in its own space (metres), as its import recorded them (absent: imported before bounds were recorded). */
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
   /** Model only: the default material mapping of every placement. */
   materials?: Record<string, string>;
   /** Model only: its LOD group settings (absent: the defaults). */

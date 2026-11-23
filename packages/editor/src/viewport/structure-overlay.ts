@@ -122,7 +122,7 @@ export class StructureOverlay {
   }
 
   /** A box's edges in the structure's frame (grid metres): the ghost of a new height, a cursor's cells, a misfit's marker (null: gone). */
-  setBox(name: 'ghost' | 'cursor' | 'marker', box: { min: readonly number[]; max: readonly number[] } | null, colour?: 'ghost' | 'cursor' | 'misfit' | 'dig'): void {
+  setBox(name: 'ghost' | 'cursor' | 'marker' | 'opening', box: { min: readonly number[]; max: readonly number[] } | null, colour?: 'ghost' | 'cursor' | 'misfit' | 'dig'): void {
     const c = colour === 'misfit' || colour === 'dig' ? this.colours.misfit : colour === 'cursor' ? this.colours.line : this.colours.ghost;
     this.setLines(name, box === null ? null : boxEdges(box.min, box.max), c, name === 'ghost' ? 0.7 : 1);
   }

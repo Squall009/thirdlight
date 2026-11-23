@@ -21,6 +21,12 @@
  *   cells (only its grid: the world's cells under the pointer are not the
  *   structure's), the cursor snapped to its cells and turned with it; the
  *   release sends one `editVoxels` on the structure's grid.
+ * - **Openings**: over a wall, a ghost of an opening of the chosen size
+ *   snapped to that wall's cells at that storey (red where it is refused);
+ *   a click adds it (one `setComponent`), or selects the opening clicked; the
+ *   selected opening's handle drags it along its wall (one `setComponent` at
+ *   the release) and Delete removes it. A refused opening is not sent: the
+ *   reason is said (structure-openings.ts).
  *
  * Tests read `data-structure-tool`: the tool, the handles on screen, the
  * cell under the pointer and the last gesture.
@@ -31,6 +37,7 @@ import * as THREE from 'three';
 import { BUILDING_GENERATOR, VOXEL_SIZE_M, valueRole, VOXEL_ROLE, GridFrame, type GridPlacement, type StructureDefinition } from '@thirdlight/voxel';
 
 import type { BrushStore } from '../session/brush';
+import { movedOpening, openingAtCell, openingBox, openingOnWall, openingProblem, openingWords, wallUnderCell, withOpening, withoutOpening, type OpeningShape } from '../session/structure-openings';
 import { addPolygon, brushCells, cellsIn, definitionOf, footprintBox, footprintMiddle, handStrokeCommand, moveCorner, moveEdge, rectPoints, snapYaw, storeysFor, structureProblem, turnedPosition, withPolygonPoints, type CellPoint, type HandStroke, type StructureValue } from '../session/structure-shape';
 import type { ScenePickHit } from '../voxel-world/scene-voxels-wire';
 import { BrushControl } from './brush-control';
@@ -39,7 +46,7 @@ import { aimAtPointer } from './scene-queries';
 import { StructureOverlay, type OverlayHandle } from './structure-overlay';
 import type { ToolPress } from './tool-input';
 
-export type StructureToolKind = 'create' | 'shape' | 'extend' | 'dig' | 'add' | 'paint';
+export type StructureToolKind = 'create' | 'shape' | 'extend' | 'dig' | 'add' | 'paint' | 'openings';
 
 /** What the structure mode (or GameObject → Structure) arms the tool with. */
 export interface StructureArm {
@@ -58,6 +65,8 @@ export interface StructureArm {
   readonly voxel: { readonly material: number; readonly role: number } | null;
   /** A misfit to show: its cell in the structure's grid (null: none). */
   readonly marker: readonly [number, number, number] | null;
+  /** The Openings tool: the size a click places and the opening selected (absent: not the Openings tool). */
+  readonly opening?: { readonly shape: OpeningShape; readonly selected: string | null };
 }
 
 export interface StructureToolHost {
@@ -86,6 +95,8 @@ export interface StructureToolCallbacks {
   refused(message: string): void;
   /** What a drag would make, said live (null: nothing in flight). */
   readout(text: string | null): void;
+  /** An opening picked in the view, or just placed (null: none selected). */
+  selectOpening?(id: string | null): void;
 }
 
 /** A pointer within this many pixels of a handle grabs it. */
@@ -103,7 +114,8 @@ type Drag =
   | { kind: 'corner' | 'edge'; poly: number; k: number; start: [number, number]; points: [number, number][] | null }
   | { kind: 'storey'; start: number; anchorY: number; normal: THREE.Vector3; point: THREE.Vector3; storeys: number }
   | { kind: 'yaw'; start: number; startYaw: number; yaw: number }
-  | { kind: 'stroke'; mode: 'dig' | 'add' | 'paint'; cells: [number, number, number][]; role: number | null };
+  | { kind: 'stroke'; mode: 'dig' | 'add' | 'paint'; cells: [number, number, number][]; role: number | null }
+  | { kind: 'opening'; id: string; height: number; startCell: number; cells: number };
 
 export class StructureTool {
   private arming: StructureArm | null = null;
@@ -122,6 +134,8 @@ export class StructureTool {
   private last: Record<string, unknown> | null = null;
   private stamp = '';
   private unstore: (() => void) | null = null;
+  /** The Openings tool's last readout over a wall. */
+  private said: string | null = null;
 
   constructor(private readonly host: StructureToolHost, private readonly cb: StructureToolCallbacks) {
     this.overlay = new StructureOverlay(host.overlay);
@@ -156,6 +170,14 @@ export class StructureTool {
 
   key(e: KeyboardEvent): boolean {
     if (!this.armed() || this.drag !== null) return false;
+    const a = this.arming!;
+    if (a.tool === 'openings' && (e.key === 'Delete' || e.key === 'Backspace') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const id = a.opening?.selected ?? null;
+      if (id === null || a.value === null || a.entityId === null) return false;
+      this.define(a.entityId, withoutOpening(definitionOf(a.value), id), 'remove-opening');
+      this.cb.selectOpening?.(null);
+      return true;
+    }
     return this.control.key(e);
   }
 
@@ -167,6 +189,7 @@ export class StructureTool {
     const place = a.entityId === null ? null : this.host.place(a.entityId);
     if (place === null || a.value === null) return null;
     if (a.tool === 'shape') return this.beginHandle(e, a, place);
+    if (a.tool === 'openings') return this.pressOpening(e, a, place);
     if (a.tool === 'extend') {
       const at = this.floorPoint(e, place);
       if (at === null) return null;
@@ -196,7 +219,14 @@ export class StructureTool {
           this.host.requestRender();
         }
       }
-      if (a.tool === 'dig' || a.tool === 'add' || a.tool === 'paint') this.hoverAt(e.clientX, e.clientY);
+      if (a.tool === 'dig' || a.tool === 'add' || a.tool === 'paint' || a.tool === 'openings') this.hoverAt(e.clientX, e.clientY);
+      if (a.tool === 'openings' && place !== null) {
+        const g = this.grab(e.clientX, e.clientY);
+        if (g !== this.hot) {
+          this.hot = g;
+          this.host.requestRender();
+        }
+      }
       return false;
     }
     if (d.kind === 'create') {
@@ -232,6 +262,11 @@ export class StructureTool {
       }
     } else if (d.kind === 'stroke') {
       this.hoverAt(e.clientX, e.clientY);
+    } else if (d.kind === 'opening' && place !== null && a.value !== null) {
+      const c = this.alongCell(e, place, a.value, d);
+      if (c !== null) d.cells = c - d.startCell;
+      const o = this.draggedOpening(a.value, d);
+      if (o !== null) this.cb.readout(openingProblem(definitionOf(a.value), o) ?? `${openingWords(o)}: ${d.cells >= 0 ? '+' : ''}${(d.cells * VOXEL_SIZE_M).toFixed(1)} m along the wall`);
     }
     this.host.requestRender();
     return true;
@@ -269,6 +304,15 @@ export class StructureTool {
         const position = turnedPosition(p, footprintMiddle(def), d.yaw);
         // The preview stays until the stored turn arrives, so the house never swings back for a frame.
         void this.send(this.cb.place(id, position, d.yaw), 'yaw', { yawDeg: (d.yaw * 180) / Math.PI }).finally(() => this.host.preview(id, null));
+      }
+    } else if (d.kind === 'opening') {
+      const o = this.draggedOpening(a.value, d);
+      if (o !== null && d.cells !== 0) {
+        const why = openingProblem(def, o);
+        if (why !== null) {
+          this.cb.refused(why);
+          this.last = { gesture: 'move-opening', ok: false, refused: why };
+        } else this.define(id, withOpening(def, o), 'move-opening');
       }
     } else if (d.kind === 'stroke') {
       const voxel = d.mode === 'dig' || a.voxel === null ? undefined : d.mode === 'paint' ? { material: a.voxel.material, role: d.role ?? VOXEL_ROLE.wall } : a.voxel;
@@ -373,6 +417,86 @@ export class StructureTool {
     this.hot = id;
     this.host.requestRender();
     return 'capture';
+  }
+
+  /**
+   * A press with the Openings tool: the selected opening's handle begins its drag along its wall; on an opening, that
+   * opening is selected; on a wall, the ghost's opening is added (or the reason it is not is said).
+   */
+  private pressOpening(e: PointerEvent, a: StructureArm, place: GridPlacement): ToolPress {
+    if (a.value === null || a.entityId === null || a.opening === undefined) return null;
+    const def = definitionOf(a.value);
+    const grabbed = this.grab(e.clientX, e.clientY);
+    const sel = a.opening.selected === null ? undefined : def.openings.find((o) => o.id === a.opening!.selected);
+    if (grabbed !== null && sel !== undefined && grabbed === `opening:${sel.id}`) {
+      const box = openingBox(def, sel)!;
+      const d: Extract<Drag, { kind: 'opening' }> = { kind: 'opening', id: sel.id, height: (box.min[1] + box.max[1]) / 2, startCell: 0, cells: 0 };
+      const c = this.alongCell(e, place, a.value, d);
+      if (c === null) return 'consume';
+      d.startCell = c;
+      this.drag = d;
+      this.hot = grabbed;
+      this.host.requestRender();
+      return 'capture';
+    }
+    const h = this.hover;
+    if (h === null || h.grid !== a.value.grid || h.world !== a.world) return null;
+    const at = openingAtCell(def, h.cell);
+    if (at !== null) {
+      this.cb.selectOpening?.(at.id);
+      this.last = { gesture: 'select-opening', ok: true, id: at.id };
+      return 'consume';
+    }
+    const wall = wallUnderCell(def, h.cell, h.normal);
+    if (wall === null) {
+      this.cb.refused('Point at a wall of the building, between its floor and the next: an opening goes in a wall.');
+      this.last = { gesture: 'opening', ok: false, refused: 'no wall' };
+      return 'consume';
+    }
+    const o = openingOnWall(def, wall, a.opening.shape);
+    const why = openingProblem(def, o);
+    if (why !== null) {
+      this.cb.refused(why);
+      this.last = { gesture: 'opening', ok: false, refused: why };
+      return 'consume';
+    }
+    this.define(a.entityId, withOpening(def, o), 'opening');
+    this.cb.selectOpening?.(o.id);
+    return 'consume';
+  }
+
+  /** The cell along a dragged opening's wall under the pointer (its edge's own count, from the edge's start; null: off the plane). */
+  private alongCell(e: PointerEvent, place: GridPlacement, value: StructureValue, d: Extract<Drag, { kind: 'opening' }>): number | null {
+    const def = definitionOf(value);
+    const o = def.openings.find((x) => x.id === d.id);
+    const poly = o === undefined ? undefined : def.footprint.find((p) => p.id === o.polygon);
+    if (o === undefined || poly === undefined) return null;
+    const p = this.planePoint(e, place.position[1] + d.height);
+    if (p === null) return null;
+    const g = new GridFrame(place).toGrid(p.x, p.y, p.z);
+    const a = poly.points[o.edge]!;
+    const b = poly.points[(o.edge + 1) % poly.points.length]!;
+    const alongX = a[1] === b[1];
+    const step = Math.sign(alongX ? b[0] - a[0] : b[1] - a[1]);
+    // Along the edge from its start, in cells (the edge's own direction).
+    return Math.floor(step * ((alongX ? g[0] : g[2]) / VOXEL_SIZE_M - (alongX ? a[0] : a[1])));
+  }
+
+  /** The opening a drag along its wall would make (null: gone from the definition). */
+  private draggedOpening(value: StructureValue, d: Extract<Drag, { kind: 'opening' }>): ReturnType<typeof movedOpening> {
+    return movedOpening(definitionOf(value), d.id, d.cells);
+  }
+
+  /** The Openings tool's ghost under the pointer: the opening a click would add there and why it would be refused (null: no wall under it). */
+  private openingGhost(a: StructureArm): { opening: ReturnType<typeof openingOnWall>; problem: string | null } | null {
+    const h = this.hover;
+    if (a.value === null || a.opening === undefined || h === null || h.grid !== a.value.grid || h.world !== a.world) return null;
+    const def = definitionOf(a.value);
+    if (openingAtCell(def, h.cell) !== null) return null;
+    const wall = wallUnderCell(def, h.cell, h.normal);
+    if (wall === null) return null;
+    const o = openingOnWall(def, wall, a.opening.shape);
+    return { opening: o, problem: openingProblem(def, o) };
   }
 
   private define(entityId: string, def: StructureDefinition, what: string): void {
@@ -520,6 +644,7 @@ export class StructureTool {
         if (!d.cells.some((q) => q[0] === c[0] && q[1] === c[1] && q[2] === c[2])) d.cells.push(c);
       }
       this.drawCursor();
+      if (a?.tool === 'openings' && this.drag === null) this.sayGhost(a);
       this.host.requestRender();
       const next = this.pendingPointer;
       this.pendingPointer = null;
@@ -573,7 +698,8 @@ export class StructureTool {
     else this.frameStructure(a, d);
     this.overlay.scaleHandles(this.host.camera);
     const handles = this.overlay.handlePoints(this.host.camera, root.getBoundingClientRect());
-    const mark = JSON.stringify({ tool: a.tool, navigate: a.navigate, entityId: a.entityId, drag: d?.kind ?? null, marker: a.marker, handles, hover: this.hover === null ? null : { grid: this.hover.grid, cell: this.hover.cell, normal: this.hover.normal, at: this.hoverAtPx }, last: this.last });
+    const ghost = a.tool === 'openings' && !a.navigate ? this.openingGhost(a) : null;
+    const mark = JSON.stringify({ tool: a.tool, navigate: a.navigate, entityId: a.entityId, drag: d?.kind ?? null, marker: a.marker, handles, hover: this.hover === null ? null : { grid: this.hover.grid, cell: this.hover.cell, normal: this.hover.normal, at: this.hoverAtPx }, last: this.last, ...(a.opening !== undefined ? { opening: { selected: a.opening.selected, ghost } } : {}) });
     if (mark !== this.stamp) {
       this.stamp = mark;
       root.setAttribute('data-structure-tool', mark);
@@ -617,15 +743,43 @@ export class StructureTool {
     this.overlay.setOutline('preview', preview, floor);
     // The storey drag's ghost: the footprint's box up to the new height.
     if (d?.kind === 'storey') this.overlay.setBox('ghost', { min: [fb.minX * VOXEL_SIZE_M, 0, fb.minZ * VOXEL_SIZE_M], max: [fb.maxX * VOXEL_SIZE_M, d.storeys * def.storeyHeight * VOXEL_SIZE_M, fb.maxZ * VOXEL_SIZE_M] }, 'ghost');
+    else if (a.tool === 'openings' && !a.navigate) this.frameOpenings(a, def, d);
     else this.overlay.setBox('ghost', null);
+    if (a.tool !== 'openings') this.overlay.setBox('opening', null);
     const shape = a.tool === 'shape' && !a.navigate;
-    const handles = shape ? this.handles(a.value) : [];
+    const handles = shape ? this.handles(a.value) : a.tool === 'openings' && !a.navigate ? this.openingHandles(def, a) : [];
     this.overlay.setHandles(handles, this.hot);
     const mid = footprintMiddle(def);
     this.overlay.setRing(shape ? [mid[0], floor, mid[2]] : null, this.ringRadius(fb));
     const m = a.marker;
     this.overlay.setBox('marker', m === null ? null : { min: [m[0] * VOXEL_SIZE_M - 0.05, m[1] * VOXEL_SIZE_M - 0.05, m[2] * VOXEL_SIZE_M - 0.05], max: [(m[0] + 1) * VOXEL_SIZE_M + 0.05, (m[1] + 1) * VOXEL_SIZE_M + 0.05, (m[2] + 1) * VOXEL_SIZE_M + 0.05] }, 'misfit');
     if (a.tool !== 'dig' && a.tool !== 'add' && a.tool !== 'paint') this.overlay.setBox('cursor', null);
+  }
+
+  /** The Openings tool's drawings: the ghost under the pointer (or of the opening dragged), red where refused; the selected opening's box. */
+  private frameOpenings(a: StructureArm, def: StructureDefinition, d: Drag | null): void {
+    const moved = d?.kind === 'opening' ? movedOpening(def, d.id, d.cells) : null;
+    const ghost = moved !== null ? { opening: moved, problem: openingProblem(def, moved) } : this.drag === null ? this.openingGhost(a) : null;
+    this.overlay.setBox('ghost', ghost === null ? null : openingBox(def, ghost.opening), ghost?.problem == null ? 'ghost' : 'misfit');
+    const sel = a.opening?.selected == null ? undefined : def.openings.find((o) => o.id === a.opening!.selected);
+    this.overlay.setBox('opening', sel === undefined ? null : openingBox(def, sel), 'cursor');
+  }
+
+  /** The status line's readout over a wall with the Openings tool: what a click adds there, or why it would not (said once a change). */
+  private sayGhost(a: StructureArm): void {
+    const g = this.openingGhost(a);
+    const text = g === null ? null : g.problem !== null ? `Not here: ${g.problem}` : `Click: ${openingWords(g.opening)} on wall ${g.opening.edge} of ${g.opening.polygon}, storey ${g.opening.storey}`;
+    if (text === this.said) return;
+    this.said = text;
+    this.cb.readout(text);
+  }
+
+  /** The selected opening's handle: at the middle of its cells (grid metres). */
+  private openingHandles(def: StructureDefinition, a: StructureArm): OverlayHandle[] {
+    const sel = a.opening?.selected == null ? undefined : def.openings.find((o) => o.id === a.opening!.selected);
+    const box = sel === undefined ? null : openingBox(def, sel);
+    if (sel === undefined || box === null) return [];
+    return [{ id: `opening:${sel.id}`, kind: 'edge', at: [(box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2] }];
   }
 
   dispose(): void {
