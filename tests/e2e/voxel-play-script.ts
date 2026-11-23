@@ -167,7 +167,8 @@ export function playScriptSource(at: readonly number[], gridRoom?: readonly numb
       '        const pts = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => gw(cs[k & 1][0], cs[(k >> 1) & 1][1], cs[(k >> 2) & 1][2]));',
       '        const lo = [0, 1, 2].map((a) => Math.min(...pts.map((p) => p[a]))), hi = [0, 1, 2].map((a) => Math.max(...pts.map((p) => p[a])));',
       "        ctx.game.add(v.dig({ min: lo, max: hi }).ok ? 'gridDug' : 'gridDigRefused', 1);",
-      `        if (c.what === 'digpath') state.gpath = v.findPath(gw(1.75, ${gridPath.from[1]} - gP[1], -1.5), [${gridPath.to.join(', ')}]);`,
+      // (straight in along the grid's z at x 1.25 m, 1.5 m before the wall to 2 m inside: 3.5 m; by the door 2 m along is about 6.5 m).
+      `        if (c.what === 'digpath') state.gpath = v.findPath(gw(1.25, ${gridPath.from[1]} - gP[1], -1.5), gw(1.25, ${gridPath.from[1]} - gP[1], 2));`,
       '        continue;',
       '      }',
       // The door: its leaf shut or opened by the generic component access; the pane put in the door (the leaf in the

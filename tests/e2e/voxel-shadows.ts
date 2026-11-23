@@ -1355,7 +1355,7 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   // the wall's as built).
   await expect.poll(async () => Math.floor((packed = await counter('gpath')) / 1e12), { timeout: 20_000, message: 'the path asked with the dig answered' }).toBeGreaterThan(askedN);
   const dug = packed % 1e12;
-  expect({ status: Math.floor(dug / 1e11), last: Math.floor(dug / 1e10) % 10, throughHole: Math.floor(dug / 1e8) % 100 > 0 }, 'a path asked in the step of the dig goes in through the hole').toEqual({ status: 1, last: 1, throughHole: true });
+  expect({ status: Math.floor(dug / 1e11), last: Math.floor(dug / 1e10) % 10, throughHole: Math.floor(dug / 1e8) % 100 > 0, short: dug % 1e5 < 450 }, `a path asked in the step of the dig goes in through the hole (packed ${dug})`).toEqual({ status: 1, last: 1, throughHole: true, short: true });
   // The dig's way from the script to the screen in the grid's draws (the play page's edit hook, its last for the grid).
   const edits = (await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate(() => (window as unknown as { __tlVoxelPlay: { edits(): unknown[] } }).__tlVoxelPlay.edits())) as { world: string; swapMs: number; visibleMs: number; chunks: number }[];
   const toScreen = edits.filter((e) => e.world === o.drawName).pop() ?? null;
