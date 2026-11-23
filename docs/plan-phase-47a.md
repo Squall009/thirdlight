@@ -172,7 +172,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.3 | Done 2026-11-22 (68fbec87, b4ff1315): `@thirdlight/voxel` `structures/`: generator contract, F1 record + checks, building generator (union walls, 45° roofs, hip over the outline), regenerate (undo/redo, fit rule), capture, regenerate-all; town house = bench pattern but beams, landing; small house 1.4 ms, 131 houses 78 ms, regenerate with 1,000 overrides 30 ms; D751, D752 |
 | 47a.4 | Done 2026-11-22 (4059d423): `voxelStructure` (F1), its grid written by the backend through the commands, one undo step with the scene edit; create (next grid, anchor), regenerate, copy, delete, material swap, hand edits as overrides, `regenerateStructures`; Play/export read places from the objects. Small house 20 ms, L 60–76 ms; +0.8–2.2 s with a far cache (D754); D753, D755 |
 | 47a.5 | Done 2026-11-22. (a) 6be74d26, ef33ad6f, 6003c541: Scene view draws, moves, picks grids; `ctx.voxels` by grid; spec §3.6. (b) d41e0c49, 7b83e3a0, 471d16bb, 894fb4e0: grids planned at ring crossings (G30 sim 1.4–1.5 × W, base 1.8–1.9), stamp sliced, far rebuild after the answer (house 27 ms, was 832), fine bake reads grids; lane reserve backed out; D759, D760 |
-| 47a.6 | Built 2026-11-23 (cce0d13f, 54f9db51): structure editor mode (draw, edge/corner handles, Extend, storeys, 15° turn, Inspector section with a material a part, Dig/Add/Paint on its grid, misfit list and marker); e2e 13–16 s. Gate red only on the voxel-world assembly test, failing at the base too (D761, from 894fb4e0); D762–D764 |
+| 47a.6 | Done 2026-11-23 (cce0d13f, 54f9db51): structure editor mode (draw, edge/corner handles, Extend, storeys, 15° turn, Inspector section with a material a part, Dig/Add/Paint, misfit list and marker); e2e 13–16 s. The gate's one red (D761) was a test's camera jump tripping the streamer: fixed ad116a9b, every-area gate green; D762–D764. Interim look `acc47a-interim` |
 | 47a.7 | not started |
 | 47a.8 | not started |
 | 47a.9 | not started |
@@ -1723,6 +1723,14 @@ chunks, so nothing is re-read there, as before 894fb4e0).
   cell the stroke starts on (D762).
 - 2026-11-23 (47a.6; default chosen, owner to confirm): **the editor sends `editVoxels` without the project's
   revision**, as the voxel world page does: a stroke applies to its world as it stands.
+- 2026-11-23 (the lead): **the interim look page** (`docs/briefs/acceptance-47a-interim.md`, `acc47a-interim`) is published
+  after 47a.6; not a stop. It carries six decisions with defaults (D751 the fit rule, D752 a ridge a polygon, D753
+  F2's "one region file", D756 an object key a grid, D759 a stale far view after a restart, D762 a material-only
+  paint): **none is built before the owner's note**, since each changes an approved entry or spec; the defaults
+  that say "leave it" stand at once.
+- 2026-11-23 (the lead): a red on a test of a spec rule (the feeds rule, a format round trip, an undo's exactness)
+  is never rerun blind: it is run alone at the head and at the commit before the item, and placed. 47a.5b's gates
+  passed with the assembly test failing two runs in three (D761).
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 

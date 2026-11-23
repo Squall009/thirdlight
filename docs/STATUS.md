@@ -1,6 +1,6 @@
 # Thirdlight — Status
 
-Updated 2026-11-20. Current work: **47a Structures and water bodies is planned** (`docs/plan-phase-47a.md`: 14 items, seven format entries in `docs/briefs/proposal-47a-formats.md`, five questions) **approved by the owner 2026-11-20**; 47a.0 and 47a.1 are done (2026-11-22: one grid per building stands; light and rooms by a stamp, paths by a graph a building, the far view by resampling; `docs/briefs/result-47a.1.md`); next 47a.3, the structure core. 46e-b is done and accepted (2026-11-20). Carried in: D740, D735, D736, D727, D728, D741.
+Updated 2026-11-20. Current work: **47a Structures and water bodies is planned** (`docs/plan-phase-47a.md`: 14 items, seven format entries in `docs/briefs/proposal-47a-formats.md`, five questions) **approved by the owner 2026-11-20**; 47a.0 and 47a.1 are done (2026-11-22: one grid per building stands; light and rooms by a stamp, paths by a graph a building, the far view by resampling; `docs/briefs/result-47a.1.md`); 47a.3–47a.6 done (2026-11-23): a building is made and edited in the editor's structure mode (`docs/briefs/acceptance-47a-interim.md`, six owner decisions with defaults); next 47a.7, doors and windows. 46e-b is done and accepted (2026-11-20). Carried in: D740, D735, D736, D727, D728, D741.
 What the engine is now:
 `docs/architecture/voxel-engine.md`; owner decisions: `docs/decisions/owner-decisions.md`; order: `docs/roadmap.md`.
 
