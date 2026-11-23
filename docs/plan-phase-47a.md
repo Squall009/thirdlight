@@ -176,7 +176,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.7 | Done 2026-11-23. (a) 7b5d2598, 20fc9bf7, a8e2028e: `voxelPortal`, props follow, portal state where the world runs. (b) 6c0cf4f1…0c446ea1: shut doors link (D770), Play/export e2e, the mode's Openings (ghost, place, move, delete, fitting props, glass); flip→light 0.7–1.7 s, 100 doors one 14–16 ms step; stairs tool D775
 | 47a.8 | Done 2026-11-23 (a27a11e4, 39c31b65, 1488dc66, 494d8315 …): radius as a footprint (default 0.3 m, two cells), queries wait for edits (bound 90 serves, `stale`), shut doors in the levels, reach through grids, portal runs split; town 131/131 every check; D780 the Export failure fixed (hourly sweep); D778, D779, D781 |
 | 47a.9 | Done 2026-11-23 (e1a62759…3452d5bb): proof on 1.34 M liquid cells (shader data read liquid: now air); `changeFeeds`/`EditOutcome.parts`; liquid part (16 B quads), drawn plain near; liquid dab 4 full derives → 4 liquid, worker 8.4 → 4.6 ms; town orbit, 128 lamps equal; lake near not resolved; D782–D785 |
-| 47a.10 | Done 2026-11-23 (123cd86e, fa4c996b, 2faad81c, b46b3ae9): level fill, `waterBody` (F6), a stroke or command in a body's reach rewrites it in the same undo step, locally (bank dab 0.5–2.1 ms, 16 cells; 251 m lake whole 1.37 s), a breach drained and flagged with a marker; Inspector, level handle; e2e 7–8 s; D786 (a stroke waits a far rebuild: 0.6–0.7 s), D787 |
+| 47a.10 | Done 2026-11-23 (123cd86e, fa4c996b, 2faad81c, b46b3ae9, cb320d59): level fill, `waterBody` (F6), a stroke or command in a body's reach rewrites it in the same undo step, locally (bank dab 0.5–2.1 ms, 16 cells; 251 m lake whole 1.37 s), a breach drained and flagged with a marker; Inspector, level handle; e2e 7–8 s; D786 (a stroke waits a far rebuild: 0.6–0.7 s), D787 |
 | 47a.11 | not started |
 | 47a.12 | not started |
 | 47a.13 | not started |
@@ -1963,7 +1963,7 @@ from the floor in the picture): unverified. Structure grids' water was not looke
 
 ### 47a.10 — water bodies
 
-**Built** (123cd86e, fa4c996b, 2faad81c, b46b3ae9; F6 as approved, its text in `format-versions.md`; nothing else stored).
+**Built** (123cd86e, fa4c996b, 2faad81c, b46b3ae9, cb320d59; docs 9ff559d0; F6 as approved, its text in `format-versions.md`; nothing else stored).
 
 - **The level fill** (`@thirdlight/voxel` `water/level-fill.ts`, one pure function: a seed cell, a level in cells, a
   material, a reach in cells; the world read through a `FillWorld` reader, `value` and an optional `stops`): a
@@ -2041,8 +2041,18 @@ written. **In the browser** (the structure-mode e2e, WebGPU, its 16 × 16 m pond
 and the Scene view swapped the dig and the water in 60–63 ms after the send when no far rebuild was waiting; right
 after the body was made it answered in 622–728 ms (D786). So the 0.5 s aim is met for a dab on a 250 m lake (the
 backend's part under 25 ms; the browser's swap measured on the small pond only, not on the 250 m lake), missed by
-the first dab after an undo (0.61 s, D787) and by a dab queued behind a far rebuild (D786). Gate time: before, the
-structure-mode e2e file 2 tests (its time in gate-fast-20261123-151856); after, the water test adds 7–8 s alone.
+the first dab after an undo (0.61 s, D787) and by a dab queued behind a far rebuild (D786). E2E time: the
+structure-mode file's two tests 13.8–14.3 s and 7.6–8.4 s in the gates before; the water test adds 8.0 s (the voxel
+area 397 → 448 s between gate-fast-20261123-151856 and -194323, the rest the host's load).
+
+**Gates**: gate-fast-20261123-194323 (every area: project-model changed; vitest 803 files green, lint clean) RED on
+two e2e tests: the water test's marker check (the view the file's earlier tests leave stood close, the marker out of
+it: the test now backs off until the marker shows) and `frame-rate-cap` (load, listed); gate-rerun-20261123-202211
+GREEN (both, perf at 60 Hz 16.7 ms p50, CPU 6.5 ms against 9.02). Run whole, the structure-mode file then failed
+its first test twice in four runs at the head ("undo to step 1", "redo to step 1": the step sent against the
+editor's revision a step behind, refused as a conflict) and passed 3 of 3 alone at 6d073791: the test now waits for
+the editor's revision before each press as the openings test does, and a stroke and a command read the scenes once;
+3 of 3 whole-file runs green; gate-fast-20261123-203237 GREEN (core, content, voxel; 39 passed).
 
 **Pictures** (`~/.cache/thirdlight-phase47a/work/47a.10/look/`, the editor at 1280 × 720, WebGPU, the project's
 quality set to low for the run; the e2e's yard, not staging's world): `20-hollow.png` and `21-lake-made.png` (before
