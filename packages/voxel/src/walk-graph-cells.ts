@@ -56,6 +56,8 @@ export interface WalkAgent {
   readonly height: number;
   /** The deepest drop it walks off (cells; below 2: none). */
   readonly maxDrop: number;
+  /** It steps into cells behind a shut door too (a game whose characters open doors); absent: it does not. */
+  readonly throughShut?: boolean;
 }
 
 /** The walker the pieces are made for: 2 m tall, no drops. */
@@ -89,6 +91,11 @@ export interface WalkChunk {
   readonly dependsAbove: boolean;
   /** Whether the chunk above was known when it was made (what its clearance read there). */
   readonly aboveKnown: boolean;
+  /**
+   * Per cell, 1 where it stands in a shut door's opening (a portal whose prop stops walkers while shut): a step into
+   * it is taken only by a walker that goes through shut doors, and it is in no piece (null: none in the chunk).
+   */
+  readonly shut?: Uint8Array | null;
   /** False once the chunk was made again or left. */
   alive: boolean;
 }
@@ -125,7 +132,7 @@ export function emptyWalkChunk(cx: number, cy: number, cz: number, key: number, 
  * A chunk's part from its sections' navigation (`nav`): its standable cells by column with their clearance, and its
  * pieces for the default walker. `se`: the section edge; the chunk has `edge / se` sections an axis.
  */
-export function buildWalkChunk(cx: number, cy: number, cz: number, key: number, edge: number, se: number, nav: ChunkNavReader): WalkChunk {
+export function buildWalkChunk(cx: number, cy: number, cz: number, key: number, edge: number, se: number, nav: ChunkNavReader, shutAt: ((x: number, y: number, z: number) => boolean) | null = null): WalkChunk {
   const per = edge / se;
   const navs: SectionNav[] = [];
   // Own sections, then the chunk above's lowest layer (the clearance reads at most WALK_CLEARANCE_MAX cells past the top).
@@ -174,7 +181,14 @@ export function buildWalkChunk(cx: number, cy: number, cz: number, key: number, 
       clear[k] = free;
     }
   }
-  const chunk: WalkChunk = { cx, cy, cz, key, edge, colStart, ys, col, clear, piece: new Uint16Array(total).fill(NO_WALK_PIECE), pieces: [], dependsAbove, aboveKnown, alive: true };
+  let shut: Uint8Array | null = null;
+  if (shutAt !== null) {
+    for (let k = 0; k < total; k++) {
+      const c = col[k]!;
+      if (shutAt((c / edge) | 0, ys[k]!, c % edge)) (shut ??= new Uint8Array(total))[k] = 1;
+    }
+  }
+  const chunk: WalkChunk = { cx, cy, cz, key, edge, colStart, ys, col, clear, piece: new Uint16Array(total).fill(NO_WALK_PIECE), pieces: [], dependsAbove, aboveKnown, shut, alive: true };
   labelPieces(chunk);
   return chunk;
 }
@@ -262,6 +276,10 @@ export class WalkStepper {
         if (t === null) continue;
         const j = standableIn(t, tx - t.cx * e, ty - t.cy * e, tz - t.cz * e);
         if (j < 0 || !stepFits(ca, t.clear[j]!, dy, h)) continue;
+        if (t.shut?.[j] === 1 && agent.throughShut !== true) {
+          found = true;
+          continue;
+        }
         this.orthoTo[d] = t;
         this.orthoCell[d] = j;
         this.orthoDy[d] = dy;
@@ -286,6 +304,7 @@ export class WalkStepper {
         if (ly + dy < 0 || ly + dy >= e) continue;
         const j = standableIn(c, lx + dx, ly + dy, lz + dz);
         if (j < 0 || !stepFits(ca, c.clear[j]!, dy, h)) continue;
+        if (c.shut?.[j] === 1 && agent.throughShut !== true) break;
         // Each straight neighbour on to the diagonal's end: the same rule from where its step landed.
         const ja = this.orthoCell[oa]!;
         const jb = this.orthoCell[ob]!;
@@ -313,6 +332,7 @@ export class WalkStepper {
       const j = standableIn(t, tx - t.cx * e, ty - t.cy * e, tz - t.cz * e);
       if (j < 0) continue;
       // The first floor below decides: the column must be free from it to the walker's head over the ledge.
+      if (t.shut?.[j] === 1 && agent.throughShut !== true) return;
       if (t.clear[j]! >= k + agent.height) sink(t, j, this.cellM * Math.sqrt(1 + k * k));
       return;
     }
@@ -342,7 +362,7 @@ function labelPieces(c: WalkChunk): void {
   };
   const pieces = c.pieces;
   for (let seed = 0; seed < c.ys.length; seed++) {
-    if (c.piece[seed] !== NO_WALK_PIECE || c.clear[seed]! < DEFAULT_WALK_AGENT.height) continue;
+    if (c.piece[seed] !== NO_WALK_PIECE || c.clear[seed]! < DEFAULT_WALK_AGENT.height || c.shut?.[seed] === 1) continue;
     id = pieces.length;
     c.piece[seed] = id;
     let head = 0;
@@ -370,6 +390,6 @@ export function walkChunkBytes(c: WalkChunk): number {
 export function sameWalkChunk(a: WalkChunk, b: WalkChunk): boolean {
   if (a.ys.length !== b.ys.length || a.pieces.length !== b.pieces.length) return false;
   for (let k = 0; k < a.colStart.length; k++) if (a.colStart[k] !== b.colStart[k]) return false;
-  for (let k = 0; k < a.ys.length; k++) if (a.ys[k] !== b.ys[k] || a.clear[k] !== b.clear[k] || a.piece[k] !== b.piece[k]) return false;
+  for (let k = 0; k < a.ys.length; k++) if (a.ys[k] !== b.ys[k] || a.clear[k] !== b.clear[k] || a.piece[k] !== b.piece[k] || (a.shut?.[k] ?? 0) !== (b.shut?.[k] ?? 0)) return false;
   return true;
 }

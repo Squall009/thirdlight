@@ -138,8 +138,11 @@ afterAll(async () => {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** What a job reads of the script's context: the voxels and the generic component access. */
+type Ctx = { voxels: BehaviorVoxels; entity(id: string): { set(component: string, patch: Record<string, unknown>): { ok: boolean; message: string } } | null };
+
 /** A running game over the test world with the houses `grids` names (each grid's folder, by its id): `inStep` runs a function in the script's next step. */
-async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder: string }>): Promise<{ inStep<R>(fn: (v: BehaviorVoxels) => R | undefined, what: string): Promise<R>; changes: BehaviorVoxels['changes'][number][]; mismatches: BehaviorVoxels['mismatches'][number][] }> {
+async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder: string }>, extra: readonly Record<string, unknown>[] = []): Promise<{ inStep<R>(fn: (v: BehaviorVoxels, ctx: Ctx) => R | undefined, what: string): Promise<R>; changes: BehaviorVoxels['changes'][number][]; mismatches: BehaviorVoxels['mismatches'][number][] }> {
   const r = await createPhysicsPort3D({ character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } }, noCharacter: true, statics: [], solver: { hz: 60, gravityY: -9.81 }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: 0.8, minSlopeSlideRad: 0.9, autostep: false } });
   if (!r.ok) throw new Error(r.error.message);
   const ports = {
@@ -159,7 +162,7 @@ async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder:
       return { grid, worldId: TEST_WORLD_ID, source: disk.source(grid, 'stacked', 512), pool, grids: opened };
     },
   };
-  let job: ((v: BehaviorVoxels) => boolean) | null = null;
+  let job: ((v: BehaviorVoxels, ctx: Ctx) => boolean) | null = null;
   const changes: BehaviorVoxels['changes'][number][] = [];
   const mismatches: BehaviorVoxels['mismatches'][number][] = [];
   let seen: unknown = null;
@@ -174,13 +177,13 @@ async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder:
     namespace: {
       default: {
         instantiate: () => ({}),
-        step: (_s: unknown, ctx: { voxels: BehaviorVoxels }) => {
+        step: (_s: unknown, ctx: Ctx) => {
           if (ctx.voxels.changes !== seen) {
             seen = ctx.voxels.changes;
             changes.push(...ctx.voxels.changes);
             mismatches.push(...ctx.voxels.mismatches);
           }
-          if (job?.(ctx.voxels) === true) job = null;
+          if (job?.(ctx.voxels, ctx) === true) job = null;
         },
         dispose: () => {},
       },
@@ -200,9 +203,10 @@ async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder:
       entities: [
         { id: 'world', components: { transform: { position: [0, 1, -6], ...T }, voxelWorld: { world: 'a', ring: { loadRadius: 40, loadHeight: 24 }, collision: { radius: 24, height: 16 } } } },
         { id: 'probe', components: { transform: { position: [0, 0, 0], ...T }, behavior: { behaviorId: 'probe', values: {} } } },
+        ...extra,
       ],
     },
-    scenes: [{ sceneId: 'scene-main', start: true, entityIds: ['world', 'probe'] }],
+    scenes: [{ sceneId: 'scene-main', start: true, entityIds: ['world', 'probe', ...extra.map((e) => e['id'] as string)] }],
   };
   const now = { t: 0 };
   const res = instantiateRuntime({ snapshot, registry, modules: [spec.id], actions: { sample: (i: number) => neutralFrame(i) }, physics: r.port, settings: {}, clock: () => now.t, driver: { kind: 'manual' }, voxels: ports } as never);
@@ -210,10 +214,10 @@ async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder:
   const rt = res.runtime;
   runtimes.push(rt);
   expect(rt.start().ok).toBe(true);
-  const inStep = async <R>(fn: (v: BehaviorVoxels) => R | undefined, what: string): Promise<R> => {
+  const inStep = async <R>(fn: (v: BehaviorVoxels, ctx: Ctx) => R | undefined, what: string): Promise<R> => {
     let out = null as { r: R } | null;
-    job = (v) => {
-      const x = fn(v);
+    job = (v, ctx) => {
+      const x = fn(v, ctx);
       if (x !== undefined) out = { r: x };
       return out !== null;
     };
@@ -297,6 +301,41 @@ describe('ctx.voxels in a world with structure grids', () => {
       expect(r.door?.distance).toBeCloseTo(3 + (HOUSE.d - 1) * M, 6);
     }
   }, 120_000);
+
+  it('a door prop shuts its opening exactly (0°, 30°, 45°): a light ray stops at it, portalsOf names it shut; opened by a script, the light passes', async () => {
+    // A portal prop a house, standing in its door (the join is by place: its middle lies in the door's opening cells).
+    const doors = HOUSES.map((h) => ({ id: `door-${h.id}`, components: { transform: { position: frameOf(h.id).toWorld(((HOUSE.door[0] + HOUSE.door[1] + 1) / 2) * M, M, 0.5 * M), rotation: [0, Math.sin((h.yawDeg * Math.PI) / 360), 0, Math.cos((h.yawDeg * Math.PI) / 360)], scale: [1, 1, 1] }, voxelPortal: { open: false, stops: { light: true, sight: true, walk: true } } } }));
+    const g = await game(ALL, doors);
+    await g.inStep(ready, 'the houses loaded and derived');
+    const look = (v: BehaviorVoxels) =>
+      HOUSES.map((h) => {
+        const f = frameOf(h.id);
+        const dir = f.toWorld(0, 0, 1).map((c, a) => c - f.toWorld(0, 0, 0)[a]!) as [number, number, number];
+        const room = v.regionAt(...cellAt(h.id, 6, 2, 5));
+        const portals = room === null ? [] : v.portalsOf(room.id);
+        return { yaw: h.yawDeg, light: v.raycast(f.toWorld(3.25, 1.25, -3), dir, 20, { stop: 'light' }), portal: portals.find((p) => p.prop === `door-${h.id}`) ?? null };
+      });
+    // Shut: joined, said, and the light ray meets the door's world cells, short of the back wall.
+    const shut = await g.inStep((v) => {
+      const r = look(v);
+      return r.every((x) => x.portal !== null && x.light !== null && x.light.distance < 3 + M) ? r : undefined;
+    }, 'every door joined and shut in the light');
+    for (const r of shut) {
+      expect(r.portal, `${r.yaw}°`).toMatchObject({ prop: `door-${HOUSES.find((h) => h.yawDeg === r.yaw)!.id}`, open: false, stops: { light: true, sight: true, walk: true } });
+      expect(r.light!.grid, `${r.yaw}° the ray stops in the world's cells at the door`).toBe(0);
+      expect(r.light!.distance).toBeGreaterThan(3 - 2 * M);
+    }
+    // Opened by a script through the generic component access: the light and the default path pass again.
+    await g.inStep((_v, ctx) => (HOUSES.every((h) => ctx.entity(`door-${h.id}`)?.set('voxelPortal', { open: true }).ok === true) ? true : undefined), 'doors opened');
+    const open = await g.inStep((v) => {
+      const r = look(v);
+      return r.every((x) => x.portal?.open === true && x.light !== null && x.light.distance > 3 + M) ? r : undefined;
+    }, 'every door open in the light');
+    for (const r of open) {
+      expect(r.light!.grid).toBe(HOUSES.find((h) => h.yawDeg === r.yaw)!.id);
+      expect(r.light!.cell[2]).toBe(HOUSE.d - 1);
+    }
+  }, 180_000);
 
   it('a change spanning a house and the ground changes both, each in its own cells, as one change; a set replaces the wall and fills the air before it in the world grid', async () => {
     const g = await game(ALL);

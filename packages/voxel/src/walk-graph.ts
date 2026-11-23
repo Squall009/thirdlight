@@ -26,7 +26,7 @@
  * - **In slices.** Making chunks and their crossings counts against the
  *   caller's slice a chunk at a time; what is left carries over.
  */
-import { chunkInWorld, chunkKeyOrNone, type CellGrid, type ChunkGrid } from './coords';
+import { chunkInWorld, chunkKeyOrNone, localIndex, type CellGrid, type ChunkGrid } from './coords';
 import { OCCUPANCY } from './derived-data';
 import { DEFAULT_WALK_AGENT, NO_WALK_PIECE, buildWalkChunk, sameWalkChunk, walkChunkBytes, WalkStepper, type ChunkNavReader, type WalkChunk, type WalkChunkLookup } from './walk-graph-cells';
 import type { DeriveOutput } from './stream-job';
@@ -162,6 +162,32 @@ export class WalkGraph {
     if (this.chunks.has(chunkKeyOrNone(this.view.grid, cx, cy + 1, cz))) this.touch(cx, cy + 1, cz);
   }
 
+  /** Shut doors' cells (graph cells) by door, and by chunk key the local cells of every shut door in it. */
+  private readonly shutDoors = new Map<string, readonly (readonly [number, number, number])[]>();
+  private readonly shutByChunk = new Map<number, Set<number>>();
+
+  /**
+   * A door's cells (cells of this graph's grid where a walker stands in its opening) shut to walkers, or open again
+   * (null): only the chunks they lie in are made again, so their pieces and exits change where the door is and
+   * nowhere else.
+   */
+  setShut(door: string, cells: readonly (readonly [number, number, number])[] | null): void {
+    const g = this.view.grid;
+    const was = this.shutDoors.get(door) ?? [];
+    if (cells === null || cells.length === 0) this.shutDoors.delete(door);
+    else this.shutDoors.set(door, cells.map((c) => [c[0], c[1], c[2]] as const));
+    const touched = new Map<number, readonly [number, number, number]>();
+    for (const c of [...was, ...(cells ?? [])]) touched.set(chunkKeyOrNone(g, c[0] >> g.shift, c[1] >> g.shift, c[2] >> g.shift), [c[0] >> g.shift, c[1] >> g.shift, c[2] >> g.shift]);
+    for (const [k, [cx, cy, cz]] of touched) {
+      if (k < 0) continue;
+      const set = new Set<number>();
+      for (const list of this.shutDoors.values()) for (const c of list) if (c[0] >> g.shift === cx && c[1] >> g.shift === cy && c[2] >> g.shift === cz) set.add(localIndex(g, c[0] & g.mask, c[1] & g.mask, c[2] & g.mask));
+      if (set.size === 0) this.shutByChunk.delete(k);
+      else this.shutByChunk.set(k, set);
+      this.touch(cx, cy, cz);
+    }
+  }
+
   /** Chunks to make or crossings to recompute wait. */
   get pending(): boolean {
     return this.dirty.size > 0 || this.dirtyPairs.size > 0;
@@ -268,7 +294,8 @@ export class WalkGraph {
       return stampedNav(own, stamps.rooms(cx, qy, cz), supports && ly === 0 ? stamps.rooms(cx, qy - 1, cz) : null, sx * se, ly * se, sz * se, g.shift, se, supports);
     };
     const t = performance.now();
-    const part = buildWalkChunk(cx, cy, cz, key, g.edge, se, nav);
+    const shut = this.shutByChunk.get(key);
+    const part = buildWalkChunk(cx, cy, cz, key, g.edge, se, nav, shut === undefined ? null : (x, y, z) => shut.has(localIndex(g, x, y, z)));
     this.lastBuildMs = performance.now() - t;
     return part;
   }

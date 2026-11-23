@@ -231,6 +231,13 @@ export interface VoxelPortalInfo {
   readonly volume: number;
   /** The regions it joins (ids, ascending): a door between a room and the outdoors names both. */
   readonly regions: readonly number[];
+  /**
+   * The prop standing in it with a `voxelPortal` (a door, a pane), its object's id, and its state: `open`, and what
+   * it `stops` while shut (light, sight, walkers). Absent: nothing stands in it (an open hole).
+   */
+  readonly prop?: string;
+  readonly open?: boolean;
+  readonly stops?: { readonly light: boolean; readonly sight: boolean; readonly walk: boolean };
 }
 
 /** A walk's hit as scripts read it. */
@@ -266,9 +273,10 @@ export function voxelRegionInfo(info: OpenRegionInfo, cellSky: boolean, grid = 0
 }
 
 /** A stitched portal as scripts read it. */
-export function voxelPortalInfo(p: OpenPortalInfo): VoxelPortalInfo {
+export function voxelPortalInfo(p: OpenPortalInfo, prop: { readonly id: string; readonly open: boolean; readonly stops: { readonly light: boolean; readonly sight: boolean; readonly walk: boolean } } | null = null): VoxelPortalInfo {
   const s = VOXEL_SIZE_M;
-  return Object.freeze({ id: p.id, bounds: cellBoxMetres(p.min, p.max), volume: p.cells * s * s * s, regions: p.regions });
+  const base = { id: p.id, bounds: cellBoxMetres(p.min, p.max), volume: p.cells * s * s * s, regions: p.regions };
+  return Object.freeze(prop === null ? base : { ...base, prop: prop.id, open: prop.open, stops: Object.freeze({ ...prop.stops }) });
 }
 
 /** How a path or reach query walks (`findPath`, `reach`), in metres. */
@@ -282,6 +290,11 @@ export interface VoxelWalkOptions {
   readonly maxDrop?: number;
   /** At most this many places searched (default: no bound): past it the answer is `partial`, the way to where it got closest. */
   readonly maxNodes?: number;
+  /**
+   * Doors whose portal prop is shut and stops walkers (`voxelPortal`): `open-only` (default) a path goes round them or
+   * finds none; `shut-too` it goes through them, for a game whose characters open doors.
+   */
+  readonly doors?: 'open-only' | 'shut-too';
 }
 
 /**

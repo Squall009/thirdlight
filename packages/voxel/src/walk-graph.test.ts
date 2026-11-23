@@ -660,3 +660,48 @@ describe('walk graph: queries', () => {
     expect(cellsOf(a).length).toBeGreaterThan(1);
   });
 });
+
+describe('walk graph: shut doors', () => {
+  it('a shut door is walked only by a query through shut doors; a flip makes again only the chunk its cells lie in, and opened the graph is as before', () => {
+    const w = new TestWorld();
+    ground(w, 2, 1);
+    // A wall across the yard at x 40 (z 0 … 31, two chunks along x), its only way through a doorway of opening cells
+    // (z 10 … 11, 4 cells high): the door.
+    w.fill([40, 8, 0, 40, 15, 31], WALL);
+    w.fill([40, 8, 10, 40, 11, 11], OPENING);
+    for (let cx = 0; cx <= 1; cx++) w.derive(cx, 0, 0);
+    const g = loadAll(w, [0, 0, 0], [1, 0, 0]);
+    const from: P3 = [20, 8, 10];
+    const to: P3 = [56, 8, 20];
+    const open = path(g, from, to);
+    expect(open.status).toBe('found');
+    const before = [...g.parts()].map((c) => [c.key, c] as const);
+    const built: string[] = [];
+    g.onPart = (cx, cy, cz) => built.push(`${cx},${cy},${cz}`);
+    const door: [number, number, number][] = [[40, 8, 10], [40, 8, 11]];
+    g.setShut('door', door);
+    g.update();
+    // Only the chunk holding the door's cells was made again.
+    expect(built).toEqual(['1,0,0']);
+    const shut = path(g, from, to);
+    expect(shut.status).toBe('unreachable');
+    expect(path(g, from, to, { hierarchy: false }).status).toBe('unreachable');
+    const through = path(g, from, to, { doors: 'shut-too' });
+    expect(through.status).toBe('found');
+    expect(through.cost).toBeCloseTo(open.cost, 6);
+    // Its cells are in no piece while shut (the levels never cross it).
+    const c = g.chunkAt(1, 0, 0)!;
+    for (const [x, y, z] of door) {
+      const k = c.colStart[(x - 32) * 32 + z]!;
+      expect(c.ys[k]).toBe(y);
+      expect(c.piece[k]).toBe(NO_WALK_PIECE);
+    }
+    g.setShut('door', null);
+    g.update();
+    expect(path(g, from, to).status).toBe('found');
+    for (const [key, part] of before) {
+      const now = [...g.parts()].find((p) => p.key === key)!;
+      expect(sameWalkChunk(now, part)).toBe(true);
+    }
+  });
+});

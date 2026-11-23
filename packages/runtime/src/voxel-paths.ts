@@ -29,7 +29,7 @@ export function walkOptionsOf(o: VoxelWalkOptions | undefined): WalkQueryOptions
   if (o === undefined) return {};
   if (typeof o !== 'object' || o === null) return null;
   const s = VOXEL_SIZE_M;
-  const out: { height?: number; maxDrop?: number; maxNodes?: number } = {};
+  const out: { height?: number; maxDrop?: number; maxNodes?: number; doors?: 'open-only' | 'shut-too' } = {};
   if (o.height !== undefined) {
     if (typeof o.height !== 'number' || !(o.height > 0) || o.height > WALK_CLEARANCE_MAX * s) return null;
     out.height = Math.ceil(o.height / s - 1e-9);
@@ -41,6 +41,10 @@ export function walkOptionsOf(o: VoxelWalkOptions | undefined): WalkQueryOptions
   if (o.maxNodes !== undefined) {
     if (typeof o.maxNodes !== 'number' || !Number.isInteger(o.maxNodes) || o.maxNodes < 1) return null;
     out.maxNodes = o.maxNodes;
+  }
+  if (o.doors !== undefined) {
+    if (o.doors !== 'open-only' && o.doors !== 'shut-too') return null;
+    out.doors = o.doors;
   }
   if ((out.height ?? 4) + (out.maxDrop ?? 0) > WALK_CLEARANCE_MAX) return null;
   return out;

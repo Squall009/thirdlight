@@ -254,7 +254,9 @@ class LinkedJob {
     const wAt = (l: WalkLink): P3 => [(worldCell(l)[0] + 0.5) * M, worldCell(l)[1] * M, (worldCell(l)[2] + 0.5) * M];
     // Links are made for the default walker: a taller one takes a link only where both its ends have room for it.
     const h = this.options.height ?? DEFAULT_WALK_AGENT.height;
-    const fits = (l: WalkLink): boolean => h <= DEFAULT_WALK_AGENT.height || stepFits(l.world.clear[l.w]!, l.part.clear[l.g]!, Math.round((gAt(l)[1] - wAt(l)[1]) / M), h);
+    // A link onto a cell in a shut door's opening is taken only by a walker through shut doors.
+    const throughShut = this.options.doors === 'shut-too';
+    const fits = (l: WalkLink): boolean => (throughShut || l.part.shut?.[l.g] !== 1) && (h <= DEFAULT_WALK_AGENT.height || stepFits(l.world.clear[l.w]!, l.part.clear[l.g]!, Math.round((gAt(l)[1] - wAt(l)[1]) / M), h));
     const doors = (list: WalkLink[], est: (l: WalkLink) => number): WalkLink[] => {
       const sorted = list.filter(fits).map((l) => [est(l), l] as const).sort((x, y) => x[0] - y[0]);
       const out: WalkLink[] = [];

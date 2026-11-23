@@ -25,12 +25,13 @@
  * spacing, and out again when they leave.
  */
 import { deepFreeze, threadProfiler } from '@thirdlight/shared';
-import { frameBudgetMs, levelFrameBudget, qualityLevelsOf, resolveVoxelWorld, voxelMaterialInfos, type EntityV3, type QualityLevelConfig, type VoxelMaterialInfo, type VoxelWorldComponent } from '@thirdlight/project-model';
+import { frameBudgetMs, levelFrameBudget, qualityLevelsOf, resolveVoxelWorld, voxelMaterialInfos, voxelPortalOf, type VoxelPortalComponent, type EntityV3, type QualityLevelConfig, type VoxelMaterialInfo, type VoxelWorldComponent } from '@thirdlight/project-model';
 import { PROP_SAMPLES_PER_AXIS, VOXEL_SIZE_M, type PropShape } from '@thirdlight/voxel';
 import type { PhysicsPort3D } from './ports';
 import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelPathAnswer, VoxelRayOptions, VoxelReachAnswer, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelWaitAnswer, VoxelWalkOptions } from './voxel-api';
 import { noPathAnswer, noReachAnswer } from './voxel-paths';
 import { VoxelWorldHost, type VoxelWorldPorts } from './voxel-world-host';
+import type { PortalProp } from './voxel-portals';
 import type { WorldTransform } from './world-transform';
 
 /** What the worlds read of the running game each step (world metres). */
@@ -47,6 +48,8 @@ export interface VoxelWorldsView {
   worldTransform(entityId: string): WorldTransform | undefined;
   /** An object's lighting shape where it is (null: it has neither a collider nor recorded model bounds). */
   propShape(entityId: string, components: Readonly<Record<string, unknown>>, world: WorldTransform): PropShape | null;
+  /** A portal's `open` as a script last wrote it (undefined: as authored). */
+  portalOpen?(entityId: string): boolean | undefined;
   warn(message: string): void;
 }
 
@@ -117,6 +120,8 @@ export class RuntimeVoxels {
   private pathFrameMs = 0;
   /** Props marked `affectsLighting`, by object, in arrival order. */
   private readonly props = new Map<string, LitProp>();
+  /** Props with a portal (`voxelPortal`), by object: their authored portal and what was last given the worlds. */
+  private readonly portals = new Map<string, { readonly authored: VoxelPortalComponent; readonly components: Readonly<Record<string, unknown>>; sent: PortalProp | null; shape: PropShape | null; pose: number[] | null }>();
   private editSeq = 0;
   private waitSeq = 0;
   private saveSeq = 0;
@@ -206,7 +211,10 @@ export class RuntimeVoxels {
   add(entities: readonly EntityV3[]): void {
     for (const e of entities) {
       const model = (e.components as { model?: { affectsLighting?: boolean } }).model;
-      if (model?.affectsLighting === true && !this.props.has(e.id)) this.props.set(e.id, { components: e.components as unknown as Readonly<Record<string, unknown>>, pose: null, shape: null });
+      const portal = voxelPortalOf(e.components as unknown as Readonly<Record<string, unknown>>);
+      // A prop with a portal is not stamped by its shape: its opening does the stopping, whatever its thickness.
+      if (portal !== null && !this.portals.has(e.id)) this.portals.set(e.id, { authored: portal, components: e.components as unknown as Readonly<Record<string, unknown>>, sent: null, shape: null, pose: null });
+      else if (model?.affectsLighting === true && !this.props.has(e.id)) this.props.set(e.id, { components: e.components as unknown as Readonly<Record<string, unknown>>, pose: null, shape: null });
       const c = (e.components as { voxelWorld?: VoxelWorldComponent }).voxelWorld;
       if (c === undefined || this.worldOf.has(e.id)) continue;
       this.worldOf.set(e.id, c.world);
@@ -230,6 +238,7 @@ export class RuntimeVoxels {
       }, () => ++this.editSeq, this.materials);
       this.worlds.set(c.world, { host, objects: [e.id] });
       host.stampProps([...this.props].filter(([, p]) => p.shape !== null).map(([id, p]) => [id, p.shape] as const));
+      host.setPortals([...this.portals].filter(([, p]) => p.sent !== null).map(([id, p]) => [id, p.sent] as const));
     }
   }
 
@@ -238,6 +247,9 @@ export class RuntimeVoxels {
     const gone: (readonly [string, null])[] = [];
     for (const id of ids) if (this.props.delete(id)) gone.push([id, null]);
     for (const held of this.worlds.values()) held.host.stampProps(gone);
+    const portalsGone: (readonly [string, null])[] = [];
+    for (const id of ids) if (this.portals.delete(id)) portalsGone.push([id, null]);
+    for (const held of this.worlds.values()) held.host.setPortals(portalsGone);
     for (const id of ids) {
       const name = this.worldOf.get(id);
       if (name === undefined) continue;
@@ -309,6 +321,7 @@ export class RuntimeVoxels {
       velocities.push(u === undefined ? [0, 0, 0] : [u[0]!, u[1]!, u[2]!]);
     }
     this.stampProps();
+    this.feedPortals();
     const camera = v.camera();
     for (const held of this.worlds.values()) {
       const at = camera ?? v.positionOf(held.objects[0]!) ?? [0, 0, 0];
@@ -336,6 +349,36 @@ export class RuntimeVoxels {
       changes.push([id, p.shape]);
     }
     for (const held of this.worlds.values()) held.host.stampProps(changes);
+  }
+
+  /**
+   * Each portal prop's state (as authored, `open` as a script last wrote it) and its middle, given every world when
+   * either changed (a world joins it to the opening it stands in and applies it the same step). The middle is read
+   * again only once the prop moved by a stamp's sample spacing.
+   */
+  private feedPortals(): void {
+    if (this.portals.size === 0) return;
+    const changes: (readonly [string, PortalProp | null])[] = [];
+    for (const [id, p] of this.portals) {
+      const w = this.view.worldTransform(id);
+      if (w === undefined) continue;
+      const pose = [...w.position, ...w.rotation, ...w.scale];
+      if (p.pose === null || poseMoved(pose, p.pose, shapeReach(p.shape)) >= RESTAMP_M) {
+        p.pose = pose;
+        p.shape = this.view.propShape(id, p.components, w);
+      }
+      // Its middle: its light shape's box (collider, else model bounds), else its position half a cell up (a prop's
+      // origin at its bottom middle stands on the opening's sill).
+      const sh = p.shape;
+      const at: [number, number, number] = sh !== null ? [0, 1, 2].map((a) => p.pose![a]! + (sh.min[a]! + sh.max[a]!) / 2) as [number, number, number] : [p.pose[0]!, p.pose[1]! + VOXEL_SIZE_M / 2, p.pose[2]!];
+      const open = this.view.portalOpen?.(id) ?? p.authored.open;
+      const next: PortalProp = { open, stops: p.authored.stops, at };
+      const was = p.sent;
+      if (was !== null && was.open === next.open && was.at.every((v, i) => v === at[i])) continue;
+      p.sent = next;
+      changes.push([id, next]);
+    }
+    for (const held of this.worlds.values()) held.host.setPortals(changes);
   }
 
   /**

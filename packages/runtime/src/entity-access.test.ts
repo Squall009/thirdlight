@@ -147,6 +147,23 @@ describe('EntityAccess', () => {
     expect(t.movers.get('lift')).toEqual({ speed: 5, active: false });
   });
 
+  it('a portal opened by a script reads open the next step, is saved as a written field and restored by the save record', () => {
+    const t = harness([ent('door', { voxelPortal: { open: false, stops: { light: true, sight: true, walk: true } } })]);
+    expect(t.h('door').set('voxelPortal', { stops: { light: false } })).toMatchObject({ ok: false });
+    expect(t.h('door').set('voxelPortal', { open: true }).ok).toBe(true);
+    t.next();
+    expect(t.access.portalOpen('door')).toBe(true);
+    expect(t.h('door').get('voxelPortal')).toMatchObject({ open: true, stops: { light: true, sight: true, walk: true } });
+    const saved = t.access.saveState();
+    expect(saved).toEqual({ door: { voxelPortal: { open: true } } });
+    expect(t.access.checkState(saved)).toBeNull();
+    expect(t.access.checkState({ door: { voxelPortal: { open: 'yes' } } })).toMatch(/voxelPortal is \{ open/);
+    t.access.reset();
+    expect(t.access.portalOpen('door')).toBeUndefined();
+    t.access.restoreState(saved);
+    expect(t.access.portalOpen('door')).toBe(true);
+  });
+
   it('objects that leave take their writes along', () => {
     const t = harness([ent('lamp', { light: { type: 'point', color: '#ffffff', intensity: 3 } }), ent('box', {})]);
     t.h('lamp').set('light', { intensity: 9 });

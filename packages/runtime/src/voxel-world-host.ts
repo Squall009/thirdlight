@@ -109,6 +109,7 @@ import {
 import { frameSliceMs, residentBytes, threadProfiler } from '@thirdlight/shared';
 
 import type { ColliderShape3D, PhysicsPort3D } from './ports';
+import { WorldPortals, type PortalProp } from './voxel-portals';
 import { gridStats, streamerCollisionFeed, VoxelGridHost, type VoxelGridConnection } from './voxel-grid-host';
 import { floorColumns, VoxelFloors } from './voxel-floor';
 import { noPathAnswer, noReachAnswer, voxelReachAnswer, walkCellAt, walkOptionsOf } from './voxel-paths';
@@ -378,6 +379,8 @@ export class VoxelWorldHost {
   private readonly props = new Map<string, PropShape>();
   /** The structure grids opened with the world (empty: the world grid alone). */
   private grids: VoxelGridHost[] = [];
+  /** The props with a portal and the openings they stand in (their shut state applied to light and walkers). */
+  private readonly portals = new WorldPortals(() => this.grids, () => this.channel);
   /** How the grids are stamped into the world grid (null: not stamped, or no grids). */
   private stampRule: StructureStampRule | null = null;
   /** µs each step of a grid's stamp sampling took (a row of world cells at least, more while the derive slice lasts). */
@@ -660,6 +663,7 @@ export class VoxelWorldHost {
       try {
         this.shareBudget(s);
         for (const g of this.grids) g.step(foci.stream, foci.collide, foci.collideVelocity, this.settings);
+        this.portals.step();
       } finally {
         threadProfiler.end(GRIDS_SPAN);
       }
@@ -834,6 +838,7 @@ export class VoxelWorldHost {
     this.disposed = true;
     this.floors?.clear();
     this.bodies?.clear();
+    this.portals.clear();
     for (const g of this.grids) g.dispose();
     this.grids = [];
     this.conn?.pool.close();
@@ -878,6 +883,21 @@ export class VoxelWorldHost {
       else this.props.delete(id);
     }
     this.channel?.apply(changes);
+  }
+
+  /**
+   * Props with a portal (voxel-portals.ts) placed, changed or gone (null): joined to the openings they stand in, and
+   * their open or shut state applied there the same step.
+   */
+  setPortals(changes: readonly (readonly [string, PortalProp | null])[]): void {
+    if (this.disposed || changes.length === 0) return;
+    this.portals.set(changes);
+    this.portals.step();
+  }
+
+  /** The portals held (diagnostics, tests). */
+  get portalStats(): ReturnType<WorldPortals['stats']> {
+    return this.portals.stats();
   }
 
   /** The world's prop lighting channel (null until the world is open): what the light tracer reads, with `coverageAt`. */
@@ -1005,7 +1025,7 @@ export class VoxelWorldHost {
   portalsOf(id: number): readonly VoxelPortalInfo[] {
     const r = this.regions;
     if (r === null || !Number.isInteger(id)) return [];
-    return r.portalsOf(id).map(voxelPortalInfo);
+    return r.portalsOf(id).map((p) => voxelPortalInfo(p, this.portals.propOf(p.min, p.max)));
   }
 
   /** Asks for a path (voxel-paths.ts): its id, answered when served (`servePaths`). */

@@ -685,6 +685,13 @@ export interface VoxelPortalInfo {
   readonly volume: number;
   /** The regions it joins (ids, ascending): a door between a room and the outdoors names both. */
   readonly regions: readonly number[];
+  /**
+   * The prop standing in it with a `voxelPortal` (a door, a pane), its object's id, and its state: `open`, and what
+   * it `stops` while shut (light, sight, walkers). Absent: nothing stands in it (an open hole).
+   */
+  readonly prop?: string;
+  readonly open?: boolean;
+  readonly stops?: { readonly light: boolean; readonly sight: boolean; readonly walk: boolean };
 }
 ```
 
@@ -703,6 +710,11 @@ export interface VoxelWalkOptions {
   readonly maxDrop?: number;
   /** At most this many places searched (default: no bound): past it the answer is `partial`, the way to where it got closest. */
   readonly maxNodes?: number;
+  /**
+   * Doors whose portal prop is shut and stops walkers (`voxelPortal`): `open-only` (default) a path goes round them or
+   * finds none; `shut-too` it goes through them, for a game whose characters open doors.
+   */
+  readonly doors?: 'open-only' | 'shut-too';
 }
 ```
 

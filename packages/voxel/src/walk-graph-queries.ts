@@ -54,6 +54,11 @@ export interface WalkQueryOptions {
    * entered by, kept on the exit until the piece's links change).
    */
   readonly exitCosts?: 'straight' | 'walk';
+  /**
+   * Doors whose portal is shut to walkers: `open-only` (default) the path goes round them or finds none; `shut-too` it
+   * goes through them (a game whose characters open doors), over the cells alone.
+   */
+  readonly doors?: 'open-only' | 'shut-too';
 }
 
 /**
@@ -395,7 +400,9 @@ export class WalkQueries {
 function agentOf(o: WalkQueryOptions): WalkAgent {
   const height = Math.min(WALK_CLEARANCE_MAX, Math.max(1, Math.round(o.height ?? DEFAULT_WALK_AGENT.height)));
   const maxDrop = Math.max(0, Math.min(WALK_CLEARANCE_MAX - height, Math.round(o.maxDrop ?? 0)));
-  return height === DEFAULT_WALK_AGENT.height && maxDrop < 2 ? DEFAULT_WALK_AGENT : Object.freeze({ height, maxDrop });
+  const throughShut = o.doors === 'shut-too';
+  // A walker through shut doors searches the cells alone: the pieces are the default walker's, split at shut doors.
+  return height === DEFAULT_WALK_AGENT.height && maxDrop < 2 && !throughShut ? DEFAULT_WALK_AGENT : Object.freeze({ height, maxDrop, ...(throughShut ? { throughShut } : {}) });
 }
 
 const NO_CELLS = new Int32Array(0);

@@ -39,6 +39,9 @@
  * - `materials` — which project material a slot wears (`{slot: materialId}`,
  *   `null`: back to the authored one), on a model, a box or an instance set;
  *   any material the game ships. The renderer puts it on once it has loaded.
+ * - `voxelPortal.open` — a door, pane or shutter in a structure's opening
+ *   opened or shut: the voxel world closes the opening for what the portal
+ *   stops (light, walkers) the step it is applied (voxel-portals.ts).
  *
  * A new run puts every written field back as authored. Pure simulation
  * state: no I/O, no three.js.
@@ -136,6 +139,7 @@ export type EntityFieldsSave = Readonly<Record<string, {
   readonly light?: LightOverride;
   readonly mover?: { readonly speed?: number; readonly active?: boolean };
   readonly materials?: Readonly<Record<string, string>>;
+  readonly voxelPortal?: { readonly open: boolean };
 }>>;
 
 /** What the runtime gives the access (read at the moment of use). */
@@ -200,6 +204,8 @@ export class EntityAccess {
   private readonly moverWrites = new Map<string, { speed?: number; active?: boolean }>();
   /** The material swaps scripts and timelines made (slot → material, over the authored mapping). */
   private readonly swaps = new Map<string, Readonly<Record<string, string>>>();
+  /** The portals scripts opened or shut (`voxelPortal.open`, over the authored state). */
+  private readonly portals = new Map<string, boolean>();
   /** The handles made (see `control.handle`). */
   private readonly handles = new Map<string, BehaviorEntityHandle>();
   applied = 0;
@@ -293,11 +299,21 @@ export class EntityAccess {
         const now = this.host.moverState(id);
         return scriptSnapshot(component, { ...m, ...(now !== null ? { speed: now.speed, active: now.active } : {}) });
       }
+      case 'voxelPortal': {
+        const v = c['voxelPortal'] as Readonly<Record<string, unknown>> | undefined;
+        const open = this.portals.get(id);
+        return v === undefined ? null : scriptSnapshot(component, open === undefined ? v : { ...v, open });
+      }
       default: {
         const v = c[component] as Readonly<Record<string, unknown>> | undefined;
         return v === undefined ? null : scriptSnapshot(component, v);
       }
     }
+  }
+
+  /** A portal's `open` as a script last wrote it (undefined: as authored). */
+  portalOpen(id: string): boolean | undefined {
+    return this.portals.get(id);
   }
 
   private objectValue(doc: EntityV3): Record<string, unknown> {
@@ -346,7 +362,7 @@ export class EntityAccess {
     } else {
       const v = c[name] as Readonly<Record<string, unknown>> | undefined;
       if (v === undefined) return this.refuse(writer, name, 'component_missing', `object "${id}" has no ${name}`);
-      current = name === 'light' ? { ...v, ...(this.lights.get(id) ?? {}) } : v;
+      current = name === 'light' ? { ...v, ...(this.lights.get(id) ?? {}) } : name === 'voxelPortal' && this.portals.has(id) ? { ...v, open: this.portals.get(id) } : v;
     }
     const checked = checkScriptPatch(name, current, patch);
     if (!checked.ok) return this.refuse(writer, checked.problem.field, checked.problem.code, `object "${id}": ${checked.problem.message}`);
@@ -538,6 +554,9 @@ export class EntityAccess {
       case 'materials':
         this.applySwap(w.id, w.fields[0]![1] as Readonly<Record<string, string | null>>);
         return false;
+      case 'voxelPortal':
+        for (const [key, value] of w.fields) if (key === 'open') this.portals.set(w.id, value === true);
+        return false;
       case 'materialParams': {
         const map = w.fields[0]![1] as Readonly<Record<string, Readonly<Record<string, unknown>>>>;
         for (const [materialId, params] of Object.entries(map)) for (const [param, value] of Object.entries(params)) this.host.materials.scriptApply(w.id, materialId, param, value as MaterialParamValue | null);
@@ -587,6 +606,7 @@ export class EntityAccess {
       this.visibleWrites.delete(id);
       this.moverWrites.delete(id);
       this.swaps.delete(id);
+      this.portals.delete(id);
     }
     if (this.inactiveSet.size > 0) {
       const next = new Set([...this.inactiveSet].filter((id) => !ids.has(id)));
@@ -605,6 +625,7 @@ export class EntityAccess {
     this.lights.clear();
     this.visibleWrites.clear();
     this.moverWrites.clear();
+    this.portals.clear();
     this.clearSwaps();
   }
 
@@ -619,14 +640,14 @@ export class EntityAccess {
 
   /** The written fields as digest text (null while none is written: every other digest is unchanged). */
   digestText(): string | null {
-    if (this.selfInactive.size === 0 && this.lights.size === 0 && this.moverWrites.size === 0 && this.visibleWrites.size === 0 && this.swaps.size === 0) return null;
+    if (this.selfInactive.size === 0 && this.lights.size === 0 && this.moverWrites.size === 0 && this.visibleWrites.size === 0 && this.swaps.size === 0 && this.portals.size === 0) return null;
     return JSON.stringify(this.saveState());
   }
 
   /** The written fields for a save document (components section, `fields`), sorted by object. */
   saveState(): EntityFieldsSave {
-    const ids = new Set([...this.selfInactive, ...this.lights.keys(), ...this.visibleWrites.keys(), ...this.moverWrites.keys(), ...this.swaps.keys()]);
-    const out: Record<string, { active?: false; visible?: boolean; light?: LightOverride; mover?: { speed?: number; active?: boolean }; materials?: Readonly<Record<string, string>> }> = {};
+    const ids = new Set([...this.selfInactive, ...this.lights.keys(), ...this.visibleWrites.keys(), ...this.moverWrites.keys(), ...this.swaps.keys(), ...this.portals.keys()]);
+    const out: Record<string, { active?: false; visible?: boolean; light?: LightOverride; mover?: { speed?: number; active?: boolean }; materials?: Readonly<Record<string, string>>; voxelPortal?: { open: boolean } }> = {};
     for (const id of [...ids].sort()) {
       const light = this.lights.get(id);
       const mover = this.moverWrites.get(id);
@@ -638,6 +659,7 @@ export class EntityAccess {
         ...(light !== undefined ? { light: { ...light } } : {}),
         ...(mover !== undefined ? { mover: { ...mover } } : {}),
         ...(swap !== undefined ? { materials: { ...swap } } : {}),
+        ...(this.portals.has(id) ? { voxelPortal: { open: this.portals.get(id)! } } : {}),
       };
     }
     return out;
@@ -650,7 +672,7 @@ export class EntityAccess {
       const doc = this.host.doc(id);
       if (typeof rec !== 'object' || rec === null || Array.isArray(rec)) return `fields of "${id.slice(0, 64)}" is not an object`;
       const r = rec as Record<string, unknown>;
-      for (const k of Object.keys(r)) if (k !== 'active' && k !== 'visible' && k !== 'light' && k !== 'mover' && k !== 'materials') return `fields of "${id.slice(0, 64)}": unknown "${k.slice(0, 32)}"`;
+      for (const k of Object.keys(r)) if (k !== 'active' && k !== 'visible' && k !== 'light' && k !== 'mover' && k !== 'materials' && k !== 'voxelPortal') return `fields of "${id.slice(0, 64)}": unknown "${k.slice(0, 32)}"`;
       if (doc === undefined) return `the save writes fields of "${id.slice(0, 64)}", which is not in this game`;
       const c = doc.components as unknown as Record<string, Record<string, unknown> | undefined>;
       if (r['active'] !== undefined && r['active'] !== false) return `fields of "${id.slice(0, 64)}": active is false or absent`;
@@ -659,6 +681,11 @@ export class EntityAccess {
         if (!wearsMaterials(doc)) return `the save swaps the materials of "${id.slice(0, 64)}", which wears none`;
         const problem = this.swapProblem(id, doc, r['materials']);
         if (problem !== null) return `fields of "${id.slice(0, 64)}": ${problem.message}`;
+      }
+      if (r['voxelPortal'] !== undefined) {
+        const v = r['voxelPortal'] as { open?: unknown } | null;
+        if (c['voxelPortal'] === undefined) return `the save opens or shuts the portal of "${id.slice(0, 64)}", which has none`;
+        if (typeof v !== 'object' || v === null || typeof v.open !== 'boolean' || Object.keys(v).length !== 1) return `fields of "${id.slice(0, 64)}": voxelPortal is { open: true or false }`;
       }
       for (const comp of ['light', 'mover'] as const) {
         if (r[comp] === undefined) continue;
@@ -687,6 +714,7 @@ export class EntityAccess {
         this.moverWrites.set(id, { ...r.mover });
       }
       if (r.materials !== undefined) this.applySwap(id, r.materials);
+      if (r.voxelPortal !== undefined) this.portals.set(id, r.voxelPortal.open);
     }
     this.refreshInactive();
   }

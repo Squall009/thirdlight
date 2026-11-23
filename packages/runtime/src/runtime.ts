@@ -455,6 +455,7 @@ export class RuntimeInstance implements Runtime {
       },
       worldTransform: (id) => worldTransformOf(id, this.sim.curr, (x) => this.sim.parentOf(x)),
       propShape: (id, components, world) => propLightShape(id, components, world, this.chars.colliders.ctx, args.modelBounds)?.shape ?? null,
+      portalOpen: (id) => this.entityAccess.portalOpen(id),
       warn: (message) => this.faults.log('thirdlight.runtime:voxels', 'warn', message),
     }));
     // The start scenes' block layers; their chunks collide.
