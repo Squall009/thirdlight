@@ -348,6 +348,9 @@ export interface VoxelHostStats {
   readonly grids?: { readonly count: number; readonly resident: number; readonly reading: number; readonly decoding: number; readonly deriving: number; readonly bytes: number; readonly bodies: number; readonly shapes: number; readonly bodyBuilds: number; readonly bodyBuildMs: number; readonly updates: number; readonly skipped: number; readonly waits: Readonly<Record<string, number>>; readonly bytesPerGrid: { readonly min: number; readonly max: number }; readonly nearest: Readonly<Record<string, unknown>> | null };
 }
 
+/** A cell's record read by `get` (one use at a time, on this thread). */
+const SCRATCH_CELL: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+
 export class VoxelWorldHost {
   readonly name: string;
   /** The distances and settings in use: the scene's (as a script changed them) at the quality level. */
@@ -876,28 +879,19 @@ export class VoxelWorldHost {
    * derive slices (each prop sampled once, the cells it left and entered
    * combined again).
    */
-  stampProps(changes: readonly (readonly [string, PropShape | null])[]): void {
-    if (this.disposed || changes.length === 0) return;
+  stampProps(changes: readonly (readonly [string, PropShape | null])[], portals: readonly (readonly [string, PortalProp | null])[] = []): void {
+    if (this.disposed) return;
+    // Props with a portal (voxel-portals.ts), placed, changed or gone: joined to their openings, their state applied there.
+    if (portals.length > 0) {
+      this.portals.set(portals);
+      if (this.grids.length > 0) this.portals.step();
+    }
+    if (changes.length === 0) return;
     for (const [id, shape] of changes) {
       if (shape !== null) this.props.set(id, shape);
       else this.props.delete(id);
     }
     this.channel?.apply(changes);
-  }
-
-  /**
-   * Props with a portal (voxel-portals.ts) placed, changed or gone (null): joined to the openings they stand in, and
-   * their open or shut state applied there the same step.
-   */
-  setPortals(changes: readonly (readonly [string, PortalProp | null])[]): void {
-    if (this.disposed || changes.length === 0) return;
-    this.portals.set(changes);
-    this.portals.step();
-  }
-
-  /** The portals held (diagnostics, tests). */
-  get portalStats(): ReturnType<WorldPortals['stats']> {
-    return this.portals.stats();
   }
 
   /** The world's prop lighting channel (null until the world is open): what the light tracer reads, with `coverageAt`. */
@@ -949,21 +943,20 @@ export class VoxelWorldHost {
 
   // ---- ctx.voxels ------------------------------------------------------------
 
-  private readonly cell: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
 
   private get(x: number, y: number, z: number): VoxelValue | null {
     const s = this.streamer;
     if (s === null || ![x, y, z].every(Number.isFinite)) return null;
     // A structure's cell that is not air is the answer (the grid a point lies in, voxel-grid-access.ts).
-    const at = this.grids.length === 0 ? null : structureAt(this.grids, x, y, z, this.cell);
+    const at = this.grids.length === 0 ? null : structureAt(this.grids, x, y, z, SCRATCH_CELL);
     if (at === 'unknown') return null;
-    if (at !== null) return Object.freeze({ material: this.cell.material, role: this.cell.role, shape: this.cell.shape, wetness: this.cell.wetness });
+    if (at !== null) return Object.freeze({ material: SCRATCH_CELL.material, role: SCRATCH_CELL.role, shape: SCRATCH_CELL.shape, wetness: SCRATCH_CELL.wetness });
     const cx = Math.floor(x / VOXEL_SIZE_M);
     const cy = Math.floor(y / VOXEL_SIZE_M);
     const cz = Math.floor(z / VOXEL_SIZE_M);
     const sh = s.grid.shift;
     if (!s.isResident(cx >> sh, cy >> sh, cz >> sh)) return null;
-    const v = s.voxelAt(cx, cy, cz, this.cell);
+    const v = s.voxelAt(cx, cy, cz, SCRATCH_CELL);
     return Object.freeze({ material: v.material, role: v.role, shape: v.shape, wetness: v.wetness });
   }
 
@@ -978,7 +971,7 @@ export class VoxelWorldHost {
     if (s === null || this.channel === null || ![x, y, z].every(Number.isFinite)) return null;
     // In a structure's cell that is not air, the structure's own coverage; elsewhere the world's with the lit props
     // (the structures' stamps are not the answer there: the structure's own cell, air, is).
-    const at = this.grids.length === 0 ? null : structureAt(this.grids, x, y, z, this.cell);
+    const at = this.grids.length === 0 ? null : structureAt(this.grids, x, y, z, SCRATCH_CELL);
     if (at === 'unknown') return null;
     if (at !== null) {
       const g = cellCoverage(at.host.streamer, at.cell[0], at.cell[1], at.cell[2], 0);
@@ -1219,7 +1212,7 @@ export class VoxelWorldHost {
   private gridCommands(region: VoxelRegion, r: RegionCells, make: (grid: number, cells: number[]) => VoxelEditCommand | readonly VoxelEditCommand[]): VoxelEditCommand[] {
     const out: VoxelEditCommand[] = [];
     for (const g of this.grids) {
-      const cells = gridCellsIn(g, region, r, (v) => v.material !== MATERIAL_AIR, this.cell);
+      const cells = gridCellsIn(g, region, r, (v) => v.material !== MATERIAL_AIR, SCRATCH_CELL);
       if (cells.length > 0) out.push(...[make(g.frame.gridId, cells)].flat());
     }
     return out;
@@ -1261,7 +1254,7 @@ export class VoxelWorldHost {
     const r = this.regionOrRefuse(region);
     if ('ok' in r) return r;
     if (!validPaint(paint)) return this.refuse('invalid', 'a paint is { material?, wetness? } (at least one; material 1 or more)');
-    const v = this.cell;
+    const v = SCRATCH_CELL;
     const painted = (grid: number, st: VoxelStreamer, list: readonly number[]): VoxelEditCommand[] => {
       const groups = new Map<string, { voxel: VoxelRecord; cells: number[] }>();
       for (let i = 0; i < list.length; i += 3) {

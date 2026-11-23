@@ -237,8 +237,7 @@ export class RuntimeVoxels {
         warn: (m) => this.view.warn(m),
       }, () => ++this.editSeq, this.materials);
       this.worlds.set(c.world, { host, objects: [e.id] });
-      host.stampProps([...this.props].filter(([, p]) => p.shape !== null).map(([id, p]) => [id, p.shape] as const));
-      host.setPortals([...this.portals].filter(([, p]) => p.sent !== null).map(([id, p]) => [id, p.sent] as const));
+      host.stampProps([...this.props].filter(([, p]) => p.shape !== null).map(([id, p]) => [id, p.shape] as const), [...this.portals].filter(([, p]) => p.sent !== null).map(([id, p]) => [id, p.sent] as const));
     }
   }
 
@@ -249,7 +248,7 @@ export class RuntimeVoxels {
     for (const held of this.worlds.values()) held.host.stampProps(gone);
     const portalsGone: (readonly [string, null])[] = [];
     for (const id of ids) if (this.portals.delete(id)) portalsGone.push([id, null]);
-    for (const held of this.worlds.values()) held.host.setPortals(portalsGone);
+    for (const held of this.worlds.values()) held.host.stampProps([], portalsGone);
     for (const id of ids) {
       const name = this.worldOf.get(id);
       if (name === undefined) continue;
@@ -378,7 +377,7 @@ export class RuntimeVoxels {
       p.sent = next;
       changes.push([id, next]);
     }
-    for (const held of this.worlds.values()) held.host.setPortals(changes);
+    for (const held of this.worlds.values()) held.host.stampProps([], changes);
   }
 
   /**
