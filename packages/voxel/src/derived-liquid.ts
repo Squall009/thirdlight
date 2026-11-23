@@ -157,14 +157,24 @@ export function liquidOfNeighbourhood(n: Neighbourhood): LiquidPart | null {
   const ks = e + 2;
   const kinds = new Int8Array(ks * ks * ks);
   const mats = new Uint16Array(e * e * e);
-  for (let x = -1; x <= e; x++) for (let z = -1; z <= e; z++) for (let y = -1; y <= e; y++) {
-    const i = ((x + p) * s + (z + p)) * s + (y + p);
-    const v = values[i]!;
-    const k = kindOf(v, shapes[i]!);
-    kinds[((x + 1) * ks + (z + 1)) * ks + (y + 1)] = k;
-    if (k > 0 && x >= 0 && x < e && y >= 0 && y < e && z >= 0 && z < e) mats[(x * e + z) * e + y] = v & MATERIAL_ID_MAX;
+  // Columns of the unit holding liquid: the only ones whose faces are looked for.
+  const wet = new Uint8Array(e * e);
+  for (let x = -1; x <= e; x++) for (let z = -1; z <= e; z++) {
+    const src = ((x + p) * s + (z + p)) * s + (p - 1);
+    const dst = ((x + 1) * ks + (z + 1)) * ks;
+    const inside = x >= 0 && x < e && z >= 0 && z < e;
+    for (let y = -1; y <= e; y++) {
+      const v = values[src + y + 1]!;
+      const k = kindOf(v, shapes[src + y + 1]!);
+      kinds[dst + y + 1] = k;
+      if (k > 0 && inside && y >= 0 && y < e) {
+        mats[(x * e + z) * e + y] = v & MATERIAL_ID_MAX;
+        wet[x * e + z] = 1;
+      }
+    }
   }
-  const kindAt = (x: number, y: number, z: number): number => kinds[((x + 1) * ks + (z + 1)) * ks + (y + 1)]!;
+  // A unit cell's index in `kinds`, and the steps to its neighbours there.
+  const at = (x: number, z: number): number => ((x + 1) * ks + (z + 1)) * ks + 1;
   const out = new QuadWriter();
 
   // Tops and bottoms: per cell layer, a key a column (fill << 12 | material; −1 none), merged into rectangles.
@@ -174,14 +184,14 @@ export function liquidOfNeighbourhood(n: Neighbourhood): LiquidPart | null {
     for (let y = 0; y < e; y++) {
       let any = false;
       for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
-        const h = kindAt(x, y, z);
+        const i = at(x, z) + y;
+        const h = wet[x * e + z] === 1 ? kinds[i]! : 0;
         let k = -1;
         if (h > 0) {
           if (face === LIQUID_FACE.py) {
-            const above = kindAt(x, y + 1, z);
             if (h < S) k = h;
-            else if (above === OPEN) k = S;
-          } else if (kindAt(x, y - 1, z) === OPEN) k = 0;
+            else if (kinds[i + 1] === OPEN) k = S;
+          } else if (kinds[i - 1] === OPEN) k = 0;
         }
         key[x * e + z] = k < 0 ? -1 : (k << 12) | mats[(x * e + z) * e + y]!;
         any ||= k >= 0;
@@ -222,12 +232,15 @@ export function liquidOfNeighbourhood(n: Neighbourhood): LiquidPart | null {
         col.length = 0;
         const x = dx !== 0 ? a : b;
         const z = dx !== 0 ? b : a;
+        if (wet[x * e + z] === 0) continue;
+        const base = at(x, z);
+        const step = (dx * ks + dz) * ks;
         let run: Run | null = null;
         for (let y = 0; y < e; y++) {
-          const h = kindAt(x, y, z);
+          const h = kinds[base + y]!;
           let lo = -1;
           if (h > 0) {
-            const nb = kindAt(x + dx, y, z + dz);
+            const nb = kinds[base + step + y]!;
             if (nb === OPEN) lo = 0;
             else if (nb > 0 && nb < h) lo = nb;
           }
