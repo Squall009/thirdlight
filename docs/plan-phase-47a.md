@@ -1669,7 +1669,7 @@ the corner refusal in the browser (vitest only); stairs (D775); prefab props (D7
 view; fixed f5d9831a), gate-fast-20261123-061623 GREEN; gate-fast-20261123-064625 RED (the build: the word "score" in
 the openings maths, fixed 0c446ea1), gate-fast-20261123-064727 (957 vitest files, 79 e2e) RED on
 `scene-loads.e2e.ts:234` alone, its rerun gate-rerun-20261123-071018 RED again; alone it passes 3/3 at the head and
-2/2 at ca0b7718 (D777, watch). The final gates follow.
+2/2 at ca0b7718 (D777, watch). Final: gate-fast-20261123-075755 (957 vitest files, 79 e2e; scene-loads passed) RED on D410 (`project-items`) and the Export test's "the configured exportRoot is not a directory" (the §9 2026-11-22 note: nothing of this run cleaned the temp folder), gate-rerun-20261123-081952 GREEN; `area play` with the leak test gate-area-20261123-082228 GREEN.
 
 **D-rows:** D769 fixed (9ddc085f), D770 fixed (6c0cf4f1), D771 narrowed, D736 noted; new D774 (the Scene view's grid
 draw a step behind under fast regenerates), D775 (no stairs tool), D776 (no prefab props), D777 (watch).
