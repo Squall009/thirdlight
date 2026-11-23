@@ -949,7 +949,14 @@ test('water bodies: a hollow becomes a lake from Add component, a bank dug back 
   await settled();
   await inspect.getByLabel('water breach').scrollIntoViewIfNeeded();
   await look(page, '26-breach-warning-and-marker');
-  const drained = await pictureOf('27-breach-drained');
+  let drained = await pictureOf('27-breach-drained');
+  // The view kept from the file's earlier tests may stand close: backed off until the leak's place is in it.
+  for (let k = 0; k < 8 && redCount(drained) <= 20; k++) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 300);
+    await settled();
+    drained = await pictureOf('27-breach-drained');
+  }
   expect(waterCount(drained), 'nothing is held while it leaks').toBeLessThan(blue0 + 2_000);
   expect(redCount(drained), 'the marker drawn').toBeGreaterThan(20);
   expect((await fill([-38, -4, 48], [-38, -3, 48]))['ok']).toBe(true);
