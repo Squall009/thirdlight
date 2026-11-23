@@ -63,7 +63,7 @@ import { copyCoverage, countGround, emptyCoverage, type GroundCoverage, type Gro
 import { checkRadius } from './apron';
 import type { JoinedChunk, JoinedDraw, JoinTimes } from './chunk-join';
 import { jobRadius, type AssemblyRuleSet } from './assembly';
-import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, fieldsFeed, MATERIAL_AIR, type VoxelRecord } from './record';
+import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, DERIVED_PART, MATERIAL_AIR, type VoxelRecord } from './record';
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import type { PieceTable } from './piece-table';
 import { StreamPieces } from './stream-pieces';
@@ -88,7 +88,7 @@ import { StreamMips, type MipEvent } from './stream-mips';
 import type { LevelEvent } from './stream-lod';
 import type { SeamEvent } from './stream-seams';
 import type { LevelRings } from './lod-select';
-import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
+import { geometryParts, SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
 import { DEFAULT_STREAM_READS, motionDistance2, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
 import { checkRing, chunkDistance2, DEFAULT_LEVEL_RINGS, DEFAULT_STREAM_RING, mipRingsFor, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type MipRing, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
@@ -261,6 +261,13 @@ const SETTLE_POLL_MS = 4;
 /** Main-thread ms an update may spend building derive jobs now (the option, else the frame arbiter's slice). */
 const deriveMsOf = (opts: VoxelStreamerOptions): number => opts.deriveMsPerUpdate ?? frameSliceMs('voxelDerive');
 
+/**
+ * Whether a change feeding `parts` (DERIVED_PART bits) reaches the coarser levels and the fine far bricks: anything
+ * but the liquid part alone (they draw no liquid and read it as air), the shader data included (a node wears the
+ * material its surface shows).
+ */
+const feedsLevels = (parts: number): boolean => geometryParts(parts) || (parts & DERIVED_PART.shader) !== 0;
+
 /** Fraction of the budget eviction brings the total down to, and below which loading resumes past the eviction horizon. */
 const EVICT_TO = 0.95;
 const RESUME_BELOW = 0.85;
@@ -306,6 +313,8 @@ export interface StreamCounters {
   derives: number;
   /** Derives of the shader data alone (a change of material or wetness only). */
   shaderDerives: number;
+  /** Derives of the liquid part alone (a change only between air and liquid, or of a liquid's fill or material). */
+  liquidDerives: number;
   /** Chunks the derive planner looked at (a blocked chunk is looked at again only after a neighbour lands). */
   deriveChecks: number;
   /** Ticks that ended over budget with nothing evictable (dirty or unknown neighbourhood). */
@@ -398,7 +407,7 @@ export class VoxelStreamer {
   readonly tracker: DirtyTracker;
   readonly radius: number;
   budgetBytes: number;
-  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, airDerives: 0, cancelledDerives: 0, detailHolds: 0, collisionDerives: 0, collisionAir: 0, collisionRefused: 0, activity: 0, ground: emptyCoverage() };
+  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, liquidDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, airDerives: 0, cancelledDerives: 0, detailHolds: 0, collisionDerives: 0, collisionAir: 0, collisionRefused: 0, activity: 0, ground: emptyCoverage() };
   /** Main-thread milliseconds: planning per update, adopting a chunk, building an apron. */
   readonly planMs = new SampleRing();
   readonly adoptMs = new SampleRing();
@@ -1222,8 +1231,10 @@ export class VoxelStreamer {
     const group = d.newGroup();
     if (changed.length > 0) {
       d.invalidate(box, 'edit', parts, group);
-      this.mips?.changed(changed, box, group);
-      this.far?.fineNodes.changed(changed, true);
+      if (feedsLevels(parts)) {
+        this.mips?.changed(changed, box, group);
+        this.far?.fineNodes.changed(changed, true);
+      }
     }
     d.request(deriveMsOf(this.opts), true);
     // The drawn nodes the edit changed swap with it: their rebuilds go out now, in the edit lane.
@@ -1243,7 +1254,7 @@ export class VoxelStreamer {
   edit(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): EditOutcome & { readonly group: number } {
     const resolve = resolver(stamps);
     const outcome = applyEdit({ store: (g) => (g === this.gridId ? this.overlay : undefined) }, cmd, { stamps: resolve, loaded: (g, cx, cy, cz) => g === this.gridId && this.isResident(cx, cy, cz) });
-    const group = this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), this.pieces.feeds(fieldsFeed(outcome.fields), outcome.materialSwaps));
+    const group = this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), this.pieces.feeds(outcome.parts, outcome.materialSwaps));
     return { ...outcome, group };
   }
 
@@ -1277,7 +1288,7 @@ export class VoxelStreamer {
       this.merged.adoptEdited(cx, cy, cz, ch.payload);
       changed.push({ cx, cy, cz });
     }
-    const group = this.afterEdit(changed, editBounds(this.grid, cmd, resolve), this.pieces.feeds(fieldsFeed(o.output.fields), o.output.materialSwaps));
+    const group = this.afterEdit(changed, editBounds(this.grid, cmd, resolve), this.pieces.feeds(o.output.parts, o.output.materialSwaps));
     return { status: 'done', cells: o.output.cells, undo: decodeUndoRecord(this.grid, o.output.undo), group };
   }
 
@@ -1291,10 +1302,12 @@ export class VoxelStreamer {
    * `editBounds`), bounds what is rebuilt: the refreshed chunks and every
    * chunk within the dependency radius of the box. Without it every chunk
    * within the radius of a refreshed chunk's whole extent is rebuilt.
-   * `parts` (DERIVED_PART bits, `fieldsFeed` of the changed fields;
-   * default all) says what the change makes stale: only the shader data
-   * rebuilds the shader data of the chunks within the shader border of the
-   * box (or of the refreshed chunks) and nothing else. `materialSwaps`
+   * `parts` (DERIVED_PART bits, the edit's `EditOutcome.parts`; default
+   * all) says what the change makes stale: only the shader data or the
+   * liquid part rebuilds those of the chunks within their one-cell border
+   * of the box (or of the refreshed chunks) and nothing else, and a change
+   * of only the liquid part leaves the coarser levels and the fine far
+   * bricks as they are (they draw no liquid, and read it as air). `materialSwaps`
    * (the edit's `EditOutcome.materialSwaps`) tell a shader-only change that
    * keeps every kit piece (wetness, a paint within one kit) from one moving
    * cells to another kit's, which derives the sections holding them whole;
@@ -1402,8 +1415,10 @@ export class VoxelStreamer {
     c.refreshBox = null;
     const box = given ?? { minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 };
     // The nodes join the refresh's group before its sections can swap.
-    this.mips?.changed([c], box, this.derives?.refreshGroup(c.cx, c.cy, c.cz) ?? undefined);
-    this.far?.fineNodes.changed([c]);
+    if (feedsLevels(parts)) {
+      this.mips?.changed([c], box, this.derives?.refreshGroup(c.cx, c.cy, c.cz) ?? undefined);
+      this.far?.fineNodes.changed([c]);
+    }
     this.derives?.contentLanded(c.cx, c.cy, c.cz, box, parts);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }

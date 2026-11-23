@@ -293,34 +293,59 @@ export function checkRecordValue(v: number, what = 'voxel value'): void {
 /**
  * Derived outputs, as bits of a parts mask: what a change to the voxels can
  * make stale. `shader` is the per-chunk material and wetness grid the
- * surface shader blends from; the others are built by the assembly
+ * surface shader blends from; `liquid` the liquid's faces against open
+ * space (derived-liquid.ts); the others are built by the assembly
  * evaluation.
  */
-export const DERIVED_PART = Object.freeze({ mesh: 1, collision: 2, nav: 4, light: 8, shader: 16 });
+export const DERIVED_PART = Object.freeze({ mesh: 1, collision: 2, nav: 4, light: 8, shader: 16, liquid: 32 });
 
 /** Every derived part. */
-export const ALL_DERIVED_PARTS = 31;
+export const ALL_DERIVED_PARTS = 63;
 
 /**
- * Which derived outputs each field drives (the feeds mask). Shape and role
- * decide geometry, so they drive the mesh, collision, navigation and light
- * occupancy; the role also says how a surface is projected (construction
- * from the build grid, terrain from three axes), so it drives the shader
- * data too; material and wetness only change how a surface is shaded, so a
- * change of only those re-derives the shader data and nothing else.
+ * Which derived outputs each field drives (the feeds mask), when nothing
+ * else is known of the change. Shape and role decide geometry, so they
+ * drive the mesh, collision, navigation and light occupancy, and the
+ * liquid's faces (ground dug beside water bares its side); the role also
+ * says how a surface is projected (construction from the build grid,
+ * terrain from three axes), so it drives the shader data too; material and
+ * wetness only change how a surface is shaded, or which material a
+ * liquid's faces wear. An edit decides each change exactly
+ * ({@link changeFeeds}).
  */
 export const FIELD_FEEDS: Readonly<Record<VoxelPlane, number>> = Object.freeze({
-  material: DERIVED_PART.shader,
-  role: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light | DERIVED_PART.shader,
-  shape: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light,
+  material: DERIVED_PART.shader | DERIVED_PART.liquid,
+  role: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light | DERIVED_PART.shader | DERIVED_PART.liquid,
+  shape: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light | DERIVED_PART.liquid,
   wetness: DERIVED_PART.shader,
 });
 
-/** The derived parts a change of `fields` (a {@link PLANE_BIT} mask) feeds, by {@link FIELD_FEEDS}. */
+/** The derived parts a change of `fields` (a {@link PLANE_BIT} mask) can feed, by {@link FIELD_FEEDS}. */
 export function fieldsFeed(fields: number): number {
   let parts = 0;
   for (const p of VOXEL_PLANES) if (fields & PLANE_BIT[p]) parts |= FIELD_FEEDS[p];
   return parts;
+}
+
+/** Whether a value is air or liquid: open space every output but the liquid part reads alike. */
+function airOrLiquid(v: number): boolean {
+  return v === 0 || ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.liquid;
+}
+
+/**
+ * The derived parts one cell's change from `before` to `after` feeds: a
+ * change only between air and liquid, or of a liquid's fill level,
+ * material or wetness, feeds the liquid part alone (every other output
+ * reads a liquid cell as air); any other change feeds what its fields feed
+ * ({@link FIELD_FEEDS}), but a material or wetness change of a cell that is
+ * not liquid not the liquid part (it wears its own material). 0 when equal.
+ */
+export function changeFeeds(before: number, after: number): number {
+  if (before === after) return 0;
+  if (airOrLiquid(before) && airOrLiquid(after)) return DERIVED_PART.liquid;
+  const fields = changedFields(before, after);
+  if ((fields & (PLANE_BIT.role | PLANE_BIT.shape)) !== 0) return fieldsFeed(fields);
+  return DERIVED_PART.shader;
 }
 
 /**

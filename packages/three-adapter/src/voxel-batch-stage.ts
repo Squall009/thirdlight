@@ -12,7 +12,7 @@
  * entry by entry, for as long as its caller's budget allows
  * ({@link VoxelBatchStage.prepare}), and shows them all in one task once
  * every one is made ({@link VoxelBatchStage.commit}): removals, shader-only
- * changes, the draws, then the seams and the far field's change, in the
+ * and liquid-only changes, the draws, then the seams and the far field's change, in the
  * batch's order. Until then the view draws what it drew before, so a big
  * swap is late by a few frames instead of one frame being long.
  */
@@ -70,7 +70,7 @@ export class VoxelBatchStage {
       const c = chunks[this.next]!;
       if (c.kind === 'draw') {
         if (c.cells !== undefined) this.view.cells.set(c.cells);
-        this.made[this.next] = this.view.prepare(c.cx, c.cy, c.cz, { ground: c.ground!, base: c.base!, ...(c.caster !== undefined ? { caster: c.caster } : {}), instances: c.instances!, solid: c.solid ?? 0 }, c.level ?? 0);
+        this.made[this.next] = this.view.prepare(c.cx, c.cy, c.cz, { ground: c.ground!, base: c.base!, ...(c.caster !== undefined ? { caster: c.caster } : {}), ...(c.liquid !== undefined ? { liquid: c.liquid } : {}), instances: c.instances!, solid: c.solid ?? 0 }, c.level ?? 0);
       }
       this.next++;
       if (!more()) break;
@@ -98,7 +98,8 @@ export class VoxelBatchStage {
         if (c.kind === 'shader') {
           if (c.cells !== undefined) view.cells.set(c.cells);
           n = view.setShader(c.cx, c.cy, c.cz, c.solid ?? 0, level);
-        } else n = view.commit(this.made[i]!);
+        } else if (c.kind === 'liquid') n = view.liquids.set(c.cx, c.cy, c.cz, c.liquid);
+        else n = view.commit(this.made[i]!);
         if (level === 0) chunkBytes.push(c.cx, c.cy, c.cz, n);
       });
       this.made.length = 0;

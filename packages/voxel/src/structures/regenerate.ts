@@ -20,7 +20,7 @@ import { CellDelta, chunkScratch, denseValue, encodeDenseChunk, exportOrAir } fr
 import { chunkKey, chunkOfKey, type ChunkCoord, type ChunkGrid } from '../coords';
 import { copyDenseChunk, createDenseChunk, isAirChunk, type DenseChunk } from '../dense-chunk';
 import { UNDO_IMAGE_CHECK_BYTES, type ChunkBefore, type ChunkUndo } from '../edit-apply';
-import { changedFields, fieldsFeed, materialSwap, valueMaterial } from '../record';
+import { changedFields, changeFeeds, materialSwap, valueMaterial } from '../record';
 import type { VoxelStoreCandidate } from '../store';
 import { chunkOverridesOf, reapplyOverrides, type ChunkOverrides, type StructureOverrides } from '../structure-overrides';
 import { boxChunks, type GeneratedDefinition, type StructureGenerator } from './generator';
@@ -97,6 +97,7 @@ export function regenerateStructure<D extends GeneratedDefinition>(generator: St
   const redo: ChunkUndo[] = [];
   const swaps = new Set<number>();
   let fields = 0;
+  let parts = 0;
   let cells = 0;
   const now = createDenseChunk(grid);
   for (const key of order) {
@@ -112,6 +113,7 @@ export function regenerateStructure<D extends GeneratedDefinition>(generator: St
       old.push(i, a);
       next.push(i, b);
       fields |= changedFields(a, b);
+      parts |= changeFeeds(a, b);
       if (valueMaterial(a) !== valueMaterial(b)) swaps.add(materialSwap(valueMaterial(a), valueMaterial(b)));
     }
     if (old.count === 0) continue;
@@ -132,7 +134,7 @@ export function regenerateStructure<D extends GeneratedDefinition>(generator: St
     undo,
     redo,
     fields,
-    parts: fieldsFeed(fields),
+    parts,
     materialSwaps: [...swaps].sort((a, b) => a - b),
     kept: fit.kept,
     absorbed: fit.absorbed,

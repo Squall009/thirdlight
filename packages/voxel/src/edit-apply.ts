@@ -26,7 +26,7 @@ import { CellDelta, chunkScratch, DELTA_CELL_BYTES, encodeDenseChunk, exportOrAi
 import { type BrushEdit, type EditMode, type EditVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
 import { scratchImage, uniformImage } from './palette-chunk';
 import { encodePaletteImage } from './palette-codec';
-import { ALL_PLANES, changedFields, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, materialSwap, SHAPE_FULL, valueOf, VOXEL_ROLE, type VoxelRecord } from './record';
+import { ALL_PLANES, changedFields, changeFeeds, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, materialSwap, SHAPE_FULL, valueOf, VOXEL_ROLE, type VoxelRecord } from './record';
 import type { StampResolver, StampShape } from './stamp-shape';
 import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
@@ -62,11 +62,15 @@ export interface EditOutcome {
   readonly cells: number;
   /** Changed chunks in key order: the undo record and the chunks to rebuild and save. */
   readonly chunks: readonly ChunkUndo[];
-  /**
-   * The fields (a PLANE_BIT mask, record.ts) that changed in any cell: what
-   * decides which derived outputs go stale (`fieldsFeed`).
-   */
+  /** The fields (a PLANE_BIT mask, record.ts) that changed in any cell. */
   readonly fields: number;
+  /**
+   * The derived parts its changes feed (DERIVED_PART bits): each cell's
+   * change decided on its own (`changeFeeds`), so a stroke that only moves
+   * cells between air and liquid feeds the liquid part alone, and one that
+   * also digs ground beside it feeds what the dig feeds besides.
+   */
+  readonly parts: number;
   /**
    * The distinct material changes it made ({@link materialSwap}: from, to),
    * ascending: what tells a paint within one kit (shader data alone) from
@@ -458,6 +462,7 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
   const undo: ChunkUndo[] = [];
   let changed = 0;
   let fields = 0;
+  let parts = 0;
   const swaps = new Set<number>();
   let lastSwap = -1;
   const s = grid.shift;
@@ -475,7 +480,9 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
       store.voxelAt(x, y, z, old);
       if (!nextVoxel(plan, cov, old, next)) return;
       const before = valueOf(old);
-      fields |= changedFields(before, valueOf(next));
+      const after = valueOf(next);
+      fields |= changedFields(before, after);
+      parts |= changeFeeds(before, after);
       if (old.material !== next.material) {
         const sw = materialSwap(old.material, next.material);
         // A stroke writes one material: the last change is nearly always the same one.
@@ -506,7 +513,7 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
     changed += delta.count;
     undo.push({ grid: cmd.grid, cx: c.cx, cy: c.cy, cz: c.cz, before: beforeOf(store, c, delta, form) });
   }
-  return { cells: changed, chunks: undo, fields, materialSwaps: [...swaps].sort((a, b) => a - b) };
+  return { cells: changed, chunks: undo, fields, parts, materialSwaps: [...swaps].sort((a, b) => a - b) };
 }
 
 /**

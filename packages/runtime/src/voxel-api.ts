@@ -370,7 +370,7 @@ export interface VoxelChange {
   readonly edit: number;
   /** The world's pieces whose derived data the swap replaced (each one's box). */
   readonly chunks: readonly VoxelBox[];
-  /** Only material or wetness changed: the shader data was replaced, meshes and colliders stand. */
+  /** Meshes and colliders stand: only the shader data (a change of material or wetness) or the liquid's faces (a change only between air and liquid, or of a liquid's fill or material) were replaced. */
   readonly shaderOnly: boolean;
 }
 

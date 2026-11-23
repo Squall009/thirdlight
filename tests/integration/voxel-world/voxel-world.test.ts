@@ -451,6 +451,16 @@ describe('voxel world routes', () => {
     expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.shader, materialSwaps: [] });
     expect((await step()).voxels).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
+    // A change only between air and liquid, or of a liquid's fill or material, feeds the liquid part alone (every other
+    // part reads liquid as air), and so do their undos; liquid written into a built cell feeds every part.
+    const WATER = { v: 2, grid: 0, kind: 'set', cells: [0, 14, 0, 1, 14, 0], voxel: { material: 3, role: 2, wetness: 0, shape: 15 } };
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: WATER } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.liquid });
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...WATER, voxel: { ...WATER.voxel, material: 4, shape: 6 } } } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.liquid, materialSwaps: [materialSwap(3, 4)] });
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...WATER, cells: [0, 12, 0] } } })).json).toMatchObject({ ok: true, cells: 1, parts: ALL_DERIVED_PARTS });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.liquid });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.liquid });
+    expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
   });
 
   it('forgets a released project\'s open worlds: their undo history goes and the folder is read again on next use', async () => {

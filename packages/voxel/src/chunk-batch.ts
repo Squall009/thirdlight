@@ -14,7 +14,7 @@
  * without a copy (the transfer list).
  *
  * A chunk whose draw was sent and whose shader data alone changed gets its
- * grid only. The page answers with each drawn chunk's GPU bytes, counted as
+ * grid only; one whose liquid part alone changed, its liquid faces only. The page answers with each drawn chunk's GPU bytes, counted as
  * the chunk's `mesh` part of the stream budget where the world runs.
  *
  * With mip levels (the streamer's `mips`), only what the level choice draws
@@ -38,6 +38,8 @@ import type { InstanceList, SurfaceBuffer } from './derived-mesh';
 import { reliefBytes, type ReliefSurface } from './relief-mesh';
 import { RELIEF_DRAW_PART } from './relief-ring';
 import { shaderGridEntries, shaderGridSide, shaderSolidEntry } from './derived-shader';
+import type { LiquidPart } from './derived-liquid';
+import { ALL_DERIVED_PARTS, DERIVED_PART } from './record';
 import type { FaceSeam, NodeFace } from './lod-seam';
 import type { SwapReport } from './stream-sections';
 import type { StreamEvent } from './voxel-streamer';
@@ -60,8 +62,11 @@ export interface ChunkDrawWire {
   readonly cx: number;
   readonly cy: number;
   readonly cz: number;
-  /** `draw`: its draw is replaced (nothing to draw removes it); `shader`: only its shader data; `remove`: no longer drawn. */
-  readonly kind: 'draw' | 'shader' | 'remove';
+  /**
+   * `draw`: its draw is replaced (nothing to draw removes it); `shader`: only its shader data; `liquid`: only its
+   * liquid part (`liquid`, absent: no liquid face any more); `remove`: no longer drawn.
+   */
+  readonly kind: 'draw' | 'shader' | 'liquid' | 'remove';
   readonly ground?: DrawSurface;
   readonly base?: DrawSurface;
   /**
@@ -75,6 +80,8 @@ export interface ChunkDrawWire {
   /** The grid's one solid entry (0: all air), or −1: its side³ entries are in `cells`. */
   readonly solid?: number;
   readonly cells?: Uint16Array;
+  /** Its liquid faces (a `draw` or a `liquid` entry of a level-0 chunk; absent: none). */
+  readonly liquid?: LiquidPart;
 }
 
 /** One seam piece: positions in the finer level's steps from `origin` (cells of the finer level). */
@@ -271,6 +278,7 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
     add(c.caster?.base.indices);
     add(c.instances?.data);
     add(c.cells);
+    add(c.liquid?.quads);
   }
   for (const s of b.seams ?? []) for (const p of s.pieces ?? []) {
     add(p.ground.vertices);
@@ -392,7 +400,7 @@ export class ChunkDrawBatcher {
       const key = chunkKey(this.grid, e.cx, e.cy, e.cz);
       this.reliefSent.delete(key);
       if (this.sent.delete(key)) this.push({ cx: e.cx, cy: e.cy, cz: e.cz, kind: 'remove' });
-    } else if (e.type === 'chunk') this.chunk(e.cx, e.cy, e.cz, e.shaderOnly, e.reliefOnly);
+    } else if (e.type === 'chunk') this.chunk(e.cx, e.cy, e.cz, e.shaderOnly, e.reliefOnly, e.parts);
     else if (e.type === 'swap') this.swap(e.report);
     else if (e.type === 'relief') {
       this.relief = { n: e.n, radius: e.radius, focus: [e.x, e.y, e.z] };
@@ -405,7 +413,7 @@ export class ChunkDrawBatcher {
         else if (this.nodesSent.delete(`${n.level},${n.nx},${n.ny},${n.nz}`)) this.push({ level: n.level, cx: n.nx, cy: n.ny, cz: n.nz, kind: 'remove' });
       }
       for (const n of e.added) {
-        if (n.level === 0) this.chunk(n.nx, n.ny, n.nz, false, false);
+        if (n.level === 0) this.chunk(n.nx, n.ny, n.nz, false, false, ALL_DERIVED_PARTS);
         else this.node(n.level, n.nx, n.ny, n.nz);
       }
     } else if (e.type === 'node') {
@@ -432,7 +440,8 @@ export class ChunkDrawBatcher {
     if (this.reliefSent.delete(key)) this.feed.setPart(cx, cy, cz, RELIEF_DRAW_PART, 0);
   }
 
-  private chunk(cx: number, cy: number, cz: number, shaderOnly: boolean, reliefOnly: boolean): void {
+  /** A chunk's draw from its sections' results now: `shaderOnly` when its surfaces stand and only `parts` (the shader data, the liquid part) changed. */
+  private chunk(cx: number, cy: number, cz: number, shaderOnly: boolean, reliefOnly: boolean, parts: number): void {
     const key = chunkKey(this.grid, cx, cy, cz);
     const levels = this.feed.mips;
     const drawn = levels == null || levels.lod.drawn.drawn(0, cx, cy, cz);
@@ -453,12 +462,14 @@ export class ChunkDrawBatcher {
     }
     const cells = d.solid < 0 ? this.scratch.slice() : undefined;
     const grid = { solid: d.solid, ...(cells !== undefined ? { cells } : {}) };
+    const own = <T extends Uint8Array | Uint16Array | Uint32Array>(a: T): T => (this.copy ? (a.slice() as T) : a);
+    const liquid = d.liquid === null ? {} : { liquid: { count: d.liquid.count, quads: own(d.liquid.quads) } };
     if (shaderOnly && this.sent.has(key)) {
-      this.push({ cx, cy, cz, kind: 'shader', ...grid });
+      if ((parts & DERIVED_PART.shader) !== 0) this.push({ cx, cy, cz, kind: 'shader', ...grid });
+      if ((parts & DERIVED_PART.liquid) !== 0) this.push({ cx, cy, cz, kind: 'liquid', ...liquid });
       return;
     }
     this.sent.add(key);
-    const own = <T extends Uint8Array | Uint16Array | Uint32Array>(a: T): T => (this.copy ? (a.slice() as T) : a);
     const surface = (s: SurfaceBuffer): SurfaceBuffer => ({ vertexCount: s.vertexCount, vertices: own(s.vertices), indices: own(s.indices) });
     if (d.relief !== undefined) {
       // The relief mesh is drawn in place of the surfaces (the plain ones still collide, and cast where shadows are
@@ -468,11 +479,11 @@ export class ChunkDrawBatcher {
       // view builds is the chunk's mesh part, as the same surfaces drawn plain would be.
       this.reliefSent.set(key, reliefBytes({ n: 0, ...d.relief }));
       const caster = { ground: surface(d.ground), base: surface(d.base) };
-      this.push({ cx, cy, cz, kind: 'draw', ground: relief(d.relief.ground), base: relief(d.relief.base), caster, instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
+      this.push({ cx, cy, cz, kind: 'draw', ground: relief(d.relief.ground), base: relief(d.relief.base), caster, instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid, ...liquid });
       return;
     }
     if (this.reliefSent.delete(key)) this.feed.setPart(cx, cy, cz, RELIEF_DRAW_PART, 0);
-    this.push({ cx, cy, cz, kind: 'draw', ground: surface(d.ground), base: surface(d.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid });
+    this.push({ cx, cy, cz, kind: 'draw', ground: surface(d.ground), base: surface(d.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid, ...liquid });
   }
 
   /** A drawn mip node's draw from its current result (nothing to draw: removed). */

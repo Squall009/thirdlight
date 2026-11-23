@@ -19,6 +19,8 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { Backend, Renderer } from 'three/webgpu';
 import {
+  ALL_DERIVED_PARTS,
+  DERIVED_PART,
   buildApron,
   ChunkDrawBatcher,
   chunkGrid,
@@ -301,7 +303,7 @@ describe('the voxel chunk view', () => {
     }, { schedule: (f) => (flush = f), inPlace: true });
     const emit = (e: StreamEvent): void => listeners.forEach((l) => l(e));
     const corner = [[-1, 0, -1], [-1, 0, 0], [0, 0, -1], [0, 0, 0]] as const;
-    for (const [cx, cy, cz] of corner) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false, reliefOnly: false });
+    for (const [cx, cy, cz] of corner) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false, reliefOnly: false, parts: ALL_DERIVED_PARTS });
     // One batch at the end of the task: nothing is drawn before it, everything with it.
     expect(view.count).toBe(0);
     flush();
@@ -309,7 +311,7 @@ describe('the voxel chunk view', () => {
     expect(view.count).toBe(4);
     for (const [cx, cy, cz] of corner) expect(parts.get(`${cx},${cy},${cz}:mesh`)).toBeGreaterThan(0);
     const builds = view.meshBuilds;
-    emit({ type: 'chunk', cx: 0, cy: 0, cz: 0, shaderOnly: true, reliefOnly: false });
+    emit({ type: 'chunk', cx: 0, cy: 0, cz: 0, shaderOnly: true, reliefOnly: false, parts: DERIVED_PART.shader });
     flush();
     expect(view.meshBuilds).toBe(builds);
     expect(batches.at(-1)!.chunks.map((c) => c.kind)).toEqual(['shader']);
@@ -317,6 +319,66 @@ describe('the voxel chunk view', () => {
     flush();
     expect(view.has(0, 0, 0)).toBe(false);
     expect(view.count).toBe(3);
+  });
+
+  it('draws liquid as one more mesh of its chunk (lit, receiving shadows, casting none), replaced alone when only the liquid part changes; no liquid, no program', () => {
+    const s = world();
+    const { view } = setup(new StaticShadowRevision());
+    const listeners: Array<(e: StreamEvent) => void> = [];
+    const parts = new Map<string, number>();
+    const feed = {
+      grid,
+      on: (l: (e: StreamEvent) => void) => void listeners.push(l),
+      joinedChunk: (cx: number, cy: number, cz: number, _times: unknown, cells: Uint16Array) => joined(s, cx, cy, cz, cells),
+      setPart: (cx: number, cy: number, cz: number, part: string, bytes: number) => {
+        parts.set(`${cx},${cy},${cz}:${part}`, bytes);
+        return true;
+      },
+    };
+    const batches: ChunkDrawBatch[] = [];
+    let flush: () => void = () => {};
+    const batcher = new ChunkDrawBatcher('w', feed, SECTION, (b) => {
+      batches.push(b);
+      const done = applyChunkDrawBatch(view, b);
+      batcher.drawn(done.chunkBytes, done.coarseBytes);
+    }, { schedule: (f) => (flush = f), inPlace: true });
+    const emit = (e: StreamEvent): void => listeners.forEach((l) => l(e));
+    emit({ type: 'chunk', cx: 0, cy: 0, cz: 0, shaderOnly: false, reliefOnly: false, parts: ALL_DERIVED_PARTS });
+    flush();
+    expect(view.liquids.triangles).toBe(0);
+    expect(view.liquids.look.built).toBe(false);
+    const dry = parts.get('0,0,0:mesh')!;
+    // A pool on the ground (x 8 … 12: its top cell is y 5), two cells deep, the upper one half filled.
+    for (let x = 8; x <= 12; x++) for (let z = 8; z <= 12; z++) for (const [y, shape] of [[5, 15], [6, 7]] as const) s.setVoxel(x, y, z, { material: 6, role: VOXEL_ROLE.liquid, shape, wetness: 0 });
+    emit({ type: 'chunk', cx: 0, cy: 0, cz: 0, shaderOnly: false, reliefOnly: false, parts: ALL_DERIVED_PARTS });
+    flush();
+    const water = (): THREE.Mesh | undefined => view.root.getObjectByName('voxel liquid') as THREE.Mesh | undefined;
+    // Its top and four sides (the ground beside it lies lower on two of them): one quad each, two triangles a quad.
+    expect(view.liquids.triangles).toBe(10);
+    expect(water()!.castShadow).toBe(false);
+    expect(water()!.receiveShadow).toBe(true);
+    expect((water()!.material as THREE.Material).name).toBe('voxel liquid');
+    expect(water()!.geometry.getAttribute('position').getY(0)).toBeGreaterThan(0);
+    expect(parts.get('0,0,0:mesh')).toBeGreaterThan(dry);
+    // The top layer taken out: only the liquid part changed. Its mesh alone is replaced, no surface built, no grid.
+    for (let x = 8; x <= 12; x++) for (let z = 8; z <= 12; z++) s.setVoxel(x, 6, z, { material: 0, role: 0, shape: 0, wetness: 0 });
+    const builds = view.meshBuilds;
+    const shaders = view.shaderSets;
+    const before = water();
+    emit({ type: 'chunk', cx: 0, cy: 0, cz: 0, shaderOnly: true, reliefOnly: false, parts: DERIVED_PART.liquid });
+    flush();
+    expect(batches.at(-1)!.chunks.map((c) => c.kind)).toEqual(['liquid']);
+    expect([view.meshBuilds, view.shaderSets, view.liquids.sets]).toEqual([builds, shaders, 1]);
+    expect(water()).not.toBe(before);
+    expect(view.liquids.triangles).toBe(10);
+    // Drained: the mesh goes, the chunk stays drawn.
+    for (let x = 8; x <= 12; x++) for (let z = 8; z <= 12; z++) s.setVoxel(x, 5, z, { material: 0, role: 0, shape: 0, wetness: 0 });
+    emit({ type: 'chunk', cx: 0, cy: 0, cz: 0, shaderOnly: true, reliefOnly: false, parts: DERIVED_PART.liquid });
+    flush();
+    expect(water()).toBeUndefined();
+    expect(view.liquids.triangles).toBe(0);
+    expect(view.has(0, 0, 0)).toBe(true);
+    view.dispose();
   });
 
   it('draws mip nodes at their level and seams at their coarse node; a level change, its seams and a node\'s new result each go in as one batch', () => {
@@ -363,7 +425,7 @@ describe('the voxel chunk view', () => {
     const emit = (e: StreamEvent): void => listeners.forEach((l) => l(e));
     const children = [[-2, -2, -2], [-1, -2, -2], [-2, -1, -2], [-1, -1, -2], [-2, -2, -1], [-1, -2, -1], [-2, -1, -1], [-1, -1, -1]] as const;
     // Chunks under the node stream in while level 0 is drawn elsewhere: not drawn (not chosen at level 0).
-    for (const [cx, cy, cz] of children) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false, reliefOnly: false });
+    for (const [cx, cy, cz] of children) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false, reliefOnly: false, parts: ALL_DERIVED_PARTS });
     flush();
     expect(view.count).toBe(0);
     // Level 0 across the node's +x face is drawn by a swap: those chunks join then.

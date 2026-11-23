@@ -34,6 +34,7 @@ import type { ChunkPayload } from './chunk-wire';
 import type { ChunkEdge, SectionEdge } from './coords';
 import type { SectionResult } from './derive-assembly';
 import type { ShaderOut } from './derived-shader';
+import type { LiquidPart } from './derived-liquid';
 import type { DerivedData } from './derived-data';
 import type { VoxelEditCommand } from './edit-command';
 import type { FaceSeam, SeamFaceInput } from './lod-seam';
@@ -122,8 +123,10 @@ export interface EditOutput {
   readonly chunks: readonly { readonly chunk: ChunkRef; readonly payload: ChunkPayload }[];
   /** The undo record (encodeUndoRecord bytes). */
   readonly undo: Uint8Array;
-  /** The fields that changed in any cell (PLANE_BIT mask): what decides which derived parts go stale. */
+  /** The fields that changed in any cell (PLANE_BIT mask). */
   readonly fields: number;
+  /** The derived parts its changes feed (`EditOutcome.parts`). */
+  readonly parts: number;
   /** The distinct material changes (`EditOutcome.materialSwaps`). */
   readonly materialSwaps: readonly number[];
 }
@@ -142,9 +145,11 @@ export interface DeriveInput {
   readonly rules?: AssemblyRulesRef;
   /**
    * The derived parts wanted (DERIVED_PART bits, record.ts; default all).
-   * Only `shader`: the shader data of the chunk and its border, no assembly
-   * evaluation; R is then the shader border (SHADER_BORDER_CELLS) and the
-   * apron that deep (a change of material or wetness only).
+   * Only `shader` and `liquid` (either or both): those parts of the chunk
+   * and its border, no assembly evaluation; R is then the border they read
+   * (`partsApronRadius`: SHADER_BORDER_CELLS, LIQUID_REACH_CELLS) and the
+   * apron that deep (a change of material or wetness, or only between air
+   * and liquid).
    */
   readonly parts?: number;
   /**
@@ -206,6 +211,11 @@ export interface DeriveOutput {
   readonly assembly: DerivedData | null;
   /** The shader data alone, for a job that asked for only that part (else null; a full derive holds it in `assembly`). */
   readonly shader: ShaderOut | null;
+  /**
+   * The liquid part alone (null: no liquid), for a job that asked for only it and the shader data; absent otherwise
+   * (a full derive holds it in `assembly`).
+   */
+  readonly liquid?: LiquidPart | null;
   /** One result a section, in the order the input named them, when the job named sections. */
   readonly sections?: readonly SectionResult[];
 }

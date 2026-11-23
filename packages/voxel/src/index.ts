@@ -55,6 +55,7 @@ export {
   DENSITY_FULL,
   DERIVED_PART,
   FIELD_FEEDS,
+  changeFeeds,
   fieldsFeed,
   materialSwap,
   swapFrom,
@@ -331,7 +332,8 @@ export {
   type PieceTable,
   type PieceTableKit,
 } from './piece-table';
-export { cropNeighbourhood, type ChunkPieces, deriveFromStore, deriveSectionCollisionsWithApron, deriveSectionFromStore, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
+export { cropNeighbourhood, type ChunkPieces, deriveFromStore, deriveSectionCollisionsWithApron, deriveSectionFromStore, deriveSectionPartsWithApron, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
+export { joinLiquid, LIQUID_FACE, LIQUID_FACE_NORMALS, LIQUID_QUAD_BYTES, LIQUID_REACH_CELLS, LIQUID_STEPS_PER_CELL, liquidBytes, liquidOfNeighbourhood, liquidQuad, type LiquidPart } from './derived-liquid';
 export { CONSTRUCTION_TILE_METRES, encodeShader, SHADER_BORDER_CELLS, SHADER_CONSTRUCTION_BIT, SHADER_READ_DEPTH_CELLS, TERRAIN_TILE_METRES, shaderBytes, shaderEntry, shaderEntryAt, shaderEntryWetness, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export {
   applyFold,

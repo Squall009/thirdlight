@@ -83,6 +83,7 @@ import {
   type SeamPieceWire,
   type DrawSurface,
   type InstanceList,
+  type LiquidPart,
   MATERIAL_ID_MAX,
   SHADER_BORDER_CELLS,
   shaderEntryWetness,
@@ -103,6 +104,7 @@ import { gridPhases } from './voxel-surface-projection';
 import { AXIS_PROJECTION_LEVEL, voxelDrawPath } from './voxel-surface-path';
 import { MOVING_CASTER_KEY, STATIC_CASTER_KEY, type StaticShadowRevision } from './shadow-casters';
 import { disposeObjectTree } from './dispose';
+import { geometryBytes, VOXEL_LIQUID_KEY, VoxelLiquidDraws } from './voxel-liquid-draw';
 import { markOccludee, markOccludeeGroup } from './occludees';
 import { SEE_THROUGH_ROOM_DRAW_KEY } from './see-through';
 import { FULL_PATH, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
@@ -195,15 +197,8 @@ function placedGeometry(parts: readonly PlacedSurface[], reliefDepthM = 0): THRE
   return geo;
 }
 
-/** Bytes a geometry holds on the GPU (its attributes and index). */
-function geometryBytes(geo: THREE.BufferGeometry): number {
-  let n = geo.index?.array.byteLength ?? 0;
-  for (const a of Object.values(geo.attributes)) n += (a as THREE.BufferAttribute).array.byteLength;
-  return n;
-}
-
 /** What a chunk's (or node's) draw is made of: its joined sections' surfaces, pieces and shader grid (a join, or a batch's copy of one). */
-export type VoxelChunkDraw = Pick<JoinedDraw, 'instances' | 'solid'> & { readonly ground: DrawSurface; readonly base: DrawSurface; readonly caster?: { readonly ground: DrawSurface; readonly base: DrawSurface } };
+export type VoxelChunkDraw = Pick<JoinedDraw, 'instances' | 'solid'> & { readonly ground: DrawSurface; readonly base: DrawSurface; readonly caster?: { readonly ground: DrawSurface; readonly base: DrawSurface }; readonly liquid?: LiquidPart | null };
 
 /** `mesh.userData[VOXEL_CASTER_KEY]`: a chunk's plain shadow caster (drawn only by the shadow cameras, for its relief mesh). */
 export const VOXEL_CASTER_KEY = '__tlVoxelCaster';
@@ -278,6 +273,8 @@ export interface ChunkDraw {
   readonly decalSurface: THREE.Mesh | null;
   /** Its surface mesh (null: none), whose program follows its grid ({@link voxelDrawPath}). */
   readonly mesh: THREE.Mesh | null;
+  /** Its liquid faces' mesh (a level-0 chunk's; null: none), replaced alone when only the liquid part changes. */
+  liquid: THREE.Mesh | null;
 }
 
 /** A draw's kit pieces as runs in the view's piece draws, the instances they hold, and whether some waited for kit meshes. */
@@ -409,6 +406,8 @@ export class VoxelChunkView {
   seamTriangles = 0;
   /** Triangles of the plain shadow casters drawn for relief chunks (shadow passes only; not in {@link triangles}). */
   casterTriangles = 0;
+  /** The chunks' liquid meshes (their triangles not in {@link triangles}). */
+  readonly liquids: VoxelLiquidDraws;
   /** The plain casters' material (made with the first caster). */
   private caster: THREE.Material | null = null;
   /** Objects whose meshes were built (chunks and nodes), and shader grids uploaded or set (one solid entry). */
@@ -429,6 +428,7 @@ export class VoxelChunkView {
     this.shadows = opts.shadows === true || this.statics !== null;
     this.fastPaths = opts.fastPaths !== false;
     this.plainCasters = opts.reliefCasters !== 'relief';
+    this.liquids = new VoxelLiquidDraws(opts.surface, this.shadows, (cx, cy, cz) => this.levels[0]?.get(chunkKey(this.grid, cx, cy, cz)));
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
     if (opts.sharedPieces !== undefined) this.pieces = opts.sharedPieces;
     else {
@@ -699,7 +699,7 @@ export class VoxelChunkView {
       markOccludee(mesh, 'single');
       mesh.matrixAutoUpdate = false;
       mesh.castShadow = mesh.receiveShadow = this.shadows;
-      this.castStatic(mesh);
+      castStatic(this.statics, mesh);
       mesh.userData['voxelChunk'] = key;
       mesh.userData['voxelLevel'] = level;
       // A room's walls and roof: while a see-through subject stands in a room, it thins or is cut only round that room.
@@ -714,8 +714,13 @@ export class VoxelChunkView {
       bytes += geometryBytes(geo);
       if (geo.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) bytes += this.addCaster(group, mesh, d, cellM);
     }
+    const liquid = level === 0 ? this.liquids.mesh(d.liquid) : null;
+    if (liquid !== null) {
+      group.add(liquid);
+      bytes += geometryBytes(liquid.geometry);
+    }
     const kept = keptInstances(d.instances, this.kitEntriesOf(d));
-    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, wet: kept.wet, pieceBytes: 0, cellMetres: cellM, waiting: false, decalSurface, mesh: surfaceMesh };
+    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, wet: kept.wet, pieceBytes: 0, cellMetres: cellM, waiting: false, decalSurface, mesh: surfaceMesh, liquid };
     const runs = this.pieceRuns(m);
     const empty = group.children.length === 0 && runs.instances === 0 && !runs.waiting;
     // The grid goes into a region of its own now; the draw it replaces is shown with its old one until the commit.
@@ -742,6 +747,7 @@ export class VoxelChunkView {
       if (geo.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) this.reliefVertices += geo.getAttribute('position').count;
     }
     for (const c of m.group.children) if (c instanceof THREE.Mesh && c.userData[VOXEL_CASTER_KEY] === true) this.casterTriangles += ((c.geometry as THREE.BufferGeometry).index?.count ?? 0) / 3;
+    this.liquids.shown(m.liquid);
     this.givePieces(m, p.kits === this.kitSet && !p.runs.waiting ? p.runs : this.pieceRuns(m));
     this.place(m.group, m.cell);
     m.group.visible = this.nearShown;
@@ -833,16 +839,6 @@ export class VoxelChunkView {
     return out;
   }
 
-  /**
-   * With {@link VoxelChunkViewOptions.staticShadows}: `mesh` casts into the cached maps (it changes only by being
-   * replaced, which is reported). A relief mesh casting its own displaced shape (the `relief` casters kept to
-   * compare) moves with the ring's focus and fade, which nothing reports: it casts as a moving caster.
-   */
-  private castStatic(mesh: THREE.Mesh): void {
-    if (this.statics === null || !mesh.castShadow) return;
-    if (mesh.geometry.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) mesh.userData[MOVING_CASTER_KEY] = true;
-    else mesh.userData[STATIC_CASTER_KEY] = true;
-  }
 
 
   private applyShader(m: ChunkDraw, solid: number): void {
@@ -985,6 +981,8 @@ export class VoxelChunkView {
       if (child instanceof THREE.Mesh && child.userData[VOXEL_CASTER_KEY] === true) {
         this.casterTriangles -= ((child.geometry as THREE.BufferGeometry).index?.count ?? 0) / 3;
         (child.geometry as THREE.BufferGeometry).dispose();
+      } else if (child instanceof THREE.Mesh && child.userData[VOXEL_LIQUID_KEY] === true) {
+        this.liquids.gone(child, false);
       } else if (child instanceof THREE.Mesh) {
         const g = child.geometry as THREE.BufferGeometry;
         this.triangles -= (g.index?.count ?? 0) / 3;
@@ -1019,7 +1017,7 @@ export class VoxelChunkView {
     // A seam lies on a coarse node's face and is shaded from that node's grid, which may change on its own: two materials.
     const mesh = new THREE.Mesh(geo, this.fastPaths ? this.shading.materialFor({ materials: 2, projection: level >= AXIS_PROJECTION_LEVEL ? 'axis' : 'blend' }) : this.shading.material);
     mesh.castShadow = mesh.receiveShadow = this.shadows;
-    this.castStatic(mesh);
+    castStatic(this.statics, mesh);
     this.statics?.changed(cell, level);
     markOccludee(mesh, 'single');
     mesh.name = `voxel-seam ${seamId(level, nx, ny, nz, face)}`;
@@ -1081,7 +1079,19 @@ export class VoxelChunkView {
     this.far.dispose();
     this.caster?.dispose();
     this.caster = null;
+    this.liquids.dispose();
   }
+}
+
+/**
+ * With {@link VoxelChunkViewOptions.staticShadows} (`statics` not null): `mesh` casts into the cached maps (it
+ * changes only by being replaced, which is reported). A relief mesh casting its own displaced shape (the `relief`
+ * casters kept to compare) moves with the ring's focus and fade, which nothing reports: it casts as a moving caster.
+ */
+function castStatic(statics: DrawShadowReports | null, mesh: THREE.Mesh): void {
+  if (statics === null || !mesh.castShadow) return;
+  if (mesh.geometry.getAttribute(VOXEL_CREASE_ATTRIBUTE) !== undefined) mesh.userData[MOVING_CASTER_KEY] = true;
+  else mesh.userData[STATIC_CASTER_KEY] = true;
 }
 
 /** The dressing word of the instance at byte `o` of `data` (derived-mesh.ts). */

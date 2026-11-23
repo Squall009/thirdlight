@@ -36,7 +36,6 @@ import {
   RESIDENT_CHUNK_OVERHEAD_BYTES,
   sameDenseChunk,
   saveChunkOf,
-  fieldsFeed,
   SHADER_BORDER_CELLS,
   sectionsOfChunk,
   SHADER_CONSTRUCTION_BIT,
@@ -697,7 +696,7 @@ describe('streamer (workers, region files on disk)', () => {
     };
     const kinds: Record<string, unknown> = {};
     /** Applies an edit to the streamer and the oracle; waits for its swap; what it derived. */
-    const run = async (what: string, cmd: VoxelEditCommand): Promise<{ derives: number; shaderDerives: number; fields: number }> => {
+    const run = async (what: string, cmd: VoxelEditCommand): Promise<{ derives: number; shaderDerives: number; fields: number; parts: number }> => {
       const d0 = s.counters.derives;
       const sh0 = s.counters.shaderDerives;
       swaps.length = 0;
@@ -705,7 +704,7 @@ describe('streamer (workers, region files on disk)', () => {
       const out = s.edit(cmd);
       applyEdit({ store: () => truth }, cmd);
       await s.settle();
-      const r = { derives: s.counters.derives - d0, shaderDerives: s.counters.shaderDerives - sh0, fields: out.fields };
+      const r = { derives: s.counters.derives - d0, shaderDerives: s.counters.shaderDerives - sh0, fields: out.fields, parts: out.parts };
       kinds[what] = { cells: out.cells, chunks: out.chunks.length, ...r, swaps: swaps.length, swapMs: swaps[0]?.ms ?? null, sections: swaps[0]?.sections ?? 0, overlayCells: s.overlay.changedCells, overlayChunks: s.overlay.changedChunks().length, overlayBytes: s.overlay.memoryBytes() };
       return r;
     };
@@ -734,7 +733,7 @@ describe('streamer (workers, region files on disk)', () => {
     const paintBox = { min: [px - 3, py - 2, pz - 3] as [number, number, number], max: [px + 3, py, pz + 3] as [number, number, number] };
     const material = await run('material paint', canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', ...paintBox, mode: 'paint', voxel: { material: 77, role: VOXEL_ROLE.terrain, wetness: 0 } }));
     expect(material.fields & PLANE_BIT.material).not.toBe(0);
-    expect(fieldsFeed(material.fields)).toBe(DERIVED_PART.shader);
+    expect(material.parts).toBe(DERIVED_PART.shader);
     expect(material.derives).toBe(0);
     expect(material.shaderDerives).toBeGreaterThan(0);
     // Its chunks are announced as shader data only: a renderer uploads their grids and keeps their surfaces.
@@ -920,11 +919,11 @@ describe('streamer (workers, region files on disk)', () => {
     const wet = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-1, 38, -1], max: [0, 40, 0], mode: 'paint', voxel: { material: 41, role: 3, wetness: 5 } });
     const out3 = writer.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-1, 38, -1], max: [0, 40, 0], mode: 'place', voxel: { material: 41, role: 3, wetness: 0 } }));
     writer.save();
-    s.refresh(out3.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz })), editBounds(grid, wet), fieldsFeed(out3.fields));
+    s.refresh(out3.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz })), editBounds(grid, wet), out3.parts);
     await s.settle();
     const wetOut = writer.edit(wet);
     expect(wetOut.fields).toBe(PLANE_BIT.wetness);
-    expect(fieldsFeed(wetOut.fields)).toBe(DERIVED_PART.shader);
+    expect(wetOut.parts).toBe(DERIVED_PART.shader);
     writer.save();
     rebuilt.clear();
     const derivesBefore = s.counters.derives;
@@ -935,7 +934,7 @@ describe('streamer (workers, region files on disk)', () => {
     });
     const wetChunks = wetOut.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz }));
     expect(wetChunks.length).toBe(4);
-    s.refresh(wetChunks, editBounds(grid, wet), fieldsFeed(wetOut.fields));
+    s.refresh(wetChunks, editBounds(grid, wet), wetOut.parts);
     await s.settle();
     expect([...rebuilt]).toEqual([]);
     expect(s.counters.derives).toBe(derivesBefore);
@@ -954,13 +953,13 @@ describe('streamer (workers, region files on disk)', () => {
     const paint = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [0, 40, 0], max: [0, 40, 0], mode: 'paint', voxel: { material: 42, role: 3, wetness: 5 } });
     const paintOut = writer.edit(paint);
     expect(paintOut.fields).toBe(PLANE_BIT.material);
-    expect(fieldsFeed(paintOut.fields)).toBe(DERIVED_PART.shader);
+    expect(paintOut.parts).toBe(DERIVED_PART.shader);
     expect(paintOut.chunks.map((u) => `${u.cx},${u.cy},${u.cz}`)).toEqual(['0,1,0']);
     writer.save();
     shaderOnly.clear();
     const derives2 = s.counters.derives;
     const shader2 = s.counters.shaderDerives;
-    s.refresh([{ cx: 0, cy: 1, cz: 0 }], editBounds(grid, paint), fieldsFeed(paintOut.fields));
+    s.refresh([{ cx: 0, cy: 1, cz: 0 }], editBounds(grid, paint), paintOut.parts);
     await s.settle();
     expect([...rebuilt]).toEqual([]);
     expect(s.counters.derives).toBe(derives2);

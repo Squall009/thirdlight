@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { ChunkDrawBatcher, MESH_PART, NEAR_COVER_EDGE, NEAR_COVER_HIDDEN, type ChunkDrawBatch, type ChunkDrawFeed } from './chunk-batch';
 import type { JoinedDraw } from './chunk-join';
 import { chunkGrid } from './coords';
+import { ALL_DERIVED_PARTS } from './record';
 import type { StreamEvent } from './voxel-streamer';
 import type { FarEvent } from './far-field';
 
@@ -35,7 +36,7 @@ function feed(): { feed: ChunkDrawFeed; emit(e: StreamEvent): void; parts: Map<s
 }
 
 const surface = { vertexCount: 3, vertices: new Uint8Array(36), indices: new Uint32Array([0, 1, 2]) };
-const draw = { edge: 32, ground: surface, base: surface, instances: { count: 0, data: new Uint32Array(0) }, solid: 1, side: 34 } as unknown as JoinedDraw;
+const draw = { edge: 32, ground: surface, base: surface, instances: { count: 0, data: new Uint32Array(0) }, solid: 1, side: 34, liquid: null } as unknown as JoinedDraw;
 
 describe('ChunkDrawBatcher', () => {
   it("sets a resident chunk's mesh part to 0 when its draw is removed (nothing derived with assembly any more)", () => {
@@ -44,7 +45,7 @@ describe('ChunkDrawBatcher', () => {
     let flush: () => void = () => {};
     const b = new ChunkDrawBatcher('w', f.feed, 16, (x) => sent.push(x), (fn) => (flush = fn));
     f.joins.set('1,0,2', draw);
-    f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false, reliefOnly: false });
+    f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false, reliefOnly: false, parts: ALL_DERIVED_PARTS });
     flush();
     expect(sent.at(-1)!.chunks.map((c) => c.kind)).toEqual(['draw']);
     b.drawn([1, 0, 2, 4096], 0, 5000);
@@ -53,7 +54,7 @@ describe('ChunkDrawBatcher', () => {
     expect(f.feed.pieces!.gpuBytes).toBe(5000);
     // Its sections no longer join to anything: the page drops the draw and the budget its bytes.
     f.joins.set('1,0,2', null);
-    f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false, reliefOnly: false });
+    f.emit({ type: 'chunk', cx: 1, cy: 0, cz: 2, shaderOnly: false, reliefOnly: false, parts: ALL_DERIVED_PARTS });
     flush();
     expect(sent.at(-1)!.chunks.map((c) => c.kind)).toEqual(['remove']);
     expect(f.parts.has(`1,0,2:${MESH_PART}`)).toBe(false);

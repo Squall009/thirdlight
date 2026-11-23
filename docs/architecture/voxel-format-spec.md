@@ -284,10 +284,26 @@ before it is voxelized (its command carries yaw and scale, §3.3); everything fi
 | role | mesh, collision, nav, light occupancy, shader data (derived v17: the construction bit) | the same |
 | material | shader data | rebuilds the shader data of the chunks within the shader border (1 cell) of the changed cells, and nothing else |
 | wetness | shader data | the same |
+| *a cell changing only between air and liquid, or a liquid's fill level or material* (F7, owner 2026-11-20) | the **liquid part** alone | rebuilds the liquid part of the derive sections within one cell (`LIQUID_REACH_CELLS`) of the changed cells, and nothing else: no mesh, collision, nav, light, shader data, coarser level or fine far brick |
+
+- **The liquid rule (F7, approved by the owner 2026-11-20, built 47a.9).** The table's rows are what a field drives
+  when nothing else is known of the change (`FIELD_FEEDS`, `fieldsFeed`: since 47a.9 a role or shape change also
+  feeds the liquid part, since ground dug beside water bares its side, and a material change may be a liquid's).
+  An edit decides every changed cell on its own (`changeFeeds(before, after)`, record.ts) and reports the union
+  (`EditOutcome.parts`; the worker's `edit` job, a structure regenerate and the backend's structure writes the
+  same): a change whose both values are air or liquid (role 2) feeds the liquid part alone; any other change feeds
+  what its fields feed, a material or wetness change of a cell that is neither the shader data alone. So a stroke
+  of water alone (add, place, set with a fill level, a paint of another liquid, a dig of water) feeds the liquid
+  part alone, and a mixed stroke (a dig through ground beside water) feeds what it fed before plus the liquid part.
+  Every other output reads a liquid cell as the air it stands in: proved byte for byte on 1.34 M liquid cells of
+  the hilly world's two lakes and the caves world's pools (`tools/voxel-bench/liquid.test.ts`); the shader data
+  held a liquid's material until derived data 33 (now air) and the roof words read it apart from air (now plain
+  air).
 
 - Every applied edit reports the fields that changed in any cell (`EditOutcome.fields`, a `PLANE_BIT` mask; the
-  worker's `edit` job too). `fieldsFeed(fields)` turns it into the derived parts that are stale; the command
-  route answers them (`parts`, an undo the parts of the edit it takes back), and `VoxelStreamer.refresh(chunks,
+  worker's `edit` job too) and the derived parts its changes feed (`EditOutcome.parts`, by the liquid rule above;
+  before 47a.9 `fieldsFeed(fields)`); the command route answers them (`parts`, an undo the parts of the edit it
+  takes back), and `VoxelStreamer.refresh(chunks,
   box, parts)` / its own edits derive only those: for a shader-only change the shader data of every chunk within
   `SHADER_BORDER_CELLS` (1) of the cell box, the changed chunks and the neighbours whose border holds a changed
   cell (`derive` job with `parts: shader`, an apron 1 deep). `fieldsFeed(fields)` is the whole rule: no output but
@@ -1546,8 +1562,11 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 29 → 30 | 46d.6c | a body's faces next to a plane cell merge with its other faces by geometry and crack alone (D526): the rectangle holding an owned face is owned whole (each pixel its own body cell, unblended), owned rectangles of a direction share vertices | layout unchanged | default chosen, owner to confirm (D519 kept: no wall face reads a plane cell) |
 | 30 → 31 | 46d.7a | the downsample at every level ≥ 1 closes an opening narrower than two parent cells in the body round it, and a parent of opening cells only is an opening (no door/window "legs" at level 1); a new derived store, the far cache (format 1, never committed; [render spec §4](voxel-render-spec.md#4-far-field-data)) | layout unchanged; level-0 results v30's | default chosen, owner to confirm |
 | 31 → 32 | 46e.3 | three new derived outputs per level-0 unit, never stored: **region labels** (open cells, i.e. not drawn as a body, labelled 6-connected into components, `opening` cells into portal components apart; each with its cells, the unit faces it reaches, the region–portal contacts), **face connectivity** (R97: the 15 face pairs joined through open cells) and **sky columns** (R98: the highest solid cell + 1 a column); radius 0; stitched across chunks where the world runs (`open-regions.ts`, `open-region-stitch.ts`) | regions after the shader data in the canonical bytes; other outputs v31's | **owner 2026-11-14**: "Yes I approve of the spec change for the proposed testing of lighting voxels in this phase." (these three outputs only) |
+| 32 → 33 | 47a.9 | liquid is open space to every output but its own: the shader data holds a liquid cell as air (entry 0), the roof words read it as plain air; a new part, the **liquid part** (F7): a level-0 unit's liquid faces against open space merged into quads with their material, outside the canonical bytes | 16-byte quad (below); canonical bytes v32's, shader data differs where it held liquid | **owner 2026-11-20**: F7 approved as proposed ("Everything as proposed is fine"); the shader data's liquid as air a default chosen, owner to confirm |
 
 **Derived data 31 → 32 (46e.3; owner 2026-11-14, add-only, these three outputs only).** Per level-0 unit (`OpenRegionsOut`): `labels` (a byte or u16 a cell, 0 solid; none when uniform), `volume`, `flags` (faces reached, portal bit), `links` (region, portal) pairs, `connect` (15 face-pair bits), `sky` (a byte a column, or one value). Rebuilt by the derive workers with every full derive, never stored, saved or exported; no world regenerated. Definitions and numbers: `plan-phase-46e.md` §8a 46e.3.
+
+**Derived data 32 → 33 (47a.9; F7, owner 2026-11-20; never stored).** `liquid` (`LiquidPart`, `derived-liquid.ts`), per level-0 derive unit (a section), built in every full derive and alone by a `derive` job with `parts` of only `shader` and `liquid` (`DERIVED_PART.liquid` = 32, `ALL_DERIVED_PARTS` 63; apron `LIQUID_REACH_CELLS` = 1), cached with the section's other parts and joined per chunk for the draw (`JoinedDraw.liquid`, a chunk batch's `liquid` entry). A liquid cell of fill h (its shape, 1–15) shows: toward open space (air, an opening, ground below the surface iso) its whole face (sides from the cell's floor to h, top at h, bottom at the floor); toward liquid only a side step where the neighbour's fill is lower; toward ground at the surface or any built role nothing; a partly filled cell always its top. Positions are exact, in `LIQUID_STEPS_PER_CELL` (15) steps a cell. Tops and bottoms merge into rectangles of one height and material in a cell layer; sides merge up a column, then along the row where the run and material match; no quad crosses a section. Bytes, 16 a quad, little-endian: x0, y0, z0, x1, y1, z1 (u16, steps from the unit's corner), material (u16), face (u8: +x, −x, +y, −y, +z, −z = 0–5), 0 (u8). A unit with no liquid face has no part (null; no bytes); one with no liquid cell costs a look at its cells. Phase 49 extends this part (column runs, flow, shore distance); nothing of it is stored. The shader data's liquid as air: a surface beside or under water no longer blends toward the water's material (the liquid part draws it in its own), so an air ↔ liquid change leaves the shader data equal (liquid.test.ts). Results differ from v32's only in the shader data of grids holding liquid; no world regenerated.
 
 The owner notes of 3 → 9, as each step recorded them:
 

@@ -12,7 +12,7 @@
 import { apronVoxelAt, checkApron, checkRadius } from './apron';
 import { jobRadius } from './assembly';
 import { assemblyRules } from './rule-registry';
-import { deriveSectionCollisionsWithApron, deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWithApron, deriveWithApron, type ChunkPieces, type SectionResult } from './derive-assembly';
+import { deriveSectionCollisionsWithApron, deriveSectionPartsWithApron, deriveSectionsWithApron, deriveWithApron, type ChunkPieces, type SectionResult } from './derive-assembly';
 import type { ReliefOptions } from './relief-mesh';
 import { pieceTableOf } from './piece-table';
 import { collisionPartTransfer, derivedTransfer, encodeDerived } from './derived-data';
@@ -26,7 +26,6 @@ import { canonicalEditCommand } from './edit-command';
 import type { JobHandlers, JobResult } from './job-worker';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import { ALL_DERIVED_PARTS, DERIVED_PART, MATERIAL_AIR, valueMaterial, type VoxelRecord } from './record';
-import { encodeShader, SHADER_BORDER_CELLS } from './derived-shader';
 import { regionChunkCodecBytes, type RegionChunkRead } from './region-file';
 import { applySaveChunk, baseChunkHash, sameHash, saveContentFromPayload } from './save-file';
 import { stampShapeHash, type StampResolver } from './stamp-shape';
@@ -140,7 +139,7 @@ function edit(raw: unknown): JobResult {
     const outcome = applyEdit({ store: (g) => (g === cmd.grid ? store : undefined) }, cmd, { stamps, loaded: (_g, cx, cy, cz) => held.has(`${cx},${cy},${cz}`) });
     const undo = encodeUndoRecord(store.grid, outcome.chunks);
     const chunks = outcome.chunks.map((u) => ({ chunk: { grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz }, payload: store.chunkPayload(u.cx, u.cy, u.cz, false) }));
-    const output: EditOutput = { cells: outcome.cells, chunks, undo, fields: outcome.fields, materialSwaps: outcome.materialSwaps };
+    const output: EditOutput = { cells: outcome.cells, chunks, undo, fields: outcome.fields, parts: outcome.parts, materialSwaps: outcome.materialSwaps };
     const transfer: ArrayBuffer[] = [undo.buffer as ArrayBuffer];
     for (const ch of chunks) payloadTransfer(ch.payload, transfer);
     return { output, transfer };
@@ -206,12 +205,12 @@ function derive(raw: unknown): JobResult {
     if (level > 0 && (input.rules === undefined || input.sections !== undefined || parts !== ALL_DERIVED_PARTS)) throw new RangeError('derive job: a chunk-tree node derives whole, with rules');
     if (input.sections !== undefined) return deriveSections(store, input, parts);
     if (parts === DERIVED_PART.collision) throw new RangeError('derive job: collision alone is derived by sections');
-    if (parts === DERIVED_PART.shader) {
-      // Material and wetness feed only the shader data, which reads the chunk and its border.
-      if (r !== SHADER_BORDER_CELLS) throw new RangeError(`derive job: shader data needs an apron ${SHADER_BORDER_CELLS} deep, not ${r}`);
-      const shader = deriveShaderWithApron(g, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out));
-      const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: crc32(encodeShader(shader)), assembly: null, shader };
-      return { output, transfer: [shader.palette.buffer as ArrayBuffer, shader.ids.buffer as ArrayBuffer] };
+    if ((parts & ~SURFACE_KEEPING_PARTS) === 0) {
+      // Material and wetness feed only the shader data, an air <-> liquid change only the liquid part: both read the
+      // chunk and a border one cell deep, no assembly evaluation.
+      const [one] = deriveSectionPartsWithApron(g, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out), e, [0], parts);
+      const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: one!.hash, assembly: null, shader: one!.shader, ...(one!.liquid === undefined ? {} : { liquid: one!.liquid }) };
+      return { output, transfer: partsTransfer(one!, []) };
     }
     if (input.rules !== undefined) {
       const rules = assemblyRules(input.rules);
@@ -247,9 +246,8 @@ function deriveSections(store: PaletteStore, input: DeriveInput, parts: number):
   const { edge, ids } = input.sections!;
   const exportChunk = (out: DenseChunk): boolean => store.exportChunk(c.cx, c.cy, c.cz, out);
   let results: SectionResult[];
-  if (parts === DERIVED_PART.shader) {
-    if (input.radius !== SHADER_BORDER_CELLS) throw new RangeError(`derive job: shader data needs an apron ${SHADER_BORDER_CELLS} deep, not ${input.radius}`);
-    results = deriveSectionShadersWithApron(g, input.apron, exportChunk, edge, ids);
+  if ((parts & ~SURFACE_KEEPING_PARTS) === 0) {
+    results = deriveSectionPartsWithApron(g, input.apron, exportChunk, edge, ids, parts);
   } else if (parts === DERIVED_PART.collision) {
     // Collision alone (bodies waiting for ground): the same evaluation, none of the draws' outputs.
     if (input.rules === undefined) throw new RangeError('derive job: collision alone needs assembly rules');
@@ -265,11 +263,22 @@ function deriveSections(store: PaletteStore, input: DeriveInput, parts: number):
   const transfer: ArrayBuffer[] = [];
   for (const r of results) {
     if (r.assembly !== null) derivedTransfer(r.assembly, transfer);
-    if (r.shader !== null) transfer.push(r.shader.palette.buffer as ArrayBuffer, r.shader.ids.buffer as ArrayBuffer);
+    partsTransfer(r, transfer);
     if (r.collision !== undefined) collisionPartTransfer(r.collision, transfer);
   }
   const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null, sections: results };
   return { output, transfer };
+}
+
+/** The parts a derive may build alone while a section's surfaces stand: the shader data and the liquid part. */
+const SURFACE_KEEPING_PARTS = DERIVED_PART.shader | DERIVED_PART.liquid;
+
+/** A parts-only result's buffers (its shader data's and its liquid's) onto a transfer list. */
+function partsTransfer(r: Pick<SectionResult, 'shader' | 'liquid'>, out: ArrayBuffer[]): ArrayBuffer[] {
+  if (r.shader != null) out.push(r.shader.palette.buffer as ArrayBuffer, r.shader.ids.buffer as ArrayBuffer);
+  const q = r.liquid?.quads.buffer;
+  if (q instanceof ArrayBuffer && q.byteLength > 0 && !out.includes(q)) out.push(q);
+  return out;
 }
 
 const EMPTY: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });

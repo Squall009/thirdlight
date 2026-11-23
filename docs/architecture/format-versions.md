@@ -18,7 +18,7 @@ where the format is an owner hard stop (the voxel formats: `voxel-format-spec.md
 | Save file / base form codec | `SAVE_FORMAT_VERSION`, `BASE_FORM_CODEC_VERSION` (voxel/save-file.ts) | 2 / 2 | — |
 | Structure overrides | `OVERRIDE_FORMAT_VERSION` (voxel/structure-overrides.ts) | 2 | from draft to used, F3 (47a.3; owner 2026-11-20) |
 | Building generator (a structure record's `generator`, F1) | `BUILDING_GENERATOR_VERSION` (voxel/structures/building.ts) | 1 | the first building generator (47a.3) |
-| Derived data (never stored; a version of the rules) | `DERIVED_FORMAT_VERSION` (voxel/derived-data.ts) | 32 | region labels, chunk face connectivity and sky columns, never stored (46e.3; owner 2026-11-14) |
+| Derived data (never stored; a version of the rules) | `DERIVED_FORMAT_VERSION` (voxel/derived-data.ts) | 33 | the liquid part and liquid read as air by every other output, never stored, F7 (47a.9; owner 2026-11-20) |
 | Piece table | `PIECE_TABLE_FORMAT` (voxel/piece-table.ts) | 5 | — |
 | Far cache | `FAR_CACHE_FORMAT` (voxel/far-tree.ts) | 3 | the bake level: fine levels by region (46d.26) |
 | Baked bricks blob | `FAR_BRICKS_BLOB_VERSION` (voxel/far-bricks-baked.ts) | 1 | — |

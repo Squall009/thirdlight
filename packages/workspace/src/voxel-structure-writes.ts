@@ -20,6 +20,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  ALL_DERIVED_PARTS,
   ALL_PLANES,
   captureOverrides,
   chunkOfKey,
@@ -99,6 +100,8 @@ export interface StructureWrites {
   readonly record: ChunkUndo[];
   readonly cells: number;
   readonly fields: number;
+  /** The derived parts the changes feed (DERIVED_PART bits): a write's own, a copy or a delete every part. */
+  readonly parts: number;
   readonly materialSwaps: readonly number[];
   readonly overrides: Map<number, { readonly bytes: Uint8Array | null; readonly value: StructureOverrides }>;
   readonly reports: StructureChangeReport[];
@@ -149,6 +152,7 @@ export async function applyStructureChanges(host: StructureGridHost, generator: 
   const swaps = new Set<number>();
   let cells = 0;
   let fields = 0;
+  let parts = 0;
   const heldNow = (id: number): StructureOverrides => overrides.get(id)?.value ?? host.overrides(id).value;
   const bytesNow = (id: number): Uint8Array | null => (overrides.has(id) ? overrides.get(id)!.bytes : host.overrides(id).bytes);
   for (const ch of changes) {
@@ -165,6 +169,7 @@ export async function applyStructureChanges(host: StructureGridHost, generator: 
       for (const s of r.materialSwaps) swaps.add(s);
       cells += r.cells;
       fields |= r.fields;
+      parts |= r.parts;
       reports.push({ grid: ch.grid, kind: 'write', cells: r.cells, kept: r.kept, absorbed: r.absorbed, misfits: r.misfits, materialSwaps: r.materialSwaps, fields: r.fields });
     } else if (ch.kind === 'copy') {
       if ([...rw.store.chunkKeys()].length > 0) throw new StructureWriteRefused('grid_taken', `grid ${ch.grid} already holds voxels: a copy goes into a new grid`);
@@ -190,6 +195,7 @@ export async function applyStructureChanges(host: StructureGridHost, generator: 
       if (bytes !== null) overrides.set(ch.grid, { bytes, value });
       cells += n;
       if (n > 0) fields |= ALL_PLANES;
+      if (n > 0) parts |= ALL_DERIVED_PARTS;
       reports.push({ grid: ch.grid, kind: 'copy', cells: n, kept: 0, absorbed: 0, misfits: [], materialSwaps: [], fields: n > 0 ? ALL_PLANES : 0 });
     } else {
       let n = 0;
@@ -205,10 +211,11 @@ export async function applyStructureChanges(host: StructureGridHost, generator: 
       if (bytesNow(ch.grid) !== null) overrides.set(ch.grid, { bytes: null, value: { grid: host.grid, gridId: ch.grid, chunks: new Map() } });
       cells += n;
       if (n > 0) fields |= ALL_PLANES;
+      if (n > 0) parts |= ALL_DERIVED_PARTS;
       reports.push({ grid: ch.grid, kind: 'delete', cells: n, kept: 0, absorbed: 0, misfits: [], materialSwaps: [], fields: n > 0 ? ALL_PLANES : 0 });
     }
   }
-  return { record, cells, fields, materialSwaps: [...swaps].sort((a, b) => a - b), overrides, reports };
+  return { record, cells, fields, parts, materialSwaps: [...swaps].sort((a, b) => a - b), overrides, reports };
 }
 
 /**

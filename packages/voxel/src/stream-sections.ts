@@ -34,11 +34,10 @@ import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { joinSections, joinSectionsForDraw, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, sectionGrid, type CellGrid, type ChunkGrid, type SectionEdge } from './coords';
-import type { SectionResult } from './derive-assembly';
+import { partsApronRadius, type SectionResult } from './derive-assembly';
 import { derivedBytes, encodeDerived, type DerivedData } from './derived-data';
 import { reliefBytes, type ReliefOptions } from './relief-mesh';
 import { RELIEF_PART } from './relief-ring';
-import { SHADER_BORDER_CELLS } from './derived-shader';
 import { EDGE_REACH } from './edge-cases';
 import type { DirtyTracker } from './dirty-tracker';
 import { ALL_DERIVED_PARTS, DERIVED_PART } from './record';
@@ -77,17 +76,20 @@ export interface SwapReport {
 
 /** A chunk's derive results and events, as the streamer reports them (derive units are sections). */
 export type SectionEvent =
-  | { readonly type: 'derived' | 'shader'; readonly cx: number; readonly cy: number; readonly cz: number }
+  | { readonly type: 'derived' | 'shader' | 'liquid'; readonly cx: number; readonly cy: number; readonly cz: number }
   /**
    * A storage chunk's sections have new results (all that one task brings:
    * an edit group's swap, or one job's answer): its joined draw
-   * ({@link SectionDerives.joinedChunk}) is to be replaced. `shaderOnly`:
-   * only shader data changed, the surfaces stand. `reliefOnly`: only the
+   * ({@link SectionDerives.joinedChunk}) is to be replaced. `parts`: what
+   * changed (DERIVED_PART bits; every part when a section derived whole).
+   * `shaderOnly`: the surfaces, collision, navigation, light and occupancy
+   * stand: only the shader data or the liquid part (or both) changed, as
+   * `parts` says. `reliefOnly`: only the
    * relief meshes changed (the relief ring moved): the surfaces drawn are
    * new, but collision, navigation, light and occupancy are byte for byte
    * what they were, so bodies stand.
    */
-  | { readonly type: 'chunk'; readonly cx: number; readonly cy: number; readonly cz: number; readonly shaderOnly: boolean; readonly reliefOnly: boolean }
+  | { readonly type: 'chunk'; readonly cx: number; readonly cy: number; readonly cz: number; readonly shaderOnly: boolean; readonly reliefOnly: boolean; readonly parts: number }
   | { readonly type: 'swap'; readonly report: SwapReport };
 
 /**
@@ -114,7 +116,7 @@ export interface SectionHost {
   pieceTable(): PieceTable | null;
   /** The relief mesh a level-0 section derives beside its surfaces (absent, or null for the section: none; relief-ring.ts). */
   relief?(sx: number, sy: number, sz: number): ReliefOptions | null;
-  readonly counters: { derives: number; shaderDerives: number; staleRefused: number; deriveChecks: number; swaps: number; airDerives: number; cancelledDerives: number };
+  readonly counters: { derives: number; shaderDerives: number; liquidDerives: number; staleRefused: number; deriveChecks: number; swaps: number; airDerives: number; cancelledDerives: number };
   readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing; readonly joinUs: SampleRing };
   isResident(cx: number, cy: number, cz: number): boolean;
   /** The only chunks that can ever be resident (a structure grid's read box; absent or null: any). */
@@ -195,11 +197,14 @@ const EMPTY_OUTPUT: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: n
  * kit's pieces needs it: a cell's piece reads its own material only, so
  * nothing past those sections changes geometry.
  */
-export const PIECES_AT_CELLS = 1 << 5;
+export const PIECES_AT_CELLS = 1 << 6;
 
-/** Whether parts (DERIVED_PART bits) include any output the assembly evaluation builds (anything but the shader data). */
+/** The parts a section derives without the assembly evaluation, its surfaces standing: the shader data and the liquid part. */
+export const SURFACE_KEEPING_PARTS = DERIVED_PART.shader | DERIVED_PART.liquid;
+
+/** Whether parts (DERIVED_PART bits) include any output the assembly evaluation builds (anything but the shader data and the liquid part). */
 export function geometryParts(parts: number): boolean {
-  return (parts & ALL_DERIVED_PARTS & ~DERIVED_PART.shader) !== 0;
+  return (parts & ALL_DERIVED_PARTS & ~SURFACE_KEEPING_PARTS) !== 0;
 }
 
 /** The sections of a chunk, as section-grid coordinates. */
@@ -253,8 +258,8 @@ export class SectionDerives {
   private readonly groups = new Map<number, EditGroup>();
   private stampSeq = 0;
   private groupSeq = 0;
-  /** Chunks whose sections took new results in this task, not yet announced: chunk key → whether only shader data changed. */
-  private readonly touched = new Map<number, { cx: number; cy: number; cz: number; shaderOnly: boolean; reliefOnly: boolean }>();
+  /** Chunks whose sections took new results in this task, not yet announced: chunk key → what changed (DERIVED_PART bits), whether only those the surfaces keep. */
+  private readonly touched = new Map<number, { cx: number; cy: number; cz: number; shaderOnly: boolean; reliefOnly: boolean; parts: number }>();
   /**
    * Worker µs a section spent evaluating the rules (classes and every pass
    * the set has: cases, runs, forms), over all sections and over those whose
@@ -553,8 +558,9 @@ export class SectionDerives {
   /**
    * Every resident section within reach of `box` is stale: its stamp moves
    * (results already on their way are refused) and it is derived again. A
-   * change that feeds only the shader data reaches no further than the
-   * shader border and rebuilds only that; with {@link PIECES_AT_CELLS} the
+   * change that feeds only the shader data or the liquid part reaches no
+   * further than the border they read (one cell) and rebuilds only those;
+   * with {@link PIECES_AT_CELLS} the
    * sections within the edge pass's reach of `box` derive whole besides (a
    * piece takes its kit from a cell beside its own where roles meet). With a group, the sections
    * join it and swap with it.
@@ -563,7 +569,7 @@ export class SectionDerives {
     let g = typeof groupOrId === 'number' ? this.group(groupOrId) : groupOrId;
     const own = parts & ALL_DERIVED_PARTS;
     const geometry = geometryParts(own);
-    for (const d of dependentChunks(this.sections, box, geometry ? this.host.radius : SHADER_BORDER_CELLS)) {
+    for (const d of dependentChunks(this.sections, box, geometry ? this.host.radius : partsApronRadius(own))) {
       const s = this.bySection.get(chunkKey(this.sections, d.cx, d.cy, d.cz));
       if (s !== undefined) g = this.stale(s, why, geometry ? ALL_DERIVED_PARTS : own, g);
     }
@@ -759,18 +765,32 @@ export class SectionDerives {
     const reliefOnly = s.reliefOnly;
     s.reliefOnly = false;
     const counters = this.host.counters;
-    if (out.shader !== null && s.derived?.assembly != null) {
-      // Only the shader data was rebuilt: it replaces that part of the full result (its relief mesh stays: heights are shader data).
-      const assembly = { ...s.derived.assembly, shader: out.shader };
-      s.derived = { ...s.derived, assembly, hash: crc32(encodeDerived(assembly)) };
-      counters.shaderDerives++;
+    if (out.assembly === null && (out.shader !== null || out.liquid !== undefined) && s.derived?.assembly != null) {
+      // Only the shader data or the liquid part (or both) was rebuilt: each replaces that part of the full result (its
+      // relief mesh stays: heights are shader data; the liquid part lies outside the canonical bytes).
+      let assembly: DerivedData = s.derived.assembly;
+      let hash = s.derived.hash;
+      let parts = 0;
+      if (out.shader !== null) {
+        assembly = { ...assembly, shader: out.shader };
+        hash = crc32(encodeDerived(assembly));
+        counters.shaderDerives++;
+        parts |= DERIVED_PART.shader;
+        this.host.emit({ type: 'shader', cx: s.sx, cy: s.sy, cz: s.sz });
+      }
+      if (out.liquid !== undefined) {
+        assembly = { ...assembly, liquid: out.liquid };
+        counters.liquidDerives++;
+        parts |= DERIVED_PART.liquid;
+        this.host.emit({ type: 'liquid', cx: s.sx, cy: s.sy, cz: s.sz });
+      }
+      s.derived = { ...s.derived, assembly, hash };
       this.setParts(s, assembly);
-      this.host.emit({ type: 'shader', cx: s.sx, cy: s.sy, cz: s.sz });
-      this.touch(s, true, false);
+      this.touch(s, parts, false);
       return;
     }
     // A ring change gives the same canonical bytes (the relief part lies outside them): bodies and the rest stand.
-    this.touch(s, false, reliefOnly && s.derived?.assembly != null && out.assembly !== null && s.derived.hash === out.hash);
+    this.touch(s, ALL_DERIVED_PARTS, reliefOnly && s.derived?.assembly != null && out.assembly !== null && s.derived.hash === out.hash);
     s.derived = out;
     counters.derives++;
     if (out.assembly !== null) this.setParts(s, out.assembly);
@@ -788,12 +808,15 @@ export class SectionDerives {
     this.host.setPart(s.cx, s.cy, s.cz, `${RELIEF_PART}#${s.id}`, relief);
   }
 
-  private touch(s: Section, shaderOnly: boolean, reliefOnly: boolean): void {
+  /** A section of a chunk took a new result changing `parts` (every part for a whole derive). */
+  private touch(s: Section, parts: number, reliefOnly: boolean): void {
+    const shaderOnly = !geometryParts(parts);
     const t = this.touched.get(s.chunk);
-    if (t === undefined) this.touched.set(s.chunk, { cx: s.cx, cy: s.cy, cz: s.cz, shaderOnly, reliefOnly });
+    if (t === undefined) this.touched.set(s.chunk, { cx: s.cx, cy: s.cy, cz: s.cz, shaderOnly, reliefOnly, parts });
     else {
       t.shaderOnly &&= shaderOnly;
       t.reliefOnly &&= reliefOnly;
+      t.parts |= parts;
     }
   }
 
@@ -802,7 +825,7 @@ export class SectionDerives {
     if (this.touched.size === 0) return;
     const list = [...this.touched.entries()].sort((a, b) => a[0] - b[0]);
     this.touched.clear();
-    for (const [, t] of list) this.host.emit({ type: 'chunk', cx: t.cx, cy: t.cy, cz: t.cz, shaderOnly: t.shaderOnly, reliefOnly: t.reliefOnly });
+    for (const [, t] of list) this.host.emit({ type: 'chunk', cx: t.cx, cy: t.cy, cz: t.cz, shaderOnly: t.shaderOnly, reliefOnly: t.reliefOnly, parts: t.parts });
   }
 
   /**
@@ -837,9 +860,9 @@ export class SectionDerives {
     return true;
   }
 
-  /** Whether a section's pending derive rebuilds only its shader data (it has a full result to keep). */
-  private shaderOnly(s: Section): boolean {
-    return s.parts === DERIVED_PART.shader && s.derived?.assembly != null;
+  /** Whether a section's pending derive rebuilds only its shader data or its liquid part (it has a full result to keep). */
+  private keepsSurfaces(s: Section): boolean {
+    return s.parts !== 0 && !geometryParts(s.parts) && s.derived?.assembly != null;
   }
 
   /** Whether anything wanted can be sent now (for the streamer's idle check). */
@@ -847,7 +870,7 @@ export class SectionDerives {
   pending(out = true): boolean {
     if (out && this.jobs.size > 0) return true;
     const now = this.host.deriveNow;
-    for (const s of this.wanted) if ((s.derive === 'edit' || now === undefined || now(s.cx, s.cy, s.cz)) && (this.shaderOnly(s) || this.canDerive(s))) return true;
+    for (const s of this.wanted) if ((s.derive === 'edit' || now === undefined || now(s.cx, s.cy, s.cz)) && (this.keepsSurfaces(s) || this.canDerive(s))) return true;
     return false;
   }
 
@@ -903,12 +926,12 @@ export class SectionDerives {
         const list = byChunk.get(ck)!;
         for (const s of list) this.wanted.delete(s);
         this.host.counters.deriveChecks++;
-        const shader = list.filter((s) => this.shaderOnly(s));
-        const full = list.filter((s) => !this.shaderOnly(s));
+        const partial = list.filter((s) => this.keepsSurfaces(s));
+        const full = list.filter((s) => !this.keepsSurfaces(s));
         // An edit's work spreads over the pool: a chunk's sections are split only while there are fewer chunks than
         // workers (each job fills its chunk's neighbourhood once, so more jobs than workers only repeat that).
         const split = order === edits ? Math.max(1, Math.ceil(this.host.pool.size / edits.length)) : 1;
-        if (shader.length > 0) room -= this.send(shader, true, split);
+        if (partial.length > 0) room -= this.send(partial, true, split);
         if (full.length > 0) room -= this.send(full, false, split);
       }
     }
@@ -955,12 +978,14 @@ export class SectionDerives {
     return true;
   }
 
-  /** Sends one chunk's sections (all shader-only, or all full) in up to `split` jobs; returns the jobs sent. */
-  private send(list: Section[], shaderOnly: boolean, split: number): number {
+  /** Sends one chunk's sections (all keeping their surfaces: only their shader data or liquid part; or all full) in up to `split` jobs; returns the jobs sent. */
+  private send(list: Section[], keeping: boolean, split: number): number {
+    // A job of the parts its sections want: what one wants and another not is built again equal.
+    const partial = keeping ? list.reduce((m, s) => m | s.parts, 0) & SURFACE_KEEPING_PARTS : 0;
     const host = this.host;
     const { cx, cy, cz } = list[0]!;
     for (const s of list) this.heldBlocked.delete(s);
-    if (!shaderOnly) {
+    if (!keeping) {
       const blocked = list.filter((s) => !this.canDerive(s));
       if (blocked.length > 0) {
         let waiting = this.blocked.get(list[0]!.chunk);
@@ -987,12 +1012,12 @@ export class SectionDerives {
       this.flushChunks();
       return 0;
     }
-    const radius = shaderOnly ? SHADER_BORDER_CELLS : host.radius;
+    const radius = keeping ? partsApronRadius(partial) : host.radius;
     const t0 = performance.now();
     const apron = buildApron(store, cx, cy, cz, radius);
     const apronMs = performance.now() - t0;
     host.rings.apronMs.add(apronMs);
-    if (!shaderOnly && form === 'absent' && apron.dense.every((d, k) => d === 0 && apron.uniform[k] === 0)) {
+    if (!keeping && form === 'absent' && apron.dense.every((d, k) => d === 0 && apron.uniform[k] === 0)) {
       // Air with air all around: nothing stands, nothing is drawn.
       host.counters.airDerives += list.length;
       for (const s of list) this.deliver(s, EMPTY_OUTPUT, null);
@@ -1006,7 +1031,7 @@ export class SectionDerives {
     const k = Math.min(list.length, split);
     const ref = { grid: host.gridId, key: list[0]!.chunk };
     const pieces = host.pieceTable();
-    const relief = shaderOnly || rules === undefined || host.relief === undefined ? null : reliefWire(list, (s) => host.relief!(s.sx, s.sy, s.sz));
+    const relief = keeping || rules === undefined || host.relief === undefined ? null : reliefWire(list, (s) => host.relief!(s.sx, s.sy, s.sz));
     for (let j = 0; j < k; j++) {
       const part = list.filter((_, i) => i % k === j);
       const t1 = performance.now();
@@ -1025,15 +1050,15 @@ export class SectionDerives {
         g.jobs++;
         g.mainMs += buildMs;
       }
-      const sections = shaderOnly || rules !== undefined ? { edge: this.sections.edge as SectionEdge, ids: part.map((s) => s.id) } : undefined;
+      const sections = keeping || rules !== undefined ? { edge: this.sections.edge as SectionEdge, ids: part.map((s) => s.id) } : undefined;
       const input: DeriveInput = {
         edge: host.grid.edge,
         chunk: { grid: host.gridId, cx, cy, cz },
         payload,
         radius,
         apron: a,
-        ...(shaderOnly ? { parts: DERIVED_PART.shader } : rules === undefined ? {} : { rules: rulesRef(rules) }),
-        ...(shaderOnly || rules === undefined || pieces === null ? {} : { pieces: pieces.bytes }),
+        ...(keeping ? { parts: partial } : rules === undefined ? {} : { rules: rulesRef(rules) }),
+        ...(keeping || rules === undefined || pieces === null ? {} : { pieces: pieces.bytes }),
         ...(relief == null ? {} : { relief }),
         ...(sections === undefined ? {} : { sections }),
       };
@@ -1087,7 +1112,7 @@ export class SectionDerives {
           this.regionsUs.derive.add(t.evaluateUs + t.meshUs + t.consumersUs + t.regionsUs!);
         }
       }
-      this.deliver(s, { solid: 0, exposed: 0, mask: null, hash: r.hash, assembly: r.assembly, shader: r.shader }, r.times);
+      this.deliver(s, { solid: 0, exposed: 0, mask: null, hash: r.hash, assembly: r.assembly, shader: r.shader, ...(r.liquid === undefined ? {} : { liquid: r.liquid }) }, r.times);
     });
     this.flushChunks();
   }

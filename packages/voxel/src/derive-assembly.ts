@@ -14,7 +14,8 @@ import { deriveChunk, deriveCollision, encodeDerived, type CollisionPart, type D
 import type { PieceTable } from './piece-table';
 import type { ReliefOptions } from './relief-mesh';
 import { encodeShader, SHADER_BORDER_CELLS, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
-import { valueDensity, valueOf, type VoxelRecord } from './record';
+import { LIQUID_REACH_CELLS, liquidOfNeighbourhood, type LiquidPart } from './derived-liquid';
+import { DERIVED_PART, valueDensity, valueOf, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
 
 interface Scratch {
@@ -68,19 +69,6 @@ export function deriveWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: 
   return deriveChunk(s.n, rules, s.classes, times, level, unitPieces(grid.edge, pieces), relief);
 }
 
-/**
- * The shader data alone of a chunk of `store`, from its apron
- * {@link SHADER_BORDER_CELLS} deep (what a material or wetness change
- * re-derives); the same bytes a full derive gives for it.
- */
-export function deriveShaderWithApron(grid: ChunkGrid, apron: Apron, exportChunk: (out: DenseChunk) => boolean): ShaderOut {
-  if (apron.radius !== SHADER_BORDER_CELLS) throw new RangeError(`shader derive: apron ${apron.radius} deep, the shader border is ${SHADER_BORDER_CELLS}`);
-  const s = scratchFor(grid, SHADER_BORDER_CELLS);
-  const has = exportChunk(s.dense);
-  fillNeighbourhood(s.n, grid, has ? s.dense : null, apron);
-  return shaderOfNeighbourhood(s.n);
-}
-
 /** Derives chunk (cx, cy, cz) of a store in this thread (its neighbours read from the same store). */
 export function deriveFromStore(store: VoxelStoreCandidate, cx: number, cy: number, cz: number, rules: AssemblyRuleSet | { id: string; version: number }, times?: DeriveTimes, table: PieceTable | null = null): DerivedData {
   const r = 'resolve' in rules ? rules : assemblyRules(rules);
@@ -124,8 +112,10 @@ export interface SectionResult {
   /** CRC-32 of the canonical bytes (encodeDerived, or encodeShader for the shader data alone). */
   readonly hash: number;
   readonly assembly: DerivedData | null;
-  /** The shader data alone (a shader-only job), else null. */
+  /** The shader data alone (a job of only the shader data and the liquid part), else null. */
   readonly shader: ShaderOut | null;
+  /** The liquid part alone (a job of only the shader data and the liquid part, asked for it; null: no liquid), else absent. */
+  readonly liquid?: LiquidPart | null;
   /** The collision alone (a collision-only job: the full derive's `collision` and `ground`), else absent. */
   readonly collision?: CollisionPart;
   readonly times: DeriveTimes;
@@ -202,17 +192,34 @@ export function deriveSectionCollisionsWithApron(grid: ChunkGrid, rules: Assembl
   });
 }
 
-/** The shader data alone of sections of one chunk, from its apron {@link SHADER_BORDER_CELLS} deep. */
-export function deriveSectionShadersWithApron(grid: ChunkGrid, apron: Apron, exportChunk: (out: DenseChunk) => boolean, sectionEdge: number, ids: readonly number[]): SectionResult[] {
+/**
+ * The apron a derive of only `parts` (shader data and the liquid part, DERIVED_PART bits) reads: the deepest of
+ * theirs, {@link SHADER_BORDER_CELLS} and {@link LIQUID_REACH_CELLS}.
+ */
+export function partsApronRadius(parts: number): number {
+  return Math.max(parts & DERIVED_PART.shader ? SHADER_BORDER_CELLS : 0, parts & DERIVED_PART.liquid ? LIQUID_REACH_CELLS : 0);
+}
+
+/**
+ * Only the shader data and the liquid part (`parts`, DERIVED_PART bits, of those two) of sections of one chunk,
+ * from its apron {@link partsApronRadius} deep: no assembly evaluation. Each is the full derive's, byte for byte
+ * (`hash` the shader data's, 0 without it).
+ */
+export function deriveSectionPartsWithApron(grid: ChunkGrid, apron: Apron, exportChunk: (out: DenseChunk) => boolean, sectionEdge: number, ids: readonly number[], parts: number): SectionResult[] {
   checkSections(grid.edge, sectionEdge, ids);
-  if (apron.radius !== SHADER_BORDER_CELLS) throw new RangeError(`shader derive: apron ${apron.radius} deep, the shader border is ${SHADER_BORDER_CELLS}`);
-  const s = scratchFor(grid, SHADER_BORDER_CELLS);
+  if ((parts & ~(DERIVED_PART.shader | DERIVED_PART.liquid)) !== 0 || parts === 0) throw new RangeError(`parts derive: parts ${parts} are not the shader data or the liquid part`);
+  const pad = partsApronRadius(parts);
+  if (apron.radius !== pad) throw new RangeError(`parts derive: apron ${apron.radius} deep, parts ${parts} read ${pad}`);
+  const s = scratchFor(grid, pad);
   fillNeighbourhood(s.n, grid, exportChunk(s.dense) ? s.dense : null, apron);
-  const sub = sectionEdge === grid.edge ? s : sectionScratch(grid, sectionEdge, SHADER_BORDER_CELLS);
+  const sub = sectionEdge === grid.edge ? s : sectionScratch(grid, sectionEdge, pad);
   return ids.map((id) => {
     if (sub !== s) cropNeighbourhood(s.n, ...sectionLocalOrigin(grid.edge, sectionEdge, id), sub.n);
-    const shader = shaderOfNeighbourhood(sub.n);
-    return { id, hash: crc32(encodeShader(shader)), assembly: null, shader, times: { evaluateUs: 0, consumersUs: 0, meshUs: 0 } };
+    const shader = parts & DERIVED_PART.shader ? shaderOfNeighbourhood(sub.n) : null;
+    const t0 = performance.now();
+    const liquid = parts & DERIVED_PART.liquid ? liquidOfNeighbourhood(sub.n) : undefined;
+    const times: DeriveTimes = { evaluateUs: 0, consumersUs: 0, meshUs: 0, ...(liquid === undefined ? {} : { liquidUs: (performance.now() - t0) * 1000 }) };
+    return { id, hash: shader === null ? 0 : crc32(encodeShader(shader)), assembly: null, shader, ...(liquid === undefined ? {} : { liquid }), times };
   });
 }
 

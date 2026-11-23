@@ -49,7 +49,6 @@ import {
   CHUNK_EDGES,
   editBounds,
   editChunks,
-  fieldsFeed,
   materialSwap,
   swapFrom,
   swapTo,
@@ -1337,7 +1336,7 @@ export class VoxelWorlds {
         record = out.chunks;
         cells = out.cells;
         box = cmd.grid === WORLD_GRID_ID ? editBounds(w.world.opts.grid, cmd) : NO_CELLS;
-        parts = fieldsFeed(out.fields);
+        parts = out.parts;
         materialSwaps = out.materialSwaps;
         // A hand edit on a structure's grid is kept as overrides over what its generator makes there.
         const def = cmd.grid === WORLD_GRID_ID ? null : this.structureDefinition(w, cmd.grid);
@@ -1372,7 +1371,7 @@ export class VoxelWorlds {
       record = made.record;
       cells = made.cells;
       box = NO_CELLS;
-      parts = fieldsFeed(made.fields);
+      parts = made.parts;
       materialSwaps = made.materialSwaps;
       for (const [grid, o] of made.overrides) flips.set(grid, { before: host.overrides(grid).bytes, after: o.bytes, value: o.value });
       structures = made.reports;
@@ -1502,7 +1501,7 @@ export class VoxelWorlds {
       for (const cmd of made.commands) {
         const out = w.world.edit(canonicalEditCommand(cmd));
         record.unshift(...out.chunks);
-        parts |= fieldsFeed(out.fields);
+        parts |= out.parts;
         for (const sw of out.materialSwaps) swaps.add(sw);
       }
     } catch (e) {

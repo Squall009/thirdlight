@@ -60,8 +60,10 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 ## Format proposals waiting for the owner's note
 
 Each is a hard stop when its phase arrives: a `gas` role (value 10) with shape as density and a mip rule like
-liquid's (47b); a fill stroke kind in the edit command (47b); narrowed feeds for liquid edits (47a); a liquid
-derived part per chunk (49); a medium channel (liquid and fog) on far-cache nodes (49).
+liquid's (47b); a fill stroke kind in the edit command (47b); narrowed feeds for liquid edits (47a: approved as F7
+2026-11-20, **built 47a.9**: `changeFeeds`, derived data 33); a liquid derived part per chunk (49: its plain first
+form built with F7 in 47a.9, a part per derive section; 49 extends it); a medium channel (liquid and fog) on
+far-cache nodes (49).
 
 **47a's entries, proposed and approved 2026-11-20** (`briefs/proposal-47a-formats.md`; no longer waiting): F1 the
 structure record; F2 a structure's grid (the manifest's grid list, the transform on the object, the anchor); F3
