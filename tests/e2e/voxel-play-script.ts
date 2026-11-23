@@ -124,21 +124,27 @@ export function playScriptSource(at: readonly number[], gridRoom?: readonly numb
     `    for (const _ of ctx.debug.command('hutshut')) ctx.game.add(v.set(box(-0.5, 0.5, 2, 0.5, 2.5, 2.2), { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }).ok ? 'hutShut' : 'hutRefused', 1);`,
     // A path from the structure grid's porch into its room (`gridpath`), packed in one counter put from its first answer
     // on (an observation carries the first 32 counters by name only; the grid's checks are the Play's last):
-    // answers × 10¹² + status (1 found … 4 unknown) × 10¹¹ + its last waypoint in the room × 10¹⁰ + waypoints in a
-    // wall's cell (the grid's own frame; the door's cells are none) × 10⁸ + waypoints in the room × 10⁵ + its length (cm).
+    // answers × 10¹² + status (1 found … 4 unknown) × 10¹¹ + its last waypoint in the room × 10¹⁰ + segments through a
+    // wall's cell (the grid's own frame, as built; the door's cells are none) × 10⁸ + waypoints in the room × 10⁵ + its
+    // length (cm).
     ...(gridPath === undefined ? [] : [
       `    for (const _ of ctx.debug.command('gridpath')) state.gpath = v.findPath([${gridPath.from.join(', ')}], [${gridPath.to.join(', ')}]);`,
       '    for (const a of v.paths) if (a.path === state.gpath) {',
       `      const c = Math.cos(${gridPath.yawRad}), s = Math.sin(${gridPath.yawRad}), P = [${gridPath.position.join(', ')}], H = ${JSON.stringify(gridPath.cells)};`,
       '      const g = (p: number[]) => { const dx = p[0] - P[0], dz = p[2] - P[2]; return [(c * dx - s * dz) / 0.5, (p[1] - P[1]) / 0.5, (s * dx + c * dz) / 0.5]; };',
       '      const room = (q: number[]) => q[0] > 1 && q[0] < H.w - 1 && q[2] > H.porch + 1 && q[2] < H.porch + H.d - 1;',
+      // A wall cell (not the door's) under a point of the way: its waypoints, and every 5 cm along each segment between
+      // them (a straight run through a wall has no waypoint in it); counted a segment.
+      "      const wallAt = (q: number[]) => { const x = Math.floor(q[0]), y = Math.floor(q[1] + 0.25), z = Math.floor(q[2]); const edge = x >= 0 && x < H.w && z >= H.porch && z < H.porch + H.d && (x === 0 || x === H.w - 1 || z === H.porch || z === H.porch + H.d - 1); const door = z === H.porch && x >= H.doorX[0] && x <= H.doorX[1] && y <= H.doorH; return edge && y >= 1 && y <= H.h && !door; };",
       '      let inRoom = 0, inWall = 0;',
-      '      for (const p of a.points) {',
-      '        const q = g(p); const x = Math.floor(q[0]), y = Math.floor(q[1] + 0.25), z = Math.floor(q[2]);',
+      '      for (let i = 0; i < a.points.length; i++) {',
+      '        const q = g(a.points[i]);',
       '        if (room(q)) inRoom++;',
-      '        const edge = x >= 0 && x < H.w && z >= H.porch && z < H.porch + H.d && (x === 0 || x === H.w - 1 || z === H.porch || z === H.porch + H.d - 1);',
-      '        const door = z === H.porch && x >= H.doorX[0] && x <= H.doorX[1] && y <= H.doorH;',
-      '        if (edge && y >= 1 && y <= H.h && !door) inWall++;',
+      '        const r = i + 1 < a.points.length ? g(a.points[i + 1]) : q;',
+      '        const n = Math.max(1, Math.ceil(Math.hypot(r[0] - q[0], r[2] - q[2]) / 0.1));',
+      '        let hit = false;',
+      '        for (let k = 0; k <= n && !hit; k++) hit = wallAt([q[0] + ((r[0] - q[0]) * k) / n, q[1] + ((r[1] - q[1]) * k) / n, q[2] + ((r[2] - q[2]) * k) / n]);',
+      '        if (hit) inWall++;',
       '      }',
       "      const last = a.points.length > 0 && room(g(a.points[a.points.length - 1])) ? 1 : 0;",
       "      state.gp = (Math.floor((state.gp ?? 0) / 1e12) + 1) * 1e12 + (['found', 'partial', 'unreachable', 'unknown'].indexOf(a.status) + 1) * 1e11 + last * 1e10 + Math.min(inWall, 99) * 1e8 + Math.min(inRoom, 999) * 1e5 + Math.min(Math.round(a.length * 100), 99999);",

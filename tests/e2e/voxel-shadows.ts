@@ -1351,7 +1351,8 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   await hook('setStore', 'off');
   await counted('uncam', 'camOff', { id: o.camera });
   await expect.poll(() => counter('changes'), { timeout: 10_000, message: 'the dig swapped in' }).toBeGreaterThan(changes);
-  // The path asked in the dig's step: found, ending in the room, through the hole (its cells were the wall's).
+  // The path asked in the dig's step: found, ending in the room, through the hole (a segment through cells that were
+  // the wall's as built).
   await expect.poll(async () => Math.floor((packed = await counter('gpath')) / 1e12), { timeout: 20_000, message: 'the path asked with the dig answered' }).toBeGreaterThan(askedN);
   const dug = packed % 1e12;
   expect({ status: Math.floor(dug / 1e11), last: Math.floor(dug / 1e10) % 10, throughHole: Math.floor(dug / 1e8) % 100 > 0 }, 'a path asked in the step of the dig goes in through the hole').toEqual({ status: 1, last: 1, throughHole: true });
