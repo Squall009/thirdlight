@@ -242,15 +242,44 @@ interface Chunk {
   hash: Uint8Array | null;
   /** The live refresh of a resident chunk (0: none): only the newest refresh swaps its content in. */
   refresh: number;
-  /** The changed-cell box the live refresh named (null: the chunk's whole extent), which bounds what its swap rebuilds. */
-  refreshBox: CellBox | null;
-  /** The derived parts the live refresh's change makes stale (DERIVED_PART bits). */
-  refreshParts: number;
+  /**
+   * What the live refresh's changes make stale: each a changed-cell box (null: the chunk's whole extent), which
+   * bounds what its swap rebuilds, and the derived parts (DERIVED_PART bits) it feeds there. An edit and the water
+   * that followed it are two: the water's cells rebuild the liquid part alone.
+   */
+  refreshEdits: RefreshEdit[];
+}
+
+/** A change a refresh's swap rebuilds round: its cells' box (null: the whole chunk) and the parts it feeds. */
+interface RefreshEdit {
+  box: CellBox | null;
+  parts: number;
+}
+
+/** A refresh's edits for a chunk joined with what is already in flight: the same parts' boxes grow into one, a whole chunk swallows a box. */
+function joinEdits(into: RefreshEdit[], add: RefreshEdit): void {
+  const same = into.find((e) => e.parts === add.parts);
+  if (same === undefined) into.push({ box: add.box === null ? null : { ...add.box }, parts: add.parts });
+  else same.box = same.box === null || add.box === null ? null : unionBox(same.box, add.box);
+}
+
+/** The part of a cell box inside chunk (cx, cy, cz) (null: none). */
+function boxInChunk(grid: ChunkGrid, b: CellBox, cx: number, cy: number, cz: number): CellBox | null {
+  const s = grid.shift;
+  const out = { minX: Math.max(b.minX, cx << s), minY: Math.max(b.minY, cy << s), minZ: Math.max(b.minZ, cz << s), maxX: Math.min(b.maxX, ((cx + 1) << s) - 1), maxY: Math.min(b.maxY, ((cy + 1) << s) - 1), maxZ: Math.min(b.maxZ, ((cz + 1) << s) - 1) };
+  return out.minX > out.maxX || out.minY > out.maxY || out.minZ > out.maxZ ? null : out;
+}
+
+/** A change that followed a refresh's own in the same answer (the water a stroke wrote): its chunks, its cells' box, the parts it feeds. */
+export interface RefreshFollow {
+  readonly chunks: readonly ChunkCoord[];
+  readonly box: CellBox;
+  readonly parts: number;
 }
 
 /** A chunk about to be read. */
 function newChunk(cx: number, cy: number, cz: number, key: number, d2: number, tick: number): Chunk {
-  return { cx, cy, cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2, wantedTick: tick, hash: null, refresh: 0, refreshBox: null, refreshParts: 0 };
+  return { cx, cy, cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2, wantedTick: tick, hash: null, refresh: 0, refreshEdits: [] };
 }
 
 /** Window in which a chunk loaded again after being unloaded counts as churn. */
@@ -1314,25 +1343,35 @@ export class VoxelStreamer {
    * without them, while a kit binds a material, a shader-only change counts
    * as the latter.
    *
+   * `follow` is a second change of the same answer (the water a stroke
+   * wrote after its edit): its chunks are read again too, and each rebuilds
+   * `follow.parts` round the follow's cells inside it, apart from the
+   * edit's own box and parts, so water that followed a dig across a lake
+   * rebuilds the liquid part alone there.
+   *
    * Returns the refresh's edit group: what it rebuilds swaps in together,
    * once every resident chunk named has landed again (the `swap` event
    * naming it; 0 when the streamer derives nothing).
    */
-  refresh(chunks: readonly ChunkCoord[], box?: CellBox, parts: number = ALL_DERIVED_PARTS, materialSwaps?: readonly number[]): number {
+  refresh(chunks: readonly ChunkCoord[], box?: CellBox, parts: number = ALL_DERIVED_PARTS, materialSwaps?: readonly number[], follow?: RefreshFollow): number {
     parts = this.pieces.feeds(parts, materialSwaps);
-    this.opts.source.invalidate?.(chunks);
-    this.far?.refresh(chunks);
+    const followed = new Set((follow?.chunks ?? []).map((c) => `${c.cx},${c.cy},${c.cz}`));
+    const all = follow === undefined ? chunks : [...chunks, ...follow.chunks.filter((c) => !chunks.some((d) => d.cx === c.cx && d.cy === c.cy && d.cz === c.cz))];
+    this.opts.source.invalidate?.(all);
+    this.far?.refresh(all);
     const list: Chunk[] = [];
     const token = ++this.refreshes.seq;
     const group = this.derives?.newGroup() ?? 0;
-    for (const ch of chunks) {
+    for (const ch of all) {
       if (!chunkInWorld(this.grid, ch.cx, ch.cy, ch.cz)) continue;
       const c = this.chunks.get(chunkKey(this.grid, ch.cx, ch.cy, ch.cz));
       if (c === undefined) continue;
       if (c.phase === 'resident') {
         // A refresh still in flight was superseded: its new content lands with this one, so its cells count too.
-        c.refreshBox = box === undefined || (c.refresh !== 0 && c.refreshBox === null) ? null : c.refresh !== 0 ? unionBox(c.refreshBox!, box) : { ...box };
-        c.refreshParts = (c.refresh !== 0 ? c.refreshParts : 0) | parts;
+        if (c.refresh === 0) c.refreshEdits = [];
+        if (chunks.includes(ch)) joinEdits(c.refreshEdits, { box: box ?? null, parts });
+        const own = follow !== undefined && followed.has(`${ch.cx},${ch.cy},${ch.cz}`) ? boxInChunk(this.grid, follow.box, ch.cx, ch.cy, ch.cz) : null;
+        if (own !== null) joinEdits(c.refreshEdits, { box: own, parts: this.pieces.feeds(follow!.parts, materialSwaps) });
         c.refresh = token;
         list.push(c);
         this.derives?.awaitChunk(group, c.cx, c.cy, c.cz);
@@ -1409,17 +1448,16 @@ export class VoxelStreamer {
     this.tracker.loaded(ref);
     this.counters.refreshed++;
     const s = this.grid.shift;
-    const parts = c.refreshParts;
-    c.refreshParts = 0;
-    const given = c.refreshBox;
-    c.refreshBox = null;
-    const box = given ?? { minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 };
+    const whole = { minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 };
+    const edits = c.refreshEdits.length === 0 ? [{ box: whole, parts: ALL_DERIVED_PARTS }] : c.refreshEdits.map((e) => ({ box: e.box ?? whole, parts: e.parts }));
+    c.refreshEdits = [];
     // The nodes join the refresh's group before its sections can swap.
-    if (feedsLevels(parts)) {
-      this.mips?.changed([c], box, this.derives?.refreshGroup(c.cx, c.cy, c.cz) ?? undefined);
+    for (const e of edits) {
+      if (!feedsLevels(e.parts)) continue;
+      this.mips?.changed([c], e.box, this.derives?.refreshGroup(c.cx, c.cy, c.cz) ?? undefined);
       this.far?.fineNodes.changed([c]);
     }
-    this.derives?.contentLanded(c.cx, c.cy, c.cz, box, parts);
+    this.derives?.contentLanded(c.cx, c.cy, c.cz, edits);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 

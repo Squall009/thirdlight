@@ -56,6 +56,7 @@ import * as THREE from 'three';
 import { textureSlotSetKey, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import type { ProjectedEntity } from '../session/projection';
 import type { ScenePickHit, SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-wire';
+import { WaterLeakMarkers, type WaterLeakMark } from './water-leaks';
 
 /** Where the editor reads a project's voxel worlds: the backend's route of a world and the headers it needs. */
 export interface SceneVoxelsSource {
@@ -73,6 +74,8 @@ export interface SceneVoxelsHost {
   readonly localOf?: (id: string) => { readonly position: readonly number[]; readonly rotation: readonly number[] } | null;
   /** The bytes of the voxel surfaces' texture array of a slot list (the backend assembles it); absent: flat colours. */
   readonly arrayBytes?: (set: TextureSlotSet) => Promise<Uint8Array>;
+  /** The view's overlay group (what is drawn over the scene: where water bodies leak); absent: not drawn. */
+  readonly overlay?: THREE.Object3D;
 }
 
 type WorldState = Extract<SceneVoxelsOut, { t: 'state' }>;
@@ -157,9 +160,18 @@ export class SceneVoxels {
   /** The view's texture streamer: the voxel arrays are its only streamed textures (the view's asset textures load whole). */
   readonly textureStreamer: TextureStreamer;
 
+  /** Where the water bodies leak, marked over the scene (the backend's reports). */
+  private readonly leaks: WaterLeakMarkers | null;
+
   constructor(private readonly host: SceneVoxelsHost) {
     this.textureStreamer = createTextureStreamer({ budgetBytes: textureBudgetBytesOf(undefined), onChange: () => host.requestRender() });
     this.draws = this.makeDraws();
+    this.leaks = host.overlay === undefined ? null : new WaterLeakMarkers(host.overlay);
+  }
+
+  /** The places water bodies leak, marked in the view (an empty list clears them). */
+  waterLeaks(marks: readonly WaterLeakMark[]): void {
+    this.leaks?.set(marks);
   }
 
   /** Reads the project's kits once and gives the draws their pieces; resolves to the kits the worker derives with. */
@@ -537,6 +549,7 @@ export class SceneVoxels {
   }
 
   dispose(): void {
+    this.leaks?.dispose();
     for (const answer of this.picks.values()) answer(null);
     this.picks.clear();
     this.worker?.terminate();

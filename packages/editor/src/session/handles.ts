@@ -38,6 +38,8 @@ export const DIRECTION_LENGTH_M = 2;
 export const CONE_DISPLAY_M = 3;
 /** Where a zero radius's grip sits (m) — off the object's own gizmo. */
 const MIN_GRIP_RADIUS_M = 0.25;
+/** The ring a height in the scene (a water level) draws round the object, metres: wide enough to see on the water and grab. */
+const SCENE_HEIGHT_RING_M = 2;
 
 export type Frame = 'world' | 'position' | 'rotationZ' | 'rotation' | 'transform';
 
@@ -68,8 +70,11 @@ export type HandleModel =
   | { type: 'direction'; dir: P3 }
   | { type: 'points'; pts: P3[]; dims: 2 | 3; closed: boolean; start: boolean; minItems: number; maxItems: number }
   | { type: 'point'; p: P3; dims: 2 | 3 }
-  /** A height `h` above `base` (the capsule's feet, or the origin), along the frame's Y; `r` the drawn ring's radius. */
-  | { type: 'height'; base: P3; h: number; r: number }
+  /**
+   * A height `h` above `base` (the capsule's feet, or the origin), along the frame's Y; `r` the drawn ring's radius;
+   * `stored` what the field holds for `h` = 0 (a height in the scene, a water level: the object's own height).
+   */
+  | { type: 'height'; base: P3; h: number; r: number; stored?: number }
   /** An axis-aligned box between two corners; `dims` 2 draws and drags it in the XY plane (z kept). */
   | { type: 'bounds'; min: P3; max: P3; dims: 2 | 3 }
   /** A spline's points (`spline-handle.ts`). */
@@ -176,7 +181,7 @@ export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | nul
     const root = c.value;
     c.handles.forEach((h, handleIndex) => {
       if (!conditionsHold(root, raw, h.when)) return;
-      const shape = readShape(e.id, c.name, handleIndex, h, root, raw);
+      const shape = readShape(e.id, c.name, handleIndex, h, root, raw, e);
       if (shape === null) return;
       if (h.anchor !== undefined) {
         // On another object (a track camera's target); none named: no handle.
@@ -193,7 +198,7 @@ export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | nul
   return out;
 }
 
-function readShape(entityId: string, component: string, handleIndex: number, h: HandleDescriptor, root: ObjectFieldDescriptor, value: Obj): HandleShape | null {
+function readShape(entityId: string, component: string, handleIndex: number, h: HandleDescriptor, root: ObjectFieldDescriptor, value: Obj, e: ProjectedEntity): HandleShape | null {
   const at = (role: string): { v: unknown; f: FieldDescriptor | null } => effective(root, value, h.bind[role] ?? '');
   const limits: Record<string, Range> = {};
   const lim = (role: string, f: FieldDescriptor | null): void => {
@@ -304,6 +309,11 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
         const off = vec(effective(root, value, `${h.from}/offset`).v, 2) ?? [0, 0];
         feet = p3(off[0]!, off[1]! - height / 2, typeof off[2] === 'number' ? off[2] : 0);
         r = radius;
+      }
+      if (h.scene === true) {
+        // A height in the scene (a water level), drawn over the object: measured from the object's own height.
+        const y = N(((e.components['transform'] as { position?: unknown[] } | undefined)?.position ?? [])[1]);
+        return { ...base, model: { type: 'height', base: feet, h: N(hv.v) - y, r: SCENE_HEIGHT_RING_M, stored: y } };
       }
       return { ...base, model: { type: 'height', base: feet, h: N(hv.v), r } };
     }
@@ -522,6 +532,11 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
       return { ...s, model: { ...m, p: p3(round3(clamp(snapTo(p.x, getSnapSettings().translateM, snap), r)), round3(clamp(snapTo(p.y, getSnapSettings().translateM, snap), r)), m.p.z) } };
     }
     case 'height':
+      if (m.stored !== undefined) {
+        // A height in the scene: the field's range holds for the stored value, which may lie below the object.
+        const lim = L['height'] ?? { min: -Infinity, max: Infinity };
+        return { ...s, model: { ...m, h: round3(clamp(snapTo(p.y - m.base.y + m.stored, getSnapSettings().translateM, snap), lim) - m.stored) } };
+      }
       return { ...s, model: { ...m, h: round3(clamp(size(p.y - m.base.y), L['height'])) } };
     case 'spline':
       return { ...s, model: dragSplineGrip(m, id, p, snap, getSnapSettings().translateM, L) };
@@ -600,7 +615,7 @@ function fieldWrites(s: HandleShape): [string, DescriptorJson][] {
     case 'point':
       return [[b['point']!, r3(m.p, m.dims)]];
     case 'height':
-      return [[b['height']!, round3(m.h)]];
+      return [[b['height']!, round3(m.h + (m.stored ?? 0))]];
     case 'bounds':
       return [[b['min']!, r3(m.min, 3)], [b['max']!, r3(m.max, 3)]];
     case 'spline':

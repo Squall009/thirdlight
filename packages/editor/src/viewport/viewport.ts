@@ -64,6 +64,7 @@ import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarch
 import type { DescriptorRegistry, PlaneLock } from '@thirdlight/project-model';
 import { gizmoPlaneAxis } from '../session/scene-planes';
 import { HelperOverlay } from './helper-overlay';
+import type { WaterLeakMark } from './water-leaks';
 import { SeeThroughPreview } from './see-through-preview';
 import type { CopyTransform } from '../session/instance-copies';
 import { iconTableOf } from './icons';
@@ -231,7 +232,7 @@ export class Viewport {
       instanceChunkSize: () => this.instanceChunk,
     });
     this.source.setCamera(this.camera);
-    this.voxels = new SceneVoxels({ adapter: () => this.adapter, requestRender: () => this.requestRender(), source: options.voxels ?? null, arrayBytes: (set) => this.assets.loadBytes(slotTextureKey(set)), localOf: (id) => this.source.localOf(id) });
+    this.voxels = new SceneVoxels({ adapter: () => this.adapter, requestRender: () => this.requestRender(), source: options.voxels ?? null, overlay: this.overlay, arrayBytes: (set) => this.assets.loadBytes(slotTextureKey(set)), localOf: (id) => this.source.localOf(id) });
     this.look = new ViewportLook({ adapter: () => this.adapter, source: this.source, projected: () => this.projected, requestRender: () => this.requestRender() });
     this.overlay.name = 'scene-view-overlays';
     // The view's own drawing (grid, gizmo, outlines, handles, brush cursors) is never an occludee.
@@ -1112,7 +1113,8 @@ export class Viewport {
    * - `structureTool`: the structure tool armed (null: off; the gizmo stands aside while a tool of it is in hand), its
    *   edits sent through `cb`;
    * - `info`: a world's route as the backend answers it now (null: not read);
-   * - `listen`: the feed's voxel changes (the structure mode's counts and misfits); returns the unsubscribe.
+   * - `listen`: the feed's voxel changes (the structure mode's counts and misfits); returns the unsubscribe;
+   * - `waterLeaks`: where the water bodies leak (the backend's reports), marked in the view (an empty list: none).
    */
   readonly voxelWorlds = {
     changed: (c: VoxelsChangedPayload | 'kits' | { readonly materials: readonly VoxelLookRecord[] }): void => {
@@ -1123,5 +1125,11 @@ export class Viewport {
     structureTool: (arm: StructureArm | null, cb: StructureToolCallbacks | null): void => this.tools.setStructureTool(arm, cb),
     info: (world: string): Promise<Record<string, unknown> | null> => this.voxels.worldInfo(world),
     listen: (listener: (c: VoxelsChangedPayload) => void): (() => void) => this.voxels.listen(listener),
+    waterLeaks: (marks: readonly WaterLeakMark[]): void => {
+      this.voxels.waterLeaks(marks);
+      // Where the marks stand (tests read them).
+      this.root.setAttribute('data-water-leaks', JSON.stringify(marks.map((m) => m.at)));
+      this.requestRender();
+    },
   };
 }

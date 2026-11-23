@@ -7,6 +7,9 @@
  * back to no house and done again, the last picture equal to the one before the undo. Pixels are read from the Scene
  * view's own pictures (png.ts); the house's place in them is where the bare ground's picture changed.
  *
+ * A water body in a hollow of the same yard: made from "+ Add component", followed when its bank is dug back (one
+ * undo for the dig and the water), raised by its level handle, drained and flagged when a trench passes its reach.
+ *
  * One backend for the file. Pictures go to the test's output folder and, with TL_LOOK_DIR set, the owner's set there.
  */
 import { copyFileSync, mkdirSync } from 'node:fs';
@@ -29,7 +32,7 @@ let be: E2EBackend;
 const WORLD = 'yard';
 /** The yard: flat grass, its top at y = 0, 64 m a side round the origin. */
 const HALF_CELLS = 64;
-const MAT = { grass: 3, stone: 10, roof: 13, brick: 20 } as const;
+const MAT = { grass: 3, stone: 10, roof: 13, brick: 20, water: 30 } as const;
 
 test.beforeAll(async () => {
   be = await startBackend('e2e-structure');
@@ -782,5 +785,178 @@ test('openings: a door and a window placed on a wall by the pointer, a leaf and 
   expect(await snapshot()).toBe(finalState);
   await expect.poll(async () => diff(final, await still(page, 'openings-redone')).n, { timeout: 30_000, message: 'the shop as it was before the undo' }).toBeLessThan(200);
   console.log(`[structure] openings test ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  expect(errors).toEqual([]);
+});
+
+/** Pixels of the plain water's blue (neither the sky's pale blue nor the grass). */
+function waterCount(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, b] = img.pixel(x, y);
+    if (b > r + 45 && b > g + 20 && b < 235) n++;
+  }
+  return n;
+}
+
+/** Pixels of the leak marker's red. */
+function redCount(img: Image): number {
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, b] = img.pixel(x, y);
+    if (r > 170 && r > g + 60 && r > b + 60) n++;
+  }
+  return n;
+}
+
+test('water bodies: a hollow becomes a lake from Add component, a bank dug back takes the water in the same stroke and one undo takes both back, the level handle raises it, a trench past the reach drains it with a warning and a marker, closing the trench fills it again', async ({ page }) => {
+  test.setTimeout(180_000);
+  const t0 = Date.now();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const errors = consoleErrors(page);
+  await cmd('setMaterial', { material: { materialId: 'mat-water', name: 'Water', shader: 'standard', params: { color: '#2a5fc0' }, textures: {}, voxel: { id: MAT.water, use: 'liquid' } } });
+  const all = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { components: Record<string, unknown> }[] }).entities;
+  if (!all.some((e) => (e.components['voxelWorld'] as { world?: string } | undefined)?.world === WORLD)) await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Yard', transform: { position: [0, 0, 0] }, components: { voxelWorld: { world: WORLD } } });
+  // The hollow: 8 × 8 m, 2 m deep, dug in the yard's far corner (cells x −56…−41, z 40…55, rows −4…−1).
+  const voxels = (command: Record<string, unknown>): Promise<Record<string, unknown>> => be.command({ op: 'editVoxels', projectId: be.projectId, args: { world: WORLD, command } }) as Promise<Record<string, unknown>>;
+  const dig = (min: number[], max: number[]): Promise<Record<string, unknown>> => voxels({ v: 2, grid: 0, kind: 'fill', min, max, mode: 'dig' });
+  const fill = (min: number[], max: number[]): Promise<Record<string, unknown>> => voxels({ v: 2, grid: 0, kind: 'fill', min, max, mode: 'add', voxel: { material: MAT.grass, role: 1, wetness: 0 } });
+  expect((await dig([-56, -4, 40], [-41, -1, 55]))['ok']).toBe(true);
+  const lake = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Lake', transform: { position: [-24, -1, 24] } }))['createdId']);
+  const marker = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Marker 3', transform: { position: [400, 0, 0] } }))['createdId']);
+  await page.goto(editorUrlFor(be.editorUrl, 'webgpu'));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const view = page.locator('canvas.tl-viewport');
+  const box = (await view.boundingBox())!;
+  const select = async (id: string): Promise<void> => page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
+  await select(lake);
+  await page.keyboard.press('f');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let k = 0; k < 2; k++) await page.mouse.wheel(0, 300);
+  const settled = async (): Promise<number> => {
+    let rev = -1;
+    await expect.poll(async () => { const v = (await sceneViewVoxels(page))?.states[WORLD]; rev = v?.revision ?? -1; return v?.settled === true; }, { timeout: 60_000, intervals: [16], message: 'the yard drawn as it stands' }).toBe(true);
+    return rev;
+  };
+  await settled();
+  const pictureOf = async (name: string): Promise<Image> => {
+    await select(marker);
+    const img = await still(page, name);
+    await look(page, name);
+    return img;
+  };
+  const hollow = await pictureOf('20-hollow');
+  const inspect = inspector(page);
+  const state = inspect.getByLabel('water state');
+  const cells = async (): Promise<number> => Number((await state.getAttribute('data-cells')) ?? '-1');
+
+  // ---- Made: Add component → Water body fills the hollow to the object's height -------------------------------------
+  await select(lake);
+  await inspect.getByLabel('add component', { exact: true }).selectOption({ label: 'Water body' });
+  await expect.poll(async () => ((await query('queryEntity', { entityId: lake })) as { entity: { components: Record<string, unknown> } }).entity.components['waterBody']).toEqual({ world: WORLD, level: -1, material: MAT.water, reach: 256 });
+  // Rows −4 and −3 under the level at −1 m: 16 × 16 × 2 cells.
+  await select(lake);
+  await expect.poll(cells, { timeout: 20_000, message: 'the Inspector says what the body holds' }).toBe(512);
+  const madeRev = await settled();
+  const filled = await pictureOf('21-lake-made');
+  const blue0 = waterCount(hollow);
+  const blue1 = waterCount(filled);
+  console.log(`[water] blue pixels: hollow ${blue0}, lake ${blue1}`);
+  expect(blue1 - blue0, 'the lake is drawn in the hollow').toBeGreaterThan(5_000);
+
+  // ---- The bank dug back: the shore follows in the same stroke; one undo takes both back -----------------------------
+  // The far field's rebuild after the body was made is built first (asked for, it builds what waits), so the dig's
+  // time below is the dig's and its water's alone.
+  await fetch(`${be.origin}/api/v1/projects/${be.projectId}/voxels/${WORLD}/far`, { headers: { authorization: `Bearer ${be.token}` } });
+  const replacedBefore = (await sceneViewVoxels(page))?.replaced ?? 0;
+  const sent = Date.now();
+  const dug = await dig([-40, -4, 44], [-39, -1, 51]);
+  const answered = Date.now() - sent;
+  await expect.poll(async () => (await sceneViewVoxels(page))?.replaced ?? 0, { timeout: 20_000, intervals: [16], message: 'the dig and its water swapped in' }).toBeGreaterThan(replacedBefore);
+  const swapped = Date.now() - sent;
+  const water = dug['water'] as { bodies: Array<{ via: string; written: number }>; parts: number } | undefined;
+  expect(water?.bodies[0]?.via, JSON.stringify(dug)).toBe('local');
+  expect(water?.bodies[0]?.written).toBe(2 * 8 * 2);
+  expect(water?.parts).toBe(32);
+  await expect.poll(async () => (await sceneViewVoxels(page))?.states[WORLD]?.revision ?? 0, { timeout: 20_000, intervals: [16] }).toBeGreaterThan(madeRev);
+  await settled();
+  console.log(`[water] a bank dug back: answered ${answered} ms (the backend's apply ${(dug['ms'] as { apply: number }).apply.toFixed(1)} ms, save ${(dug['ms'] as { save: number }).save.toFixed(1)} ms, its water ${(water as unknown as { ms: number }).ms.toFixed(1)} ms), the Scene view's swap ${swapped} ms, settled (far field too) ${Date.now() - sent} ms after the send`);
+  await select(lake);
+  await expect.poll(cells, { timeout: 20_000 }).toBe(512 + 32);
+  const shore = await pictureOf('22-bank-dug-shore-followed');
+  expect(waterCount(shore), 'the water follows the dug bank').toBeGreaterThan(blue1);
+  await view.hover();
+  await page.keyboard.press('Control+z');
+  await select(lake);
+  await expect.poll(cells, { timeout: 20_000, message: 'one undo takes the dig and its water back' }).toBe(512);
+  await settled();
+  // The water's pixels as before the dig (the walls' shading follows the light as it settles, so pixels are not compared whole).
+  const undone = waterCount(await pictureOf('23-bank-undone'));
+  expect(Math.abs(undone - blue1) / blue1, 'the lake as it was before the dig').toBeLessThan(0.02);
+  expect(undone).toBeLessThan(waterCount(shore));
+  await view.hover();
+  await page.keyboard.press('Control+Shift+z');
+  await select(lake);
+  await expect.poll(cells, { timeout: 20_000 }).toBe(544);
+  await settled();
+
+  // ---- The level handle over the object raises the water half a metre ------------------------------------------------
+  await select(lake);
+  type Grip = { component: string; kind: string; handle: string; x: number; y: number };
+  const grips = async (): Promise<Grip[]> => JSON.parse((await view.getAttribute('data-size-handles')) ?? '[]') as Grip[];
+  let grip: Grip | undefined;
+  await expect.poll(async () => (grip = (await grips()).find((g) => g.component === 'waterBody' && g.kind === 'height')) !== undefined, { timeout: 10_000, message: 'the level handle' }).toBe(true);
+  await page.mouse.move(grip!.x, grip!.y);
+  await page.mouse.down();
+  // A short drag (the ring is about 2 m across 100 pixels here): half a metre up, the snap's step, stays under the bank's top.
+  for (let i = 1; i <= 4; i++) await page.mouse.move(grip!.x, grip!.y - i * 3);
+  await page.mouse.up();
+  await expect.poll(async () => (((await query('queryEntity', { entityId: lake })) as { entity: { components: { waterBody: { level: number } } } }).entity.components.waterBody.level), { timeout: 20_000, message: 'the level dragged up' }).toBeGreaterThan(-1);
+  const raised = ((await query('queryEntity', { entityId: lake })) as { entity: { components: { waterBody: { level: number } } } }).entity.components.waterBody.level;
+  expect(raised, 'the level stays under the ground round the hollow').toBeLessThan(0);
+  await select(lake);
+  await expect.poll(cells, { timeout: 20_000 }).toBeGreaterThan(544);
+  await settled();
+  await pictureOf('24-level-raised');
+  // Lowered again in the Inspector's field.
+  await select(lake);
+  const level = inspect.getByLabel('water level', { exact: true });
+  await level.fill('-1');
+  await level.press('Enter');
+  await select(lake);
+  await expect.poll(cells, { timeout: 20_000 }).toBe(544);
+  await settled();
+  await pictureOf('25-level-lowered');
+  console.log(`[water] the level dragged to ${raised} m and set back to -1 m`);
+
+  // ---- A trench past an 8 m reach: drained, a warning in the Inspector, a marker where it leaks; closed: filled ------
+  await select(lake);
+  const reach = inspect.getByLabel('water reach', { exact: true });
+  await reach.fill('8');
+  await reach.press('Enter');
+  await expect.poll(async () => (((await query('queryEntity', { entityId: lake })) as { entity: { components: { waterBody: { reach: number } } } }).entity.components.waterBody.reach)).toBe(8);
+  const trench = await dig([-38, -4, 48], [-28, -3, 48]);
+  expect(((trench['water'] as { bodies: Array<{ status: string }> }).bodies[0]!.status)).toBe('breached');
+  await expect(inspect.getByLabel('water breach')).toBeVisible({ timeout: 20_000 });
+  await expect(inspect.getByLabel('water breach')).toContainText('past its reach');
+  const leaks = async (): Promise<number[][]> => JSON.parse((await view.getAttribute('data-water-leaks')) ?? '[]') as number[][];
+  await expect.poll(async () => (await leaks()).length, { timeout: 20_000, message: 'the leak marked in the view' }).toBeGreaterThan(0);
+  const at = (await leaks())[0]!;
+  // 8 m from the seed along the trench (x −24 → −16 m), at the trench's rows.
+  expect(at[0]!).toBeGreaterThan(-17);
+  expect(at[0]!).toBeLessThan(-14);
+  await settled();
+  await look(page, '26-breach-warning-and-marker');
+  const drained = await pictureOf('27-breach-drained');
+  expect(waterCount(drained), 'nothing is held while it leaks').toBeLessThan(blue0 + 2_000);
+  expect(redCount(drained), 'the marker drawn').toBeGreaterThan(20);
+  expect((await fill([-38, -4, 48], [-38, -3, 48]))['ok']).toBe(true);
+  await select(lake);
+  await expect(inspect.getByLabel('water breach')).toHaveCount(0, { timeout: 20_000 });
+  await select(lake);
+  await expect.poll(cells, { timeout: 20_000 }).toBe(544);
+  await expect.poll(async () => (await leaks()).length, { timeout: 20_000 }).toBe(0);
+  await settled();
+  expect(waterCount(await pictureOf('28-breach-closed')), 'the lake back').toBeGreaterThan(blue1 - 2_000);
+  console.log(`[water] water body test ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   expect(errors).toEqual([]);
 });

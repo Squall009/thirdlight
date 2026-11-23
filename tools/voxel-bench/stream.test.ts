@@ -44,6 +44,9 @@ import {
   VOXEL_ROLE,
   VoxelStreamer,
   worldStreamer,
+  liquidValue,
+  writeCells,
+  SHAPE_FULL,
   type FarNodeSource,
   type ChunkSource,
   buildPieceTable,
@@ -973,6 +976,53 @@ describe('streamer (workers, region files on disk)', () => {
     // The neighbour across both faces holds the painted cell in its border (grid cell 32 + 1 on x and z).
     const nb = s.derivedOf(-1, 1, -1)!.assembly!.shader;
     expect(shaderEntryAt(nb, ((33 * nb.side + 33) * nb.side) + (40 - 32 + 1))).toBe(42 | (5 << 12) | SHADER_CONSTRUCTION_BIT);
+
+    // A dig and the water a body wrote after it in the same answer (the backend's stroke, `water`): the dig's chunks
+    // derive whole round the dig; a chunk only the water reached derives its liquid part alone, round the water's own
+    // cells; every result still equals a fresh derive, the liquid's faces too.
+    // Round the hill's top a chunk east (its ground at rows 96…127 there), every chunk round it derived.
+    s.setFocus(32, 100, 12);
+    await s.settle();
+    const r = voxel();
+    let top = 96;
+    while (writer.store.voxelAt(16, top, 8, r).material !== 0) top++;
+    const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [16, top - 2, 8], max: [17, top - 1, 9], mode: 'dig' });
+    const dug = writer.edit(dig);
+    const cells: number[] = [];
+    // Water on the ground of the next chunk along x (the hill's surface there, its faces against the air drawn).
+    for (let x = 40; x < 44; x++) for (let z = 8; z < 16; z++) {
+      let y = 32;
+      while (y < 128 && writer.store.voxelAt(x, y, z, r).material !== 0) y++;
+      cells.push(x, y, z);
+    }
+    const water = writeCells(writer.store, 0, { cells: Int32Array.from(cells), values: new Uint32Array(cells.length / 3).fill(liquidValue(5, SHAPE_FULL)) });
+    expect(water.parts).toBe(DERIVED_PART.liquid);
+    writer.markEdited(water.chunks);
+    writer.save();
+    const digChunks = dug.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz }));
+    const waterChunks = water.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz }));
+    const onlyWater = waterChunks.filter((c) => !digChunks.some((d) => d.cx === c.cx && d.cy === c.cy && d.cz === c.cz)).map((c) => `${c.cx},${c.cy},${c.cz}`);
+    expect(onlyWater.length).toBeGreaterThan(0);
+    rebuilt.clear();
+    const liquidOnly = new Set<string>();
+    s.on((e) => {
+      if (e.type === 'liquid') liquidOnly.add(`${e.cx},${e.cy},${e.cz}`);
+    });
+    const digBox = editBounds(grid, dig);
+    s.refresh([...digChunks, ...waterChunks], digBox, dug.parts, dug.materialSwaps, { chunks: waterChunks, box: water.box!, parts: water.parts });
+    await s.settle();
+    expect([...rebuilt].sort()).toEqual(dependentChunks(grid, digBox, jobRadius(WORLD_RULES)).map((c) => `${c.cx},${c.cy},${c.cz}`).sort());
+    for (const c of onlyWater) {
+      expect(rebuilt.has(c), `${c} took the water alone: no full derive`).toBe(false);
+      expect(liquidOnly.has(c), `${c} derived its liquid part`).toBe(true);
+    }
+    for (const d of s.derivedChunks()) {
+      if (d.result.assembly === null) continue;
+      const fresh = deriveFromStore(writer.store, d.cx, d.cy, d.cz, WORLD_RULES);
+      expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(encodeDerived(fresh)))).toBe(0);
+      expect(Buffer.from(d.result.assembly.liquid?.quads ?? []).equals(Buffer.from(fresh.liquid?.quads ?? [])), `liquid of ${d.cx},${d.cy},${d.cz}`).toBe(true);
+    }
+    expect(onlyWater.some((c) => (s.derivedOf(...(c.split(',').map(Number) as [number, number, number]))?.assembly?.liquid?.quads.length ?? 0) > 0)).toBe(true);
   });
 
   it('cancels loads the focus left before they landed, and adopts nothing from them', async () => {

@@ -527,12 +527,12 @@ export class SectionDerives {
     return g !== undefined && g.open ? g.ids[0]! : null;
   }
 
-  /** A refreshed chunk's new content landed: everything within reach of `box` is derived again in the group waiting on it. */
-  contentLanded(cx: number, cy: number, cz: number, box: CellBox, parts: number): void {
+  /** A refreshed chunk's new content landed: everything within reach of each change's box is derived again (its parts) in the group waiting on it. */
+  contentLanded(cx: number, cy: number, cz: number, edits: ReadonlyArray<{ readonly box: CellBox; readonly parts: number }>): void {
     const ck = chunkKey(this.host.grid, cx, cy, cz);
     const g = this.chunkGroups.get(ck) ?? null;
     this.chunkGroups.delete(ck);
-    this.invalidate(box, 'edit', parts, g);
+    for (const e of edits) this.invalidate(e.box, 'edit', e.parts, g);
     if (g !== null) {
       g.chunks.delete(ck);
       this.maybeSwap(g);

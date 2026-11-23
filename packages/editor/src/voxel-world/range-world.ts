@@ -50,6 +50,8 @@ export interface WorldChange {
   readonly files: ReadonlyArray<{ readonly name: string; readonly etag: string | null }>;
   /** The structure grids' chunks that changed, by grid (absent: none). */
   readonly grids?: ReadonlyArray<{ readonly grid: number; readonly chunks: ReadonlyArray<readonly [number, number, number]> }>;
+  /** The water a stroke wrote after its edit (absent: none): its chunks, its cells' box and the parts it feeds (the liquid part). */
+  readonly water?: { readonly box: CellBox; readonly parts: number; readonly chunks: ReadonlyArray<readonly [number, number, number]> };
 }
 
 /** A structure grid's region file as a change names it (`grid-<id>/<name>`): its grid and name (null: a world grid file). */
@@ -222,7 +224,9 @@ export class RangeWorld {
     if (c.chunks.length === 0) return 0;
     const chunks = c.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz }));
     this.followFar(streamer, chunks);
-    return streamer.refresh(chunks, c.box, c.parts, c.materialSwaps);
+    // The water's chunks are among the change's; each rebuilds the water's parts round its cells, apart from the edit's.
+    const water = c.water === undefined ? undefined : { chunks: c.water.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })), box: c.water.box, parts: c.water.parts };
+    return streamer.refresh(chunks, c.box, c.parts, c.materialSwaps, water);
   }
 
   /**

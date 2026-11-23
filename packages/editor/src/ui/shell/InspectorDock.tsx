@@ -60,6 +60,8 @@ import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
 import { KitInspectorLink } from '../kit/KitPanels';
 import { StructureFields } from '../structure/StructureFields';
+import { WaterBodyFields } from '../water/WaterBodyFields';
+import type { WaterBodyValue } from './useWaterTools';
 import type { StructureTools } from './useStructureTools';
 import type { StructureValue } from '../../session/structure-shape';
 import type { KitEditor } from '../kit/useKitEditor';
@@ -398,8 +400,11 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
       // model's own material names; a surface offers the built-in presets.
       alwaysShow={selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? ['materials'] : []}
       addExtras={(() => {
+        if (selected === null || registry === null) return [];
+        // "Add component → Water body": filled from where the object stands (its world, its height, the first liquid).
+        const water = selected.components['waterBody'] !== undefined ? [] : [{ id: 'water-body', label: 'Water body', category: 'Rendering' as const, enabled: true, reason: null, run: () => void props.structure.water.add(selected).then((why) => why !== null && setNotice(why)) }];
         // "Add collider → box / polygon from model outline" (where a collider may be added).
-        if (selected === null || registry === null || selected.components['collider'] !== undefined) return [];
+        if (selected.components['collider'] !== undefined) return water;
         const entry = addEntries(registry, new Set(Object.keys(selected.components))).find((x) => x.component === 'collider');
         const enabled = entry?.enabled === true;
         const reason = entry?.reason ?? null;
@@ -409,6 +414,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
           { id: 'collider-convex-model', label: 'Collider: Convex hull from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'convex') },
           { id: 'collider-mesh-model', label: 'Collider: Mesh from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'mesh') },
           { id: 'collider-compound-model', label: 'Collider: Compound of the _COL parts', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'compound') },
+          ...water,
         ];
       })()}
       bodies={
@@ -433,6 +439,8 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
               materialParams: <p className="tl-inspector__hint">Edited in the Materials section (per graph material, public parameters only).</p>,
               // A building's settings in metres and named materials; its footprint is the structure editor's handles.
               ...(selected.components['voxelStructure'] !== undefined ? { voxelStructure: <StructureFields entityId={selected.id} value={selected.components['voxelStructure'] as StructureValue} tools={props.structure} /> } : {}),
+              // A lake's level, liquid and reach, and what the backend says of its water (a leak's warning).
+              ...(selected.components['waterBody'] !== undefined ? { waterBody: <WaterBodyFields entityId={selected.id} value={selected.components['waterBody'] as WaterBodyValue} tools={props.structure.water} /> } : {}),
             }
       }
       extensions={

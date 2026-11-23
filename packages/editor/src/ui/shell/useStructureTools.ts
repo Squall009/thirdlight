@@ -26,6 +26,7 @@ import { propPlacement, type PropAsset } from '../../session/structure-openings'
 import { defaultMaterials, definitionOf, newStructure, NO_CONSTRUCTION_MATERIAL, yawRotation, type MisfitLike, type StructureMaterialChoice, type StructureValue } from '../../session/structure-shape';
 import type { StructureArm } from '../../viewport/structure-tool';
 import type { ClientRef, SetNotice, ViewportRef } from './commands';
+import { useWaterTools, type WaterTools } from './useWaterTools';
 
 /** A grid as the world's route answers it (what the mode reads). */
 export interface StructureGridInfo {
@@ -70,6 +71,8 @@ export interface StructureTools {
   setProp(structureId: string, value: StructureValue, opening: StructureOpening, asset: PropAsset | null, glass: boolean): Promise<void>;
   /** A prop's glass flag (its `voxelPortal`'s `stops.light` the other way round). */
   setGlass(propId: string, glass: boolean): Promise<void>;
+  /** The water bodies' section and reports (the same voxel materials and world routes). */
+  readonly water: WaterTools;
 }
 
 interface Deps {
@@ -312,5 +315,7 @@ export function useStructureTools(deps: Deps): StructureTools {
     await run('Glass', 'setComponent', { entityId: propId, component: 'voxelPortal', value: { ...portal, stops: { ...portal.stops, light: !glass } } });
   }, [run]);
 
-  return { startCreate, arm, materials, define, regenerateAll, grids, refresh, readout, refusal, creating, picked, pick, opening, selectOpening, propAssets, setProp, setGlass, entities: deps.entities };
+  const water = useWaterTools({ clientRef, viewportRef, materials, entities: deps.entities });
+
+  return { startCreate, arm, materials, define, regenerateAll, grids, refresh, readout, refusal, creating, picked, pick, opening, selectOpening, propAssets, setProp, setGlass, entities: deps.entities, water };
 }
