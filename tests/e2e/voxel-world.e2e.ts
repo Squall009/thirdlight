@@ -943,18 +943,18 @@ async function projectApi(path: string, body: unknown = {}): Promise<{ status: n
   const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin }, body: JSON.stringify(body) });
   return { status: r.status, json: (await r.json()) as Record<string, unknown> };
 }
-async function publishScript(behaviorId: string, source: string, entityId: string): Promise<void> {
+async function publishScript(behaviorId: string, source: string, entityId: string, again = false): Promise<void> {
   const bytes = Buffer.from(`${JSON.stringify({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: source }] }, null, 2)}\n`);
   const stageId = String((await projectApi('content/stages')).json.stageId);
   const put = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/stages/${stageId}/bytes`, { method: 'PUT', headers: { authorization: `Bearer ${be.token}`, origin: be.origin, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) }, body: bytes });
   expect(put.status).toBe(200);
   const declaration = { properties: [] };
-  await playCmd('publishBehavior', { behaviorId, displayName: behaviorId, mode: 'declaration-create', declaration });
-  await playCmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') });
+  if (!again) await playCmd('publishBehavior', { behaviorId, displayName: behaviorId, mode: 'declaration-create', declaration });
+  await playCmd('acknowledgeBehaviorTrust', { sourceDigest: createHash('sha256').update(bytes).digest('hex') }, again);
   const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
   const published = await projectApi('content/behaviors/source', { stageId, behaviorId, displayName: behaviorId, declaration, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}` });
   expect(published.status, JSON.stringify(published.json)).toBe(200);
-  await playCmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
+  if (!again) await playCmd('setBehaviorProperties', { entityId, behaviorId, values: {} });
 }
 
 /** Where the character stands (metres): the slice's flat pad, beside the wall scene. */
@@ -966,6 +966,14 @@ let pitCamera = '';
 /** The camera on the structure grid's house and the point it looks at. */
 let houseCamera = '';
 let houseTarget = '';
+/**
+ * The house object, its door's props while they stand (the Play test takes them out at its end, as its other objects:
+ * a model in the scene changes where the editor's first view frames, which the Scene view test starts from; the Export
+ * test puts them back) and the script's source for a door.
+ */
+let houseId = '';
+let houseDoor: Awaited<ReturnType<typeof gridHouseDoor>> | null = null;
+let playScript: (door: Awaited<ReturnType<typeof gridHouseDoor>>) => string = () => '';
 
 /** The Play camera (metres, as `playProject` places it): over the pad, 35° down. */
 const playCamera = (at: readonly number[]): { position: number[]; rotation: number[] } => ({ position: [at[0]!, at[1]! + 5, at[2]! + 7], rotation: [-Math.sin(PLAY_PITCH / 2), 0, 0, Math.cos(PLAY_PITCH / 2)] });
@@ -1016,7 +1024,8 @@ async function playProject(): Promise<[number, number, number]> {
   expect((made['voxels'] as Array<{ structures: Array<{ grid: number }> }>)[0]!.structures[0]!.grid).toBe(HOUSE_GRID);
   const porch = await be.command({ op: 'editVoxels', projectId: be.projectId, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-play' }, args: { world: 'far', command: gridHousePorch(HOUSE_GRID, MAT.stone) } });
   expect(porch['ok'], JSON.stringify(porch).slice(0, 400)).toBe(true);
-  const door = await gridHouseDoor(String(made['createdId']), (bytes, id, name) => publishBytes(be, bytes, 'model', id, name), playCmd);
+  houseId = String(made['createdId']);
+  const door = (houseDoor = await gridHouseDoor(houseId, (bytes, id, name) => publishBytes(be, bytes, 'model', id, name), playCmd));
   // A camera on the structure grid's house (off until the test makes it live) and the point it looks at.
   const f = house.frame;
   houseCamera = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'House camera', transform: { position: f.toWorld(GRID_HOUSE_M.doorX, 3.5, GRID_HOUSE_M.doorWallZ - 9) }, components: { virtualCamera: { rig: 'fixed', priority: 40, enabled: false, blend: 'cut', fovY: PLAY_FOV_Y_DEG, near: 0.1, far: 300, occlusion: 'none' } } }))['createdId']);
@@ -1026,7 +1035,8 @@ async function playProject(): Promise<[number, number, number]> {
   await playCmd('setSaveSchema', { schema: { version: 1, slots: 1, legacyWorld: false } });
   // A path from the porch (1.5 m before the door, on its slab) to the room's middle, on its floor.
   const gridPath = { position: house.place.position, yawRad: house.place.yawRad, cells: GRID_HOUSE, from: f.toWorld(GRID_HOUSE_M.doorX, GRID_HOUSE_M.slabTop, GRID_HOUSE_M.doorWallZ - 1.5), to: f.toWorld(GRID_HOUSE_M.room[0], GRID_HOUSE_M.slabTop, GRID_HOUSE_M.room[2]), door };
-  await publishScript('digger', playScriptSource(at, house.frame.toWorld(...GRID_HOUSE_M.room), gridPath), world);
+  playScript = (d) => playScriptSource(at, house.frame.toWorld(...GRID_HOUSE_M.room), { ...gridPath, door: d });
+  await publishScript('digger', playScript(door), world);
   playWorld = world;
   return (standAt = at);
 }
@@ -1625,7 +1635,8 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     // Back to 2 m (the cache keeps the baked levels; a scene asking 2 m neither reads nor ships them).
     await playCmd('setComponent', { entityId: playWorld!, component: 'voxelWorld', value: { bakeLevel: null, quality: { low: FAR_TEST_RINGS } } });
     await groundRelief(false);
-    await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp, shadowObjects.spot, shadowObjects.panel, roofCameras.cut, roofCameras.plain] });
+    await playCmd('deleteEntity', { entityId: shadowObjects.blue, entityIds: [shadowObjects.mover, shadowObjects.lamp, shadowObjects.spot, shadowObjects.panel, roofCameras.cut, roofCameras.plain, houseDoor!.leaf, houseDoor!.pane] });
+    houseDoor = null;
   });
 
   test('Play: the voxel light volume lights the hut, its kit pieces and moving objects, bounces every light type, follows edits and lights, and refines while nothing changes', async ({ page }) => {
@@ -1821,6 +1832,7 @@ test('Export: the Play project exported and served statically with the backend s
   test.setTimeout(180_000);
   const at = await playProject();
   await groundRelief(true);
+  if (houseDoor === null) await publishScript('digger', playScript((houseDoor = await gridHouseDoor(houseId, async () => undefined, playCmd))), playWorld!, true);
   // The debug console takes the dig (the test's way to drive the script, as Play's debug command).
   await playCmd('setSettings', { settings: { debug_console: 1 } });
   const exported = await be.admin(`projects/${be.projectId}/export`);
