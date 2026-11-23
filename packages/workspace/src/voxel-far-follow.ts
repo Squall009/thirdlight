@@ -17,14 +17,7 @@
  * far field until that area is built again (a cache that proves its
  * placements would need a stored field).
  */
-import type { ChunkCoord } from '@thirdlight/voxel';
-
-/**
- * How long a world's gathered far changes wait for more before they are built (ms): a drag in the editor sends a
- * move every frame or few (well under this apart), so its moves land in one rebuild of the final place, while a
- * single command's far field is current this long after its answer plus the rebuild itself.
- */
-export const FAR_FOLLOW_SETTLE_MS = 250;
+import { FAR_FOLLOW_SETTLE_MS, type ChunkCoord } from '@thirdlight/voxel';
 
 /** What a rebuild of gathered chunks answered (the far answer of an applied command, or null: no far cache). */
 export type FarFollowResult<R> = R | null;

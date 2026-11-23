@@ -10,9 +10,15 @@
  * with their new tags and the chunks to read again, and `applyChange`
  * hands those to the streamer. A world changed some other way (a revision
  * missed, files restored) is read again whole (`readAgain`).
+ *
+ * The backend builds the far cache under a change after answering it, once
+ * no more came for FAR_FOLLOW_SETTLE_MS; asked for the far cache, it builds
+ * what waits before answering. So a world whose far field was read asks for
+ * it that long after its last change and then reads the far nodes over the
+ * changed chunks again (and only those: nothing near is derived again).
  */
 import { hexToBytes } from '@thirdlight/shared';
-import { chunkGrid, defaultVoxelWorkers, FAR_BAKED_LEVELS, eventTargetWorker, gridChunkExtent, OPEN_REGION_FILES, regionFarSource, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type FarNodeSource, type GridPlacement, type VoxelStreamer } from '@thirdlight/voxel';
+import { chunkGrid, defaultVoxelWorkers, FAR_BAKED_LEVELS, FAR_FOLLOW_SETTLE_MS, eventTargetWorker, gridChunkExtent, OPEN_REGION_FILES, regionFarSource, RegionChunkSource, STREAM_POOL_SETTINGS, WORLD_GRID_ID, WorkerPool, type CellBox, type ChunkBox, type ChunkCoord, type ChunkEdge, type ChunkGrid, type FarNodeSource, type GridPlacement, type VoxelStreamer } from '@thirdlight/voxel';
 import { rangeByteSource, type RangeReadStats } from './range-reads';
 
 export interface VoxelWorldManifest {
@@ -84,8 +90,10 @@ interface FarInfo {
  * field first reads its index, and again every {@link FAR_CACHE_POLL_MS}
  * while the backend is still building it.
  */
-function rangeFarSource(url: string, grid: ChunkGrid, worldId: Uint8Array, footprint: VoxelWorldManifest['footprint'], headers: Readonly<Record<string, string>>, stats?: RangeReadStats): FarNodeSource {
+function rangeFarSource(url: string, grid: ChunkGrid, worldId: Uint8Array, footprint: VoxelWorldManifest['footprint'], headers: Readonly<Record<string, string>>, stats?: RangeReadStats): FarNodeSource & { readonly opened: () => boolean } {
   let inner: FarNodeSource | null = null;
+  /** The far field asked for the index (a page drawing no far field never does). */
+  let asked = false;
   const ready = (async (): Promise<FarNodeSource> => {
     for (;;) {
       const res = await fetch(`${url}/far`, { headers });
@@ -114,13 +122,17 @@ function rangeFarSource(url: string, grid: ChunkGrid, worldId: Uint8Array, footp
     get maxLevel() {
       return inner?.maxLevel ?? 0;
     },
-    index: async () => (await ready).index(),
+    index: async () => {
+      asked = true;
+      return (await ready).index();
+    },
     read: async (level, nodes) => (await ready).read(level, nodes),
     baked: (level) => inner?.baked?.(level) === true,
     fineBaked: (n) => inner?.fineBaked?.(n) === true,
     fineBakeLevel: () => inner?.fineBakeLevel?.() ?? null,
     invalidate: (level, nodes) => inner?.invalidate(level, nodes),
     memoryBytes: () => inner?.memoryBytes() ?? 0,
+    opened: () => asked && inner !== null,
   };
 }
 
@@ -135,8 +147,8 @@ export class RangeWorld {
   readonly grid: ChunkGrid;
   readonly worldId: Uint8Array;
   readonly source: RegionChunkSource;
-  /** The world's far cache (its index read when the far field first asks). */
-  readonly far: FarNodeSource;
+  /** The world's far cache (its index read when the far field first asks; `opened`: it asked and the manifest came). */
+  readonly far: FarNodeSource & { readonly opened: () => boolean };
   readonly pool: WorkerPool;
   /** The listed region files and their tags (null: listed but unreadable, so its chunks are damaged). */
   readonly files = new Map<string, string | null>();
@@ -145,6 +157,13 @@ export class RangeWorld {
   /** Where the world's structure objects placed its grids when it was opened (what Play streams them at). */
   readonly placements: readonly GridPlacement[];
   revision: number;
+  /** The world chunks changed since the far cache was last asked for, read again in the far field once it is current. */
+  private readonly farChanged = new Map<string, ChunkCoord>();
+  private farTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The streamer whose far field draws this world (the one changes are applied to). */
+  private farStreamer: Pick<VoxelStreamer, 'far'> | null = null;
+  /** The far nodes of the changes before it read again ({@link farCurrent}). */
+  private farFollow: Promise<void> = Promise.resolve();
 
   private constructor(
     private readonly o: RangeWorldOptions,
@@ -200,7 +219,52 @@ export class RangeWorld {
       if (f.etag === null) list.delete(name);
       else list.set(name, f.etag);
     }
-    return c.chunks.length === 0 ? 0 : streamer.refresh(c.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz })), c.box, c.parts, c.materialSwaps);
+    if (c.chunks.length === 0) return 0;
+    const chunks = c.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz }));
+    this.followFar(streamer, chunks);
+    return streamer.refresh(chunks, c.box, c.parts, c.materialSwaps);
+  }
+
+  /**
+   * Resolves once the far nodes over every change applied so far were read again from a current far cache (at once
+   * when the far field was never read or nothing waits).
+   */
+  async farCurrent(): Promise<void> {
+    while (this.farTimer !== null || this.farChanged.size > 0) {
+      if (this.farTimer !== null) {
+        clearTimeout(this.farTimer);
+        this.farTimer = null;
+      }
+      this.farFollow = this.farFollow.then(() => this.farLanded());
+      await this.farFollow;
+    }
+    await this.farFollow;
+  }
+
+  /** A change's chunks wait for the far cache's rebuild under them (only once the far field read the cache). */
+  private followFar(streamer: Pick<VoxelStreamer, 'far'>, chunks: readonly ChunkCoord[]): void {
+    if (!this.far.opened() || streamer.far === null) return;
+    this.farStreamer = streamer;
+    for (const c of chunks) this.farChanged.set(`${c.cx},${c.cy},${c.cz}`, c);
+    if (this.farTimer !== null) clearTimeout(this.farTimer);
+    this.farTimer = setTimeout(() => {
+      this.farTimer = null;
+      this.farFollow = this.farFollow.then(() => this.farLanded());
+    }, FAR_FOLLOW_SETTLE_MS);
+  }
+
+  /** Asks for the far cache (answered once what the changes left is built) and reads the far nodes over them again. */
+  private async farLanded(): Promise<void> {
+    const chunks = [...this.farChanged.values()];
+    this.farChanged.clear();
+    if (chunks.length === 0) return;
+    try {
+      await (await fetch(`${this.o.url}/far`, { headers: this.o.headers ?? {} })).arrayBuffer();
+    } catch {
+      // The backend is gone (stopped, restarting): its far cache is read again whole when the world is opened again.
+      return;
+    }
+    this.farStreamer?.far?.refresh(chunks);
   }
 
   /**

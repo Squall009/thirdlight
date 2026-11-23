@@ -252,6 +252,27 @@ async function postCommand(op: string, args: Record<string, unknown>, requestId:
   return r;
 }
 
+/**
+ * Everything for the view read, derived and given bodies, with the streamer at rest and the far field current: a
+ * ring narrowed for the focus's speed widens only once the speed stayed down a moment (camera placements close
+ * together read as travel), and then reads and derives all it adds; the far nodes over the last edits are read
+ * again once the backend's far cache under them is built, and the far field has read and put in what it asked for.
+ */
+async function settleAtRest(kitsLoaded: Promise<unknown>, streamer: VoxelStreamer, world: RangeWorld, ring: { settle(): Promise<void> } | null): Promise<void> {
+  await kitsLoaded;
+  await streamer.settle();
+  // The frame loop updates the streamer: its ring widens there once the time has passed.
+  while (!streamer.idle(true)) {
+    await new Promise<void>((ok) => requestAnimationFrame(() => ok()));
+    await streamer.settle();
+  }
+  await world.farCurrent();
+  // Its reads of those nodes too (a far field never opened has none).
+  if (world.far.opened()) await streamer.far?.settle();
+  await streamer.settle();
+  await ring?.settle();
+}
+
 // The bundle is a classic script (no top-level await): everything that waits runs in main.
 /** What a swapped edit cost once the frame showing it is drawn (meshes and colliders swap in the same task). */
 async function shownTiming(streamer: Pick<VoxelStreamer, 'settle'>, t0: number, startFrame: number, seen: SwapSeen): Promise<EditTiming> {
@@ -607,11 +628,7 @@ async function main(): Promise<void> {
     ...materials.hooks(),
     setQuality: pageQualityHook(materials.hooks()['setQuality'] as (id: string) => unknown, streamer, relief, far.pinned),
     tableEntry: (m: number) => surface.tableEntry(m),
-    async settle(): Promise<void> {
-      await kits.loaded;
-      await streamer.settle();
-      await ring?.settle();
-    },
+    settle: (): Promise<void> => settleAtRest(kits.loaded, streamer, world, ring),
     voxelAt(x: number, y: number, z: number): { material: number; role: number; shape: number; wetness: number } {
       streamer.voxelAt(x, y, z, v);
       return { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness };

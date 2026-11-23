@@ -412,6 +412,9 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
   const dug: Cell = [ox + 6, oy - 1, oz + 4];
   expect((await hook<EditAnswer>(page, 'dab', dug, 'dig')).ok).toBe(true);
   expect((await hook<{ material: number }>(page, 'voxelAt', ...dug)).material).toBe(0);
+  // The page's far field reads the far nodes over the dab again once the backend built them (after its answer); a read
+  // after the checkout would meet the new files first, so the checkout follows that (the page's settle).
+  await hook(page, 'settle');
   // The generator's world is written beside it and copied over its files (the writer refuses a folder that holds a world).
   const checkedOut = writeSliceWorld(be.projectDir, 'checkout', 256).dir;
   cpSync(checkedOut, join(dirname(checkedOut), 'slice'), { recursive: true });
@@ -629,7 +632,10 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
     expect(await hook<{ material: number; wetness: number }>(page, 'voxelAt', ...wallCell)).toMatchObject({ material, wetness: 7 });
 
     // A restarted backend and a reload (the assembly proof reloaded the page alone and compared every derived hash):
-    // the same picture as before, from the region files (the view and the world are the same).
+    // the same picture as before, from the region files (the view and the world are the same). The backend builds the
+    // far cache under the paints after answering them: stopped first, that rebuild would be lost (the cache then built
+    // whole on the next read), so it goes once the page's far field is current (the page's settle).
+    await hook(page, 'settle');
     await be.restart();
     await page.reload();
     await open(page, renderer, '&bands=1');

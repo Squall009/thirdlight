@@ -148,6 +148,15 @@ export interface FarCacheLevelFiles {
  */
 export const FAR_BAKED_LEVELS = 64;
 
+/**
+ * How long a world's far changes wait for more before the backend builds them (ms; after the command's answer): a
+ * drag in the editor sends a move every frame or few (well under this apart), so its moves land in one rebuild of
+ * the final place, while a single command's far field is current this long after its answer plus the rebuild itself.
+ * A page drawing the far field asks for the far cache this long after its last change, which answers once the rebuild
+ * landed, and reads the changed nodes again then.
+ */
+export const FAR_FOLLOW_SETTLE_MS = 250;
+
 /** Where a far field reads the far cache's nodes. */
 export interface FarNodeSource {
   readonly grid: ChunkGrid;
