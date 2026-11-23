@@ -2162,8 +2162,7 @@ the catalog or content, no record, every region file shipped. E2E: a fourth test
 (4.2–6.0 s): a spline made a road by the section's Road button, its material and clear set there, "Holds 1,024 cells",
 the road drawn (18,800–39,000 road pixels), the middle grip dragged (nothing sent mid-drag; one command on release):
 **the old cut gone** and the new course drawn (pixels only in each), one Ctrl+Z: the point and the road back (pixels
-within 5 %). File time: its three earlier tests 28.7 s in gate-fast-20261123-203237, the file's four 36–41 s alone
-here. With a feature off: the put-back off fails fresh = rewritten and the folder hashes; the masking of river cells
+within 5 %). File time: its three earlier tests 28.7 s in gate-fast-20261123-203237, its four 38.6 s in the last gate (below). With a feature off: the put-back off fails fresh = rewritten and the folder hashes; the masking of river cells
 off drains the lake in the river test (it breached into the channel); the strip off finds the section in the export.
 
 **Measured** (2026-11-23 21:50 UTC, in-process backend over HTTP, nothing else running, load 1.9–2.2, no far cache;
@@ -2212,7 +2211,7 @@ note are tested by the backend's answer only).
 edit mode (47b). No lit program or default draw path changed: no town orbit or 128-lamp reading run. Staging not used.
 
 **Gates**: gate-fast-20261123-212202 (every area) RED on vitest: `inspector-fields` (the generic Inspector made the
-section from one field and the material had no default; fixed in e3d9caf3), e2e not reached. FINAL_GATE_LINE
+section from one field and the material had no default; fixed in e3d9caf3), e2e not reached. After the last code commit (89017a8a), every area: gate-fast-20261123-220505 (vitest 780 files green, lint clean, e2e 325 passed) RED on `scene-loads` (D777) and `frame-rate-cap` (both listed load-sensitive; load peak 12.6); gate-rerun-20261123-224453 GREEN (both passed; 60 Hz p50 16.7 ms, CPU 6.21 ms against 9.02). In that gate the structure-mode file's four tests took 14.2, 8.0, 9.5 and 6.9 s (its three before: 13.8, 7.0, 7.9 s in gate-fast-20261123-203237; the spline test adds 6.9 s); the voxel area 476 s (448 s in gate-fast-20261123-194323).
 
 **D-rows**: D788 (watch: the structure editor e2e's "redo to step 5" fails about one run in four, at 27de9436 alone 1
 of 3, at the head alone 0 of 3 and in the file 2 of 11), D789 (a spline's rewrite runs its writer over the whole course),
