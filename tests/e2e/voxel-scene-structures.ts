@@ -56,6 +56,51 @@ function changedBox(a: Image, b: Image, min = 60): { x0: number; y0: number; x1:
   return n === 0 ? null : { x0, y0, x1, y1, n };
 }
 
+/**
+ * The box of the largest connected patch of change between two pictures: the house, where `changedBox` would also
+ * take in anything else that changed between the stills (a far rebuild landing, a line redrawn at the view's edge) and
+ * so lose the house's top row. Pixels count as connected within `gap` pixels, so a guide line drawn the same over the
+ * house in both pictures, or the roof's pale ridge, does not split it.
+ */
+function houseBox(a: Image, b: Image, min = 60, gap = 4): { x0: number; y0: number; x1: number; y1: number; n: number } | null {
+  const w = a.width;
+  const h = a.height;
+  const changed = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const p = a.pixel(x, y);
+    const q = b.pixel(x, y);
+    if (Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2])) > min) changed[y * w + x] = 1;
+  }
+  const label = new Int32Array(w * h).fill(-1);
+  let best: { x0: number; y0: number; x1: number; y1: number; n: number } | null = null;
+  const stack: number[] = [];
+  for (let start = 0; start < w * h; start++) {
+    if (!changed[start] || label[start] !== -1) continue;
+    const box = { x0: Infinity, y0: Infinity, x1: -1, y1: -1, n: 0 };
+    label[start] = start;
+    stack.push(start);
+    while (stack.length > 0) {
+      const i = stack.pop()!;
+      const x = i % w;
+      const y = (i - x) / w;
+      box.n++;
+      box.x0 = Math.min(box.x0, x);
+      box.y0 = Math.min(box.y0, y);
+      box.x1 = Math.max(box.x1, x);
+      box.y1 = Math.max(box.y1, y);
+      for (let dy = -gap; dy <= gap; dy++) for (let dx = -gap; dx <= gap; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (changed[j] && label[j] === -1) { label[j] = start; stack.push(j); }
+      }
+    }
+    if (best === null || box.n > best.n) best = box;
+  }
+  return best;
+}
+
 /** Each region file of a world's folder (its grids' too) with its modification time. */
 function regionStamps(worldDir: string): Record<string, number> {
   const out: Record<string, number> = {};
@@ -113,7 +158,7 @@ export async function sceneViewStructureChecks(d: SceneStructureDeps): Promise<v
   };
   await expect.poll(async () => { const g = await drawnGrid(); return g.settled && g.chunks > 0; }, { timeout: 30_000, message: 'the structure grid streams and draws in the Scene view' }).toBe(true);
   const drawn = await sceneViewStill(page, 'scene-view-structure');
-  const at = changedBox(bare, drawn);
+  const at = houseBox(bare, drawn);
   expect(at?.n ?? 0, 'the house drawn').toBeGreaterThan(2000);
 
   // Moved 3 m along −x by a transform edit: the house's pixels move, no region file is rewritten, nothing is meshed again.
@@ -122,7 +167,8 @@ export async function sceneViewStructureChecks(d: SceneStructureDeps): Promise<v
   await d.command('setTransform', { entityId: id, transform: { position: [house.place.position[0] - 3, house.place.position[1], house.place.position[2]], rotation: house.rotation } });
   await expect.poll(async () => (changedBox(drawn, await sceneViewStill(page, 'scene-view-structure-moved'))?.n ?? 0), { timeout: 15_000, message: 'the house moves with its object' }).toBeGreaterThan(1000);
   const moved = await sceneViewStill(page, 'scene-view-structure-moved');
-  const movedAt = changedBox(bare, moved)!;
+  const movedAt = houseBox(bare, moved)!;
+  const movedAll = changedBox(bare, moved)!;
   expect((movedAt.x0 + movedAt.x1) / 2, 'the house moved across the view').not.toBeCloseTo((at!.x0 + at!.x1) / 2, -1);
   expect(regionStamps(d.worldDir)).toEqual(stamps);
   expect(await drawnGrid()).toMatchObject({ meshBuilds: before.meshBuilds, replaced: before.replaced });
@@ -131,8 +177,8 @@ export async function sceneViewStructureChecks(d: SceneStructureDeps): Promise<v
   const value = ((await d.query('queryEntity', { entityId: id })) as { entity: { components: { voxelStructure: Record<string, unknown> } } }).entity.components.voxelStructure;
   await d.command('setComponent', { entityId: id, component: 'voxelStructure', value: { ...value, storeys: 2 } });
   await expect.poll(async () => { const g = await drawnGrid(); return g.settled && g.replaced > before.replaced; }, { timeout: 30_000, message: 'the regenerated grid is read again and drawn' }).toBe(true);
-  const taller = changedBox(bare, await sceneViewStill(page, 'scene-view-structure-taller'))!;
-  expect(taller.y0, `the house's top row ${movedAt.y0} → ${taller.y0}`).toBeLessThan(movedAt.y0 - 10);
+  const taller = houseBox(bare, await sceneViewStill(page, 'scene-view-structure-taller'))!;
+  expect(taller.y0, `the house's top row ${movedAt.y0} → ${taller.y0} (everything changed from the bare view starts at row ${movedAll.y0})`).toBeLessThan(movedAt.y0 - 10);
 
   // Undo (the editor's one undo line): the house as before the storey.
   await other.click();
@@ -146,7 +192,7 @@ export async function sceneViewStructureChecks(d: SceneStructureDeps): Promise<v
   await view.click({ position: { x: Math.round((movedAt.x0 + movedAt.x1) / 2), y: Math.round(movedAt.y0 + (movedAt.y1 - movedAt.y0) * 0.6) } });
   await expect(page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`)).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
   await expect(view).toHaveAttribute('data-selection-outline', id);
-  console.log(`[voxel-scene-view] structure grid ${name}: drawn ${at!.n} px at x ${at!.x0}–${at!.x1}, moved to ${movedAt.x0}–${movedAt.x1}, top row ${movedAt.y0} → ${taller.y0} with a storey`);
+  console.log(`[voxel-scene-view] structure grid ${name}: drawn ${at!.n} px at x ${at!.x0}–${at!.x1}, moved to ${movedAt.x0}–${movedAt.x1}, top row ${movedAt.y0} → ${taller.y0} with a storey (all change from row ${movedAll.y0})`);
 
   await d.command('deleteEntity', { entityId: id });
   await expect.poll(async () => (await sceneViewVoxels(page))?.worlds[name] === undefined, { timeout: 15_000, message: 'the deleted structure is no longer drawn' }).toBe(true);
