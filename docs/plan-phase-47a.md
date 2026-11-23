@@ -173,7 +173,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.4 | Done 2026-11-22 (4059d423): `voxelStructure` (F1), its grid written by the backend through the commands, one undo step with the scene edit; create (next grid, anchor), regenerate, copy, delete, material swap, hand edits as overrides, `regenerateStructures`; Play/export read places from the objects. Small house 20 ms, L 60–76 ms; +0.8–2.2 s with a far cache (D754); D753, D755 |
 | 47a.5 | Done 2026-11-22. (a) 6be74d26, ef33ad6f, 6003c541: Scene view draws, moves, picks grids; `ctx.voxels` by grid; spec §3.6. (b) d41e0c49, 7b83e3a0, 471d16bb, 894fb4e0: grids planned at ring crossings (G30 sim 1.4–1.5 × W, base 1.8–1.9), stamp sliced, far rebuild after the answer (house 27 ms, was 832), fine bake reads grids; lane reserve backed out; D759, D760 |
 | 47a.6 | Done 2026-11-23 (cce0d13f, 54f9db51): structure editor mode (draw, edge/corner handles, Extend, storeys, 15° turn, Inspector section with a material a part, Dig/Add/Paint, misfit list and marker); e2e 13–16 s. The gate's one red (D761) was a test's camera jump tripping the streamer: fixed ad116a9b, every-area gate green; D762–D764. Interim look `acc47a-interim` |
-| 47a.7 | not started |
+| 47a.7 | Partial 2026-11-23 (7b5d2598, 20fc9bf7, a8e2028e): `voxelPortal` (F4); props follow, are named by and go with their openings in one undo step; a shut prop closes its opening to light (a channel stamp, a flip recombines its cells only) and walkers (shut cells, `doors: 'shut-too'`); `portalsOf` names it; scripts flip and save it. Not built: Openings tool, Play e2e, measures (D769, D770) |
 | 47a.8 | not started |
 | 47a.9 | not started |
 | 47a.10 | not started |
@@ -1496,6 +1496,71 @@ change it. The structure-mode test passed in the gate's run.
 **D-rows:** D761 (the assembly test since 894fb4e0), D762 (paint keeps the start cell's role), D763 (misfits only of
 the last regenerate), D764 (handles through walls).
 
+### 47a.7 — openings, doors and windows
+
+**Partial** (7b5d2598, 20fc9bf7, a8e2028e; F4 as approved, no stored thing beyond it). What a designer and a script can do, in order:
+1. **Put a prop in an opening** (by command: MCP, or the Inspector's raw fields; the structure mode's Openings tool is
+   **not built**, D769): one `createEntity` of a child of the structure with a `voxelPortal` (and its model), standing
+   inside an opening that has none → the backend's follow-up (`workspace/structure-prop-follows.ts`, written in the
+   command's own transaction by `applyFollows`, so one revision and one undo step, editor and MCP alike) sets that
+   opening's `prop` to the new id. The prop is the structure's child in its frame, so a move, a turn or a regenerate
+   carries it.
+2. **Move or resize an opening** (`setComponent` of the definition): its prop keeps where it stood relative to the
+   opening's frame (`followOpening`: the middle of its width and of the wall, at its sill, turned so the prop's +x
+   runs along the wall and +z out), its transform written with the command; undo puts both back.
+3. **Remove an opening, or clear its prop, while the prop stands**: the structure commands send the prop's
+   `deleteEntity` with the new definition as its follow-up (`queueStructureFollow`): the prop goes, the wall closes
+   (the regenerate's stroke attached), one step; undo brings back the prop, the opening and the voxels (folder hashed).
+   **Delete the prop itself**: its opening is left an open hole (`prop` cleared). **Duplicate**: the copy's openings
+   name the copy's own children (by place; the pasted ids are not remapped by paste itself).
+4. **Play**: a prop with `voxelPortal` is joined to the opening it stands in **by its place alone**: its middle (its
+   light shape's box, else its position half a cell up) lies in a structure grid's `opening` cell, read from the grid's
+   resident voxels; the opening is that cell and the `opening` cells joined to it by faces (within 4 m). No definition
+   is read, so it works in an export (the definition and `openings[].prop` are not exported; the prop object and its
+   `voxelPortal` are, as any scene object; **not checked in an export test**). Shut:
+   - **light** (`stops.light`): the opening's cells become one more stamp in the world's prop channel
+     (`runtime/voxel-portals.ts`): every world cell any of the opening's cells reaches stops light whole (coverage 255;
+     no structure class, so the regions keep the portal); a flip places or removes that stamp: the channel recombines
+     only its box and re-sends only the walk blocks it touches, the volume taking them in as an edit. The leaf's own
+     shape is **never stamped** (a prop with a portal is left out of `affectsLighting` stamping): its thickness does
+     not matter (D727 for doors) and a swinging leaf costs nothing (D728 for doors: a flip, never a re-stamp a ⅛ m).
+     A pane (`stops.light: false`) stamps nothing.
+   - **walkers** (`stops.walk`): the opening's cells are shut in the grid's walk graph (`WalkGraph.setShut`): only the
+     chunks they lie in are made again; a shut cell is in no piece; a step, a diagonal, a drop or a link onto it is
+     taken only by a walker through shut doors: `findPath(…, { doors: 'shut-too' })` (default `open-only`), which
+     searches over cells alone (D772).
+   - **sight**: `portalsOf` gives the prop's id, `open` and `stops`. No other consumer reads sight: the rooms
+     (see-through and cut-away's room, the light volume's indoor share) are already parted at every portal, open or
+     shut, so a shut door changes nothing there (named, not invented).
+5. **A script** flips it: `ctx.entity(id).set('voxelPortal', { open })` (the descriptor marks `open` the one
+   writable field), applied at the step's end; the world reads it the next step and applies it at once. A game save
+   holds it as a written field (`fields.<id>.voxelPortal.open`, entity-access), restored with the save.
+
+**Tests.** Vitest: `voxel/structures/openings.test.ts` (an opening's cells and frame on every edge of clockwise and
+anticlockwise outlines, facing out; a prop following a move, another wall, a nudge kept; the sizes fit a default
+storey; the fit rule); `voxel/walk-graph.test.ts` "shut doors" (a wall whose only way through is a door: shut, no path
+by default with or without the levels, a path with `shut-too` of the same cost; only the door's chunk made again; its
+cells in no piece; opened, every part equal to before); `runtime/voxel-portals.test.ts` (the real prop channel at 0°,
+30° and 45°: joined by place, every world cell whose middle lies in the opening stops light (≥ 128) though the turned
+stamp narrows the opening, none farther than a cell from it, a flip recombines at most the 2 chunks the door reaches,
+opened every byte back to 0, the walk graph given the 15 cells then null; a pane stamps nothing);
+`runtime/entity-access.test.ts` (open written, read the next step, saved, checked, restored);
+`tools/voxel-bench/world-host-grids.test.ts` (a real runtime, workers, region files: a door prop in each house at 0°,
+30°, 45°, a light ray from the street stops in the world's cells at the door, `portalsOf` of the room names the prop
+shut; a script opens all three and the ray reaches the back wall). Integration `voxel-structures.test.ts` "openings
+and their props": a portal child named by its opening and both undone in one step (folder equal); an opening moved 2
+cells and resized with its prop (1 m, centred), each undone; a duplicate naming its own child; an opening removed
+with its prop (the wall closes, undo equal byte for byte); a deleted prop leaves the hole. With the feature off: the
+follow-ups off → `prop` never set, the leaf stays put; the stamp off → the rays pass the shut doors; the shut cells off
+→ the walk test's `unreachable` fails.
+
+**Not built or not verified** (this run): the structure mode's Openings tool and stairs placement (D769); the Play
+e2e (a script shutting the house's door: the room's light-volume cell, `findPath`), the pictures, flip → light time,
+1/20/100 doors flipping and the town orbit A/B (D770); a path through a door in a running world (the Node runtime
+harness answered no path query within 60 s, cause not traced; the graph's rule is tested on the graph, D770); an
+export with a door; the editor's view of a prop that no longer fits (no fit check exists outside the voxel package's
+rule). **Defaults** in §9. **D-rows:** D727, D728 updated (doors); D769–D773.
+
 ### D761 — a landing far rebuild re-derived the page's near field
 
 **Cause: not the far rebuild.** The ~33,800 `derived` sections in the paint's window (5,046 chunks read again) were
@@ -1731,6 +1796,26 @@ chunks, so nothing is re-read there, as before 894fb4e0).
 - 2026-11-23 (the lead): a red on a test of a spec rule (the feeds rule, a format round trip, an undo's exactness)
   is never rerun blind: it is run alone at the head and at the commit before the item, and placed. 47a.5b's gates
   passed with the assembly test failing two runs in three (D761).
+
+- 2026-11-23 (47a.7; default chosen, owner to confirm): **a prop is joined to its opening by its place** (its middle
+  in a grid's `opening` cell, the opening the face-joined `opening` cells round it) where the world runs; the
+  opening's `prop` is the editor's record of it, kept by the backend (named when a portal child is made inside an
+  opening without one, cleared when the prop is deleted, re-named to the copy's own child after a paste). No key is
+  added to the export (D756 stays the owner's).
+- 2026-11-23 (47a.7; default chosen, owner to confirm): **a prop follows its opening by keeping its place in the
+  opening's frame** (middle of the width and of the wall, at the sill, +x along the wall, +z out); a prop that no
+  longer fits is kept (no fit is checked by the backend).
+- 2026-11-23 (47a.7; default chosen, owner to confirm): **removing an opening that has a prop deletes the prop in the
+  same step** (the command is sent as the prop's deletion with the new definition as its follow-up); deleting the
+  prop alone leaves the opening an open hole.
+- 2026-11-23 (47a.7; default chosen, owner to confirm): **a shut portal stops light in every world cell any of its
+  opening's cells reaches** (the stamp's `any` rule over the opening alone): a turned door stops all of its opening
+  and at most a cell's rim round it, never less.
+- 2026-11-23 (47a.7; default chosen, owner to confirm): **scripts write `open` only**; `stops` is authored. The path
+  option is `doors: 'open-only' | 'shut-too'` (default `open-only`).
+- 2026-11-23 (47a.7; default chosen, owner to confirm): **standard opening sizes** (engine data with reasons,
+  `OPENING_SIZES`): doors 1 × 2, 1.5 × 2, 2 × 2.5 m; windows 1 × 1, 1 × 1.5, 2 × 1 m on a 1 m sill; **the fit rule**
+  (`propFitsOpening`): bounds no wider or taller than the opening and no deeper than a cell, 5 cm tolerance each.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
