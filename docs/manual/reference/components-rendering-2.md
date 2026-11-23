@@ -64,9 +64,9 @@ A curve through points, each with its own width and roll: roads, paths and river
 | `pieces[].castShadow` | bool | `true` |  | **Casts shadows.** Blocks the directional light. |
 | `voxels` | object |  |  | **Voxels.** Voxels it writes into its scene's voxel world: a road or path (surface, bed, shoulders, air above) or a river (liquid down its depth over its bed). The ground it replaced comes back when it moves or goes; one undo step with the edit. Exports ship the voxels, never this section. |
 | `voxels.kind` | enum: `road`, `path`, `river` | `"road"` |  | **Kind.** A road or a path at the curve's height, or a river whose surface is the curve. (required) |
-| `voxels.material` | int |  | 1 – 4095, step 1 | **Material.** The surface's voxel material, or a river's liquid (its id, 1-4095). (required) |
+| `voxels.material` | int | `1` | 1 – 4095, step 1 | **Material.** The surface's voxel material, or a river's liquid (its id, 1-4095). (required) |
 | `voxels.bed` | object |  |  | **Bed.** What lies under a road (its depth), or a river's bed material and its depth. |
-| `voxels.bed.material` | int |  | 1 – 4095, step 1 | **Material.** The bed's voxel material (1-4095). (required) |
+| `voxels.bed.material` | int | `1` | 1 – 4095, step 1 | **Material.** The bed's voxel material (1-4095). (required) |
 | `voxels.bed.depth` | number | `1` | > 0, ≤ 1000, step 0.5, m | **Depth.** Metres: under a road's surface; a river's depth (empty bed: 1 m). (required) |
 | `voxels.shoulder` | object |  |  | **Shoulders.** How the sides meet the ground: cut down or filled up to a slope. |
 | `voxels.shoulder.width` | number | `2` | > 0, ≤ 1000, step 0.5, m | **Width.** Metres past the edge the ground is shaped. (required) |

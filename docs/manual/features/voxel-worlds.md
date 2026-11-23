@@ -510,6 +510,28 @@ of a 1 m ball at cell (0, 4, 0):
   `bodies`. Exports ship the water, never the body's record; nothing
   regenerates while a game runs.
 
+- **Roads, paths and rivers along a spline.** A `spline` object with a
+  `voxels` section (`kind`: `road`, `path` or `river`; `material`: the
+  surface's voxel material, or a river's liquid; `bed`: what lies under a
+  road and its depth, or a river's bed material and its depth, default
+  1 m; `shoulder`: a `width` and a `slope`, how the sides are cut down or
+  filled up to the ground; `clear`: metres of air above, a road through a
+  hill) writes into the voxel world its scene's `voxelWorld` object names
+  (a scene naming none or two is refused). The per-point widths are used,
+  and a river's surface follows the curve's height; where a river runs
+  into a water body's reach under its level it is written as the body's
+  water at that level, so the two meet. The backend keeps what the spline
+  replaced (`structures/<object id>.tlvo` in the world's folder, never
+  exported): moving a point, changing a width or the section, or deleting
+  the spline gives that ground back and writes the new course, one undo
+  step with the edit; the Inspector's spline section has named pickers
+  and says how many cells it holds. A cell dug, added or painted by hand
+  since it was written is kept where the spline still writes there and the
+  fit rule allows (a hole in a road stays when the road is widened), and
+  left as it is (and reported, marked red in the view) where the spline no
+  longer runs. Water bodies round a spline it writes follow in the same
+  step. The heightfield `terrain` section of a spline works as before.
+
 - **The world's revision.** A world keeps its own revision, apart from
   the project's: `expectedRevision` is optional on a voxel op, and when
   given it is the world's (a stale one is refused with `revision_conflict`

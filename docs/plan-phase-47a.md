@@ -177,7 +177,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.8 | Done 2026-11-23 (a27a11e4, 39c31b65, 1488dc66, 494d8315 …): radius as a footprint (default 0.3 m, two cells), queries wait for edits (bound 90 serves, `stale`), shut doors in the levels, reach through grids, portal runs split; town 131/131 every check; D780 the Export failure fixed (hourly sweep); D778, D779, D781 |
 | 47a.9 | Done 2026-11-23 (e1a62759…3452d5bb): proof on 1.34 M liquid cells (shader data read liquid: now air); `changeFeeds`/`EditOutcome.parts`; liquid part (16 B quads), drawn plain near; liquid dab 4 full derives → 4 liquid, worker 8.4 → 4.6 ms; town orbit, 128 lamps equal; lake near not resolved; D782–D785 |
 | 47a.10 | Done 2026-11-23 (123cd86e, fa4c996b, 2faad81c, b46b3ae9, cb320d59): level fill, `waterBody` (F6), a stroke or command in a body's reach rewrites it in the same undo step, locally (bank dab 0.5–2.1 ms, 16 cells; 251 m lake whole 1.37 s), a breach drained and flagged with a marker; Inspector, level handle; e2e 7–8 s; D786 (a stroke waits a far rebuild: 0.6–0.7 s), D787 |
-| 47a.11 | not started |
+| 47a.11 | Done 2026-11-23 (d80f958e, e3d9caf3, 1928aa2f): `voxels` on `spline` (F5), world-writer core + spline writer (road/path/river, shoulders, clear, mouth at a body's level), record `structures/<id>.tlvo`, one undo step; 1 km road: point drag 0.96 s (whole course evaluated, ~9.9k cells written), record 1.33 MB; e2e 5-6 s; D788, D789, D790 |
 | 47a.12 | not started |
 | 47a.13 | not started |
 
@@ -2085,6 +2085,139 @@ it, so `followBody` absorbs them (they are the body's on its next regenerate); w
 `writeCells` so its parts are the liquid part, and order it after the structures' stroke and before the bodies'
 (`StructureCommands.writeWater` runs last in a command).
 
+### 47a.11 — splines write voxels
+
+**Built** (d80f958e, e3d9caf3, 1928aa2f; F5 as approved, its text in spec §3.5 and `format-versions.md`; nothing else
+stored).
+
+- **The world-writer core** (`@thirdlight/voxel` `structures/world-writer.ts`, beside the building contract, on its
+  terms: a writer is a pure function, a chunk at a time, with a box and a version; `regenerate.ts`'s chunk record
+  shared, `reapplyOverrides` unchanged): a writer over the world grid writes a chunk's cells reading the **ground**,
+  the world as it is without this structure (its record's "before" where it wrote, the store elsewhere), so a rewrite
+  gives what a fresh write over the same ground gives, in any chunk order. **The record** (F5) is the overrides' type
+  and codec (`TLVO`, base = before, value = written, grid id 0). `rewriteInWorld` (a new definition, or none: gone):
+  per chunk, a cell still as written is given back its "before"; a cell edited since is, where the new course writes it
+  again, an override over what was written, **kept, absorbed or a misfit by the same fit rule** (`reapplyOverrides`
+  on it, D751 untouched); where it does not, **left alone and reported**; a cell that only went between air and liquid
+  counts as written (water is the bodies' and the rivers'); then the new course written; undo and redo records, feeds
+  (`changeFeeds`), the changed cells' box. A chunk whose record comes out the same is not touched.
+- **The spline writer** (`structures/spline-writer.ts`): the course is a polyline of samples (x, y, z, width; every
+  0.25 m along the curve, made by project-model's `SplineCurve`), each column measured to its nearest segment (a bend
+  keeps its width, an open end stops square); segments in 16 m buckets, the chunks it can touch listed from them (a
+  diagonal kilometre touches few of its box's). **Road and path** (written alike, §9): the top cell filled to the
+  course's height (the 16 fill levels), one cell of surface, the bed's depth of bed material, `clear` of air above.
+  **River**: liquid from the course's height down its depth (its bed's, else 1 m), a cell of bed under it, `clear`
+  above. **Shoulders**: within their width past the edge, solid ground above the line rising from the edge at the
+  slope is cut (its top cell to its share), open cells under the line falling from it filled down to the ground with
+  the ground's own material (no ground within reach: the bed's), as far as width × slope up or down; over the roadway
+  the same cut and a fill under the bed. **A river meeting a body**: in a column inside a body's reach, the channel's
+  cells under the body's level are the body's liquid at that level (its material, the fill's share), so the two meet
+  in one surface. Roll is not used (the cross-section is level).
+- **The section** (project-model `spline.ts`, `spline-voxels.ts`, the descriptor): `voxels: { kind, material, bed?,
+  shoulder?, clear? }` rebuilt field by field (canonical, every field kept: tested through the scene validator),
+  refusals by pointer; a spline with it is a root object and not in a prefab part; scripts do not read it (authoring
+  data). **Its world is derived, nothing stored**: the one world its scene's `voxelWorld` objects name; none or two →
+  `reference_missing`, the command taken back. `splineVoxelDefinition` resolves the section, samples the curve where it
+  stands and lists the bodies of that world a river meets (reach and level): a body changed rewrites the rivers
+  meeting it.
+- **The backend** (workspace `voxel-spline-writes.ts`, `spline-commands.ts`, `voxel-worlds.ts` `writeSplines`): a
+  command's splines compared by object id and by the writer's definition before and after; changed, made, moved,
+  deleted or section removed → one `writeSplines` stroke a world (region files and `structures/<object id>.tlvo` in
+  one staged write, absent when empty; undo and redo put the records back with the cells), **after the structures'
+  stroke and before the water's** (ground → buildings → splines → water); the water follows round each spline's
+  changed cells. **Bodies read a river's cells as ground** but at its mouth (inside their reach under their level),
+  so a river running on past a lake's reach is no leak of the lake's and a lake's regenerate never clears the river.
+  Answers: `voxels[].splines` (cells, putBack, written, recordBytes, kept, absorbed, leftAlone and misfits with their
+  places); the world's route `splines` (written, recordBytes, the last write; memory only).
+- **The editor**: the Inspector's spline section (`ui/spline/SplineVoxelFields.tsx`, `useSplineVoxelTools.ts`): Road,
+  Path, River buttons; kind, named surface/liquid and bed pickers (solid materials for roads, liquid for rivers), bed,
+  shoulders, clear, "Stop writing voxels", "Holds N cells it wrote (what they replaced: N KB)", the left-alone and
+  misfit notes; those cells marked red in the Scene view (the leak markers, `data-spline-marks`). The spline's grips
+  send one command on release (asserted mid-drag in the e2e). The generic Inspector also shows the section's fields
+  (int material ids): the same field twice.
+- **Export**: the scenes ship without the section (`withoutStructureDefinitions`); no record file is read.
+- **Heightfield untouched**: `terrain-splines.ts`, `terrain-spline-ops.ts` and the spline's `terrain` section not
+  changed; their tests green unchanged (`commands/terrain-spline-ops.test.ts`, the terrain integration tests in the
+  gate).
+
+**Tests.** Vitest `voxel/src/structures/spline-writer.test.ts` (10): a road's cells against the test's own reading of
+the course (surface, half-filled top, bed, clear, nothing past the edge or the end, exact cell count); **fresh =
+rewritten** over rolling ground through four courses (a point moved, widths changed, shoulders, then a river), record
+bytes equal, undo and redo exact, delete gives the ground back cell for cell; a curve with widths per point (no cell
+wrong off the edge's sample step); shoulders on a steep side slope (nothing solid over the cut line, nothing open under
+the bank line); a slope's top cells filled to the course; the same cells at chunk edge 16 and 32, twice, and in reversed
+chunk order; **a point moved on a 500 m road rewrites ≤ 8 chunk columns** near it; the fit rule (a dig kept when the
+road widens, a dug cell a misfit when a river replaces the road, a hand-set block left alone and reported when the road
+leaves); the record through TLVO bytes (10 bytes a cell + 10 a chunk + 20) rewriting from the decoded record; a river
+down its depth over its bed, its mouth in the body's material at its level, nothing past its open end.
+`project-model/src/spline-voxels.test.ts` (5). Integration `tests/integration/voxel-world/voxel-splines.test.ts` (8, a
+real backend over HTTP, the world on disk): a road made (its record file's size = the answer's, the world equal to
+the writer fresh on the ground); **a point moved: equal to the writer fresh, the old course back to ground, one undo
+and one redo exact (every file of the world folder hashed)**; a hand dig kept when the road widens (`kept` 1); a
+painted cell and the dug cell left alone and reported (with their places) when the road moves off; a river into a lake
+(the lake's cells grow, the lake raised and lowered: one step each with the river rewritten first, the river's cells
+over the level kept); a road's clear cut into the lake's bank: the lake follows locally into it (`writeWater`), deleted:
+ground again; delete puts everything back and its record goes, undo brings both; **export**: no `voxels` section in
+the catalog or content, no record, every region file shipped. E2E: a fourth test in `tests/e2e/structure-mode.e2e.ts`
+(4.2–6.0 s): a spline made a road by the section's Road button, its material and clear set there, "Holds 1,024 cells",
+the road drawn (18,800–39,000 road pixels), the middle grip dragged (nothing sent mid-drag; one command on release):
+**the old cut gone** and the new course drawn (pixels only in each), one Ctrl+Z: the point and the road back (pixels
+within 5 %). File time: its three earlier tests 28.7 s in gate-fast-20261123-203237, the file's four 36–41 s alone
+here. With a feature off: the put-back off fails fresh = rewritten and the folder hashes; the masking of river cells
+off drains the lake in the river test (it breached into the channel); the strip off finds the section in the export.
+
+**Measured** (2026-11-23 21:50 UTC, in-process backend over HTTP, nothing else running, load 1.9–2.2, no far cache;
+`work/47a.11/m/measure-splines.test.ts`, raw `m/measure-1.json`; medians of 5; rolling ground ±1.75 m; roads 6 m wide,
+1.5 m bed, shoulders 2 m at slope 1, 2 m clear):
+
+| | 250 m road | 1 km road | 2 km road | 250 m river into a lake |
+|---|---|---|---|---|
+| made: command / apply / save (ms) | 937 / 867 / 44 | 2,343 / 2,217 / 116 | 3,896 / 3,648 / 225 | 559 / 455 / 36 |
+| cells written, record bytes | 33,255, 333 KB | 133,003, **1.33 MB** | 268,910, 2.69 MB | 50,379, 504 KB |
+| one point moved 2 m: command / apply (ms) | 410 / 361 | **961 / 913** | 1,745 / 1,664 | 440 / 377 |
+| cells changed, chunks rewritten | 8,446, 38 | 9,871, 40 | 9,871, 40 | 11,000–20,141 |
+| undo (ms) | 61 | 70 | 77 | — |
+
+**Local or whole: the writes are local** (the same ~9,900 cells in 40 chunks whatever the length), **the work is
+whole**: the writer runs over every chunk of the course to find which records changed, so a point drag grows with
+the length (0.41 s at 250 m, 0.96 s at 1 km, 1.7 s at 2 km): **D789**. The record is exactly 10 bytes a cell (+10 a
+chunk, +20); F5's "1 km, 6 m wide, 2 m deep ≈ 96,000 cells, under 1 MB" holds for the surface and bed alone; the
+shoulders and the clear air add a third (133,003 cells, 1.33 MB). The lake (45,204 cells) took 111 ms; the river's
+mouth needed no water write (it is written as the lake's water).
+
+**Pictures** (`~/.cache/thirdlight-phase47a/work/47a.11/look/`, the editor at 1280 × 720 with the centre area
+maximised, WebGPU, the project's quality low; a bench world `dale` in an e2e backend (rolling ground, a hill, a pit),
+not staging; each with a `.json` note): `40-road-shoulders.png` (a 60 m road over the rolling ground from above: the
+banks where the shoulders cut, dark creases along the fills), `41-road-point-moved.png` (same camera, the middle point
+8 m on: the old course is grass again, no trace; the new one at the left), `44a-road-hand-dig.png` and
+`44b-road-widened-dig-kept.png` (a 2 m pit dug by hand in the road, then the road widened 5 → 7 m: the pit kept),
+`42-road-cut-through-hill.png` (a road through a 5 m hill with 5 m cleared: grey rock faces along its side),
+`43-river-into-lake.png` (an overview: the lake filled in its pit, the river from the east joining it in one blue
+surface, the three roads), `45-inspector-section.png` (the road selected: the section, "Holds 6,268 cells it wrote
+(what they replaced: 61.3 KB)"). The e2e's own pictures (`31-lane-road`, `32-lane-point-moved`, `33-lane-undone`) were
+looked at too. **What is wrong or ugly**: a road's or river's edge on a diagonal is a saw of half-metre steps, and
+where the surface climbs a row the edge shows a notch (cells; the terrain mesher smooths slopes, not a cut's side:
+D790); the shoulders show as dark creases rather than smooth banks at slope 0.7; the cut faces are bare rock steps;
+the river is the plain flat water with a stepped bank; the Scene view's ground grid at height 0 shows as a black
+plane wherever a world's ground dips under 0 (seen in the first pictures; the world was lifted 3 m for these; not this
+item's); seen from above, the hill cut and its rock faces read poorly (no picture from the side); the generic
+Inspector shows the section's fields as plain numbers above the named pickers.
+
+**Unverified**: anything in Play or an export drawn (the export test reads files); a spline on staging's large world;
+WebGL 2 (the smoke test only); the river's look in motion; a drag on a long road in a browser (the backend's time
+only); the markers of left-alone cells in a picture (the e2e and pictures had none: the attribute and the Inspector
+note are tested by the backend's answer only).
+
+**Left out** (as the brief): the heightfield path (48); kit pieces along roads; flow, a river's current (49); the world
+edit mode (47b). No lit program or default draw path changed: no town orbit or 128-lamp reading run. Staging not used.
+
+**Gates**: gate-fast-20261123-212202 (every area) RED on vitest: `inspector-fields` (the generic Inspector made the
+section from one field and the material had no default; fixed in e3d9caf3), e2e not reached. FINAL_GATE_LINE
+
+**D-rows**: D788 (watch: the structure editor e2e's "redo to step 5" fails about one run in four, at 27de9436 alone 1
+of 3, at the head alone 0 of 3 and in the file 2 of 11), D789 (a spline's rewrite runs its writer over the whole course),
+D790 (stepped edges of roads and rivers).
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -2339,6 +2472,27 @@ it, so `followBody` absorbs them (they are the body's on its next regenerate); w
 - 2026-11-23 (47a.10; default chosen, owner to confirm): **leak places are grouped one per 16 m of ground** (the mean
   of the cells where the fill would leave its bound there), each marked in the Scene view and the first named in the
   Inspector.
+
+- 2026-11-23 (47a.11; default chosen, owner to confirm): **a spline writes into its scene's voxel world** (the one its
+  scene's `voxelWorld` objects name; F5 stores no world): a scene naming none or two is refused (`reference_missing`).
+- 2026-11-23 (47a.11; default chosen, owner to confirm): **a path is written as a road** (the same surface, bed,
+  shoulders and clear); a path that drapes over the ground would be a later value of `kind`.
+- 2026-11-23 (47a.11; default chosen, owner to confirm): **a river without a bed is 1 m deep**; a river's bed is one cell
+  of its bed material under the channel; **a river open at an end with no body ends square at its last point**: its
+  liquid stands there with a side face (a section, not a fill: nothing spills, nothing settles).
+- 2026-11-23 (47a.11; default chosen, owner to confirm): **a shoulder reaches width × slope up or down** and fills with
+  the ground it meets (else the bed's material); deeper ground is left (a road over a deep gully stands on a bank that
+  ends there); roll is not used (the voxels' cross-section is level).
+- 2026-11-23 (47a.11; default chosen, owner to confirm): **a river's mouth**: in a column inside a body's reach, its
+  cells under the body's level are written as the body's liquid at that level (they join it; the body owns them);
+  **every other cell a river wrote is ground to a body** (it neither fills, owns nor clears it), so a river in the
+  lake's own material running on past its reach is no leak, and a lake written again never clears the river.
+- 2026-11-23 (47a.11; default chosen, owner to confirm): **water that moved into or out of a spline's cells is not a
+  hand edit** (a cell gone between air and liquid since it was written counts as written); **cells edited by hand that
+  the spline never wrote are ground to it**; where two splines overlap, the later one's cells are "edited since" for
+  the earlier.
+- 2026-11-23 (47a.11; default chosen, owner to confirm): **no generator version on a spline** (F5 names none): a newer
+  spline writer rewrites a spline when it is next changed; there is no "regenerate all" for splines.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
