@@ -85,7 +85,9 @@ export type V3OwnedComponent =
   /** v4 scenes only: one of the project's voxel worlds, streamed while the scene is loaded. */
   | 'voxelWorld'
   /** v4 scenes only: a building's definition, written into its own grid of a voxel world by the backend. */
-  | 'voxelStructure';
+  | 'voxelStructure'
+  /** v4 scenes only: open or shut state of a prop standing in an opening of a voxel structure. */
+  | 'voxelPortal';
 
 /** Every `setComponent`-owned component (the base five plus the six v3 ones). */
 export type OwnedComponent =

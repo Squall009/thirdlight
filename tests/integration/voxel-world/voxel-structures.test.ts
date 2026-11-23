@@ -21,7 +21,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, w
 import { join, relative } from 'node:path';
 import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
 import type { Backend } from '@thirdlight/backend/services';
-import { anchoredDefinition, boxChunks, BUILDING_GENERATOR, chunkGrid, chunkOfKey, createDenseChunk, createWorldStore, decodeOverrides, denseValue, exportOrAir, PLANE_BIT, SHAPE_FULL, VOXEL_ROLE, type StructureDefinition, type StructureGenerator, type VoxelStoreCandidate } from '@thirdlight/voxel';
+import { anchoredDefinition, boxChunks, openingFrame, yawQuaternion, BUILDING_GENERATOR, chunkGrid, chunkOfKey, createDenseChunk, createWorldStore, decodeOverrides, denseValue, exportOrAir, PLANE_BIT, SHAPE_FULL, VOXEL_ROLE, type StructureDefinition, type StructureGenerator, type VoxelStoreCandidate } from '@thirdlight/voxel';
 import { hexToBytes } from '@thirdlight/shared';
 import { FAR_REBUILT_FOLDER, farCacheDir, RegionWorld, readVoxelWorldManifest, writeVoxelWorld, type VoxelWorlds } from '@thirdlight/workspace';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -382,6 +382,91 @@ describe('structures through the commands', () => {
     const seen = await call('tl_inspect', { target: 'entity', entityId: house });
     expect(JSON.stringify(seen)).toContain('"voxelStructure"');
     await client.close();
+  });
+});
+
+describe('openings and their props through the commands', () => {
+  let shop = '';
+  let leaf = '';
+  const prop = async (id: string): Promise<string | undefined> => ((await structureOf(id))['openings'] as Array<{ prop?: string }>)[0]?.prop;
+  const placeOf = async (id: string): Promise<{ position: number[]; rotation: number[] }> => (await entity(id))!['transform'] as { position: number[]; rotation: number[] };
+  const frameOf = async (id: string) => openingFrame(definitionOf(await structureOf(id)), definitionOf(await structureOf(id)).openings[0]!)!;
+  const near = (a: readonly number[], b: readonly number[]): void => a.forEach((v, i) => expect(v).toBeCloseTo(b[i]!, 6));
+
+  it('names a portal prop made in an opening, and one undo takes both back', async () => {
+    const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Shop', transform: { position: [-20, 3, -20], rotation: yawQ(30) }, components: { voxelStructure: SMALL } });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    shop = made.json['createdId'] as string;
+    const f = await frameOf(shop);
+    // The structure mode's choice of a prop: one createEntity of the leaf as the structure's child, centred in its opening.
+    const r = await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Door', parentId: shop, transform: { position: [...f.position], rotation: yawQuaternion(f.yawRad) }, components: { voxelPortal: { open: false, stops: { light: true, sight: true, walk: true } } } });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    leaf = r.json['createdId'] as string;
+    expect(await prop(shop)).toBe(leaf);
+    const files = folderState();
+    expect((await lineStep('undo')).status).toBe(200);
+    expect(await entity(leaf)).toBeUndefined();
+    expect(await prop(shop)).toBeUndefined();
+    expect(folderState()).toEqual(files);
+    expect((await lineStep('redo')).status).toBe(200);
+    expect(await prop(shop)).toBe(leaf);
+  });
+
+  it('moves and resizes an opening with its prop in one step', async () => {
+    const was = await placeOf(leaf);
+    const f0 = await frameOf(shop);
+    const opening = (await structureOf(shop))['openings'] as Array<Record<string, unknown>>;
+    const moved = await cmd('setComponent', { entityId: shop, component: 'voxelStructure', value: { openings: [{ ...opening[0]!, at: (opening[0]!['at'] as number) + 2 }] } });
+    expect(moved.status, JSON.stringify(moved.json)).toBe(200);
+    const f1 = await frameOf(shop);
+    const now = await placeOf(leaf);
+    near(now.position.map((v, i) => v - was.position[i]!), f1.position.map((v, i) => v - f0.position[i]!));
+    expect(Math.hypot(f1.position[0] - f0.position[0], f1.position[2] - f0.position[2])).toBeCloseTo(1, 6);
+    expect(await prop(shop)).toBe(leaf);
+    const wider = await cmd('setComponent', { entityId: shop, component: 'voxelStructure', value: { openings: [{ ...opening[0]!, at: (opening[0]!['at'] as number) + 2, width: 3 }] } });
+    expect(wider.status, JSON.stringify(wider.json)).toBe(200);
+    near((await placeOf(leaf)).position, (await frameOf(shop)).position);
+    // Undo the resize, then the move: the leaf back where it stood each time.
+    expect((await lineStep('undo')).status).toBe(200);
+    near((await placeOf(leaf)).position, now.position);
+    expect((await lineStep('undo')).status).toBe(200);
+    near((await placeOf(leaf)).position, was.position);
+    expect(((await structureOf(shop))['openings'] as Array<{ at: number }>)[0]!.at).toBe(opening[0]!['at']);
+  });
+
+  it('duplicates a structure with its props: the copy names its own', async () => {
+    const value = (await query('queryEntity', { entityId: shop }))['entity'] as Record<string, unknown>;
+    const child = (await query('queryEntity', { entityId: leaf }))['entity'] as Record<string, unknown>;
+    const r = await cmd('pasteEntities', { entities: [{ id: shop, components: value['components'] }, { id: leaf, parentId: shop, name: 'Door', components: child['components'] }], offset: [12, 0, 0], sceneId: 'scene-main' });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const copy = r.json['createdId'] as string;
+    const copied = await prop(copy);
+    expect(copied).toBeDefined();
+    expect(copied).not.toBe(leaf);
+    expect(((await query('queryEntity', { entityId: copied! }))['entity'] as { parentId?: string }).parentId).toBe(copy);
+    expect(await prop(shop)).toBe(leaf);
+    expect((await lineStep('undo')).status).toBe(200);
+  });
+
+  it('removes an opening with its prop in one step (the wall closes), and a deleted prop leaves an open hole', async () => {
+    const files = folderState();
+    const gone = await cmd('setComponent', { entityId: shop, component: 'voxelStructure', value: { openings: [] } });
+    expect(gone.status, JSON.stringify(gone.json)).toBe(200);
+    expect(await entity(leaf)).toBeUndefined();
+    expect((await structureOf(shop))['openings']).toEqual([]);
+    expect(folderState()).not.toEqual(files);
+    expect((await lineStep('undo')).status).toBe(200);
+    expect(await entity(leaf)).toBeDefined();
+    expect(await prop(shop)).toBe(leaf);
+    expect(folderState()).toEqual(files);
+    const del = await cmd('deleteEntity', { entityId: leaf });
+    expect(del.status, JSON.stringify(del.json)).toBe(200);
+    const openings = (await structureOf(shop))['openings'] as Array<{ prop?: string }>;
+    expect(openings).toHaveLength(1);
+    expect(openings[0]!.prop).toBeUndefined();
+    expect(folderState()).toEqual(files);
+    expect((await lineStep('undo')).status).toBe(200);
+    expect(await prop(shop)).toBe(leaf);
   });
 });
 

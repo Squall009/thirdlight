@@ -33,7 +33,7 @@ owner are listed in `docs/decisions/owner-decisions.md`.
 
 | Format | Constant (package/file) | Value |
 |---|---|---|
-| Project schema | `PROJECT_SCHEMA_VERSION` (project-model/project-schema.ts) | 8 (the `voxelStructure` component, F1, added within it: add-only, 47a.4; owner 2026-11-20) |
+| Project schema | `PROJECT_SCHEMA_VERSION` (project-model/project-schema.ts) | 8 (the `voxelStructure` component, F1, added within it: add-only, 47a.4; owner 2026-11-20. The `voxelPortal` component, F4, added within it: add-only, 47a.7; owner 2026-11-20: `voxelPortal: { open: false, stops: { light: true, sight: true, walk: true } }` on a prop standing in a structure's opening as the structure's child, the opening's record naming it (`openings[].prop`); open or shut is state, never voxels; a pane of glass stops no light; a script flips `open` and a game saves it as any written field; no door behaviour in the engine; a share of light passed is not in it (D741)) |
 | Content storage | `CONTENT_STORAGE_VERSION` (workspace/store-v4.ts) | 5 |
 | Asset sidecar | `SIDECAR_FORMAT` (workspace/asset-files.ts) | 3 |
 | Resource file | `RESOURCE_FORMAT` (workspace/resource-files.ts) | 1 |

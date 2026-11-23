@@ -9,7 +9,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Objects and components](objects.md) | Object fields, Components, Scene-view handle kinds |
 | [Components: Object](components-object.md) | transform — Transform, socketAttach — Socket |
 | [Components: Rendering (part 1)](components-rendering-1.md) | 15 sections |
-| [Components: Rendering (part 2)](components-rendering-2.md) | spline — Spline, architecture — Architecture, voxelWorld — Voxel world, voxelStructure — Voxel structure |
+| [Components: Rendering (part 2)](components-rendering-2.md) | spline — Spline, architecture — Architecture, voxelWorld — Voxel world, voxelStructure — Voxel structure, voxelPortal — Portal |
 | [Components: Physics](components-physics.md) | collider — Collider, controller — Player controller |
 | [Components: Camera](components-camera.md) | virtualCamera — Virtual camera, cameraPath — Camera path, cameraRegion — Camera region |
 | [Components: Lighting](components-lighting.md) | light — Light |
@@ -69,7 +69,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `storage.ts` |
 | [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 34 sections |
 | [Limits and defaults: project-model (part 2, from `light-layers.ts`)](limits-project-model-2.md) | 38 sections |
-| [Limits and defaults: project-model (part 3, from `validate.ts`)](limits-project-model-3.md) | `validate.ts`, `vertex-paint-stroke.ts`, `vertex-paint.ts`, `voxel-kit.ts`, `voxel-materials.ts`, `voxel-structure.ts`, `voxel-world.ts`, `wind.ts`, `world-streaming.ts` |
+| [Limits and defaults: project-model (part 3, from `validate.ts`)](limits-project-model-3.md) | `validate.ts`, `vertex-paint-stroke.ts`, `vertex-paint.ts`, `voxel-kit.ts`, `voxel-materials.ts`, `voxel-portal.ts`, `voxel-structure.ts`, `voxel-world.ts`, `wind.ts`, `world-streaming.ts` |
 | [Limits and defaults: protocol](limits-protocol.md) | `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `wire-change.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 27 sections |
 | [MCP tools (part 1, from tl_bake_lighting)](mcp-tools-1.md) | `tl_bake_lighting`, `tl_command` |

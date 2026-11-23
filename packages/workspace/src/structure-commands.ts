@@ -32,6 +32,7 @@ import { sceneStructures, structureDefinitionOf, structurePlacementOf, type Voxe
 import { anchoredDefinition, StructureDefinitionError, type GridPlacement, type StructureDefinition } from '@thirdlight/voxel';
 import type { WorkspaceService } from './types';
 import type { AttachedStroke, TimelineStep, UndoTimeline } from './undo-timeline';
+import { dropStructureFollows, queueStructureFollow } from './structure-prop-follows';
 import type { StructureChange } from './voxel-structure-writes';
 import type { VoxelCommandApplied, VoxelStepDirection, VoxelWorldError, VoxelWorlds } from './voxel-worlds';
 
@@ -127,6 +128,7 @@ export class StructureCommands {
       const prepared = await this.prepare(projectId, env, held);
       if (!prepared.ok) return { result: { ok: false, op: String(env.op), error: prepared.error } as MutationResult, voxels: [], strokes: [], far: [] };
       const result = this.service.runCommand(prepared.env);
+      if (typeof env.requestId === 'string') dropStructureFollows(env.requestId);
       if (!result.ok || result.duplicated) return { result, voxels: [], strokes: [], far: [] };
       const after = heldOf(this.scenes(projectId));
       await this.rememberFar(projectId, held);
@@ -261,9 +263,29 @@ export class StructureCommands {
         }
         if (own) values![i - 1] = next;
         else args['value'] = next;
+        // An opening removed (or its prop cleared) while its prop stands: the prop goes with it, in the same step.
+        if (current !== undefined && ids.length === 1) {
+          const gone = this.orphanedProps(projectId, current, next);
+          if (gone.length > 0 && typeof env.requestId === 'string') {
+            queueStructureFollow(env.requestId, { entityId: current.entityId, component: 'voxelStructure', restore: current.component, next: { ...current.component, ...next } });
+            const [first, ...rest] = gone;
+            return { ok: true, env: { ...env, op: 'deleteEntity', args: { entityId: first, ...(rest.length > 0 ? { entityIds: rest } : {}) } }, copies };
+          }
+        }
       }
     }
     return { ok: true, env: { ...env, args }, copies };
+  }
+
+  /** The prop objects (the structure's children) its openings name now and no longer name with `next`'s openings. */
+  private orphanedProps(projectId: string, current: Held, next: Record<string, unknown>): string[] {
+    if (!Array.isArray(next['openings'])) return [];
+    const kept = new Set((next['openings'] as Array<{ prop?: unknown }>).flatMap((o) => (typeof o?.prop === 'string' ? [o.prop] : [])));
+    const children = new Set<string>();
+    for (const sc of this.scenes(projectId)) {
+      for (const e of ((sc as { entities?: Array<{ id?: unknown; parentId?: unknown }> }).entities ?? [])) if (e.parentId === current.entityId && typeof e.id === 'string') children.add(e.id);
+    }
+    return [...new Set(current.component.openings.flatMap((o) => (o.prop !== undefined && !kept.has(o.prop) && children.has(o.prop) ? [o.prop] : [])))];
   }
 
   /** The voxels of what the command changed, a stroke a world; or the refusal (every stroke made taken back). */

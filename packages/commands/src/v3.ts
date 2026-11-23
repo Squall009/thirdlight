@@ -13,7 +13,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
-import { CONTROLLER_FIELDS, DECAL_FIELDS, VERTEX_PAINT_FIELDS, WIND_ZONE_FIELDS, INTERACTOR_FIELDS, validateInteractorComponent, VOXEL_WORLD_FIELDS, validateVoxelWorldComponent, VOXEL_STRUCTURE_FIELDS, validateVoxelStructureComponent, validateDecalComponent, validateVertexPaintComponent, validateWindZoneComponent } from '@thirdlight/project-model';
+import { CONTROLLER_FIELDS, DECAL_FIELDS, VERTEX_PAINT_FIELDS, WIND_ZONE_FIELDS, INTERACTOR_FIELDS, validateInteractorComponent, VOXEL_WORLD_FIELDS, validateVoxelWorldComponent, VOXEL_STRUCTURE_FIELDS, validateVoxelStructureComponent, VOXEL_PORTAL_FIELDS, validateVoxelPortalComponent, validateDecalComponent, validateVertexPaintComponent, validateWindZoneComponent } from '@thirdlight/project-model';
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, validateProbeVolumeComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { ANIMATION_ROLE_KEYS, validateBehaviorGroupComponent } from '@thirdlight/project-model';
@@ -92,6 +92,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   interactor: INTERACTOR_FIELDS,
   voxelWorld: VOXEL_WORLD_FIELDS,
   voxelStructure: VOXEL_STRUCTURE_FIELDS,
+  voxelPortal: VOXEL_PORTAL_FIELDS,
 };
 
 /**
@@ -173,6 +174,7 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'interactor',
   'voxelWorld',
   'voxelStructure',
+  'voxelPortal',
 ];
 
 /** Every component `setComponent` may address. */
@@ -281,6 +283,9 @@ export function validateV3ComponentValue(
       break;
     case 'voxelStructure':
       validateVoxelStructureComponent(value, path, errors as unknown as Parameters<typeof validateVoxelStructureComponent>[2]);
+      break;
+    case 'voxelPortal':
+      validateVoxelPortalComponent(value, path, errors as unknown as Parameters<typeof validateVoxelPortalComponent>[2]);
       break;
     case 'socketAttach':
       validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);

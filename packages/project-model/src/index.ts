@@ -867,6 +867,7 @@ export * from './interactor';
 export * from './voxel-world';
 // A building's definition on a scene object: the voxel package's structure record and the grid it owns.
 export * from './voxel-structure';
+export * from './voxel-portal';
 // The voxel worlds a build ships (the catalog's `voxelWorlds` block; the format is the voxel package's).
 export type { ShippedVoxelFile, ShippedVoxelWorld } from '@thirdlight/voxel';
 // Decals: the component, decal layers and decal materials' trim sheet cells.

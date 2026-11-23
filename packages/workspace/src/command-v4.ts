@@ -6,7 +6,7 @@
  * changed, and the publish of the new state.
  */
 
-import { applyMutation, contentInUse, FILE_MOVE_OPS } from '@thirdlight/commands';
+import { applyFollows, applyMutation, contentInUse, FILE_MOVE_OPS } from '@thirdlight/commands';
 import type { AdoptedScene, CommandError, FootprintChunks, DeletedKind, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument, VertexPaintBlob } from '@thirdlight/commands';
 import type { InstancePaint, ModelErrorV3, SceneEnvironment, SceneV4 } from '@thirdlight/project-model';
 import { composeV4, INSTANCE_FLOATS, keptPartIds, prefabStageRootOf, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
@@ -30,6 +30,7 @@ import { prepareInstanceStroke, prepareModelCollider, publishStrokeBuffer, type 
 import { followCopyPaint, prepareVertexPaint, publishPaintBlobs, verifyPaintBlobs } from './vertex-paint-host';
 import { prepareTerrainEdit, publishTerrainBlobs, verifyTerrainTiles, type TerrainBlob } from './terrain-edits';
 import { verifySplineData, withSplineFollows } from './spline-follows';
+import { planStructurePropFollows } from './structure-prop-follows';
 import { assembledChange, prefabViewOf } from './prefab-view';
 import { otherSceneFootprints } from './prefab-footprints';
 import { SCENE_ROUTED_ARG, SCENE_ROUTED_CREATES } from './scene-routing';
@@ -266,6 +267,13 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     if (!followed.ok) return failRequest(request, followed.error);
     outcome = { ...outcome, state: followed.state, result: followed.result };
     terrainBlobs = [...terrainBlobs, ...followed.blobs];
+    // The props standing in structures' openings: moved with their openings, named by them, in the same transaction.
+    const props = planStructurePropFollows(carrier, outcome.state.scene, typeof rid === 'string' ? rid : '');
+    if (props.length > 0) {
+      const applied = applyFollows(outcome.state, outcome.result, props);
+      if (!applied.ok) return failRequest(request, applied.error);
+      outcome = { ...outcome, state: applied.state, result: applied.result };
+    }
   }
   // A move (or its undo or redo) puts resource and scene files elsewhere; an undo or redo first checks its targets are free.
   const moveChange = outcome.result.change.type === 'moveResources' ? (outcome.result.change as MoveResourcesChange) : null;

@@ -470,4 +470,5 @@ export { parseStructureDefinition, ROOF_AXES, ROOF_SHAPES, STAIR_FACINGS, STAIR_
 export { boxChunkKeys, boxChunks, type GeneratedDefinition, type StructureGenerator } from './structures/generator';
 export { anchoredDefinition, BUILDING_GENERATOR, BUILDING_GENERATOR_VERSION, buildingChunk, buildingPlan, canonicalStructureDefinition } from './structures/building';
 export { NO_ROOF, type BuildingPlan } from './structures/building-plan';
+export { followOpening, OPENING_PROP_FIT_TOLERANCE_M, OPENING_SIZES, openingCells, openingFrame, propFitsOpening, yawQuaternion, type OpeningCells, type OpeningFrame, type OpeningSize } from './structures/openings';
 export { captureOverrides, regenerateAll, regenerateStructure, type RegenerateAllReport, type RegenerateReport, type StructureMisfit, type StructureToRegenerate } from './structures/regenerate';

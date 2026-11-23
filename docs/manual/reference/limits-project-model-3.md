@@ -43,6 +43,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-voxel-material-limits"></a>`VOXEL_MATERIAL_LIMITS` | `{"idMin":1,"idMax":4095,"tileMetresMin":0.5,"tileMetresMax":64,"heightDepthMax":0.25,"heightDepthDefault":0.02,"blendMetresMax":0.5,"blendMetresDefault":0.25}` |  |
 
+<a id="limits-project-model--voxel-portal"></a>
+## `voxel-portal.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-voxel-portal-defaults"></a>`VOXEL_PORTAL_DEFAULTS` | `{"open":false,"stops":{"light":true,"sight":true,"walk":true}}` | A door: shut, stopping light, sight and walkers (what a new portal starts as). |
+
 <a id="limits-project-model--voxel-structure"></a>
 ## `voxel-structure.ts`
 

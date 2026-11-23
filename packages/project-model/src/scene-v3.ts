@@ -21,6 +21,7 @@ import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
 import { canonicalDecal, validateDecalComponent, type DecalComponent } from './decals';
 import { canonicalInteractor, validateInteractorComponent, type InteractorComponent } from './interactor';
+import { canonicalVoxelPortal, validateVoxelPortalComponent, type VoxelPortalComponent } from './voxel-portal';
 import { canonicalVoxelWorld, validateVoxelWorldComponent, type VoxelWorldComponent } from './voxel-world';
 import { canonicalVoxelStructure, checkSceneStructures, structureTransformProblem, validateVoxelStructureComponent, type VoxelStructureComponent } from './voxel-structure';
 import { canonicalWindZone, validateWindZoneComponent, type WindZoneComponent } from './wind';
@@ -163,7 +164,8 @@ const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'parentPart', ...
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
 // No `camera`: the engine owns the view and scenes hold shots (`virtualCamera`); an older project's scene camera is upgraded on open.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture', 'decal', 'vertexPaint', 'windZone', 'interactor', 'voxelWorld', 'voxelStructure'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture', 'decal', 'vertexPaint', 'windZone', 'interactor', 'voxelWorld', 'voxelStructure', 'voxelPortal'];
+// `voxelPortal` (open or shut state of a prop in a structure's opening) after it.
 // `voxelStructure` (a building written into its own grid of a voxel world) last.
 // `voxelWorld` (streams one of the project's voxel worlds while the scene is loaded) after it.
 // `interactor` (presses into foliage and the interaction field round the camera) after it.
@@ -843,6 +845,7 @@ export function validateEntityComponentsV3(
   if (comps['windZone'] !== undefined) validateWindZoneComponent(comps['windZone'], `${path}/windZone`, errors);
   if (comps['interactor'] !== undefined) validateInteractorComponent(comps['interactor'], `${path}/interactor`, errors);
   if (comps['voxelWorld'] !== undefined) validateVoxelWorldComponent(comps['voxelWorld'], `${path}/voxelWorld`, errors);
+  if (comps['voxelPortal'] !== undefined) validateVoxelPortalComponent(comps['voxelPortal'], `${path}/voxelPortal`, errors);
   if (comps['voxelStructure'] !== undefined) {
     validateVoxelStructureComponent(comps['voxelStructure'], `${path}/voxelStructure`, errors);
     validateStructureTransform(comps, parentId, ePath, errors);
@@ -1495,6 +1498,7 @@ export function canonicalComponentsV3(comps: Record<string, unknown>): EntityCom
   if (comps['interactor'] !== undefined) components.interactor = canonicalInteractor(comps['interactor'] as InteractorComponent);
   if (comps['voxelWorld'] !== undefined) components.voxelWorld = canonicalVoxelWorld(comps['voxelWorld'] as VoxelWorldComponent);
   if (comps['voxelStructure'] !== undefined) components.voxelStructure = canonicalVoxelStructure(comps['voxelStructure'] as VoxelStructureComponent);
+  if (comps['voxelPortal'] !== undefined) components.voxelPortal = canonicalVoxelPortal(comps['voxelPortal'] as VoxelPortalComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number; paint?: InstancePaint; seeThrough?: boolean };
     components.instances = {

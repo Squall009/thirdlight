@@ -188,3 +188,22 @@ A building that writes its own grid of a voxel world: change a field and the bac
 | `openings` | JSON: `StructureOpening[]` ([StructureOpening](types-s-w.md#type-structure-opening)) |  |  | **Openings.** Doors and windows [{id, polygon, edge, storey, at, width, height, sill, prop?}] on an outside wall, in cells. (required) |
 | `stairs` | JSON: `StructureStair[]` ([StructureStair](types-s-w.md#type-structure-stair)) |  |  | **Stairs.** Flights [{id, polygon, from, at: [x, z], facing}] from a storey to the next, two cells wide. (required) |
 | `generator` | int |  | ≥ 1, step 1 | **Generator.** The building generator version that last wrote its voxels; a newer engine regenerates every structure in one undoable step (Regenerate structures). (required; written by a tool) |
+
+<a id="component-voxelPortal"></a>
+## voxelPortal — Portal
+
+Open or shut state of a prop standing in an opening of a voxel structure (a door, a pane, a shutter). Shut, it closes its opening exactly for what it stops, whatever the prop's thickness; the opening's voxels never change. A script flips Open; how a door swings is the game's.
+
+- Category: Rendering
+- Added: from "+ Add component", starting as `{"open":false,"stops":{"light":true,"sight":true,"walk":true}}`
+- On prefab objects: yes
+- Rule: Joined to the opening it stands in by its place: a child of the structure object, inside the opening's cells.
+- Rule: Open or shut is state, never voxels; a prop with a portal is not stamped into the light by its shape (its opening does the stopping).
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `open` | bool | `false` |  | **Open.** Open: the opening passes light, sight and walkers. Shut: it stops what Stops names. (required; scripts read and write) |
+| `stops` | object |  |  | **Stops while shut.** What the shut prop closes its opening to. A pane of glass stops walkers only. (required; scripts read) |
+| `stops.light` | bool | `true` |  | **Light.** The opening's cells stop the light's rays whole while shut (off: light passes, as through glass). (required) |
+| `stops.sight` | bool | `true` |  | **Sight.** Rooms and their portals read the opening as closed while shut (off: it is seen through). (required) |
+| `stops.walk` | bool | `true` |  | **Walkers.** Paths through the opening are marked as through a shut door, which a path query takes only when asked. (required) |

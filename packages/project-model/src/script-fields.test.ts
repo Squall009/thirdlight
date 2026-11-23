@@ -24,7 +24,7 @@ describe('script access marks', () => {
   it('writable fields are exactly the listed first set, all of them readable', () => {
     const t = scriptAccessTable();
     const writable = Object.entries(t.components).filter(([, a]) => a.write.length > 0).map(([c, a]) => `${c}:${a.write.join(',')}`);
-    expect(writable).toEqual(['object:active,visible,keepLoaded', 'transform:position,rotation,scale', 'materials:*', 'materialParams:*', 'light:color,intensity,range,lightMask,shadowCasterMask', 'mover:speed,active']);
+    expect(writable).toEqual(['object:active,visible,keepLoaded', 'transform:position,rotation,scale', 'materials:*', 'materialParams:*', 'light:color,intensity,range,lightMask,shadowCasterMask', 'mover:speed,active', 'voxelPortal:open']);
     for (const a of Object.values(t.components)) for (const w of a.write) expect(a.read).toContain(w);
   });
 
@@ -85,7 +85,7 @@ describe('script access marks', () => {
 // The pinned digest of what scripts may read on schemaVersion 8 objects and components: a change to it is a change scripts can see
 // (re-pinned for an added optional field, as the voxel world's blend distance and its brick bake level, and for `foliageBend`
 // renamed `interactor` by the recorded schema 8 step that upgrades every project on open).
-const PINNED_V8 = '1054c8d4943407dc';
+const PINNED_V8 = 'e36d332cd3612b57';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

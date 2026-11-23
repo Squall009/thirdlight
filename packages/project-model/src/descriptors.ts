@@ -45,6 +45,7 @@ import { decal } from './decal-descriptor';
 import { vertexPaint } from './vertex-paint-descriptor';
 import { windZone } from './wind-descriptor';
 import { interactor } from './interactor-descriptor';
+import { voxelPortal } from './voxel-portal-descriptor';
 import { voxelWorld } from './voxel-world-descriptor';
 import { voxelStructure } from './voxel-structure-descriptor';
 import { COMPONENT_ICONS, type ComponentDescriptor, type DescriptorRegistry, type FieldDescriptor, HANDLE_KINDS, HANDLE_ROLES, type ObjectFieldDescriptor } from './descriptor-types';
@@ -103,6 +104,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   architecture,
   voxelWorld,
   voxelStructure,
+  voxelPortal,
 ];
 
 // ---- What scripts read and write (ctx.entity) --------------------------
@@ -132,6 +134,8 @@ const SCRIPT_WRITABLE: Readonly<Record<string, readonly string[]>> = {
   // Which project material a slot wears: swapped once the material has loaded (the renderer waits for it).
   materials: ['*'],
   materialParams: ['*'],
+  // Open or shut: the runtime closes the opening it stands in for what it stops, the same step.
+  voxelPortal: ['open'],
 };
 
 function markField(f: FieldDescriptor, read: boolean, write: boolean): FieldDescriptor {

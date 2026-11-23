@@ -3,7 +3,9 @@
  * terrain shaped again by the splines the command added, moved, changed or
  * removed, a spline's made mesh and pieces (the project host's), a baked
  * decal's object turning into a model of the baked file (the publish's own),
- * and the further objects of a `setComponent` given several (its own).
+ * the further objects of a `setComponent` given several (its own), and the
+ * props standing in a structure's openings (their transforms, the openings'
+ * `prop`).
  *
  * The host plans its follow-ups after the command's own change (it reads and
  * publishes blobs, which the pure layer cannot), then hands them here; an op
@@ -21,7 +23,7 @@ import type { CommandState, HistoryEntry, MutationSuccess, OwnedComponent, Scene
  * The components a follow-up can write: the host's and ops' own, and any
  * owned component a `setComponent` writes on more objects than its first.
  */
-export type FollowedComponent = 'terrain' | 'spline' | 'decal' | 'model' | 'materials' | OwnedComponent;
+export type FollowedComponent = 'terrain' | 'spline' | 'decal' | 'model' | 'materials' | 'transform' | OwnedComponent;
 
 /** One component written with a command (null: absent). */
 export interface ComponentFollow {

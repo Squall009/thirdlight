@@ -14,7 +14,8 @@
  * walker on any step has the whole storey over it).
  */
 import { STAIR_WIDTH_CELLS, StructureDefinitionError, type StructureDefinition } from './definition';
-import { signedArea2, type PlanGrid } from './building-plan';
+import type { PlanGrid } from './building-plan';
+import { openingCells } from './openings';
 
 function push(map: Map<number, number[]>, col: number, ...v: number[]): void {
   let l = map.get(col);
@@ -42,17 +43,11 @@ export function openingRows(def: StructureDefinition, g: PlanGrid): Map<number, 
     const alongX = a[1] === b[1];
     const len = Math.abs(alongX ? b[0] - a[0] : b[1] - a[1]);
     if (o.at + o.width > len) throw new StructureDefinitionError(`${path}/width`, `${what} reaches past its edge's end (at ${o.at} + width ${o.width} is more than the edge's ${len} cells)`);
-    const step = alongX ? Math.sign(b[0] - a[0]) : Math.sign(b[1] - a[1]);
-    // The inside lies on the edge's left when the polygon's points run anticlockwise over (x, z).
-    const left = signedArea2(pts) > 0 ? 1 : -1;
-    const inward = alongX ? left * step : -left * step;
-    const y0 = o.storey * h + 1 + o.sill;
-    for (let j = o.at; j < o.at + o.width; j++) {
-      const along = step > 0 ? (alongX ? a[0] : a[1]) + j : (alongX ? a[0] : a[1]) - 1 - j;
-      const across = alongX ? a[1] : a[0];
-      const inCell = inward > 0 ? across : across - 1;
-      const outCell = inward > 0 ? across - 1 : across;
-      const [x, z, ox, oz] = alongX ? [along, inCell, along, outCell] : [inCell, along, outCell, along];
+    const cells = openingCells(def, o)!;
+    const y0 = cells.y0;
+    for (let j = 0; j < cells.columns.length; j++) {
+      const [x, z] = cells.columns[j]!;
+      const [ox, oz] = cells.outside[j]!;
       const col = (x - g.x0) * g.d + (z - g.z0);
       const ocol = (ox - g.x0) * g.d + (oz - g.z0);
       if (g.wall[col] !== 1 || g.inside[ocol] === 1) throw new StructureDefinitionError(path, `${what} lies inside the building at cell (${x}, ${z}): edge ${o.edge} of polygon "${o.polygon}" is joined to another polygon there; put it on an outside wall`);

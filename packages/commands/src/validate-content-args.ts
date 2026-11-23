@@ -521,6 +521,7 @@ const OWNED: readonly OwnedComponent[] = [
   'interactor',
   'voxelWorld',
   'voxelStructure',
+  'voxelPortal',
 ];
 // Box and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -567,6 +568,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'interactor',
   'voxelWorld',
   'voxelStructure',
+  'voxelPortal',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 // A gravity body's fields are all optional too (the project's gravity on a 1 m body).
@@ -804,7 +806,8 @@ function validateSetComponentOne(
     component === 'windZone' ||
     component === 'interactor' ||
     component === 'voxelWorld' ||
-    component === 'voxelStructure'
+    component === 'voxelStructure' ||
+    component === 'voxelPortal'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
     // stages) are the model's and the role-binding helper's; nothing structural is

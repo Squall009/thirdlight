@@ -437,7 +437,9 @@ export class Projection {
     const result = this.applyChangeInner(change, kinds);
     // Components the project host wrote with the change (terrains shaped by splines): their values as written.
     for (const f of (change as { follows?: readonly { entityId: string; component: string; next: unknown }[] }).follows ?? []) {
-      this.applyChangeInner({ type: 'setComponent', id: f.entityId, component: f.component, previous: null, next: f.next, changedFields: [] } as unknown as ChangeData, kinds);
+      // A transform written with the change (a prop moved with its opening) is the object's place, as a setTransform.
+      if (f.component === 'transform') this.applyChangeInner({ type: 'setTransform', id: f.entityId, next: f.next } as unknown as ChangeData, kinds);
+      else this.applyChangeInner({ type: 'setComponent', id: f.entityId, component: f.component, previous: null, next: f.next, changedFields: [] } as unknown as ChangeData, kinds);
     }
     // The objects linked prefab copies make, as the change left them (whole values in, ids out).
     const assembled = (change as { assembled?: { upsert: readonly { sceneId: string; entities: readonly EntityV3[] }[]; removedIds: readonly string[] } }).assembled;
