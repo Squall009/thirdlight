@@ -1870,7 +1870,7 @@ footprint's other columns need only be free over the floor); not tested.
 it, its props left by the failed Play test; `structure-mode` redo once); gate-fast-20261123-094648 RED (the same Play
 check: the door's way was as short; the Scene view again after it; `structure-mode` passed); alone at the head the
 Play test passed after the fix and Play + Scene view passed together; gate-fast-20261123-101803 GREEN (80 e2e, the
-Play test 2.1 min; `tracer-terrain-rings.test.ts` failed once, passed alone).
+Play test 2.1 min; `tracer-terrain-rings.test.ts` failed once, passed alone). `area play` with the leak test gate-area-20261123-115835 GREEN (24 passed).
 
 **D-rows:** D735, D736, D748, D771, D772 fixed; D780 fixed (the Export failure); new D778 (the band's remakes),
 D779 (feet over a turned slab edge), D781 (no way through a grid between two points of one graph).
