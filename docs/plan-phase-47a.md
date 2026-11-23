@@ -1561,6 +1561,12 @@ harness answered no path query within 60 s, cause not traced; the graph's rule i
 export with a door; the editor's view of a prop that no longer fits (no fit check exists outside the voxel package's
 rule). **Defaults** in §9. **D-rows:** D727, D728 updated (doors); D769–D773.
 
+**Gates:** gate-fast-20261123-040101 RED (the build: a test's types), gate-fast-20261123-040326 RED (vitest: the
+script access table's pin, re-pinned for the added component), gate-fast-20261123-042520 (every area, 181 e2e files,
+vitest 806 files green) RED on D410 (`project-items`), D643 (`terrain-cdlod`) and `frame-rate-cap`,
+gate-rerun-20261123-050337 GREEN; the Play and Export tests and the structure-mode test passed in the first run;
+`area play` with the leak test gate-area-20261123-050948 GREEN (`memory.e2e.ts:435` failed once, passed alone: D768).
+
 ### D761 — a landing far rebuild re-derived the page's near field
 
 **Cause: not the far rebuild.** The ~33,800 `derived` sections in the paint's window (5,046 chunks read again) were
