@@ -6,7 +6,8 @@
  *
  * Checked: the grid a point lies in (a structure's cell that is not air, else the world's own) for reads, coverage
  * and regions; rays meeting each turned house exactly (its grid, its cell, the face's normal in the world, solid and
- * light stops, through its door to its back wall); changes over a region spanning a house and the ground (a dig
+ * light stops, through its door to its back wall); a door prop shut and opened by a script (light, `portalsOf`, and
+ * paths from the street into the room: none by default while shut, one with `doors: 'shut-too'`, one once open); changes over a region spanning a house and the ground (a dig
  * opens both; a set replaces the wall's cells in the house and fills the air before it in the world grid), one change
  * reported once both grids swapped; a save of a turned house's dug wall restored into a fresh run of the same files
  * (the hole is back), each grid chunk's entry made against its shipped chunk's hash; and saves met by other files:
@@ -142,7 +143,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 type Ctx = { voxels: BehaviorVoxels; entity(id: string): { set(component: string, patch: Record<string, unknown>): { ok: boolean; message: string } } | null };
 
 /** A running game over the test world with the houses `grids` names (each grid's folder, by its id): `inStep` runs a function in the script's next step. */
-async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder: string }>, extra: readonly Record<string, unknown>[] = []): Promise<{ inStep<R>(fn: (v: BehaviorVoxels, ctx: Ctx) => R | undefined, what: string): Promise<R>; changes: BehaviorVoxels['changes'][number][]; mismatches: BehaviorVoxels['mismatches'][number][] }> {
+async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder: string }>, extra: readonly Record<string, unknown>[] = []): Promise<{ inStep<R>(fn: (v: BehaviorVoxels, ctx: Ctx) => R | undefined, what: string): Promise<R>; changes: BehaviorVoxels['changes'][number][]; mismatches: BehaviorVoxels['mismatches'][number][]; walk(): { pending: boolean; grids?: { pending: number; links: number } } | undefined }> {
   const r = await createPhysicsPort3D({ character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } }, noCharacter: true, statics: [], solver: { hz: 60, gravityY: -9.81 }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: 0.8, minSlopeSlideRad: 0.9, autostep: false } });
   if (!r.ok) throw new Error(r.error.message);
   const ports = {
@@ -231,10 +232,51 @@ async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder:
     }
     return out!.r;
   };
-  return { inStep, changes, mismatches };
+  /** The world's walk diagnostics (the world's graph and its grids' graphs and links). */
+  const walk = (): { pending: boolean; grids?: { pending: number; links: number } } | undefined => {
+    const d = rt.getDiagnostics();
+    return d.ok ? (d.diagnostics as { voxelWorlds?: Array<{ walk?: { pending: boolean; grids?: { pending: number; links: number } } }> }).voxelWorlds?.[0]?.walk : undefined;
+  };
+  return { inStep, changes, mismatches, walk };
 }
 
 const ALL = HOUSES.map((h) => ({ id: h.id, folder: `grid-${h.id}` }));
+type Game = Awaited<ReturnType<typeof game>>;
+type PathAnswer = BehaviorVoxels['paths'][number];
+/** The street before a house's door and a place in its room (metres). */
+const street = (id: number): [number, number, number] => frameOf(id).toWorld(3.25, 0.25, -3);
+const inRoom = (id: number): [number, number, number] => cellAt(id, 6, 1, 5);
+/** Whether a path's last point is the room's place (its floor middle under it). */
+const endsIn = (a: PathAnswer, id: number): boolean => {
+  const end = a.points.at(-1);
+  const r = inRoom(id);
+  return end !== undefined && Math.hypot(end[0] - r[0], end[2] - r[2]) <= Math.SQRT2 * M + 1e-6 && Math.abs(end[1] - (r[1] - M / 2)) < 1e-6;
+};
+/**
+ * Until the world's and the grids' walk graphs and their links have nothing to make for ten steps: a query asked while
+ * they are being made answers from what is made so far (a door's link not yet made: no way in).
+ */
+async function walkMade(g: Game): Promise<void> {
+  let quiet = 0;
+  await g.inStep(() => {
+    const w = g.walk();
+    quiet = w !== undefined && !w.pending && w.grids !== undefined && w.grids.pending === 0 && w.grids.links > 0 ? quiet + 1 : 0;
+    return quiet >= 10 ? true : undefined;
+  }, 'the walk graphs and their links made');
+}
+/**
+ * A path from the street into each house's room per option set, asked once in one step and read as answered at
+ * later steps (keyed `<house>:<option index>`). Asked once: a query asked again every step queues behind itself.
+ */
+async function paths(g: Game, options: readonly Parameters<BehaviorVoxels['findPath']>[2][]): Promise<Map<string, PathAnswer>> {
+  const ids = new Map<number, string>();
+  const out = new Map<string, PathAnswer>();
+  return g.inStep((v) => {
+    if (ids.size === 0) for (const h of HOUSES) options.forEach((o, i) => ids.set(v.findPath(street(h.id), inRoom(h.id), o), `${h.id}:${i}`));
+    for (const a of v.paths) if (ids.has(a.path)) out.set(ids.get(a.path)!, a);
+    return out.size === ids.size ? out : undefined;
+  }, 'the paths answered');
+}
 /** Every house and the ground round them: what the checks read and change. */
 const AREA = { min: [-22, -4, -20] as [number, number, number], max: [24, 8, 6] as [number, number, number] };
 /** Until every house's cells and the ground round them are loaded and every chunk's derive is in (coverage reads it). */
@@ -325,6 +367,14 @@ describe('ctx.voxels in a world with structure grids', () => {
       expect(r.light!.grid, `${r.yaw}° the ray stops in the world's cells at the door`).toBe(0);
       expect(r.light!.distance).toBeGreaterThan(3 - 2 * M);
     }
+    // Shut to walkers: no way from the street into the room by default; through the shut door with `shut-too`.
+    await walkMade(g);
+    const shutWays = await paths(g, [{}, { doors: 'shut-too' }]);
+    for (const h of HOUSES) {
+      expect(shutWays.get(`${h.id}:0`)!.status, `${h.yawDeg}° shut, open-only`).toBe('unreachable');
+      expect(shutWays.get(`${h.id}:1`)!.status, `${h.yawDeg}° shut, shut-too`).toBe('found');
+      expect(endsIn(shutWays.get(`${h.id}:1`)!, h.id), `${h.yawDeg}° ends in the room`).toBe(true);
+    }
     // Opened by a script through the generic component access: the light and the default path pass again.
     await g.inStep((_v, ctx) => (HOUSES.every((h) => ctx.entity(`door-${h.id}`)?.set('voxelPortal', { open: true }).ok === true) ? true : undefined), 'doors opened');
     const open = await g.inStep((v) => {
@@ -334,6 +384,13 @@ describe('ctx.voxels in a world with structure grids', () => {
     for (const r of open) {
       expect(r.light!.grid).toBe(HOUSES.find((h) => h.yawDeg === r.yaw)!.id);
       expect(r.light!.cell[2]).toBe(HOUSE.d - 1);
+    }
+    // Open: the default walker goes in.
+    await walkMade(g);
+    const openWays = await paths(g, [{}]);
+    for (const h of HOUSES) {
+      expect(openWays.get(`${h.id}:0`)!.status, `${h.yawDeg}° open`).toBe('found');
+      expect(endsIn(openWays.get(`${h.id}:0`)!, h.id)).toBe(true);
     }
   }, 180_000);
 

@@ -1128,6 +1128,98 @@ export interface GridCheckSetup extends ShadowCheckSetup {
  */
 const LIGHT_UPDATES = 8;
 
+/** What the door checks read: the room's light with the leaf open, shut, open again and with the pane in its place, and each flip's time to the light. */
+export interface DoorReadings { open: number; shut: number; reopened: number; pane: number; shutMs: number; openMs: number; pathMs: number }
+
+/**
+ * The house's door in Play (its leaf a prop with a `voxelPortal`, open as authored; the light volume on, the house's
+ * camera live): a script shuts the leaf by the generic component access → `portalsOf` names it shut, the room's light
+ * falls, no path from the porch into the room by default and one through shut doors (`doors: 'shut-too'`); opened,
+ * the light and the default path come back. Then the pane (shut, its `stops.light` false) is put in the door in the
+ * leaf's place: `portalsOf` names it shut and the room's light stays as with the door open. With the portal's light
+ * stamp left out the light does not fall; with its shut cells left out the default path is found; with the links onto
+ * shut cells left out the path through shut doors is not.
+ */
+async function doorChecks(d: {
+  control(cmd: string, args?: Record<string, unknown>): Promise<void>;
+  counter(name: string): Promise<number>;
+  cells(): Promise<VolumeCell[]>;
+  lightOf(c: VolumeCell | undefined): number;
+  settled(what: string): Promise<number>;
+  still(name: string): Promise<Png>;
+}): Promise<DoorReadings> {
+  const doorCode = async (): Promise<number> => Math.floor((await d.counter('gridRoomPortals')) / 10);
+  const set = async (what: string, code: number): Promise<void> => {
+    const n = await d.counter('doorSet');
+    await d.control('gridedit', { what });
+    await expect.poll(() => d.counter('doorSet'), { timeout: 10_000 }).toBe(n + 1);
+    await expect.poll(doorCode, { timeout: 10_000, intervals: [100], message: `portalsOf names the door's prop as ${what} asks` }).toBe(code);
+  };
+  // A path asked from the porch into the room, answered at a later step: 1 found, 3 unreachable (the packed `gpath`).
+  const path = async (what: 'path' | 'pathshut'): Promise<number> => {
+    const n = Math.floor((await d.counter('gpath')) / 1e12);
+    await d.control('gridedit', { what });
+    let packed = 0;
+    await expect.poll(async () => Math.floor((packed = await d.counter('gpath')) / 1e12), { timeout: 10_000 }).toBeGreaterThan(n);
+    return Math.floor((packed % 1e12) / 1e11);
+  };
+  // The time from the flip's command to the room's light moving a fifth of what it was (the command's round trip and
+  // the 100 ms polls included).
+  const flip = async (what: string, code: number): Promise<number> => {
+    const was = d.lightOf((await d.cells())[0]);
+    const t = Date.now();
+    await set(what, code);
+    await expect.poll(async () => Math.abs(d.lightOf((await d.cells())[0]) - was) > 0.2 * Math.max(was, 0.05), { timeout: 30_000, intervals: [100], message: `the room's light moves after ${what}` }).toBe(true);
+    return Date.now() - t;
+  };
+  expect(await doorCode(), 'the leaf open').toBe(1);
+  const open = await d.settled("the room's light, its door open");
+  await d.still('grid-door-open');
+  const shutMs = await flip('shut', 2);
+  const shut = await d.settled("the room's light, its door shut");
+  await d.still('grid-door-shut');
+  const p0 = Date.now();
+  await expect.poll(() => path('path'), { timeout: 20_000, intervals: [200], message: 'no path into the room by default while its door is shut' }).toBe(3);
+  await expect.poll(() => path('pathshut'), { timeout: 20_000, intervals: [200], message: 'a path into the room through the shut door' }).toBe(1);
+  const pathMs = Date.now() - p0;
+  const openMs = await flip('open', 1);
+  const reopened = await d.settled("the room's light, its door open again");
+  await expect.poll(() => path('path'), { timeout: 20_000, intervals: [200], message: 'a path into the room by default once its door is open' }).toBe(1);
+  // The pane in the door (shut, light passes), the leaf in the room: no flip of the light.
+  await set('pane', 4);
+  const pane = await d.settled("the room's light, the pane shut in its door");
+  const r = { open, shut, reopened, pane, shutMs, openMs, pathMs };
+  console.log(`[voxel-play] door: ${JSON.stringify(r)}`);
+  expect(shut, "the room's light falls with its door shut").toBeLessThan(0.5 * open);
+  expect(reopened, 'and comes back once it is open').toBeGreaterThan(0.8 * open);
+  expect(pane, 'a shut pane passes the light').toBeGreaterThan(0.8 * open);
+  return r;
+}
+
+/**
+ * The house's door in an export served statically with the backend stopped (the light volume on, the house's camera
+ * made live by the console): its leaf ships as a scene object with its `voxelPortal` and is joined to its opening by
+ * its place alone (no definition ships); shut from the console, `portalsOf` names it shut and the room's light falls.
+ */
+export async function exportDoorCheck(game: Page, run: (line: string, done: RegExp) => Promise<void>, o: { frame: GridCheckSetup['frame']; house: GridCheckSetup['house']; camera: string; target: string }): Promise<{ open: number; shut: number }> {
+  type Obs = { counters?: Record<string, number> } | null;
+  const doorCode = async (): Promise<number> => Math.floor((((await game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null)) as Obs)?.counters?.['gridRoomPortals'] ?? 0) / 10);
+  const [mx, , mz] = o.house.room;
+  const pts = [o.frame.toWorld(mx, o.house.slabTop + 0.25, mz)];
+  const room = async (): Promise<VolumeCell | null> => ((await game.evaluate((p) => (window as unknown as { __tlVoxelPlay: { light: { volumeCells(a: number[][]): Promise<unknown> } } }).__tlVoxelPlay.light.volumeCells(p), pts)) as VolumeCell[] | null)?.[0] ?? null;
+  const light = (c: VolumeCell | null): number => (c?.faces ?? []).reduce((n, f) => n + clum(f), 0);
+  await run(`cam ${o.camera} ${o.target}`, /ran cam/);
+  await expect.poll(doorCode, { timeout: 20_000, message: 'the exported leaf is joined to its opening, open' }).toBe(1);
+  let open = 0;
+  await expect.poll(async () => { const c = await room(); open = light(c); return (c?.updates ?? 0) >= LIGHT_UPDATES; }, { timeout: 60_000, intervals: [250], message: "the exported room's light" }).toBe(true);
+  await run('gridedit shut', /ran gridedit/);
+  await expect.poll(doorCode, { timeout: 10_000, message: 'portalsOf names the exported leaf shut' }).toBe(2);
+  let shut = open;
+  await expect.poll(async () => (shut = light(await room())) < 0.5 * open, { timeout: 30_000, intervals: [250], message: "the exported room's light falls with its door shut" }).toBe(true);
+  console.log(`[voxel-export] door: room light open ${open.toFixed(3)} → shut ${shut.toFixed(3)}`);
+  return { open, shut };
+}
+
 /**
  * A structure grid in Play (WebGPU): a stone house (a structure object: its grid written by the backend, placed by
  * its object, its porch a hand edit kept as overrides) in grid 1 turned 30°, streamed, meshed and drawn with its kit
@@ -1138,7 +1230,7 @@ const LIGHT_UPDATES = 8;
  * from its porch into its room walks its own cells. With the grid's draws, its body, its stamp or its walk graph left
  * out, or turned the wrong way, each fails here.
  */
-export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: number; wallStopZ: number; doorInZ: number; roomLight: number; streetLight: number; settleMs: number; path: { inRoom: number; cm: number; ms: number }; ms: number }> {
+export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: number; wallStopZ: number; doorInZ: number; roomLight: number; streetLight: number; settleMs: number; path: { inRoom: number; cm: number; ms: number }; door: DoorReadings; ms: number }> {
   const t0 = Date.now();
   const { control, counter, still } = driver(o);
   const counted = async (cmd: string, name: string, args?: Record<string, unknown>): Promise<void> => {
@@ -1159,8 +1251,9 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   let boards = 0;
   for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) if (magenta(img.pixel(x, y))) boards++;
   // The room as the world's regions see it (the grid stamped into the world grid): a room, its door its one portal.
-  const roomGauge = async (): Promise<string> => `${await counter('gridRoomKind')},${await counter('gridRoomPortals')}`;
-  await expect.poll(roomGauge, { timeout: 20_000, intervals: [200], message: "the turned house's room is a room of the world's regions, its door a portal" }).toBe('1,1');
+  // Its door's leaf (a prop with a `voxelPortal`, open as authored) is named by `portalsOf` (the counter's tens: 1).
+  const roomGauge = async (): Promise<string> => { const p = await counter('gridRoomPortals'); return `${await counter('gridRoomKind')},${p % 10},${Math.floor(p / 10)}`; };
+  await expect.poll(roomGauge, { timeout: 20_000, intervals: [200], message: "the turned house's room is a room of the world's regions, its door a portal, its leaf open" }).toBe('1,1,1');
   // Its light: the store switched on (the Play test runs without it) with the house's camera live, the room's floor
   // against the porch's.
   const hook = async <T>(f: string, arg?: unknown): Promise<T> => (await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate((_, a) => {
@@ -1233,6 +1326,7 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
     await expect.poll(async () => { c = (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? []; return c.length === 2 && c.every((x) => x.updates >= LIGHT_UPDATES); }, { timeout: 60_000, intervals: [250], message: what }).toBe(true);
     return lightOf(c[0]);
   };
+  const door = await doorChecks({ control, counter, cells: async () => (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? [], lightOf, settled, still });
   const shut = await settled("the room's light before the dig");
   const changes = await counter('changes');
   const dugAt = Date.now();
@@ -1261,7 +1355,7 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   expect(worlds[o.drawName]?.pieceDraws, "the grid's pieces take no draws of their own").toBe(0);
   expect(worlds['far']?.kitInstances ?? 0, "the world's piece draws hold the grid's copies").toBeGreaterThanOrEqual(worlds[o.drawName]?.kitInstances ?? 0);
   expect(g.skipped, 'steps with nothing for the grid skip it').toBeGreaterThan(0);
-  const out = { magenta: boards, wallStopZ, doorInZ, roomLight: Math.round(roomLight * 1000) / 1000, streetLight: Math.round(streetLight * 1000) / 1000, settleMs, path: pathInfo, ms: Date.now() - t0 };
+  const out = { magenta: boards, wallStopZ, doorInZ, roomLight: Math.round(roomLight * 1000) / 1000, streetLight: Math.round(streetLight * 1000) / 1000, settleMs, path: pathInfo, door, ms: Date.now() - t0 };
   console.log(`[voxel-play] structure grid (30°): ${JSON.stringify({ ...out, grids: await grids(), drawn: (await o.drawn())[o.drawName] })}`);
   expect(boards, "the house's kit boards in the picture").toBeGreaterThan(100);
   expect(wallStopZ, 'stopped before the front wall (its outer face at the grid z the house names)').toBeLessThan(o.house.doorWallZ);

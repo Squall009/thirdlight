@@ -12,7 +12,9 @@
  *
  * The grid's cells: the front wall at z = 0 (`porch`), the room to z = d − 1, the porch at z −porchLen … −1.
  */
-import { GridFrame, VOXEL_ROLE, VOXEL_SIZE_M, type GridPlacement, type PaletteStore } from '@thirdlight/voxel';
+import { GridFrame, openingFrame, VOXEL_ROLE, VOXEL_SIZE_M, yawQuaternion, type GridPlacement, type PaletteStore, type StructureDefinition, type StructureOpening } from '@thirdlight/voxel';
+
+import { multiPieceGlb } from './multi-piece-glb';
 
 /** Cells: the room's footprint (x, z), the front wall's z, the porch's depth before it, the walls' height over the slab, the door's cells along x and its height. */
 export const GRID_HOUSE = { w: 12, d: 10, porch: 0, porchLen: 6, h: 6, doorX: [5, 7], doorH: 5 } as const;
@@ -43,6 +45,24 @@ export function gridHouseStructure(world: string, material: number): Record<stri
     stairs: [],
   };
 }
+
+/**
+ * The door's props (children of the house, in its grid's frame): a leaf, its frame the opening's (the middle of its
+ * width and of the wall, at its sill, +z out of the house), and a pane (light passes) that first stands in the room's
+ * middle, turned as the leaf, so a script can put it in the door by its position alone.
+ */
+export function gridHouseDoorProps(): { leaf: { position: [number, number, number]; rotation: [number, number, number, number] }; paneInRoom: [number, number, number] } {
+  const def = gridHouseStructure('far', 1) as unknown as StructureDefinition;
+  const f = openingFrame(def, def.openings[0] as StructureOpening)!;
+  return { leaf: { position: [...f.position], rotation: yawQuaternion(f.yawRad) }, paneInRoom: [GRID_HOUSE_M.room[0], GRID_HOUSE_M.slabTop, GRID_HOUSE_M.room[2]] };
+}
+
+/**
+ * The door's fixture models (each a box with its pivot at its base's middle, +z through the wall): a brown leaf
+ * 1.5 × 2.5 × 0.1 m, the door's size, and a blue pane 1.5 × 2.5 × 0.05 m.
+ */
+export const DOOR_LEAF_GLB = (): Buffer => multiPieceGlb([{ name: 'leaf', lods: [[1.5, 2.5, 0.1]], colors: [[0.35, 0.18, 0.06]], vertexColor: [1, 1, 1, 1] }], { centred: true });
+export const DOOR_PANE_GLB = (): Buffer => multiPieceGlb([{ name: 'pane', lods: [[1.5, 2.5, 0.05]], colors: [[0.2, 0.45, 0.9]], vertexColor: [1, 1, 1, 1] }], { centred: true });
 
 /** The porch: one `set` stroke of the house's grid (`gridId`), floor cells at the slab's row before the door wall. */
 export function gridHousePorch(gridId: number, material: number): Record<string, unknown> {
@@ -81,4 +101,25 @@ export function gridHousePlacement(gridId: number, centre: readonly [number, num
   const place: GridPlacement = { gridId, position: [centre[0] - turned[0], centre[1], centre[2] - turned[2]], yawRad };
   const q = new GridFrame(place).quaternion();
   return { place, frame: new GridFrame(place), rotation: [q.x, q.y, q.z, q.w] };
+}
+
+/**
+ * The house's door props, children of the house in its grid's frame, each with a fixture model and a `voxelPortal`:
+ * the leaf (open; stops light, sight and walkers) in the door, named by the opening through the backend's follow-up;
+ * the pane (shut; light passes) in the room. Returns what the script needs: their ids and each one's place in the
+ * other's spot.
+ */
+export async function gridHouseDoor(
+  houseId: string,
+  publish: (bytes: Uint8Array, assetId: string, name: string) => Promise<unknown>,
+  cmd: (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>,
+): Promise<{ leaf: string; pane: string; inDoor: number[]; inRoom: number[] }> {
+  const p = gridHouseDoorProps();
+  await publish(DOOR_LEAF_GLB(), 'door-leaf', 'Door leaf');
+  await publish(DOOR_PANE_GLB(), 'door-pane', 'Door pane');
+  const prop = async (name: string, asset: string, position: number[], open: boolean, light: boolean): Promise<string> =>
+    String((await cmd('createEntity', { sceneId: 'scene-main', parentId: houseId, kind: 'model', name, model: { asset: { assetId: asset } }, transform: { position, rotation: p.leaf.rotation }, components: { voxelPortal: { open, stops: { light, sight: true, walk: true } } } }))['createdId']);
+  const leaf = await prop('Door leaf', 'door-leaf', p.leaf.position, true, true);
+  const pane = await prop('Door pane', 'door-pane', p.paneInRoom, false, false);
+  return { leaf, pane, inDoor: p.leaf.position, inRoom: p.paneInRoom };
 }

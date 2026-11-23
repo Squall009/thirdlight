@@ -204,7 +204,9 @@ export class WalkGraphLinks {
       const h = DEFAULT_WALK_AGENT.height;
       const reach = WALK_LINK_REACH_CELLS * M;
       for (let i = 0; i < part.ys.length; i++) {
-        if (part.piece[i] === NO_WALK_PIECE || part.clear[i]! < h) continue;
+        // A shut door's cells are in no piece but still link (a walker through shut doors steps onto them; the
+        // queries leave such a link to that walker alone).
+        if ((part.piece[i] === NO_WALK_PIECE && part.shut?.[i] !== 1) || part.clear[i]! < h) continue;
         const [gx, gy, gz] = walkCellOf(part, i);
         // A cell with its grid's floor on all four sides is inside: no world cell is a step from it.
         if (inside(graph, gx, gy, gz)) continue;

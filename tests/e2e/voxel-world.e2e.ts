@@ -88,7 +88,7 @@ import { deflateSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { decodePng, changedPixels } from './png';
 import { expect, test, type Page } from './pw';
-import { exportedContent, serveDir, startBackend, type E2EBackend } from './backend';
+import { exportedContent, publishBytes, serveDir, startBackend, type E2EBackend } from './backend';
 import { consoleErrors } from './console-errors';
 import { editorUrlFor, expectRendererBackend, exportQueryFor } from './renderer-variants';
 import { chooseItem, closeMenu, inspector, menuItem } from './ui';
@@ -98,9 +98,9 @@ import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-
 import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, gridDrawName, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
-import { GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelGridChecks, voxelRoomChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
+import { exportDoorCheck, GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelGridChecks, voxelRoomChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 import { playScriptSource } from './voxel-play-script';
-import { GRID_HOUSE, GRID_HOUSE_M, gridHousePlacement, gridHousePorch, gridHouseStructure, siteTop } from './voxel-grid-house';
+import { GRID_HOUSE, GRID_HOUSE_M, gridHouseDoor, gridHousePlacement, gridHousePorch, gridHouseStructure, siteTop } from './voxel-grid-house';
 import { sceneViewStill, sceneViewStructureChecks, sceneViewVoxels, type SceneViewVoxels } from './voxel-scene-structures';
 
 type Cell = [number, number, number];
@@ -1016,6 +1016,7 @@ async function playProject(): Promise<[number, number, number]> {
   expect((made['voxels'] as Array<{ structures: Array<{ grid: number }> }>)[0]!.structures[0]!.grid).toBe(HOUSE_GRID);
   const porch = await be.command({ op: 'editVoxels', projectId: be.projectId, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-voxel-play' }, args: { world: 'far', command: gridHousePorch(HOUSE_GRID, MAT.stone) } });
   expect(porch['ok'], JSON.stringify(porch).slice(0, 400)).toBe(true);
+  const door = await gridHouseDoor(String(made['createdId']), (bytes, id, name) => publishBytes(be, bytes, 'model', id, name), playCmd);
   // A camera on the structure grid's house (off until the test makes it live) and the point it looks at.
   const f = house.frame;
   houseCamera = String((await playCmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'House camera', transform: { position: f.toWorld(GRID_HOUSE_M.doorX, 3.5, GRID_HOUSE_M.doorWallZ - 9) }, components: { virtualCamera: { rig: 'fixed', priority: 40, enabled: false, blend: 'cut', fovY: PLAY_FOV_Y_DEG, near: 0.1, far: 300, occlusion: 'none' } } }))['createdId']);
@@ -1024,7 +1025,7 @@ async function playProject(): Promise<[number, number, number]> {
   // One save slot for the game's own save document (the voxel save rides in it as text).
   await playCmd('setSaveSchema', { schema: { version: 1, slots: 1, legacyWorld: false } });
   // A path from the porch (1.5 m before the door, on its slab) to the room's middle, on its floor.
-  const gridPath = { position: house.place.position, yawRad: house.place.yawRad, cells: GRID_HOUSE, from: f.toWorld(GRID_HOUSE_M.doorX, GRID_HOUSE_M.slabTop, GRID_HOUSE_M.doorWallZ - 1.5), to: f.toWorld(GRID_HOUSE_M.room[0], GRID_HOUSE_M.slabTop, GRID_HOUSE_M.room[2]) };
+  const gridPath = { position: house.place.position, yawRad: house.place.yawRad, cells: GRID_HOUSE, from: f.toWorld(GRID_HOUSE_M.doorX, GRID_HOUSE_M.slabTop, GRID_HOUSE_M.doorWallZ - 1.5), to: f.toWorld(GRID_HOUSE_M.room[0], GRID_HOUSE_M.slabTop, GRID_HOUSE_M.room[2]), door };
   await publishScript('digger', playScriptSource(at, house.frame.toWorld(...GRID_HOUSE_M.room), gridPath), world);
   playWorld = world;
   return (standAt = at);
@@ -1816,7 +1817,7 @@ test("Scene view: a voxelWorld object's world streams round the editor camera an
 // ---- The export plays the world with no backend ------------------------------------------------------------------
 // This test halts the file's one backend (an export is checked with the backend stopped): it stays the file's last test.
 
-test('Export: the Play project exported and served statically with the backend stopped streams its world from the shipped region files, draws it and its wall marks, stands the character on it, and a console dig opens the pit; its structure grid ships with its place (no definition, no overrides) and its turned house stops the character at its wall', async ({ page }) => {
+test('Export: the Play project exported and served statically with the backend stopped streams its world from the shipped region files, draws it and its wall marks, stands the character on it, and a console dig opens the pit; its structure grid ships with its place (no definition, no overrides), its turned house stops the character at its wall, and its door leaf shut from the console stops the light', async ({ page }) => {
   test.setTimeout(180_000);
   const at = await playProject();
   await groundRelief(true);
@@ -1961,6 +1962,7 @@ test('Export: the Play project exported and served statically with the backend s
     expect(LIGHTING_TIER_SETTINGS.low.voxelLightVolume.enabled).toBe(true);
     await expect.poll(async () => { const l = await lit(); return l.store === 'volume' && l.progress?.settled === true && l.progress.texelsWritten > 0 && l.progress.waiting === 0; }, { timeout: 60_000, intervals: [250], message: 'the export lit by the light volume' }).toBe(true);
     console.log(`[voxel-export] light volume (low tier, no query): ${JSON.stringify(await lit())}`);
+    await exportDoorCheck(game, consoleRun, { frame: house.frame, house: GRID_HOUSE_M, camera: houseCamera, target: houseTarget });
     console.log(`[voxel-export] far bricks: ${await farBeyondNear(game, async (name) => decodePng(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) })), 'export')} px of ground past the near field`);
     // Drawn from the baked bricks the export ships.
     expect(requests.filter((u) => bakedPaths.has(u.slice(site.url.length))).length).toBeGreaterThan(0);

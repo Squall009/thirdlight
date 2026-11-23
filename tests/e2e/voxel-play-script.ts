@@ -21,6 +21,12 @@ export interface GridHousePath {
   readonly cells: { readonly w: number; readonly d: number; readonly porch: number; readonly h: number; readonly doorX: readonly number[]; readonly doorH: number };
   readonly from: readonly number[];
   readonly to: readonly number[];
+  /**
+   * Its door's props (object ids) with a `voxelPortal`: a leaf standing in the door, and a pane (light passes) standing
+   * in the room; the pane's place in the door and the leaf's in the room are the other's (grid metres, the objects'
+   * own frame: they are the house's children).
+   */
+  readonly door?: { readonly leaf: string; readonly pane: string; readonly inDoor: readonly number[]; readonly inRoom: readonly number[] };
 }
 
 export function playScriptSource(at: readonly number[], gridRoom?: readonly number[], gridPath?: GridHousePath): string {
@@ -147,7 +153,7 @@ export function playScriptSource(at: readonly number[], gridRoom?: readonly numb
     ...(gridPath === undefined ? [] : [
       `    const gyaw = ${gridPath.yawRad}, gP = [${gridPath.position.join(', ')}];`,
       '    const gw = (x: number, y: number, z: number) => [Math.cos(gyaw) * x + Math.sin(gyaw) * z + gP[0], y + gP[1], -Math.sin(gyaw) * x + Math.cos(gyaw) * z + gP[2]];',
-      "    for (const c of ctx.debug.command('gridedit', { description: 'Cast a ray at the house wall (ray) or dig a hole through it (dig)', args: [{ name: 'what', type: 'string' }] })) {",
+      "    for (const c of ctx.debug.command('gridedit', { description: 'At the house: ray, dig (its wall); shut, open, pane (its door); path, pathshut (porch to room)', args: [{ name: 'what', type: 'string' }] })) {",
       "      if (c.what === 'dig') {",
       '        const cs = [[0.75, 0.5, -0.25], [2.75, 3, 0.75]];',
       '        const pts = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => gw(cs[k & 1][0], cs[(k >> 1) & 1][1], cs[(k >> 2) & 1][2]));',
@@ -155,14 +161,29 @@ export function playScriptSource(at: readonly number[], gridRoom?: readonly numb
       "        ctx.game.add(v.dig({ min: lo, max: hi }).ok ? 'gridDug' : 'gridDigRefused', 1);",
       '        continue;',
       '      }',
+      // The door: its leaf shut or opened by the generic component access; the pane put in the door (the leaf in the
+      // room, by their places alone); a path from the porch into the room, by default or through shut doors.
+      ...(gridPath.door === undefined ? [] : [
+        `        const D = ${JSON.stringify(gridPath.door)};`,
+        "        if (c.what === 'shut' || c.what === 'open') { ctx.game.add(ctx.entity(D.leaf)?.set('voxelPortal', { open: c.what === 'open' }).ok === true ? 'doorSet' : 'doorRefused', 1); continue; }",
+        "        if (c.what === 'pane') { const a = ctx.entity(D.leaf)?.set('transform', { position: D.inRoom }); const b = ctx.entity(D.pane)?.set('transform', { position: D.inDoor }); ctx.game.add(a?.ok === true && b?.ok === true ? 'doorSet' : 'doorRefused', 1); continue; }",
+      ]),
+      `        if (c.what === 'path' || c.what === 'pathshut') { state.gpath = v.findPath([${gridPath.from.join(', ')}], [${gridPath.to.join(', ')}], c.what === 'pathshut' ? { doors: 'shut-too' } : undefined); continue; }`,
       '      const h = v.raycast(gw(1.75, 1.25, -1.5), [Math.sin(gyaw), 0, Math.cos(gyaw)], 10);',
       '      const nOk = h !== null && Math.abs(h.normal[0] + Math.sin(gyaw)) < 1e-6 && Math.abs(h.normal[1]) < 1e-6 && Math.abs(h.normal[2] + Math.cos(gyaw)) < 1e-6 ? 1 : 0;',
       "      state.gray = (Math.floor((state.gray ?? 0) / 1e8) + 1) * 1e8 + (h === null ? 0 : Math.min(h.grid, 99) * 1e6 + (h.cell[2] + 50) * 1e4 + nOk * 1e3 + Math.min(Math.round(h.distance * 100), 999));",
       '    }',
       "    if (state.gray !== undefined) put('gray', state.gray);",
     ]),
-    // The structure grid's house as the world's regions see it (its stamp): its room's kind (1 room, 2 outdoors) and portals.
-    ...(gridRoom === undefined ? [] : [`    { const g = v.regionAt(${gridRoom[0]}, ${gridRoom[1]}, ${gridRoom[2]}); put('gridRoomKind', g === null ? 0 : g.kind === 'room' ? 1 : 2); put('gridRoomPortals', g?.portals ?? -1); }`]),
+    // The structure grid's house as the world's regions see it (its stamp): its room's kind (1 room, 2 outdoors) and
+    // portals, and (× 10) the prop `portalsOf` names in its door: 0 none, the leaf open 1 or shut 2, the pane open 3 or
+    // shut 4 (one counter: an observation carries the first 32 by name).
+    ...(gridRoom === undefined ? [] : [
+      `    { const g = v.regionAt(${gridRoom[0]}, ${gridRoom[1]}, ${gridRoom[2]}); put('gridRoomKind', g === null ? 0 : g.kind === 'room' ? 1 : 2);`,
+      `      const D = ${JSON.stringify(gridPath?.door ?? null)}; const p = g === null || D === null ? undefined : v.portalsOf(g.id).find((x: any) => x.prop !== undefined);`,
+      "      const code = p === undefined ? 0 : (p.prop === D.leaf ? 1 : p.prop === D.pane ? 3 : 9) + (p.open ? 0 : 1);",
+      "      put('gridRoomPortals', g === null ? -1 : g.portals + 10 * code); }",
+    ]),
     '    if (state.rooms) {',
     '      const a = v.regionAt(A[0], A[1] - 4.5, A[2] + 11);',
     '      const b = v.regionAt(A[0], A[1] - 4.5, A[2] + 14);',
