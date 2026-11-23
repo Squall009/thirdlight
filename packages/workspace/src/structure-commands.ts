@@ -139,11 +139,12 @@ export class StructureCommands {
       const result = this.service.runCommand(prepared.env);
       if (typeof env.requestId === 'string') dropStructureFollows(env.requestId);
       if (!result.ok || result.duplicated) return { result, voxels: [], strokes: [], far: [] };
-      const after = heldOf(this.scenes(projectId));
+      const scenesAfter = this.scenes(projectId);
+      const after = heldOf(scenesAfter);
       await this.rememberFar(projectId, held);
       const written = await this.writeChanges(projectId, held, after, prepared.copies, result.requestId);
       // Ground, then buildings, then water: the bodies the command changed, and those round the structures it wrote.
-      const wet = written.ok ? await this.writeWater(projectId, before, held, after) : null;
+      const wet = written.ok ? await this.writeWater(projectId, before, scenesAfter, held, after) : null;
       if (!written.ok || (wet !== null && !wet.ok)) {
         if (written.ok) for (const done of [...written.voxels].reverse()) await this.worlds.step(projectId, done.world, 'undo', done.stroke, null);
         this.service.runCommand({ op: 'undo', projectId, requestId: `req-${randomBytes(16).toString('hex')}`, expectedRevision: result.revision, args: {} });
@@ -353,8 +354,7 @@ export class StructureCommands {
    * the bodies round the structures it made, changed, moved or deleted (their world cells before and after). A body
    * whose scene holds no `voxelWorld` object naming its world is refused, as a structure is.
    */
-  private async writeWater(projectId: string, scenesBefore: readonly unknown[], before: ReadonlyMap<string, Held>, after: ReadonlyMap<string, Held>): Promise<{ ok: true; voxels: VoxelCommandApplied[] } | { ok: false; error: VoxelWorldError }> {
-    const scenes = this.scenes(projectId);
+  private async writeWater(projectId: string, scenesBefore: readonly unknown[], scenes: readonly unknown[], before: ReadonlyMap<string, Held>, after: ReadonlyMap<string, Held>): Promise<{ ok: true; voxels: VoxelCommandApplied[] } | { ok: false; error: VoxelWorldError }> {
     const was = new Map(sceneWaterBodies(scenesBefore).map((b) => [b.entityId, b]));
     const now = new Map(sceneWaterBodies(scenes).map((b) => [b.entityId, b]));
     const same = (a: SceneWaterBody, b: SceneWaterBody): boolean => JSON.stringify([a.body, a.seed]) === JSON.stringify([b.body, b.seed]);

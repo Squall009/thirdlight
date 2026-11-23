@@ -494,18 +494,28 @@ test('the structure editor: draw a house, widen, extend, add a storey, swap a ma
     const r = await query('queryEntity', { entityId: id });
     return r['ok'] !== false && r['entity'] !== undefined;
   };
+  // Each press once the editor shows the project's revision: an undo sent against an older one is refused as a
+  // conflict (the openings test below waits the same way).
+  const caughtUp = async (): Promise<void> => {
+    const rev = Number(((await query('queryProject', {})) as { revision: number }).revision);
+    await expect(page.locator('.tl-statusbar')).toContainText(`revision ${rev}`, { timeout: 20_000 });
+  };
   for (let k = states.length - 1; k >= 1; k--) {
+    await caughtUp();
     await page.keyboard.press('Control+z');
     const want = states[k - 1]!;
     await expect.poll(async () => stateNow(), { timeout: 20_000, message: `undo to step ${k - 1}` }).toBe(want);
   }
+  await caughtUp();
   await page.keyboard.press('Control+z');
   await expect.poll(exists, { timeout: 20_000, message: 'undo takes the house away' }).toBe(false);
   // The camera moved with the mode's framing since the bare picture: the yard is bare when no stone or brick is left in it.
   await expect.poll(async () => { const img = await still(page, 'undone'); return greyCount(img) + brickCount(img); }, { timeout: 20_000, message: 'the bare yard again (the light icons aside)' }).toBeLessThan(1500);
+  await caughtUp();
   await page.keyboard.press('Control+Shift+z');
   await expect.poll(exists, { timeout: 20_000, message: 'redo makes the house again' }).toBe(true);
   for (let k = 1; k < states.length; k++) {
+    await caughtUp();
     await page.keyboard.press('Control+Shift+z');
     await expect.poll(async () => stateNow(), { timeout: 20_000, message: `redo to step ${k}` }).toBe(states[k]);
   }
@@ -966,7 +976,8 @@ test('water bodies: a hollow becomes a lake from Add component, a bank dug back 
   await expect.poll(cells, { timeout: 20_000 }).toBe(544);
   await expect.poll(async () => (await leaks()).length, { timeout: 20_000 }).toBe(0);
   await settled();
-  expect(waterCount(await pictureOf('28-breach-closed')), 'the lake back').toBeGreaterThan(blue1 - 2_000);
+  // At the camera of the drained picture (the view may have backed off for the marker).
+  expect(waterCount(await pictureOf('28-breach-closed')), 'the lake back').toBeGreaterThan(waterCount(drained) + 5_000);
   console.log(`[water] water body test ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   expect(errors).toEqual([]);
 });

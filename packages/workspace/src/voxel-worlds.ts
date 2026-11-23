@@ -101,7 +101,7 @@ import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCa
 import { farFineComplete, farFinePending, farFineProgress, rebakeFarFine, startFarFine, writeFarFineColumn, type FarFineResult } from './voxel-far-fine';
 import { FarFollow } from './voxel-far-follow';
 import { inProcessFarJobs, type FarCacheJobs } from './voxel-far-jobs';
-import { gridBoxInWorld, WaterBodies, type WaterBodyReport, type WaterChange, type WaterWorld, type WaterWrites } from './voxel-water';
+import { gridBoxInWorld, WaterBodies, type WaterBodyReport, type WaterChange, type WaterWorld } from './voxel-water';
 
 /** The project folder holding its voxel worlds, one folder each. */
 export const VOXEL_WORLDS_FOLDER = 'voxels';
@@ -1388,8 +1388,9 @@ export class VoxelWorlds {
           if (captured !== null) flips.set(cmd.grid, { before: host.overrides(cmd.grid).bytes, after: captured.bytes, value: captured.value });
         }
         // The bodies whose reach the stroke meets follow it, in the same stroke: ground (or a building's hand edit) first, then water.
-        const reached = cmd.grid === WORLD_GRID_ID ? [box] : this.gridEditBoxes(w, cmd.grid, out.chunks);
-        const followed = reached.length === 0 ? null : await this.followWater(w, reached);
+        const bodies = this.waterBodies(w);
+        const reached = bodies.length === 0 ? [] : cmd.grid === WORLD_GRID_ID ? [box] : this.gridEditBoxes(w, cmd.grid, out.chunks);
+        const followed = reached.length === 0 ? null : this.water.follow(await this.waterWorld(w), bodies, reached);
         if (followed !== null) {
           record = [...followed.record, ...record];
           cells += followed.cells;
@@ -1642,13 +1643,6 @@ export class VoxelWorlds {
       grids.push({ place, world: rw });
     }
     return { key: worldKey(w), world: w.world, grids };
-  }
-
-  /** The bodies a change of the world's cells inside `boxes` meets, followed round it and written (null: none met). */
-  private async followWater(w: OpenWorld, boxes: readonly CellBox[]): Promise<WaterWrites | null> {
-    const bodies = this.waterBodies(w);
-    if (bodies.length === 0) return null;
-    return this.water.follow(await this.waterWorld(w), bodies, boxes);
   }
 
   /** The world cells a hand edit on structure grid `gridId` can have changed (its chunks where the grid stands; none while it is not placed). */
