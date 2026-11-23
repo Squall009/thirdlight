@@ -221,6 +221,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   voxelStructure?: import('./voxel-structure').VoxelStructureComponent;
   /** v4 only: open or shut state of a prop standing in an opening of a voxel structure. */
   voxelPortal?: import('./voxel-portal').VoxelPortalComponent;
+  /** v4 only: a lake's definition (level, liquid, reach; the seed is the object's position), its liquid voxels written by the backend. */
+  waterBody?: import('./water-body').WaterBodyComponent;
   /** v4 only: vertex paint on the object's model meshes or its generated mesh's paths. */
   vertexPaint?: import('./vertex-paint').VertexPaintComponent;
   /** v4 only: a heightfield of tiles (their data are blobs named by digest). */

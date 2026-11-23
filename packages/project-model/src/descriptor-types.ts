@@ -323,6 +323,8 @@ export interface HandleDescriptor {
   readonly loop?: FieldCondition;
   /** `height`: a capsule field (pointer to its object) whose feet the height is measured from (read, not dragged). */
   readonly from?: string;
+  /** `height`: the field is a height in the scene (a water level), not above the object; drawn over the object all the same. */
+  readonly scene?: true;
   /**
    * The frame's origin is another object — the one an entity
    * field (pointer) names, plus an optional offset field — instead of this

@@ -65,6 +65,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-voxel-piece-seed-max"></a>`VOXEL_PIECE_SEED_MAX` | `4294967295` | The largest voxel piece seed (a voxel piece table holds a u32). |
 | <a id="limit-voxel-world-defaults"></a>`VOXEL_WORLD_DEFAULTS` | `{"ring":{"loadRadius":192,"unloadRadius":224,"loadHeight":96,"unloadHeight":128},"collision":{"radius":48,"height":24},"levels":{"level0":64,"level1":128,"relief":16},"sectionEdge":16,"savedFields":["material","role","shape"],"blendMetres":0.25,"bakeLevel":2,"fineBuild":"off"}` | The voxel format's defaults in metres, as a world without its own settings streams. |
 
+<a id="limits-project-model--water-body"></a>
+## `water-body.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-water-body-reach-default-m"></a>`WATER_BODY_REACH_DEFAULT_M` | `256` | A body's reach when none is set (metres): a lake of half a kilometre across. |
+
 <a id="limits-project-model--wind"></a>
 ## `wind.ts`
 

@@ -48,6 +48,7 @@ import { interactor } from './interactor-descriptor';
 import { voxelPortal } from './voxel-portal-descriptor';
 import { voxelWorld } from './voxel-world-descriptor';
 import { voxelStructure } from './voxel-structure-descriptor';
+import { waterBody } from './water-body-descriptor';
 import { COMPONENT_ICONS, type ComponentDescriptor, type DescriptorRegistry, type FieldDescriptor, HANDLE_KINDS, HANDLE_ROLES, type ObjectFieldDescriptor } from './descriptor-types';
 import { animator, audioSource, behavior, behaviorGroupC, box, cameraPath, cameraRegion, climbVolume, collectible, collider, controller, effectComponent, ENTITY, faceMovement, fogVolume, folder, gravityC, health, hitbox, instances, light, materialParams, materials, model, modelAnimation, mover, patrol, playerSpawn, prefab, probeVolume, socketAttach, surface, switchC, transform, trigger, virtualCamera } from './descriptor-components';
 import { CONTENT, SCENE_ENVIRONMENT } from './descriptor-content';
@@ -104,6 +105,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   architecture,
   voxelWorld,
   voxelStructure,
+  waterBody,
   voxelPortal,
 ];
 
@@ -113,10 +115,10 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
  * Components scripts never read: a folder is not in the game, an instance
  * set's copies, a block layer's cells, a terrain's tiles and vertex paint are
  * bulk data (the block layers are read through `ctx.grid`), and a voxel
- * structure's definition is authoring data an export leaves out (a game
- * reads its voxels, `ctx.voxels`).
+ * structure's or a water body's definition is authoring data an export
+ * leaves out (a game reads its voxels, `ctx.voxels`).
  */
-const SCRIPT_UNREADABLE: ReadonlySet<string> = new Set(['folder', 'instances', 'blockLayer', 'terrain', 'vertexPaint', 'voxelStructure']);
+const SCRIPT_UNREADABLE: ReadonlySet<string> = new Set(['folder', 'instances', 'blockLayer', 'terrain', 'vertexPaint', 'voxelStructure', 'waterBody']);
 /** The object's own fields scripts read (`locked` is editor-only; `components` is the rest of the table). */
 const SCRIPT_OBJECT_READ: ReadonlySet<string> = new Set(['id', 'name', 'parentId', 'active', 'visible', 'static', 'keepLoaded', 'tags']);
 /**

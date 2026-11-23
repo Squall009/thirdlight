@@ -189,6 +189,30 @@ A building that writes its own grid of a voxel world: change a field and the bac
 | `stairs` | JSON: `StructureStair[]` ([StructureStair](types-s-w.md#type-structure-stair)) |  |  | **Stairs.** Flights [{id, polygon, from, at: [x, z], facing}] from a storey to the next, two cells wide. (required) |
 | `generator` | int |  | ≥ 1, step 1 | **Generator.** The building generator version that last wrote its voxels; a newer engine regenerates every structure in one undoable step (Regenerate structures). (required; written by a tool) |
 
+<a id="component-waterBody"></a>
+## waterBody — Water body
+
+A lake or pond whose water the editor writes as liquid voxels: from the object (the seed, inside the basin) through the open cells under the level, bounded by the ground and the reach. Dig or build inside its reach and the shore follows in the same undo step; a leak is flagged, never spilled.
+
+- Category: Rendering
+- Added: by a tool: Add component → Water body in the Inspector (the scene’s voxel world, the object’s height as the level, the project’s first liquid material), or createEntity / setComponent with the whole value
+- On prefab objects: no
+- Rule: A root object in the scene holding its world’s voxelWorld object; its position is the seed, a point inside the basin.
+- Rule: The backend writes its liquid voxels when it is made, changed, moved or deleted, and again after a ground edit or a structure written inside its reach (ground, then buildings, then water); exports ship the voxels, never the definition.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `world` | string, id, 1–64 chars |  |  | **World.** The voxel world it fills (a voxelWorld object of this scene names it). (required; written by a tool; format id) |
+| `level` | number |  | step 0.5, m | **Level.** The water surface’s height in the scene (metres); the cells under it fill, the top ones partly. (required; Scene handle: height) |
+| `material` | int |  | 1 – 4095, step 1 | **Liquid.** The liquid's voxel material (its id, 1-4095). (required) |
+| `reach` | number | `256` | > 0, step 1, m | **Reach.** How far from the seed the water may spread (metres, across the ground). Water that would pass it is a leak: flagged, nothing written. |
+
+Scene-view handles:
+
+| Handle | Kind | Edits | Space | Shown when |
+|---|---|---|---|---|
+| Level | height | height → `level` | local |  |
+
 <a id="component-voxelPortal"></a>
 ## voxelPortal — Portal
 

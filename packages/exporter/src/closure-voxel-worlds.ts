@@ -76,17 +76,20 @@ export function referencedVoxelWorlds(scenes: readonly unknown[]): string[] {
   return [...names].sort();
 }
 
-/** A scene as an export ships it: its structure objects without their definitions (authoring data; the voxels ship). */
+/** Components that are authoring definitions of voxels (a building, a water body): an export ships their voxels, never them. */
+const VOXEL_DEFINITIONS: readonly string[] = ['voxelStructure', 'waterBody'];
+
+/** A scene as an export ships it: its structure and water body objects without their definitions (authoring data; the voxels ship). */
 export function withoutStructureDefinitions<T>(scene: T): T {
   const entities = (scene as { entities?: unknown } | null)?.entities;
-  if (!Array.isArray(entities) || !entities.some((e) => (e as { components?: Record<string, unknown> } | null)?.components?.['voxelStructure'] !== undefined)) return scene;
+  const holds = (e: unknown): boolean => VOXEL_DEFINITIONS.some((k) => (e as { components?: Record<string, unknown> } | null)?.components?.[k] !== undefined);
+  if (!Array.isArray(entities) || !entities.some(holds)) return scene;
   return {
     ...scene,
     entities: entities.map((e) => {
-      const c = (e as { components?: Record<string, unknown> }).components;
-      if (c?.['voxelStructure'] === undefined) return e;
-      const { voxelStructure: _definition, ...rest } = c;
-      return { ...(e as object), components: rest };
+      if (!holds(e)) return e;
+      const c = (e as { components: Record<string, unknown> }).components;
+      return { ...(e as object), components: Object.fromEntries(Object.entries(c).filter(([k]) => !VOXEL_DEFINITIONS.includes(k))) };
     }),
   } as T;
 }

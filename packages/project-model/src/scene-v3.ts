@@ -22,6 +22,7 @@ import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeCom
 import { canonicalDecal, validateDecalComponent, type DecalComponent } from './decals';
 import { canonicalInteractor, validateInteractorComponent, type InteractorComponent } from './interactor';
 import { canonicalVoxelPortal, validateVoxelPortalComponent, type VoxelPortalComponent } from './voxel-portal';
+import { canonicalWaterBody, validateWaterBodyComponent, type WaterBodyComponent } from './water-body';
 import { canonicalVoxelWorld, validateVoxelWorldComponent, type VoxelWorldComponent } from './voxel-world';
 import { canonicalVoxelStructure, checkSceneStructures, structureTransformProblem, validateVoxelStructureComponent, type VoxelStructureComponent } from './voxel-structure';
 import { canonicalWindZone, validateWindZoneComponent, type WindZoneComponent } from './wind';
@@ -164,8 +165,9 @@ const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'parentPart', ...
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
 // No `camera`: the engine owns the view and scenes hold shots (`virtualCamera`); an older project's scene camera is upgraded on open.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture', 'decal', 'vertexPaint', 'windZone', 'interactor', 'voxelWorld', 'voxelStructure', 'voxelPortal'];
-// `voxelPortal` (open or shut state of a prop in a structure's opening) after it.
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture', 'decal', 'vertexPaint', 'windZone', 'interactor', 'voxelWorld', 'voxelStructure', 'voxelPortal', 'waterBody'];
+// `waterBody` (a lake whose liquid voxels the backend writes from its seed and level) after it.
+// `voxelPortal` (open or shut state of a prop in a structure's opening) before it.
 // `voxelStructure` (a building written into its own grid of a voxel world) last.
 // `voxelWorld` (streams one of the project's voxel worlds while the scene is loaded) after it.
 // `interactor` (presses into foliage and the interaction field round the camera) after it.
@@ -850,6 +852,11 @@ export function validateEntityComponentsV3(
     validateVoxelStructureComponent(comps['voxelStructure'], `${path}/voxelStructure`, errors);
     validateStructureTransform(comps, parentId, ePath, errors);
   }
+  if (comps['waterBody'] !== undefined) {
+    validateWaterBodyComponent(comps['waterBody'], `${path}/waterBody`, errors);
+    // The seed is the object's position in the scene, never composed with a parent's.
+    if (parentId !== undefined && parentId !== null) errors.push(withFound({ code: 'component_conflict', path: `${ePath}/parentId`, message: "a water body stands in its scene's frame (a root object): its position is its seed", reason: 'water_body_parented', expected: 'parentId absent' }, parentId));
+  }
   // Vertex paint: a model's meshes, or the paths of the object's architecture or spline.
   const vp = comps['vertexPaint'];
   if (vp !== undefined) {
@@ -1499,6 +1506,7 @@ export function canonicalComponentsV3(comps: Record<string, unknown>): EntityCom
   if (comps['voxelWorld'] !== undefined) components.voxelWorld = canonicalVoxelWorld(comps['voxelWorld'] as VoxelWorldComponent);
   if (comps['voxelStructure'] !== undefined) components.voxelStructure = canonicalVoxelStructure(comps['voxelStructure'] as VoxelStructureComponent);
   if (comps['voxelPortal'] !== undefined) components.voxelPortal = canonicalVoxelPortal(comps['voxelPortal'] as VoxelPortalComponent);
+  if (comps['waterBody'] !== undefined) components.waterBody = canonicalWaterBody(comps['waterBody'] as WaterBodyComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number; paint?: InstancePaint; seeThrough?: boolean };
     components.instances = {
