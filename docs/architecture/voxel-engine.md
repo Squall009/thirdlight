@@ -103,8 +103,10 @@ page in the same commit.
   chunks it left and entered; the far build's columns and rows include the grids' boxes), so past its own rings a grid
   is drawn as far bricks a cell off. **A command's far rebuild follows its answer** (workspace `voxel-far-follow.ts`:
   an edit's or a structure step's world chunks gathered per world and built in one rebuild once no change came for
-  250 ms, in the world's queue; the far route and an export build what is gathered first; a structure move's rebuild
-  lost with the process is not caught, D759).
+  250 ms, `FAR_FOLLOW_SETTLE_MS` in `@thirdlight/voxel`, in the world's queue; the far route and an export build what
+  is gathered first; a structure move's rebuild lost with the process is not caught, D759). An open page follows it
+  the same way (editor `range-world.ts`: once its far field read the cache, it asks the far route that long after its
+  last change and re-reads the far nodes over the changed chunks then; nothing near is derived for it, D761).
   **`ctx.voxels` sees structures by one rule: a point lies in a structure where the structure's own cell holding it is
   not air, else in the world's own cells** (the lower grid id where structures overlap; runtime `voxel-grid-access.ts`).
   Reads answer from that grid; `raycast` walks the world and each grid along the ray in its own frame (`walkWithGrids`,

@@ -1496,6 +1496,68 @@ change it. The structure-mode test passed in the gate's run.
 **D-rows:** D761 (the assembly test since 894fb4e0), D762 (paint keeps the start cell's role), D763 (misfits only of
 the last regenerate), D764 (handles through walls).
 
+### D761 — a landing far rebuild re-derived the page's near field
+
+**Cause: not the far rebuild.** The ~33,800 `derived` sections in the paint's window (5,046 chunks read again) were
+the streamer's speed ring widening back. The assembly proof's `look` placements (back from the kit scene, 52 cells,
+then 1.4 cells 458 ms later) read as travel at ~200 cells/s (`FocusMotion`: a single step's velocity holds through the
+still frames after it), so the ring narrowed to 96 cells (resident 5,904 → 960) and widened 1 s after the last
+placement (`STREAM_WIDEN_AFTER_MS`), reading and deriving all it added for ~3.5 s. The page's `settle` returned with
+the ring narrowed (it waited for `idle()`, not `idle(true)`). Before 894fb4e0 the dig before the paint answered after
+its far rebuild (0.7–1.5 s), so the widening fell into the dig's window, which the test does not count; since, it
+answers in 10–50 ms and the paint met it. Traced on the page (events by type, streamer counters, a trap on `refresh`:
+none over 50 chunks in the window; `speedRings` 1 → 2, resident 960 → 6,000 in it): `work/d761/run1.log`–`run4.log`.
+The cost itself (two placements close together re-reading the near field) is D765.
+
+**What a landing did cost: nothing, and too little.** The page read the far nodes over an edit again at the answer
+(8 nodes, 35.6 kB), from the cache as it was then, and never after the rebuild: since 894fb4e0 its far field kept the
+nodes from before the edit (and the old tables of the region files rebuilt). The Scene view goes the same way
+(`RangeWorld.applyChange`). Play's digs are runtime edits (no command, no far rebuild): not affected.
+
+**Fix (ad116a9b).** `RangeWorld` (the voxel world page and the Scene view) gathers an edit's chunks once its far
+field has read the cache and, `FAR_FOLLOW_SETTLE_MS` after the last (moved to `@thirdlight/voxel`: the page and the
+backend share it), asks `…/far`, which answers once the rebuild landed, then calls the far field's `refresh` on them:
+far nodes only, nothing near derived, a material paint still `:shader` alone. `farCurrent()` names that state; the
+page's `settle` waits for it, for the far field's reads, and for the streamer at rest (`idle(true)`: no ring narrowed
+for speed, level 0 not held). The test is as it was, plus a `settle` before its checkout copy and before its backend
+restart (the named condition: the far field current); its paint windows are now clean in every run.
+
+**The 186 console errors** (gate-rerun-20261123-013609: 404s and refused connections round the backend restart) were
+the same family: the paint's far rebuild was still gathered when the test stopped the backend (lost: the cache was
+built whole after the restart, its files read meanwhile), and the far field's brick reads in flight were retried every
+~60 ms while it was down (`ERR_CONNECTION_REFUSED` on `far/B2/…`, traced in `work/d761/err-1.log`). With the settle
+before the restart: the two 409s only, every run. Also met on the way: a read that finds the world's files changed on
+disk reads it again without telling the next command (D767; the page's far follow-up after the dig before the checkout
+met the copy first once in five runs), and the far route answering `far_cache_building` for a minute after a checkout
+until a command read the world again (D766).
+
+**Measured** (2026-11-23 02:51–03:05 UTC, WebGPU, the e2e backend, load 3.7–4.6; one 2-cell dig at the pad, counts
+from the end of its answer's settle to 3 s later, two digs each; scratch spec appended to `voxel-world.e2e.ts` and
+taken out again, `work/d761/measure/`):
+
+| | 894fb4e0^ | head before (b8f1e84c) | after (ad116a9b) |
+|---|---|---|---|
+| voxel page: answer ms | 1,452, 726 | 49, 9 | 67, 13 |
+| page, the edit's window: derives, far nodes read | 1, 8 (35.6 kB, current) | 1, 8 (35.6 kB, stale) | 1, 8 (35.6 kB, stale) |
+| page, the 3 s after: derives, far nodes read | 0, 0 | 0, 0 (never current) | 0, 8 (35.6 kB; 22 requests, 76 kB with tables) |
+| Scene view: edit's mesh builds; 3 s after | 2; 0 (one far batch) | 2; 0 (one far batch) | 2; 0 (one far batch) |
+| create small house (integration test) | — | 42, 42 ms | 39, 56, 48 ms |
+
+The structure command answers with `far: { queued }` at the head and after; 47a.5b's 27 ms was another hour's load.
+
+**Tests.** Integration `voxel-far-page.test.ts` (a real backend over HTTP, `RangeWorld` with stand-in workers): after
+a dig the near refresh is the edit's, once; the far field re-reads the dig's chunks once, after the rebuild landed
+(the cache's files at that moment are the rebuilt ones); three digs in a burst are one far re-read of their chunks;
+a world whose far field never read the cache asks nothing. The assembly test alone 5 × green (1.0–1.1 min, as at the
+commits before 894fb4e0): `work/d761/alone3-1.log`–`5`.
+
+**Gates:** gate-fast-20261123-031420 GREEN (52 e2e files, 89 tests; 22 min); gate-area-20261123-033744 (play) GREEN,
+`memory.e2e.ts:435` failed once and passed alone (D768).
+
+**Unverified:** the far nodes' picture after a landing (counts only, no picture looked at); the Scene view's far
+re-read (its counters show no difference); a structure's move or make on an open page (its change names no world
+chunks, so nothing is re-read there, as before 894fb4e0).
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
