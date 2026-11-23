@@ -1396,7 +1396,13 @@ editor's view of `far: { queued }` (nothing in the editor reads a command's `far
 **Gates:** gate-fast-20261122-191744 RED (the light volume's glow check 0.0293 against 0.0289, D760),
 gate-rerun-20261122-193525 GREEN; gate-fast-20261122-195230 GREEN (the stamp, the jobs lane, the reserve); 
 gate-fast-20261122-202436 RED (a bench test reading an edit's far answer), gate-rerun-20261122-203413 GREEN (42 e2e);
-gate-fast-20261122-222538 GREEN; the back-out and docs and `area play` below. The Play test 2.0–2.1 min in the gates.
+gate-fast-20261122-222538 GREEN; gate-fast-20261122-234509 (the back-out and the docs; the whole vitest suite, a test file
+gone) RED on the behavior API's generated typings, stale since 47a.5a's `ctx.voxels` text (a hidden drift: related-files
+runs never ran their checks; generated again, 36cd31a5) and `world-host-grids.test.ts` under load (it read a room
+before the sliced stamps were stitched; it now waits for a known region, d673e358); gate-rerun-20261122-235732 (every
+area, 180 e2e files) RED on `project-items` (D410), `terrain-cdlod` (D643: 0.566) and `frame-rate-cap` under load,
+gate-rerun-20261123-002547 RED on the first two again, gate-rerun-20261123-002930 GREEN; `area play` with the leak test
+gate-area-20261123-003454 GREEN (24 passed). The Play test 2.0–2.1 min in the gates.
 
 **D-rows:** D743 narrowed; D745 left (the reserve backed out, measured); D747 narrowed; D754 fixed; D755 fixed;
 D753, D711 noted; D759 (a lost far rebuild of a structure move), D760 (watch: the glow check under load).
