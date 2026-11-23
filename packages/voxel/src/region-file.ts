@@ -125,6 +125,8 @@ export const VOXEL_WORLD_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 export const WORLD_ID_BYTES = 16;
 /** The grid id of the world grid (structures' own grids are 1 and up). */
 export const WORLD_GRID_ID = 0;
+/** The highest grid id: a region file's header carries the grid id as a u32. */
+export const VOXEL_GRID_ID_MAX = 0xffffffff;
 
 const MAGIC = [0x54, 0x4c, 0x56, 0x52] as const;
 const UNIFORM_BIT = 0x8000;
@@ -221,7 +223,7 @@ function columnOf(tile: RegionTile, side: number, cx: number, cy: number, cz: nu
 
 function checkTile(tile: RegionTile): number {
   if (tile.worldId.length !== WORLD_ID_BYTES) throw new RangeError(`a world id is ${WORLD_ID_BYTES} bytes, got ${tile.worldId.length}`);
-  if (!Number.isInteger(tile.gridId) || tile.gridId < 0 || tile.gridId > 0xffffffff) throw new RangeError(`grid id ${tile.gridId} is not a u32`);
+  if (!Number.isInteger(tile.gridId) || tile.gridId < 0 || tile.gridId > VOXEL_GRID_ID_MAX) throw new RangeError(`grid id ${tile.gridId} is not a u32`);
   if (tile.layout === 'column' && tile.ry !== 0) throw new RangeError('a column region has ry 0');
   for (const v of [tile.rx, tile.ry, tile.rz]) if (!Number.isInteger(v) || v < -0x80000000 || v > 0x7fffffff) throw new RangeError(`region index ${v} is not an i32`);
   const side = sideOf(tile);

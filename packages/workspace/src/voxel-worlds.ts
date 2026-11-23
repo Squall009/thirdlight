@@ -67,6 +67,7 @@ import {
   UndoStore,
   VOXEL_WORLD_NAME_RE,
   WORLD_GRID_ID,
+  VOXEL_GRID_ID_MAX,
   WORLD_ID_BYTES,
   FAR_MAX_LEVEL,
   FAR_MIN_LEVEL,
@@ -113,8 +114,6 @@ export const VOXEL_WORLDS_FOLDER = 'voxels';
 export const VOXEL_WORLD_MANIFEST = 'world.json';
 /** The world manifest's format; a newer one is refused, an older one lifted ({@link liftManifest}). */
 export const VOXEL_WORLD_FORMAT = 3;
-/** The highest structure grid id (region files carry it as a u32; the world grid is 0). */
-export const VOXEL_GRID_ID_MAX = 0xffffffff;
 /**
  * The voxel world ops' arguments, as {@link VoxelWorlds.command} reads them
  * (unknown fields refused). `world` names the folder `voxels/<world>/`.

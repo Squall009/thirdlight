@@ -19,6 +19,7 @@
  */
 import { cellInWorld } from './coords';
 import { MATERIAL_ID_MAX, SHAPE_FULL, VOXEL_ROLE_COUNT, WETNESS_MAX } from './record';
+import { VOXEL_GRID_ID_MAX } from './region-file';
 
 /** The edit command format this build writes and reads. */
 export const VOXEL_EDIT_VERSION = 2;
@@ -233,7 +234,7 @@ const YAW_TOLERANCE = 1e-9;
 export function canonicalEditCommand(input: unknown): VoxelEditCommand {
   const o = obj(input, '');
   if (o.v !== VOXEL_EDIT_VERSION) throw new EditCommandError('/v', `unknown edit command version ${String(o.v)}`);
-  const grid = int(o.grid, '/grid', 0, 0xffffffff);
+  const grid = int(o.grid, '/grid', 0, VOXEL_GRID_ID_MAX);
   const kind = oneOf(o.kind, '/kind', ['brush', 'fill', 'stamp', 'set', 'dig'] as const);
   let cmd: VoxelEditCommand;
   switch (kind) {

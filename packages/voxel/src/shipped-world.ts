@@ -17,7 +17,7 @@
  * reader, a test's disk read), so this module does no I/O of its own.
  */
 import { chunkGrid, CHUNK_EDGES, isRegionFootprint, REGION_FOOTPRINTS, type ChunkEdge, type RegionFootprint } from './coords';
-import { parseRegionFileName, VOXEL_WORLD_NAME_RE, WORLD_GRID_ID, WORLD_ID_BYTES, type RegionByteSource, type RegionLayout } from './region-file';
+import { parseRegionFileName, VOXEL_GRID_ID_MAX, VOXEL_WORLD_NAME_RE, WORLD_GRID_ID, WORLD_ID_BYTES, type RegionByteSource, type RegionLayout } from './region-file';
 import { RegionChunkSource } from './region-source';
 import { FAR_BAKED_LEVELS, regionFarSource, type FarNodeSource } from './far-field';
 import { FAR_MAX_LEVEL } from './far-tree';
@@ -155,7 +155,7 @@ export function shippedVoxelWorldsProblem(v: unknown): string | null {
         const at = `voxelWorlds[${i}].grids[${k}]`;
         if (typeof g !== 'object' || g === null || Object.keys(g).join(',') !== 'id,position,yawRad,files') return `${at} has the keys id, position, yawRad, files`;
         const r = g as Record<string, unknown>;
-        if (typeof r.id !== 'number' || !Number.isInteger(r.id) || r.id <= lastId || r.id > 0xffffffff) return `${at}.id is a whole number 1 … 2³² − 1, in ascending order, each once`;
+        if (typeof r.id !== 'number' || !Number.isInteger(r.id) || r.id <= lastId || r.id > VOXEL_GRID_ID_MAX) return `${at}.id is a whole number 1 … 2³² − 1, in ascending order, each once`;
         lastId = r.id;
         if (!Array.isArray(r.position) || r.position.length !== 3 || !r.position.every((v) => typeof v === 'number' && Number.isFinite(v))) return `${at}.position is [x, y, z] in metres`;
         if (typeof r.yawRad !== 'number' || !Number.isFinite(r.yawRad)) return `${at}.yawRad is a finite number`;

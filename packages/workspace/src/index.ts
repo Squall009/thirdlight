@@ -125,7 +125,6 @@ export {
   openShippedWorld,
   parseVoxelWorldManifest,
   readVoxelWorldManifest,
-  VOXEL_GRID_ID_MAX,
   VOXEL_WORLD_FORMAT,
   VOXEL_WORLD_MANIFEST,
   VOXEL_WORLDS_FOLDER,

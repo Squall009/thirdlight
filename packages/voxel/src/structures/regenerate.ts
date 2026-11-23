@@ -188,7 +188,8 @@ export interface RegenerateAllReport<D> {
 
 /**
  * Regenerates every structure whose definition an older version of the
- * generator wrote (R34: no pinning), and sums what happened, so the command
+ * generator wrote (a structure is never held on an old generator: a newer one
+ * reaches every house the same way), and sums what happened, so the command
  * layer can make it one undo step (the undo records together) and report
  * every misfit. A definition from a newer generator is refused by its
  * canonical form before it gets here.

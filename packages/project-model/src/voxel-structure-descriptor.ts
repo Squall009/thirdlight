@@ -6,10 +6,9 @@
  *
  * Pure data.
  */
-import { MATERIAL_ID_MAX, ROOF_AXES, ROOF_SHAPES, STRUCTURE_DEFAULTS } from '@thirdlight/voxel';
+import { MATERIAL_ID_MAX, ROOF_AXES, ROOF_SHAPES, STRUCTURE_DEFAULTS, VOXEL_GRID_ID_MAX } from '@thirdlight/voxel';
 import { enm, ID, int, json, obj, str } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
-import { VOXEL_STRUCTURE_GRID_MAX } from './voxel-structure';
 
 const material = (key: string, label: string, part: string): ReturnType<typeof int> => int(key, label, `The voxel material (its id, 1-${MATERIAL_ID_MAX}) of the ${part}; a material's kit draws it.`, { min: 1, max: MATERIAL_ID_MAX, required: true });
 
@@ -20,7 +19,7 @@ export const voxelStructure: ComponentDescriptor = {
   category: 'Rendering',
   value: obj('voxelStructure', 'Voxel structure', "The building's definition (numbers in its grid's 0.5 m cells) and the world grid it owns.", [
     str('world', 'World', 'The voxel world it is built in (a voxelWorld object of this scene names it).', { ...ID, required: true, readOnly: true }),
-    int('grid', 'Grid', "Its own grid of the world (given by the backend when the structure is made; its files are voxels/<world>/grid-<id>/).", { min: 1, max: VOXEL_STRUCTURE_GRID_MAX, required: true, readOnly: true }),
+    int('grid', 'Grid', "Its own grid of the world (given by the backend when the structure is made; its files are voxels/<world>/grid-<id>/).", { min: 1, max: VOXEL_GRID_ID_MAX, required: true, readOnly: true }),
     json('footprint', 'Footprint', 'Polygons [{id, points: [[x, z], …]}] with right-angled corners in cells; a second polygon makes an L, a T or a wing.', { required: true, shape: 'FootprintPolygon[]' }),
     int('storeys', 'Storeys', 'Floors stacked on the ground floor.', { min: 1, required: true, default: 1 }),
     int('storeyHeight', 'Storey height', 'Cells a storey, its floor slab included (6 = 3 m: a 2.5 m room under a floor).', { min: 2, required: true, default: STRUCTURE_DEFAULTS.storeyHeight }),

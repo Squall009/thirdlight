@@ -21,14 +21,11 @@
  * Pure data.
  */
 import { isPlainObject } from '@thirdlight/shared';
-import { parseStructureDefinition, StructureDefinitionError, VOXEL_WORLD_NAME_RE, type GridPlacement, type StructureDefinition } from '@thirdlight/voxel';
+import { parseStructureDefinition, StructureDefinitionError, VOXEL_GRID_ID_MAX, VOXEL_WORLD_NAME_RE, type GridPlacement, type StructureDefinition } from '@thirdlight/voxel';
 import type { ModelErrorV2 } from './errors';
 
 /** The definition's parts as the voxel package types them (the descriptor's JSON fields name them). */
 export type { FootprintPolygon, StructureDefinition, StructureOpening, StructureStair } from '@thirdlight/voxel';
-
-/** The highest structure grid id (region files carry it as a u32; 0 is the world grid). */
-export const VOXEL_STRUCTURE_GRID_MAX = 0xffffffff;
 
 /** How far a structure's rotation quaternion's x and z may stray from 0 and still turn about the vertical axis only. */
 export const STRUCTURE_YAW_TOLERANCE = 1e-6;
@@ -67,7 +64,7 @@ export function validateVoxelStructureComponent(value: unknown, path: string, er
   else if (typeof world !== 'string' || !VOXEL_WORLD_NAME_RE.test(world)) err(errors, 'field_value', `${path}/world`, `a world name matches ${VOXEL_WORLD_NAME_RE.source}`, world);
   const grid = value['grid'];
   if (grid === undefined) err(errors, 'field_missing', `${path}/grid`, 'voxelStructure needs its grid id (the backend gives a new structure the next free one)');
-  else if (typeof grid !== 'number' || !Number.isInteger(grid) || grid < 1 || grid > VOXEL_STRUCTURE_GRID_MAX) err(errors, 'field_value', `${path}/grid`, `grid is a whole number 1 … ${VOXEL_STRUCTURE_GRID_MAX} (0 is the world grid)`, grid);
+  else if (typeof grid !== 'number' || !Number.isInteger(grid) || grid < 1 || grid > VOXEL_GRID_ID_MAX) err(errors, 'field_value', `${path}/grid`, `grid is a whole number 1 … ${VOXEL_GRID_ID_MAX} (0 is the world grid)`, grid);
   try {
     parseStructureDefinition(structureDefinitionOf(value));
   } catch (e) {

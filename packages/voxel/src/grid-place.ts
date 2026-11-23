@@ -19,7 +19,7 @@
  * in (a bench's query switch, until structure objects carry them).
  */
 import type { ChunkCoord } from './coords';
-import { parseRegionFileName, type RegionLayout } from './region-file';
+import { parseRegionFileName, VOXEL_GRID_ID_MAX, type RegionLayout } from './region-file';
 import type { RegionChunkSource } from './region-source';
 
 /** A structure grid of a world and where it stands: its id (≥ 1), its cell (0, 0, 0)'s corner in world metres, its yaw (radians). */
@@ -39,7 +39,7 @@ export interface ChunkBox {
 export function gridPlacementProblem(p: unknown): string | null {
   if (typeof p !== 'object' || p === null) return 'a grid placement is { gridId, position: [x, y, z], yawRad }';
   const o = p as Record<string, unknown>;
-  if (typeof o.gridId !== 'number' || !Number.isInteger(o.gridId) || o.gridId < 1 || o.gridId > 0xffffffff) return 'gridId is a whole number 1 … 2³² − 1 (0 is the world grid)';
+  if (typeof o.gridId !== 'number' || !Number.isInteger(o.gridId) || o.gridId < 1 || o.gridId > VOXEL_GRID_ID_MAX) return 'gridId is a whole number 1 … 2³² − 1 (0 is the world grid)';
   if (!Array.isArray(o.position) || o.position.length !== 3 || !o.position.every((v) => typeof v === 'number' && Number.isFinite(v))) return 'position is [x, y, z] in metres';
   if (typeof o.yawRad !== 'number' || !Number.isFinite(o.yawRad)) return 'yawRad is a finite number';
   return null;
