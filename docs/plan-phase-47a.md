@@ -175,7 +175,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.6 | Done 2026-11-23 (cce0d13f, 54f9db51): structure editor mode (draw, edge/corner handles, Extend, storeys, 15° turn, Inspector section with a material a part, Dig/Add/Paint, misfit list and marker); e2e 13–16 s. The gate's one red (D761) was a test's camera jump tripping the streamer: fixed ad116a9b, every-area gate green; D762–D764. Interim look `acc47a-interim` |
 | 47a.7 | Done 2026-11-23. (a) 7b5d2598, 20fc9bf7, a8e2028e: `voxelPortal`, props follow, portal state where the world runs. (b) 6c0cf4f1…0c446ea1: shut doors link (D770), Play/export e2e, the mode's Openings (ghost, place, move, delete, fitting props, glass); flip→light 0.7–1.7 s, 100 doors one 14–16 ms step; stairs tool D775
 | 47a.8 | Done 2026-11-23 (a27a11e4, 39c31b65, 1488dc66, 494d8315 …): radius as a footprint (default 0.3 m, two cells), queries wait for edits (bound 90 serves, `stale`), shut doors in the levels, reach through grids, portal runs split; town 131/131 every check; D780 the Export failure fixed (hourly sweep); D778, D779, D781 |
-| 47a.9 | Done 2026-11-23 (e1a62759…3452d5bb): proof on 1.34 M liquid cells (shader data read liquid: now air); `changeFeeds`/`EditOutcome.parts`; liquid part (16 B quads), drawn plain near; liquid dab 4 full derives → 4 liquid, worker 8.4 → 4.6 ms; town orbit, 128 lamps equal; lake near not resolved; D782–D784 |
+| 47a.9 | Done 2026-11-23 (e1a62759…3452d5bb): proof on 1.34 M liquid cells (shader data read liquid: now air); `changeFeeds`/`EditOutcome.parts`; liquid part (16 B quads), drawn plain near; liquid dab 4 full derives → 4 liquid, worker 8.4 → 4.6 ms; town orbit, 128 lamps equal; lake near not resolved; D782–D785 |
 | 47a.10 | not started |
 | 47a.11 | not started |
 | 47a.12 | not started |
@@ -1936,22 +1936,30 @@ the headroom orbit could not run on the edited world at the head or the base (th
 D784), so the page's GPU measurement at the street camera looking over the lake (`light-shots --gpu`), liquid drawn
 and `?voxelLiquid=off`, A B A B 14:56–15:08 UTC, load 3.3–4.3 (the backend rebuilding its far cache): near 5.44,
 4.88 against 4.68, 4.82 ms (spread 0.4–1.2), lighting 3.31, 3.55 against 3.30, 3.04: the water's cost is not resolved
-at this view (under 0.8 ms). *E2E*: `voxel-world.e2e.ts` 6.3 → 6.2 min; its assembly test 1.1 → 1.2 min (water on the
+at this view (under 0.8 ms). *The light-volume Play test's off-proof* failed once in the last fast gate (D785, watch): alone it passed 3 of 3 at the head and 3 of 3 at the base 47230d51 (15:33–15:47 UTC, load 3.2–4.8), and on the gate's rerun; its hut holds no liquid. *E2E*: `voxel-world.e2e.ts` 6.3 → 6.2 min; its assembly test 1.1 → 1.2 min (water on the
 page: 5,235 blue pixels, liquid triangles 2 → 4 with the bank dug); Play 2.1 → 2.1 min (the pool: 979 blue pixels).
 
-**Pictures** (`~/.cache/thirdlight-phase47a/work/47a.9/look/`, Play, low, 1280 × 720; the lake is bench data):
-`01-lake-before.png` (base: the dug lake dry, blue tints along the bed's rim from the shader data's old blend),
-`02-lake-plain-water.png` (head: flat blue water to the far shore, the step 0.5 m down at x −20 m as a darker band, the
-block of water standing on the street), `04-water-step-and-side.png` (2 m closer: the block's sides, the shore),
-`06-far-view-bed-dry.png` (from 140 m east: the lake past the ring as a brown dry bed), `07-night-lamp-on-water.png`
-(the lamps' light on the water, beside `07b-night-before.png`). What is wrong or ugly: the water is one flat colour
-with no variation, so its surface reads as a painted plane and the step's face only as a darker band; at night its
-far part is lighter than the ground round it (a bluish band at the horizon); the standing block is a hard-edged box
-(the "wall of water" 47a.10 removes); no z-fighting or seams were seen at the shore or across chunk borders in these
-views (the shore is a ground wall, not a slope, in this bench lake). **Not obtained:** `03-shore-close.png` (no camera
-close at a shore; the shore is at the left of 04) and `05-cave-pool.png` (the pool was written, 632 cells, `parts`
-32, but the cave camera's picture shows none: it lies outside that view or under the floor it sees; unverified).
-Structure grids' water and the voxel world page's own pictures were not looked at.
+**Pictures** (`~/.cache/thirdlight-phase47a/work/47a.9/look/`, Play, low, 1280 × 720; the water is bench data written
+through the commands, every water stroke answered `parts` 32, the world restored after; `m/`, `m3/`):
+`01-lake-before.png` (base: the dug lake dry, blue tints along the bed's rim from the shader data's old blend toward
+the water's material), `02-lake-plain-water.png` (head, the same lake and camera, no other water: flat blue to the far
+shore), `03-shore-close.png` (from 18 m over a house dug into a pond beside the lake: the stair-stepped shore against
+the grass, the walls' shadows on the water, the pond's surface half a metre under the lake's, its rim drawn as the
+step's side faces), `04-water-step-and-side.png` (2 m closer, a block of water standing on the street: its lit and
+shaded sides), `05-cave-pool.png` (see below), `06-far-view-bed-dry.png` (from 140 m east: the lake past the ring as a
+brown dry bed), `07-night-lamp-on-water.png` (the lamps' light on the water, beside `07b-night-before.png`).
+**The darker band across the lake in 02 and 04** is the step's side face, drawn as built: the lake is 0.5 m lower
+west of x = −20 m (the camera's side), so the higher water's face toward −x (one quad across the lake, 0.5 m tall)
+faces the camera, lit from the side by a sun high in the south, darker than the tops; it is not a seam, a shadow or a
+merge error (no band in 01; the tops either side are one colour; 03 shows the same steps from above as outlines).
+What is wrong or ugly: the water is one flat colour (lit, unshaded by any detail), so a surface reads as a painted
+plane and a step only as a band; the shore is the dug ground's stair of cells (this lake was dug with vertical
+walls); at night the far water is lighter than the ground round it (a bluish band at the horizon); the standing
+block is a hard-edged box (the "wall of water" 47a.10 removes). No z-fighting or seams were seen at the shores or
+across chunk borders in these views. **05 is not a picture of the pool**: a pit under the cave's floor (below the tube
+light-shots digs again each run, which took the first pool) was filled (560 cells), but nothing blue shows at the
+cave camera (the pool lies at the floor's level in the dark tube, lit by the light volume alone; it is not told apart
+from the floor in the picture): unverified. Structure grids' water was not looked at.
 
 ## 9. Decision log
 
