@@ -7,7 +7,10 @@
  * light shape's box, else its position a quarter metre up) lies in a
  * structure grid's `opening` cell, read from the grid's resident voxels where
  * the grid stands; the opening is that cell and the `opening` cells joined to
- * it by faces. No definition is read (an export ships none): an opening's
+ * it by faces. Two openings side by side on a wall are one run of `opening`
+ * cells: a prop whose middle lies in a run with another's takes the cells on
+ * its side of the cell boundary nearest the midpoint between the two (along
+ * the axis they lie apart on), so each governs its own opening. No definition is read (an export ships none): an opening's
  * record names its prop in the editor, and the prop stands in it.
  *
  * **What a shut portal stops**, exactly at its opening and the same step:
@@ -162,12 +165,22 @@ export class WorldPortals {
         this.waiting.delete(id);
         continue;
       }
-      const j = this.join(p);
+      const j = this.join(id, p);
       if (j === 'later') continue;
       this.waiting.delete(id);
       if (j === null) continue;
       this.joined.set(id, j);
       this.apply(id);
+      // A prop joined before it to the same run (at another cell) took the whole run: it joins again, split against this one.
+      const mine = new Set(j.cells.map((c) => c.join(',')));
+      const cellOf = (q: PortalProp): string => {
+        const g = j.grid.frame.toGrid(q.at[0], q.at[1], q.at[2]);
+        return `${Math.floor(g[0] / VOXEL_SIZE_M)},${Math.floor(g[2] / VOXEL_SIZE_M)}`;
+      };
+      for (const [other, o] of [...this.joined]) if (other !== id && o.grid === j.grid && cellOf(this.props.get(other)!) !== cellOf(p) && o.cells.some((c) => mine.has(c.join(',')))) {
+        this.unjoin(other);
+        this.waiting.add(other);
+      }
     }
   }
 
@@ -199,7 +212,7 @@ export class WorldPortals {
     this.waiting.clear();
   }
 
-  private join(p: PortalProp): Joined | null | 'later' {
+  private join(id: string, p: PortalProp): Joined | null | 'later' {
     const record: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 } as VoxelRecord;
     const grids = this.grids();
     // The world's grids open with it, a step or more after its props arrive: nothing is decided before.
@@ -216,12 +229,34 @@ export class WorldPortals {
       if (!s.isResident(k[0]!, k[1]!, k[2]!)) return 'later';
       s.voxelAt(c[0], c[1], c[2], record);
       if (record.material === MATERIAL_AIR && record.role !== VOXEL_ROLE.opening) continue;
-      const cells = openingCellsAt(g, c);
+      let cells = openingCellsAt(g, c);
       if (cells === null) continue;
+      cells = this.splitRun(id, g, c, q, cells);
       const { stamp, min, max } = shutStamp(g, cells);
       return { grid: g, cells, stamp, min, max, light: false, walk: false };
     }
     return null;
+  }
+
+  /**
+   * A run's cells this prop governs: with another prop's middle in the same run (a cell of it apart from this one's),
+   * the cells on this prop's side of the cell boundary nearest their midpoint, along the axis (x or z of the grid) they
+   * lie farther apart on; each other prop cuts it again. Props at the same cell share the run.
+   */
+  private splitRun(id: string, g: VoxelGridHost, c: readonly number[], q: readonly number[], cells: [number, number, number][]): [number, number, number][] {
+    const inRun = new Set(cells.map((x) => x.join(',')));
+    let out = cells;
+    for (const [other, o] of this.props) {
+      if (other === id) continue;
+      const qo = g.frame.toGrid(o.at[0], o.at[1], o.at[2]);
+      const co = [Math.floor(qo[0] / VOXEL_SIZE_M), Math.floor(qo[1] / VOXEL_SIZE_M), Math.floor(qo[2] / VOXEL_SIZE_M)];
+      if (!inRun.has(co.join(',')) || (co[0] === c[0] && co[2] === c[2])) continue;
+      const axis = Math.abs(qo[0] - q[0]!) >= Math.abs(qo[2] - q[2]!) ? 0 : 2;
+      const cut = Math.round((q[axis]! + qo[axis]!) / 2 / VOXEL_SIZE_M);
+      const below = c[axis]! < cut;
+      out = out.filter((x) => x[axis]! < cut === below);
+    }
+    return out;
   }
 
   /** A joined prop's state onto its opening: its light stamp and its walk graph's shut cells as the state asks. */

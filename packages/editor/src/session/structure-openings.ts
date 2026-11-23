@@ -130,7 +130,7 @@ export function openingProblem(def: StructureDefinition, o: StructureOpening): s
     const apart = Math.max(x.at - (o.at + o.width), o.at - (x.at + x.width));
     const rowsMeet = x.sill <= o.sill + o.height && o.sill <= x.sill + x.height;
     if (apart < 0 && rowsMeet) return `The opening overlaps "${x.id}" on this wall.`;
-    if (apart === 0 && rowsMeet) return `The opening touches "${x.id}": leave at least one cell of wall between two openings (side by side they would be one hole with one prop).`;
+    if (apart === 0 && rowsMeet) return `The opening touches "${x.id}": leave at least one cell of wall between two openings (side by side they make one hole in the wall).`;
   }
   return structureProblem(withOpening(def, o));
 }

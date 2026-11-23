@@ -89,4 +89,27 @@ describe('portal state on a structure opening', () => {
       expect(portals.propOf([-1000, -1000, -1000], [1000, 1000, 1000])?.id).toBeDefined();
     });
   }
+
+  it('two openings side by side (one run of opening cells) are told apart by which side of the midpoint between their props each lies, whichever joins first', () => {
+    for (const order of [['a', 'b'], ['b', 'a']]) {
+      const { host, shut } = gridHost(30);
+      const { ch } = channel();
+      const portals = new WorldPortals(() => [host], () => ch);
+      // The door's run x 5 … 7 holds two props: one over x 5, one over x 7 (as two touching openings sent by command).
+      const at = (x: number) => host.frame.toWorld((x + 0.5) * M, 1.5, (DOOR.z + 0.5) * M);
+      const props = { a: at(5), b: at(7) } as Record<string, [number, number, number]>;
+      for (const id of order) {
+        portals.set([[id, { open: false, stops: { light: true, sight: true, walk: true }, at: props[id]! }]]);
+        portals.step();
+        portals.step();
+      }
+      const last = new Map<string, Array<[number, number, number]> | null>();
+      for (const [id, cells] of shut) last.set(id, cells as Array<[number, number, number]> | null);
+      const xs = (id: string) => [...new Set((last.get(id) ?? []).map((c) => c[0]))].sort();
+      // The cut is the cell boundary nearest the midpoint (x 6.5: boundary 6 or 7, rounding the middle up to 7).
+      expect(xs('a'), order.join('')).toEqual([5, 6]);
+      expect(xs('b'), order.join('')).toEqual([7]);
+      expect(portals.stats()).toMatchObject({ joined: 2, shutWalk: 2 });
+    }
+  });
 });
