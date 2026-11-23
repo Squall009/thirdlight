@@ -105,7 +105,7 @@ describe('structure shape: materials, hand edits and misfit words', () => {
   it('a misfit says what the hand edit was in plain words', () => {
     expect(misfitWords({ x: 0, y: 1, z: 0, base: v(3, VOXEL_ROLE.wall), value: 0, generated: 0 })).toBe('a dug cell (was wall; now air is generated there)');
     expect(misfitWords({ x: 0, y: 1, z: 0, base: 0, value: v(5, VOXEL_ROLE.pillar), generated: v(3, VOXEL_ROLE.floor) })).toBe('an added cell (pillar, material 5; now floor is generated there)');
-    expect(misfitWords({ x: 0, y: 1, z: 0, base: v(3, VOXEL_ROLE.wall), value: v(8, VOXEL_ROLE.wall), generated: 0 })).toBe('a painted cell (wall, material 8 over 3; now air is generated there)');
+    expect(misfitWords({ x: 0, y: 1, z: 0, base: v(3, VOXEL_ROLE.wall), value: v(8, VOXEL_ROLE.wall), generated: 0 })).toBe('a painted cell (wall, material 8 over material 3; now air is generated there)');
     expect(misfitWords({ x: 0, y: 1, z: 0, base: v(3, VOXEL_ROLE.wall), value: v(8, VOXEL_ROLE.wall), generated: 0 }, (id) => (id === 8 ? 'Brick' : 'Stone'))).toBe('a painted cell (wall, Brick over Stone; now air is generated there)');
     expect(misfitSummary(1)).toBe('1 edit did not fit the new shape');
     expect(misfitSummary(3)).toBe('3 edits did not fit the new shape');
