@@ -1058,9 +1058,9 @@ Fields:
 - Voxels paths (`api.voxels.paths`): The paths (`findPath`) answered at this step's start, in the order asked.
 - Voxels reaches (`api.voxels.reaches`): The reaches (`reach`) answered at this step's start, in the order asked.
 - Voxels mismatches (`api.voxels.mismatches`): The restored chunks found made on other world files than now, since the previous step, and whether the save was kept there.
-- Voxel at (`api.voxels.get`): The voxel at a world position, or null where the world is not loaded there (never air for that).
-- Light coverage at (`api.voxels.coverageAt`): How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded there, or the cell's piece is not built yet.
-- Save voxel changes (`api.voxels.save`): Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document).
+- Voxel at (`api.voxels.get`): The voxel at a world position, or null where the world is not loaded there (never air for that). Inside a structure: its voxel where its cell is not air, else the world's own.
+- Light coverage at (`api.voxels.coverageAt`): How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). In a structure's cell that is not air, the structure's own coverage. Null where the world is not loaded there, or the cell's piece is not built yet.
+- Save voxel changes (`api.voxels.save`): Make a save of the game's changes to the world (its structures' too): returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document).
 
 <a id="node-behavior--api-voxels-worlds"></a>
 ### Worlds (`api.voxels.worlds`)
@@ -1133,7 +1133,7 @@ Outputs:
 <a id="node-behavior--api-voxels-get"></a>
 ### Voxel at (`api.voxels.get`)
 
-The voxel at a world position, or null where the world is not loaded there (never air for that).
+The voxel at a world position, or null where the world is not loaded there (never air for that). Inside a structure: its voxel where its cell is not air, else the world's own.
 
 Inputs:
 
@@ -1160,7 +1160,7 @@ Fields:
 <a id="node-behavior--api-voxels-coverage-at"></a>
 ### Light coverage at (`api.voxels.coverageAt`)
 
-How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). Null where the world is not loaded there, or the cell's piece is not built yet.
+How much of the light a cell at a world position blocks, 0 (open) to 1 (solid): the world's own voxels joined with the props marked `affectsLighting` standing in it (never part of the voxels, never saved). In a structure's cell that is not air, the structure's own coverage. Null where the world is not loaded there, or the cell's piece is not built yet.
 
 Inputs:
 
@@ -1184,7 +1184,7 @@ Fields:
 <a id="node-behavior--api-voxels-save"></a>
 ### Save voxel changes (`api.voxels.save`)
 
-Make a save of the game's changes to the world: returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document).
+Make a save of the game's changes to the world (its structures' too): returns the save's id, answered in `ctx.voxels.saves` at a later step with the save's bytes (and the same as text for a save document).
 
 Inputs:
 

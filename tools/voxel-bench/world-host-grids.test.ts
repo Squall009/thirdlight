@@ -242,7 +242,8 @@ describe('ctx.voxels in a world with structure grids', () => {
     await g.inStep(ready, 'the houses loaded and derived');
     const out = await g.inStep((v) => {
       const room = v.regionAt(...cellAt(2, 6, 3, 5));
-      if (room === null) return undefined;
+      // The houses' stamps land over steps in the derive slice: their rooms are known once those are stitched.
+      if (room === null || room.kind === 'unknown') return undefined;
       return {
         wall: HOUSES.map((h) => v.get(...cellAt(h.id, 3, 2, 0))),
         door: v.get(...cellAt(2, 6, 2, 0)),
