@@ -502,9 +502,13 @@ function body(v: number): boolean {
   return valueMaterial(v) !== MATERIAL_AIR && OPEN_ROLE[role] !== 1 && role !== VOXEL_ROLE.terrain && drawnWhole(v);
 }
 
-/** Plain air (not an opening, not liquid). */
+/**
+ * Plain open space (not an opening): air, or liquid, which every consumer but the liquid part reads as the air it
+ * stands in (so an air ↔ liquid change re-derives the liquid part alone).
+ */
 function air(v: number): boolean {
-  return ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.air || valueMaterial(v) === MATERIAL_AIR;
+  const role = (v >>> ROLE_SHIFT) & ROLE_MASK;
+  return role === VOXEL_ROLE.air || role === VOXEL_ROLE.liquid || valueMaterial(v) === MATERIAL_AIR;
 }
 
 /** The neighbourhood the probe reads (one job at a time a thread). */

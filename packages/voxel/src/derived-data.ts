@@ -239,8 +239,14 @@ const REGIONS_SPAN = threadProfiler.span('open regions', 'voxelMesh');
  * joined through open cells) and sky columns (the highest solid cell + 1
  * a column); radius 0 (open-regions.ts). The regions follow the shader
  * data in the canonical bytes; every other output is v31's.
+ *
+ * v33: liquid is open space to every output but its own: the shader data
+ * holds a liquid cell as air (entry 0, so no surface blends toward the
+ * liquid's material), and the roof words read a liquid cell as plain air.
+ * Shader data differs from v32's in grids holding liquid; every other
+ * output is v32's (a liquid cell under an eave aside).
  */
-export const DERIVED_FORMAT_VERSION = 32;
+export const DERIVED_FORMAT_VERSION = 33;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
