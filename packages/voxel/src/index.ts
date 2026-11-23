@@ -474,7 +474,9 @@ export { boxChunkKeys, boxChunks, type GeneratedDefinition, type StructureGenera
 export { anchoredDefinition, BUILDING_GENERATOR, BUILDING_GENERATOR_VERSION, buildingChunk, buildingPlan, canonicalStructureDefinition } from './structures/building';
 export { NO_ROOF, type BuildingPlan } from './structures/building-plan';
 export { followOpening, OPENING_PROP_FIT_TOLERANCE_M, OPENING_SIZES, openingCells, openingFrame, propFitsOpening, yawQuaternion, type OpeningCells, type OpeningFrame, type OpeningSize } from './structures/openings';
-export { captureOverrides, regenerateAll, regenerateStructure, type RegenerateAllReport, type RegenerateReport, type StructureMisfit, type StructureToRegenerate } from './structures/regenerate';
+export { captureOverrides, chunkRecordOf, regenerateAll, regenerateStructure, type RegenerateAllReport, type RegenerateReport, type StructureMisfit, type StructureToRegenerate } from './structures/regenerate';
+export { emptyWorldRecord, groundOf, rewriteInWorld, stillWritten, worldRecordCells, worldRecordChunks, writeRecordOf, type GroundReader, type LeftAlone, type WorldRecord, type WorldRewriteReport, type WorldWriter } from './structures/world-writer';
+export { SPLINE_VOXEL_KINDS, SPLINE_WRITER, SPLINE_WRITER_VERSION, type SplineBodyMeet, type SplineVoxelDefinition, type SplineVoxelKind } from './structures/spline-writer';
 export { CellQueue, CellSet } from './water/cell-set';
 export { FILL_BREACH, FILL_OUTSIDE, fillOpen, fillPasses, fillShapeAt, fillStartRow, isLiquidOf, levelFill, liquidValue, walkFill, withinReach, type FillWalk, type FillWorld, type LevelFillResult, type LevelFillSpec, type LevelFillStatus } from './water/level-fill';
 export { bodyCells, bodyStart, clearBody, fillLeaks, followBody, FOLLOW_CUT_MARGIN_CELLS, LEAK_GROUP_CELLS, regenerateBody, type BodyFollow, type BodyRegenerate, type CellWrites, type FillLeak, type FollowWholeWhy } from './water/body';

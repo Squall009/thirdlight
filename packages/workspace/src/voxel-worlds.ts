@@ -60,6 +60,9 @@ import {
   liftVersion,
   MATERIAL_ID_MAX,
   valueOf,
+  valueRole,
+  VOXEL_ROLE,
+  CellSet,
   WORLD_RULES,
   UndoStore,
   VOXEL_WORLD_NAME_RE,
@@ -102,6 +105,7 @@ import { farFineComplete, farFinePending, farFineProgress, rebakeFarFine, startF
 import { FarFollow } from './voxel-far-follow';
 import { inProcessFarJobs, type FarCacheJobs } from './voxel-far-jobs';
 import { gridBoxInWorld, WaterBodies, type WaterBodyReport, type WaterChange, type WaterWorld } from './voxel-water';
+import { applySplineChanges, listedSplineRecords, readSplineRecord, splineRecordFile, SPLINE_RECORDS_FOLDER, type HeldRecord, type SplineChange, type SplineChangeReport } from './voxel-spline-writes';
 
 /** The project folder holding its voxel worlds, one folder each. */
 export const VOXEL_WORLDS_FOLDER = 'voxels';
@@ -293,6 +297,8 @@ export type VoxelWorldInfo =
       grids: Array<{ id: number; files: Array<{ name: string; etag: string | null }>; place?: GridPlacement; lastRegenerate?: StructureGridReport; overrides: number }>;
       /** Each water body of the world (its object placed): its state after the last step that wrote it, or as the fill finds it now (filled, drained by a leak and where, its start cell blocked). Memory only, never stored. */
       bodies: WaterBodyReport[];
+      /** Each spline writing into the world: the cells its record holds, and its last rewrite's report this backend holds (absent: none since the world was opened, or undone since). */
+      splines: Array<{ entityId: string; written: number; recordBytes: number; lastWrite?: SplineReportAt }>;
     }
   | { ok: false; error: VoxelWorldError };
 
@@ -362,6 +368,14 @@ async function waitAtMost(p: Promise<unknown>, ms: number): Promise<void> {
 
 /** A structure command's writes to a world (voxel-structure-writes.ts), its own op on the world's line of strokes. */
 export const STRUCTURE_WRITE_OP = 'writeStructures';
+/** A command's splines written into a world (voxel-spline-writes.ts), its own op on the world's line of strokes. */
+export const SPLINE_WRITE_OP = 'writeSplines';
+
+/** A spline rewrite's report with its left-alone cells and misfits placed in the world (metres, the cell's middle). */
+export interface SplineReportAt extends Omit<SplineChangeReport, 'leftAlone' | 'misfits'> {
+  readonly leftAlone: ReadonlyArray<SplineChangeReport['leftAlone'][number] & { readonly at: readonly [number, number, number] }>;
+  readonly misfits: ReadonlyArray<SplineChangeReport['misfits'][number] & { readonly at: readonly [number, number, number] }>;
+}
 /** A command's water (voxel-water.ts: bodies made, changed or deleted, and those round the structures it wrote), its own op on the world's line of strokes. */
 export const WATER_WRITE_OP = 'writeWater';
 
@@ -391,8 +405,8 @@ export interface StructureGridReport extends Omit<StructureChangeReport, 'misfit
 /** What an applied voxel command answers. */
 export interface VoxelCommandApplied {
   readonly ok: true;
-  /** The op applied: a forward op (a structure command's writes: {@link STRUCTURE_WRITE_OP}; its water: {@link WATER_WRITE_OP}), or `undo` / `redo` of one of the world's strokes ({@link VoxelWorlds.step}). */
-  readonly op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP | typeof WATER_WRITE_OP;
+  /** The op applied: a forward op (a structure command's writes: {@link STRUCTURE_WRITE_OP}; its splines: {@link SPLINE_WRITE_OP}; its water: {@link WATER_WRITE_OP}), or `undo` / `redo` of one of the world's strokes ({@link VoxelWorlds.step}). */
+  readonly op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP | typeof SPLINE_WRITE_OP | typeof WATER_WRITE_OP;
   readonly requestId: string | null;
   readonly world: string;
   /** The world's revision after the change. */
@@ -413,6 +427,8 @@ export interface VoxelCommandApplied {
   readonly grids?: ReadonlyArray<{ readonly grid: number; readonly chunks: ReadonlyArray<readonly [number, number, number]> }>;
   /** A structure command's writes, a grid each: cells, kept and absorbed overrides, misfits (in the grid's cells and in world metres). */
   readonly structures?: readonly StructureGridReport[];
+  /** A spline command's writes, a spline each: cells put back, written, left alone (edited since), kept and misfits by the fit rule. */
+  readonly splines?: readonly SplineReportAt[];
   /**
    * The water bodies the stroke followed after its edit (absent: none met): the cells their liquid took or left,
    * which feed the liquid part alone (`box` and `parts` above are the edit's own). A {@link WATER_WRITE_OP} step
@@ -473,6 +489,8 @@ interface HistoryEntry {
   readonly materialSwaps: readonly number[];
   /** Structure grids' overrides files the stroke changed: their bytes before and after (null: no file). */
   readonly overrides?: ReadonlyArray<{ readonly grid: number; readonly before: Uint8Array | null; readonly after: Uint8Array | null }>;
+  /** Splines' record files the stroke changed: their bytes before and after (null: no file). */
+  readonly records?: ReadonlyArray<{ readonly entityId: string; readonly before: Uint8Array | null; readonly after: Uint8Array | null }>;
   /** A structure command's writes: the far field under its grids is the command's to build again (its objects may come or go with it). */
   readonly structural?: true;
   /** The water a stroke wrote after its edit (answered again by its undo and redo). */
@@ -491,6 +509,10 @@ interface WorldState {
   overrides: Map<number, HeldOverrides>;
   /** The last regenerate's report of each structure grid (memory only: answered again, never stored). */
   reports: Map<number, StructureChangeReport>;
+  /** The splines' records as read or written, by object id (read on first use). */
+  records: Map<string, HeldRecord>;
+  /** The last rewrite's report of each spline (memory only). */
+  splineReports: Map<string, SplineChangeReport>;
   undo: UndoStore;
   history: HistoryEntry[];
   /** Strokes undone, newest last: a redo applies the last again; a new edit drops them all. */
@@ -682,11 +704,16 @@ export class VoxelWorlds {
       const path = join(dir, gridFolder(g.id), STRUCTURE_OVERRIDES_FILE);
       stamps.set(path, fileStamp(path));
     }
+    // So is every spline's record.
+    for (const id of listedSplineRecords(dir)) {
+      const path = join(dir, SPLINE_RECORDS_FOLDER, splineRecordFile(id));
+      stamps.set(path, fileStamp(path));
+    }
     // Undo records of an earlier run (or of the files before someone else changed them) are gone: the folder starts empty.
     const spillDir = join(projectDir, 'cache', 'voxel-undo', name);
     rmSync(spillDir, { recursive: true, force: true });
     mkdirSync(spillDir, { recursive: true });
-    return { manifest, manifestHash, world, grids, overrides: new Map(), reports: new Map(), undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], redo: [], stamps };
+    return { manifest, manifestHash, world, grids, overrides: new Map(), reports: new Map(), records: new Map(), splineReports: new Map(), undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], redo: [], stamps };
   }
 
   /**
@@ -711,6 +738,10 @@ export class VoxelWorlds {
         const held = w.overrides.get(g.id);
         // A file this process never read: any change of its stamp is someone else's (absent: known absent).
         checks.push({ name: `${gridFolder(g.id)}/${STRUCTURE_OVERRIDES_FILE}`, path: join(w.dir, gridFolder(g.id), STRUCTURE_OVERRIDES_FILE), known: held === undefined ? undefined : held.hash });
+      }
+      for (const id of new Set([...listedSplineRecords(w.dir), ...w.records.keys()])) {
+        const held = w.records.get(id);
+        checks.push({ name: `${SPLINE_RECORDS_FOLDER}/${splineRecordFile(id)}`, path: join(w.dir, SPLINE_RECORDS_FOLDER, splineRecordFile(id)), known: held === undefined ? undefined : held.hash });
       }
     }
     const changed: string[] = [];
@@ -789,6 +820,13 @@ export class VoxelWorlds {
           return { id: g.id, files: tags(this.gridOf(w, g.id)), ...(place !== undefined ? { place } : {}), ...(report !== undefined ? { lastRegenerate: this.reportAt(w, report) } : {}), overrides };
         }),
         bodies: await this.waterReports(w),
+        splines: [...new Set([...listedSplineRecords(w.dir), ...w.splineReports.keys()])].sort().map((id) => {
+          const held = this.recordOf(w, id);
+          const report = w.splineReports.get(id);
+          let written = 0;
+          for (const c of held.value.chunks.values()) written += c.value.count;
+          return { entityId: id, written, recordBytes: held.bytes?.length ?? 0, ...(report !== undefined ? { lastWrite: splineReportAt(report) } : {}) };
+        }),
       };
     });
   }
@@ -1227,6 +1265,18 @@ export class VoxelWorlds {
   }
 
   /**
+   * A command's splines written into a world (voxel-spline-writes.ts) as one stroke: what each wrote put back where
+   * it still holds it, its new course written, the region files and the record files in one staged write. The answer
+   * names each spline's cells, those left alone and the fit rule's misfits.
+   */
+  async writeSplines(projectId: string, world: string, changes: readonly SplineChange[], requestId: string | null): Promise<VoxelCommandResult> {
+    if (changes.length === 0) return refuse('no_change', 'validation', 'no spline to write');
+    const w = await this.load(projectId, world);
+    if ('ok' in w) return w;
+    return this.queued(w, () => this.apply(w, SPLINE_WRITE_OP, { changes }, requestId));
+  }
+
+  /**
    * A command's water as one stroke of the world (voxel-water.ts): the bodies it made, changed, moved or deleted
    * (`changes`, as the scenes held them before and hold them now) written again or cleared, then every other body
    * of the world whose reach `boxes` meet (the world cells under the structures it wrote) followed round them. The
@@ -1337,7 +1387,7 @@ export class VoxelWorlds {
     return refuse('world_changed', 'conflict', `voxel world ${w.name} changed on disk outside this backend (${shown}); reloaded at revision ${w.manifest.revision}, undo history cleared: read the world again, then send the edit again`);
   }
 
-  private async apply(w: OpenWorld, op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP | typeof WATER_WRITE_OP, a: Record<string, unknown>, requestId: string | null, expectedRevision?: number, stroke?: number): Promise<VoxelCommandResult> {
+  private async apply(w: OpenWorld, op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP | typeof SPLINE_WRITE_OP | typeof WATER_WRITE_OP, a: Record<string, unknown>, requestId: string | null, expectedRevision?: number, stroke?: number): Promise<VoxelCommandResult> {
     if (requestId !== null) {
       const seen = w.answers.get(requestId);
       if (seen !== undefined) return { ...seen, duplicated: true };
@@ -1360,6 +1410,9 @@ export class VoxelWorlds {
     /** Overrides files this change writes (null: the file goes), by grid; their bytes before, for the undo. */
     const flips = new Map<number, { before: Uint8Array | null; after: Uint8Array | null; value?: StructureOverrides }>();
     let structures: StructureChangeReport[] | undefined;
+    /** Spline record files this change writes (null: the file goes), by object id; their bytes before, for the undo. */
+    const recordFlips = new Map<string, { before: Uint8Array | null; after: Uint8Array | null; value?: HeldRecord['value'] }>();
+    let splines: SplineChangeReport[] | undefined;
     /** The water a stroke wrote after its edit (or a water step's bodies). */
     let water: VoxelWaterAnswer | undefined;
     /** A step's chunks as it found them: the other way's record, and written back if the step cannot be saved. */
@@ -1428,6 +1481,16 @@ export class VoxelWorlds {
       materialSwaps = made.materialSwaps;
       for (const [grid, o] of made.overrides) flips.set(grid, { before: host.overrides(grid).bytes, after: o.bytes, value: o.value });
       structures = made.reports;
+    } else if (op === SPLINE_WRITE_OP) {
+      const made = await applySplineChanges({ world: w.world, record: (id) => this.recordOf(w, id) }, a.changes as readonly SplineChange[]);
+      if (made.cells === 0 && made.records.size === 0) return refuse('no_change', 'validation', 'the splines already hold these voxels: nothing to write');
+      record = made.record;
+      cells = made.cells;
+      box = made.box ?? NO_CELLS;
+      parts = made.parts;
+      materialSwaps = made.materialSwaps;
+      for (const [id, r] of made.records) recordFlips.set(id, { before: this.recordOf(w, id).bytes, after: r.bytes, value: r.value });
+      splines = made.reports;
     } else if (op === WATER_WRITE_OP) {
       const made = this.water.rewrite(await this.waterWorld(w), w.name, a.changes as readonly WaterChange[], this.waterBodies(w), a.boxes as readonly CellBox[]);
       if (made === null || made.cells === 0) {
@@ -1457,6 +1520,7 @@ export class VoxelWorlds {
       inverse = record.map((u) => ({ grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz, before: { kind: 'image', bytes: this.gridOf(w, u.grid).store.encodeChunk(u.cx, u.cy, u.cz) } }));
       this.undoInto(w, record);
       for (const f of top.overrides ?? []) flips.set(f.grid, { before: op === 'undo' ? f.after : f.before, after: op === 'undo' ? f.before : f.after });
+      for (const f of top.records ?? []) recordFlips.set(f.entityId, { before: op === 'undo' ? f.after : f.before, after: op === 'undo' ? f.before : f.after });
       cells = top.cells;
       box = top.box;
       parts = top.parts;
@@ -1465,7 +1529,7 @@ export class VoxelWorlds {
     }
     const t1 = performance.now();
     const structural = op === STRUCTURE_WRITE_OP || stepped?.structural === true;
-    const saved = this.save(w, flips);
+    const saved = this.save(w, flips, recordFlips);
     // Saved files are clean: they may be dropped again (the next edit reaching them reads them back).
     w.world.trim();
     for (const g of w.grids.values()) g.trim();
@@ -1491,13 +1555,16 @@ export class VoxelWorlds {
       made = stepped.stroke;
       // A regenerate's misfits answered again are its own: an undo or redo of a grid leaves none held.
       for (const u of record) w.reports.delete(u.grid);
+      for (const f of strokeRecords(stepped)) w.splineReports.delete(f);
     } else {
       made = this.nextStroke++;
       const overrides = [...flips].map(([grid, f]) => ({ grid, before: f.before, after: f.after }));
-      w.history.push({ stroke: made, id: await w.undo.put(record), cells, box, parts, materialSwaps, ...(overrides.length > 0 ? { overrides } : {}), ...(structural ? { structural: true as const } : {}), ...(water !== undefined && op === 'editVoxels' ? { water: { box: water.box, parts: water.parts, chunks: water.chunks } } : {}) });
+      const records = [...recordFlips].map(([entityId, f]) => ({ entityId, before: f.before, after: f.after }));
+      w.history.push({ stroke: made, id: await w.undo.put(record), cells, box, parts, materialSwaps, ...(overrides.length > 0 ? { overrides } : {}), ...(records.length > 0 ? { records } : {}), ...(structural ? { structural: true as const } : {}), ...(water !== undefined && op === 'editVoxels' ? { water: { box: water.box, parts: water.parts, chunks: water.chunks } } : {}) });
       // A new edit ends the redo of what was undone before it.
       for (const e of w.redo.splice(0)) await w.undo.drop(e.id);
       for (const r of structures ?? []) if (r.kind === 'write') w.reports.set(r.grid, r);
+      for (const r of splines ?? []) w.splineReports.set(r.entityId, r);
     }
     if (!saved.ok) {
       return refuse('write_partial', 'internal', `voxel world ${w.name}: ${saved.why}. The ${isStep ? op : 'edit'} is applied in this backend and in ${saved.written.join(', ') || 'no file'}; ${saved.notWritten.join(', ') || 'no file'} still hold${saved.notWritten.length === 1 ? 's' : ''} the state before it, rewritten by the next save that succeeds`);
@@ -1521,6 +1588,7 @@ export class VoxelWorlds {
       chunks,
       ...(gridIds.length > 0 ? { grids: gridIds.map((grid) => ({ grid, chunks: chunksOf(grid) })) } : {}),
       ...(structures !== undefined ? { structures: structures.map((r) => this.reportAt(w, r)) } : {}),
+      ...(splines !== undefined ? { splines: splines.map(splineReportAt) } : {}),
       ...(water !== undefined ? { water } : {}),
       box,
       parts,
@@ -1612,6 +1680,16 @@ export class VoxelWorlds {
     return g;
   }
 
+  /** A spline's record as held (read on first use; absent: empty). */
+  private recordOf(w: OpenWorld, entityId: string): HeldRecord {
+    let held = w.records.get(entityId);
+    if (held === undefined) {
+      held = readSplineRecord(w.dir, w.world.opts.grid, entityId);
+      w.records.set(entityId, held);
+    }
+    return held;
+  }
+
   /** What a structure change needs of a world: its grids and their overrides. */
   private gridHost(w: OpenWorld): StructureGridHost {
     return {
@@ -1642,7 +1720,27 @@ export class VoxelWorlds {
       await rw.ensureAll();
       grids.push({ place, world: rw });
     }
-    return { key: worldKey(w), world: w.world, grids };
+    let rivers: CellSet | null = null;
+    const riversOf = (): CellSet => (rivers ??= this.riverCells(w));
+    return { key: worldKey(w), world: w.world, grids, rivers: riversOf };
+  }
+
+  /** The cells the world's splines wrote liquid into, from their records. */
+  private riverCells(w: OpenWorld): CellSet {
+    const out = new CellSet();
+    const g = w.world.opts.grid;
+    const s = g.shift;
+    for (const id of new Set([...listedSplineRecords(w.dir), ...w.records.keys()])) {
+      for (const c of this.recordOf(w, id).value.chunks.values()) {
+        for (let k = 0; k < c.value.count; k++) {
+          const v = c.value.values[k]!;
+          if (v === 0 || valueRole(v) !== VOXEL_ROLE.liquid) continue;
+          const i = c.value.cells[k]!;
+          out.add((c.cx << s) + (i >>> (s << 1)), (c.cy << s) + (i & g.mask), (c.cz << s) + ((i >>> s) & g.mask));
+        }
+      }
+    }
+    return out;
   }
 
   /** The world cells a hand edit on structure grid `gridId` can have changed (its chunks where the grid stands; none while it is not placed). */
@@ -1724,7 +1822,7 @@ export class VoxelWorlds {
    * staged write (every file staged on disk first, the manifest renamed
    * last), then renews the files' stamps; the new tags by region file.
    */
-  private save(w: OpenWorld, flips: ReadonlyMap<number, { readonly after: Uint8Array | null; readonly value?: StructureOverrides }> = new Map()): { ok: true; tags: Map<string, string | null> } | Exclude<StagedOutcome, { ok: true }> {
+  private save(w: OpenWorld, flips: ReadonlyMap<number, { readonly after: Uint8Array | null; readonly value?: StructureOverrides }> = new Map(), recordFlips: ReadonlyMap<string, { readonly after: Uint8Array | null; readonly value?: HeldRecord['value'] }> = new Map()): { ok: true; tags: Map<string, string | null> } | Exclude<StagedOutcome, { ok: true }> {
     const listedAfter = (rw: RegionWorld, prepared: ReturnType<RegionWorld['prepareSaves']>): string[] => {
       const listed = new Set(rw.listedRegions());
       for (const p of prepared) {
@@ -1747,6 +1845,10 @@ export class VoxelWorlds {
       const dir = join(w.dir, gridFolder(grid));
       extra.push({ dir, name: STRUCTURE_OVERRIDES_FILE, bytes: f.after, expect: w.overrides.get(grid)?.hash ?? null });
     }
+    for (const [id, f] of recordFlips) {
+      if (f.after === null) continue;
+      extra.push({ dir: join(w.dir, SPLINE_RECORDS_FOLDER), name: splineRecordFile(id), bytes: f.after, expect: this.recordOf(w, id).hash });
+    }
     // A new grid's folder is made before its files are staged in it.
     for (const p of parts.slice(1)) if (p.prepared.some((x) => x.bytes !== null)) mkdirSync(p.world.dir, { recursive: true });
     for (const f of extra) mkdirSync(f.dir, { recursive: true });
@@ -1767,6 +1869,16 @@ export class VoxelWorlds {
       w.overrides.set(grid, { bytes: f.after, hash: f.after === null ? null : sha256HexNative(f.after), value: f.after === null ? { ...value, chunks: new Map() } : value });
       w.stamps.set(path, fileStamp(path));
     }
+    for (const [id, f] of recordFlips) {
+      const dir = join(w.dir, SPLINE_RECORDS_FOLDER);
+      const path = join(dir, splineRecordFile(id));
+      // A record emptied goes once the manifest is written; a file written is held as written.
+      if (f.after === null ? !out.ok : !written.has(path)) continue;
+      if (f.after === null) replaceFile(dir, splineRecordFile(id), null, null);
+      const value = f.value ?? readSplineRecord(w.dir, w.world.opts.grid, id).value;
+      w.records.set(id, { bytes: f.after, hash: f.after === null ? null : sha256HexNative(f.after), value: f.after === null ? { ...value, chunks: new Map() } : value });
+      w.stamps.set(path, fileStamp(path));
+    }
     if (!out.ok) return out;
     const tags = new Map<string, string | null>();
     for (const p of parts) for (const x of p.prepared) tags.set(p.world.gridId === WORLD_GRID_ID ? x.name : `${gridFolder(p.world.gridId)}/${x.name}`, p.world.files.get(x.name)?.hash ?? null);
@@ -1783,4 +1895,16 @@ export class VoxelWorlds {
     if (projectId === undefined) this.bakeAsked.clear();
     else this.bakeAsked.delete(projectId);
   }
+}
+
+/** The object ids whose records a stepped stroke changed. */
+function strokeRecords(e: HistoryEntry | null): string[] {
+  return (e?.records ?? []).map((r) => r.entityId);
+}
+
+/** A spline report with its cells' places (metres, a cell's middle). */
+function splineReportAt(r: SplineChangeReport): SplineReportAt {
+  const m = VOXEL_SIZE_M;
+  const at = (c: { x: number; y: number; z: number }): readonly [number, number, number] => [(c.x + 0.5) * m, (c.y + 0.5) * m, (c.z + 0.5) * m];
+  return { ...r, leftAlone: r.leftAlone.map((c) => ({ ...c, at: at(c) })), misfits: r.misfits.map((c) => ({ ...c, at: at(c) })) };
 }

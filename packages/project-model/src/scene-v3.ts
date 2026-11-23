@@ -878,6 +878,8 @@ export function validateEntityComponentsV3(
   if (comps['spline'] !== undefined) {
     validateSplineComponent(comps['spline'], `${path}/spline`, errors);
     for (const other of ['blockLayer', 'terrain'] as const) if (comps[other] !== undefined) errors.push(collisionConflict(path, `spline and ${other} are mutually exclusive on one entity`, ['spline', other]));
+    // What it writes lies where its points are in the scene, never composed with a parent's place.
+    if (isPlainObject(comps['spline']) && comps['spline']['voxels'] !== undefined && parentId !== undefined && parentId !== null) errors.push(withFound({ code: 'component_conflict', path: `${ePath}/parentId`, message: "a spline that writes voxels stands in its scene's frame (a root object): its points are where it writes", reason: 'spline_voxels_parented', expected: 'parentId absent' }, parentId));
   }
   // The entity rides on a node of another entity's model.
   if (comps['socketAttach'] !== undefined) validateSocketAttachComponent(comps['socketAttach'], `${path}/socketAttach`, errors);

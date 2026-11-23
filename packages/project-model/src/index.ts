@@ -1303,6 +1303,7 @@ export {
   SPLINE_MATERIAL_SLOT,
   SPLINE_MESH_KINDS,
   SPLINE_MESH_STEP_DEFAULT,
+  SPLINE_RIVER_DEPTH_DEFAULT,
   SPLINE_SCATTER_MARGIN_DEFAULT,
   SPLINE_SURFACE_OFFSET_DEFAULT,
   SPLINE_TERRAIN_SHAPES,
@@ -1321,7 +1322,9 @@ export {
   type SplineScatterSettings,
   type SplineTerrainSettings,
   type SplineTerrainShape,
+  type SplineVoxelSettings,
 } from './spline';
+export { SPLINE_VOXEL_STEP, sceneVoxelSplines, splineVoxelDefinition, splineVoxelWorld, type SceneVoxelSpline } from './spline-voxels';
 export { SPLINE_TABLE_STEP, SplineCurve, newSplineFrame, type SplineFrame, type SplineNearest } from './spline-curve';
 export { SPLINE_MADE_LAYOUT, SPLINE_MADE_MAGIC, SPLINE_MESH_PIECE_METRES, decodeSplineMade, encodeSplineMade, isSplineMadeBlob, makeSpline, splinePieceCopies, sweepSplineMesh, type SplineMade, type SplineMeshLevel, type SplineMeshPiece } from './spline-mesh';
 export { SplineScatterBands, TERRAIN_SPLINE_STEP, TerrainSplineLayer, rasterizeSpline, splineScatterReach, splineScatterRect, terrainSplineInputs, terrainSplineReach, terrainSplineRect, type SplineRaster, type TerrainSplineInput, type TerrainSplinePaint } from './terrain-splines';

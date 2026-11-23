@@ -146,12 +146,16 @@ function markField(f: FieldDescriptor, read: boolean, write: boolean): FieldDesc
 }
 
 /** A component with its script marks (every top-level field readable, the listed ones writable). */
+/** Fields of readable components that are authoring data all the same (exports leave them out), by component. */
+const SCRIPT_UNREADABLE_FIELDS: Readonly<Record<string, readonly string[]>> = { spline: ['voxels'] };
+
 function withScriptAccess(c: ComponentDescriptor): ComponentDescriptor {
   if (SCRIPT_UNREADABLE.has(c.name)) return c;
   const writable = SCRIPT_WRITABLE[c.name] ?? [];
+  const hidden = SCRIPT_UNREADABLE_FIELDS[c.name] ?? [];
   const root = c.value;
   if (root.type !== 'object') return { ...c, value: markField(root, true, writable.includes('*')) };
-  return { ...c, value: { ...root, fields: root.fields.map((f) => markField(f, true, writable.includes(f.key))) } };
+  return { ...c, value: { ...root, fields: root.fields.map((f) => markField(f, !hidden.includes(f.key), writable.includes(f.key))) } };
 }
 
 function withObjectScriptAccess(e: ObjectFieldDescriptor): ObjectFieldDescriptor {

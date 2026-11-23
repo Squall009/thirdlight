@@ -882,6 +882,23 @@ First tested on a test room grown from 6 to 8 m; on the building generator (47a.
 refused, and `OVERRIDE_UPGRADES` holds append-only steps on decoded overrides from `OVERRIDE_FIRST_VERSION` = 2
 (empty and frozen at v2; tested with a test-only step). The reader refuses values the format does not hold.
 
+**What a world-grid structure replaced (entry F5, owner 2026-11-20: "Everything as proposed is fine"; used from
+47a.11).** A road in the world grid overwrites ground. To move the road and get the ground back, the structure
+keeps, for every cell it wrote, the voxel that was there and the voxel it wrote: the same `TLVO` layout as the
+overrides above with its two values read as "before" (the base values) and "written" (the values), grid id 0, in
+`voxels/<world>/structures/<object id>.tlvo`, written in the same staged write as the world's region files and
+absent while the structure writes nothing. Moving the spline puts "before" back wherever the cell still holds what
+was written (a cell someone edited since is left alone and reported), then writes the new course. Authoring data:
+never exported. Size: 10 bytes a cell written, before compression (a 1 km road 6 m wide and 2 m deep is about 96,000
+cells: under 1 MB). This record is what makes a spline a *regenerated* structure and not a one-way stamp. As built
+(`structures/world-writer.ts`, workspace `voxel-spline-writes.ts`): a cell that only went between air and liquid
+since it was written counts as still written (water is the bodies' and the rivers' to move); a hand edit where the
+new course writes again is an override over what was written, kept or reported by the fit rule above
+(`reapplyOverrides`, unchanged); a chunk whose record comes out the same is not rewritten. The spline's `voxels`
+section (`{ kind: road | path | river, material, bed?: { material, depth }, shoulder?: { width, slope }, clear? }`)
+is on the `spline` component (project schema, add-only within 8); the world it writes into is its scene's one voxel
+world (nothing more is stored).
+
 ### 3.6 Streaming and job contract v1 (`stream-job.ts`, `apron.ts`, `dirty-tracker.ts`, `job-queue.ts`, `worker-pool.ts`, `stream-ring.ts`, `voxel-streamer.ts`, `floating-origin.ts`)
 
 **Messages.**

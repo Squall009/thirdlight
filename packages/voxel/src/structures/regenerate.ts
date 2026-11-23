@@ -60,7 +60,7 @@ export interface RegenerateReport<D> {
 }
 
 /** One chunk's record from its cells: the changed cells' values as a delta, or the whole image when that is smaller. */
-function recordOf(grid: ChunkGrid, cells: DenseChunk, changed: CellDelta): ChunkBefore {
+export function chunkRecordOf(grid: ChunkGrid, cells: DenseChunk, changed: CellDelta): ChunkBefore {
   if (isAirChunk(cells)) return { kind: 'image', bytes: null };
   // Encoding costs about half a millisecond a chunk: only a delta past the edit's own threshold is weighed against it.
   if (changed.byteLength <= UNDO_IMAGE_CHECK_BYTES) return { kind: 'delta', delta: changed };
@@ -118,10 +118,10 @@ export function regenerateStructure<D extends GeneratedDefinition>(generator: St
     }
     if (old.count === 0) continue;
     cells += old.count;
-    undo.push({ grid: gridId, cx, cy, cz, before: recordOf(grid, was, old) });
+    undo.push({ grid: gridId, cx, cy, cz, before: chunkRecordOf(grid, was, old) });
     const after = createDenseChunk(grid);
     copyDenseChunk(now, after);
-    redo.push({ grid: gridId, cx, cy, cz, before: recordOf(grid, after, next) });
+    redo.push({ grid: gridId, cx, cy, cz, before: chunkRecordOf(grid, after, next) });
   }
   const misfits = fit.misfits.map((m): StructureMisfit => {
     const s = grid.shift;

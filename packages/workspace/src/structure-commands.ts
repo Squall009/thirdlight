@@ -42,6 +42,7 @@ import { dropStructureFollows, queueStructureFollow } from './structure-prop-fol
 import type { StructureChange } from './voxel-structure-writes';
 import type { VoxelCommandApplied, VoxelStepDirection, VoxelWorldError, VoxelWorlds } from './voxel-worlds';
 import { gridBoxInWorld, type WaterChange } from './voxel-water';
+import { scenesHoldVoxelSplines, writeSplineChanges } from './spline-commands';
 
 /** The ops whose arguments can bring a structure into a scene. */
 const BRINGING_OPS: ReadonlySet<string> = new Set(['createEntity', 'createEntities', 'pasteEntities', 'setComponent']);
@@ -121,9 +122,9 @@ export class StructureCommands {
   /** Whether a project envelope can change structures or water bodies (else it runs as any command). */
   touches(projectId: string, env: Record<string, unknown>): boolean {
     const args = BRINGING_OPS.has(String(env.op)) ? JSON.stringify(env.args ?? null) : '';
-    if (args.includes('"voxelStructure"') || args.includes('"waterBody"')) return true;
+    if (args.includes('"voxelStructure"') || args.includes('"waterBody"') || args.includes('"voxels"')) return true;
     const scenes = this.scenes(projectId);
-    return sceneStructures(scenes).length > 0 || sceneWaterBodies(scenes).length > 0;
+    return sceneStructures(scenes).length > 0 || sceneWaterBodies(scenes).length > 0 || scenesHoldVoxelSplines(scenes);
   }
 
   /**
@@ -143,16 +144,18 @@ export class StructureCommands {
       const after = heldOf(scenesAfter);
       await this.rememberFar(projectId, held);
       const written = await this.writeChanges(projectId, held, after, prepared.copies, result.requestId);
-      // Ground, then buildings, then water: the bodies the command changed, and those round the structures it wrote.
-      const wet = written.ok ? await this.writeWater(projectId, before, scenesAfter, held, after) : null;
-      if (!written.ok || (wet !== null && !wet.ok)) {
-        if (written.ok) for (const done of [...written.voxels].reverse()) await this.worlds.step(projectId, done.world, 'undo', done.stroke, null);
+      // Ground, then buildings, then the splines' roads and rivers, then water: the bodies the command changed, and those round what it wrote.
+      const splined = written.ok ? await writeSplineChanges(this.worlds, projectId, before, scenesAfter) : null;
+      const wet = written.ok && splined?.ok === true ? await this.writeWater(projectId, before, scenesAfter, held, after, splined.boxes) : null;
+      if (!written.ok || (splined !== null && !splined.ok) || (wet !== null && !wet.ok)) {
+        const made = [...(written.ok ? written.voxels : []), ...(splined?.ok === true ? splined.voxels : [])];
+        for (const done of made.reverse()) await this.worlds.step(projectId, done.world, 'undo', done.stroke, null);
         this.service.runCommand({ op: 'undo', projectId, requestId: `req-${randomBytes(16).toString('hex')}`, expectedRevision: result.revision, args: {} });
         this.service.dropRedoTail(projectId);
-        const error = !written.ok ? written.error : (wet as { ok: false; error: VoxelWorldError }).error;
+        const error = !written.ok ? written.error : splined !== null && !splined.ok ? splined.error : (wet as { ok: false; error: VoxelWorldError }).error;
         return { result: { ok: false, op: result.op, projectId, requestId: result.requestId, error } as MutationResult, voxels: [], strokes: [], far: [] };
       }
-      const voxels = [...written.voxels, ...(wet?.ok === true ? wet.voxels : [])];
+      const voxels = [...written.voxels, ...(splined?.ok === true ? splined.voxels : []), ...(wet?.ok === true ? wet.voxels : [])];
       const far = await this.followFar(projectId, held, after);
       return { result, voxels, strokes: voxels.map((v) => ({ world: v.world, stroke: v.stroke })), far };
     });
@@ -354,7 +357,7 @@ export class StructureCommands {
    * the bodies round the structures it made, changed, moved or deleted (their world cells before and after). A body
    * whose scene holds no `voxelWorld` object naming its world is refused, as a structure is.
    */
-  private async writeWater(projectId: string, scenesBefore: readonly unknown[], scenes: readonly unknown[], before: ReadonlyMap<string, Held>, after: ReadonlyMap<string, Held>): Promise<{ ok: true; voxels: VoxelCommandApplied[] } | { ok: false; error: VoxelWorldError }> {
+  private async writeWater(projectId: string, scenesBefore: readonly unknown[], scenes: readonly unknown[], before: ReadonlyMap<string, Held>, after: ReadonlyMap<string, Held>, splines: ReadonlyMap<string, CellBox[]>): Promise<{ ok: true; voxels: VoxelCommandApplied[] } | { ok: false; error: VoxelWorldError }> {
     const was = new Map(sceneWaterBodies(scenesBefore).map((b) => [b.entityId, b]));
     const now = new Map(sceneWaterBodies(scenes).map((b) => [b.entityId, b]));
     const same = (a: SceneWaterBody, b: SceneWaterBody): boolean => JSON.stringify([a.body, a.seed]) === JSON.stringify([b.body, b.seed]);
@@ -390,6 +393,8 @@ export class StructureCommands {
         (boxes.get(h.component.world) ?? boxes.set(h.component.world, []).get(h.component.world)!).push(gridBoxInWorld(cells, h.place));
       }
     }
+    // And the world cells the splines changed.
+    for (const [world, b] of splines) (boxes.get(world) ?? boxes.set(world, []).get(world)!).push(...b);
     const voxels: VoxelCommandApplied[] = [];
     const bodiesIn = (world: string): boolean => [...now.values()].some((b) => b.body.world === world);
     for (const world of [...new Set([...changes.keys(), ...boxes.keys()])].sort()) {

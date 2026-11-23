@@ -8,11 +8,13 @@
 import { asset, bool, enm, int, json, list, num, obj, str, vec2, vec3, when, NAME } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
 import { decalLayersField } from './decal-descriptor';
+import { MATERIAL_ID_MAX, SPLINE_VOXEL_KINDS } from '@thirdlight/voxel';
 import {
   SPLINE_FALLOFF_DEFAULT,
   SPLINE_LIMITS,
   SPLINE_MESH_KINDS,
   SPLINE_MESH_STEP_DEFAULT,
+  SPLINE_RIVER_DEPTH_DEFAULT,
   SPLINE_SCATTER_MARGIN_DEFAULT,
   SPLINE_SURFACE_OFFSET_DEFAULT,
   SPLINE_TERRAIN_SHAPES,
@@ -30,7 +32,7 @@ const POINTS_NEW = [{ at: [0, 0, 0] }, { at: [20, 0, 0] }, { at: [40, 0, 0] }];
 export const spline: ComponentDescriptor = {
   name: 'spline',
   label: 'Spline',
-  tooltip: 'A curve through points, each with its own width and roll: roads, paths and rivers carved and painted into terrain, meshes and models along it, and a path scripts read (ctx.splines).',
+  tooltip: 'A curve through points, each with its own width and roll: roads, paths and rivers carved and painted into terrain or written as voxels, meshes and models along it, and a path scripts read (ctx.splines).',
   category: 'Rendering',
   value: obj('spline', 'Spline', "A curve through points, as offsets from the object's position (its rotation and scale are not applied).", [
     list('points', 'Points', `${L.minPoints}-${L.maxPoints} points the curve passes through, in order.`, obj('*', 'Point', 'One point of the curve.', [
@@ -83,6 +85,19 @@ export const spline: ComponentDescriptor = {
       bool('collide', 'Collides', 'Pieces carry their model\'s _COL colliders.', { default: true }),
       bool('castShadow', 'Casts shadows', 'Blocks the directional light.', { default: true }),
     ]), { maxItems: L.pieces }),
+    obj('voxels', 'Voxels', "Voxels it writes into its scene's voxel world: a road or path (surface, bed, shoulders, air above) or a river (liquid down its depth over its bed). The ground it replaced comes back when it moves or goes; one undo step with the edit. Exports ship the voxels, never this section.", [
+      enm('kind', 'Kind', 'A road or a path at the curve\'s height, or a river whose surface is the curve.', SPLINE_VOXEL_KINDS, { required: true, default: 'road', labels: { road: 'Road', path: 'Path', river: 'River' } }),
+      int('material', 'Material', `The surface's voxel material, or a river's liquid (its id, 1-${MATERIAL_ID_MAX}).`, { required: true, min: 1, max: MATERIAL_ID_MAX }),
+      obj('bed', 'Bed', 'What lies under a road (its depth), or a river\'s bed material and its depth.', [
+        int('material', 'Material', `The bed's voxel material (1-${MATERIAL_ID_MAX}).`, { required: true, min: 1, max: MATERIAL_ID_MAX }),
+        num('depth', 'Depth', `Metres: under a road's surface; a river's depth (empty bed: ${SPLINE_RIVER_DEPTH_DEFAULT} m).`, { required: true, min: 0, minExclusive: true, max: D, step: 0.5, unit: 'm', default: 1 }),
+      ]),
+      obj('shoulder', 'Shoulders', 'How the sides meet the ground: cut down or filled up to a slope.', [
+        num('width', 'Width', 'Metres past the edge the ground is shaped.', { required: true, min: 0, minExclusive: true, max: D, step: 0.5, unit: 'm', default: 2 }),
+        num('slope', 'Slope', 'Metres up or down a metre across (1: 45°).', { required: true, min: 0, minExclusive: true, max: 100, step: 0.1, default: 1 }),
+      ]),
+      num('clear', 'Clear', 'Metres of air cleared above it (a road through a hill).', { min: 0, max: D, step: 0.5, unit: 'm' }),
+    ]),
     decalLayersField(false),
     str('data', 'Made', 'SHA-256 of the mesh and pieces made from it (written by the host).', { format: 'sha256', minLength: 64, maxLength: 64, readOnly: true }),
   ]),

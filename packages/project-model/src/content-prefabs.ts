@@ -95,6 +95,8 @@ function validatePrefabPartComponents(comps: Record<string, unknown>, parentLoca
     const why = k === 'prefab' ? 'a part names its prefab through a nested copy' : k === 'folder' ? 'a folder only organises a scene' : k === 'voxelWorld' ? 'a voxel world streams with the scene that names it' : k === 'voxelStructure' ? 'a structure owns one grid of its world' : k === 'waterBody' ? "a water body writes its world's liquid where it stands" : 'its data is held by the scene';
     errors.push(withFound({ code: 'prefab_component_forbidden', path: `${path}/components/${pointerSegment(k)}`, message: `a prefab part must not carry ${k}: ${why}`, expected: `a scene object's components except prefab, ${PREFAB_EXCLUDED_COMPONENTS.join(', ')}` }, k));
   }
+  const sp = comps['spline'];
+  if (isPlainObject(sp) && sp['voxels'] !== undefined) errors.push(withFound({ code: 'prefab_component_forbidden', path: `${path}/components/spline/voxels`, message: "a prefab part's spline must not write voxels: it writes its world's voxels where it stands, once", expected: 'a spline without voxels' }, 'voxels'));
   const own = Object.fromEntries(Object.entries(comps).filter(([k]) => k !== 'prefab' && !PREFAB_EXCLUDED_COMPONENTS.includes(k)));
   validateEntityComponentsV3(own, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, errors as never, 4);
 }

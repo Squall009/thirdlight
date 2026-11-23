@@ -79,17 +79,20 @@ export function referencedVoxelWorlds(scenes: readonly unknown[]): string[] {
 /** Components that are authoring definitions of voxels (a building, a water body): an export ships their voxels, never them. */
 const VOXEL_DEFINITIONS: readonly string[] = ['voxelStructure', 'waterBody'];
 
-/** A scene as an export ships it: its structure and water body objects without their definitions (authoring data; the voxels ship). */
+/** A scene as an export ships it: its structure and water body objects without their definitions, its splines without their `voxels` sections (authoring data; the voxels ship). */
 export function withoutStructureDefinitions<T>(scene: T): T {
   const entities = (scene as { entities?: unknown } | null)?.entities;
-  const holds = (e: unknown): boolean => VOXEL_DEFINITIONS.some((k) => (e as { components?: Record<string, unknown> } | null)?.components?.[k] !== undefined);
+  const comps = (e: unknown): Record<string, unknown> | undefined => (e as { components?: Record<string, unknown> } | null)?.components;
+  const splineVoxels = (e: unknown): boolean => (comps(e)?.['spline'] as { voxels?: unknown } | undefined)?.voxels !== undefined;
+  const holds = (e: unknown): boolean => VOXEL_DEFINITIONS.some((k) => comps(e)?.[k] !== undefined) || splineVoxels(e);
   if (!Array.isArray(entities) || !entities.some(holds)) return scene;
   return {
     ...scene,
     entities: entities.map((e) => {
       if (!holds(e)) return e;
-      const c = (e as { components: Record<string, unknown> }).components;
-      return { ...(e as object), components: Object.fromEntries(Object.entries(c).filter(([k]) => !VOXEL_DEFINITIONS.includes(k))) };
+      const c = Object.fromEntries(Object.entries(comps(e)!).filter(([k]) => !VOXEL_DEFINITIONS.includes(k)));
+      if (splineVoxels(e)) c['spline'] = Object.fromEntries(Object.entries(c['spline'] as Record<string, unknown>).filter(([k]) => k !== 'voxels'));
+      return { ...(e as object), components: c };
     }),
   } as T;
 }

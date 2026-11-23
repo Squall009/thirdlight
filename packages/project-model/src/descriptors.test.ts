@@ -504,7 +504,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   vertexPaint: [{ meshes: [{ mesh: 'Body/Hull#0', vertices: 120, positions: 'a'.repeat(16), paint: 'b'.repeat(64) }], paths: [{ path: 'spline', side: 'top', origin: [-4, -8], size: [40, 16], paint: 'c'.repeat(64) }] }],
   decal: [{ size: [2, 1, 0.5], mode: 'clipped', material: 'mat-a', opacity: { albedo: 0.5, normal: 1, roughness: 0, metalness: 0.2, occlusion: 0.7, emission: 0.1 }, normalFade: 60, edgeFade: [0.1, 0.4], fadeDistance: 40, sortOrder: -3, layers: 6 }],
   architecture: [{ elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } }, overrides: [{ element: 'wall', segment: 0, model: { assetId: 'model-a' } }], chunkSize: 16, seed: 7, ao: { strength: 0.5, radius: 0.4 }, lodDistance: 30, castShadow: false, receiveShadow: false, baked: 'd'.repeat(64), layer: 'floor' , decalLayers: 1, kitId: 'town', seeThrough: false, furnishing: 'starter-furnishing' }],
-  spline: [{ points: [{ at: [0, 0, 0], tangent: [1, 0, 0], width: 6, roll: 5 }, { at: [10, 1, 0] }, { at: [20, 0, 5] }], closed: true, width: 8, terrain: { shape: 'carve', falloff: 3, depth: 1, offset: 0.2, paint: { layer: 2, strength: 0.5, width: 6, falloff: 1 }, order: 1 }, scatter: { margin: 2, rules: ['trees'] }, mesh: { kind: 'water', profile: [[-1, 0], [1, 0]], offset: -0.3, tiling: 8, step: 2, collision: false, castShadow: false, receiveShadow: false, flow: 2, foam: 1 }, pieces: [{ asset: { assetId: 'model-a', piece: 'Post' }, spacing: 3, start: 1, offset: [2, 0], yaw: 90, upright: false, collide: false, castShadow: false }], data: 'c'.repeat(64) , decalLayers: 1 }],
+  spline: [{ points: [{ at: [0, 0, 0], tangent: [1, 0, 0], width: 6, roll: 5 }, { at: [10, 1, 0] }, { at: [20, 0, 5] }], closed: true, width: 8, terrain: { shape: 'carve', falloff: 3, depth: 1, offset: 0.2, paint: { layer: 2, strength: 0.5, width: 6, falloff: 1 }, order: 1 }, scatter: { margin: 2, rules: ['trees'] }, mesh: { kind: 'water', profile: [[-1, 0], [1, 0]], offset: -0.3, tiling: 8, step: 2, collision: false, castShadow: false, receiveShadow: false, flow: 2, foam: 1 }, pieces: [{ asset: { assetId: 'model-a', piece: 'Post' }, spacing: 3, start: 1, offset: [2, 0], yaw: 90, upright: false, collide: false, castShadow: false }], data: 'c'.repeat(64) , decalLayers: 1 }, { points: [{ at: [0, 0, 0] }, { at: [10, 0, 0] }], voxels: { kind: 'road', material: 3, bed: { material: 4, depth: 1 }, shoulder: { width: 2, slope: 1 }, clear: 2 } }],
   terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400, streaming: { render: 1200, collision: 96, scatter: 800, hysteresis: 32 }, overview: 'c'.repeat(64), uvOrigin: [16, -8] , decalLayers: 1, seeThrough: false }],
   collider: [
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true, depth: 2 },
@@ -1094,8 +1094,9 @@ describe('descriptor registry', () => {
     // load ring and level 1, about 0.06 KB; a voxel world's brick bake level, about 0.4 KB; a voxel world's fine build
     // and the bake level's text on what draws past the detail ring, about 0.5 KB; a voxel structure — the building's
     // definition, its world and grid — about 5.2 KB; a voxel portal — open, and what it stops while shut — about 2 KB;
-    // a water body — its level and its handle, liquid and reach — about 1.6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(388_000);
+    // a water body — its level and its handle, liquid and reach — about 1.6 KB; a spline's voxels — kind, material,
+    // bed, shoulders, clear — about 1.5 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(389_600);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

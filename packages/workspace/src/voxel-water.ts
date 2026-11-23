@@ -31,6 +31,12 @@ import { type SceneWaterBody } from '@thirdlight/project-model';
 import {
   bodyCells,
   cellInWorld,
+  fillShapeAt,
+  recordValue,
+  SHAPE_FULL,
+  valueRole,
+  VOXEL_ROLE,
+  withinReach,
   chunksPerRegionSide,
   chunkKeyOrNone,
   chunkOfKey,
@@ -64,6 +70,13 @@ export interface WaterWorld {
   readonly key: string;
   readonly world: RegionWorld;
   readonly grids: ReadonlyArray<{ readonly place: GridPlacement; readonly world: RegionWorld }>;
+  /**
+   * The cells a spline wrote liquid into (a river), read when first needed. They are the river's: a body reads them
+   * as ground (it neither fills, owns nor clears them, so a river running on past a lake's reach is no leak of the
+   * lake's), but for the river's mouth, its cells inside the body's reach under its level, which the river writes as
+   * the body's liquid at its level and the body takes as its own.
+   */
+  readonly rivers?: () => CellSet;
 }
 
 /** A body's state after the last step that wrote it, or a check (nothing written). */
@@ -246,6 +259,21 @@ class StepWrites {
   }
 }
 
+/** What a river's cell reads as to a body (see {@link WaterWorld.rivers}): ground. */
+const RIVER_TO_A_BODY = recordValue(1, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
+
+/** The world as one body's fill reads it: a river's cells ground but at the body's mouth (inside its reach, under its level; null: no body, every river cell ground). */
+export function bodyFillWorld(fw: FillWorld, w: WaterWorld, spec: LevelFillSpec | null): FillWorld {
+  const rivers = w.rivers?.();
+  if (rivers === undefined || rivers.size === 0) return fw;
+  const value = (x: number, y: number, z: number): number => {
+    const v = fw.value(x, y, z);
+    if (v <= 0 || valueRole(v) !== VOXEL_ROLE.liquid || !rivers.has(x, y, z)) return v;
+    return spec !== null && withinReach(spec, x, z) && fillShapeAt(spec.level, y) > 0 ? v : RIVER_TO_A_BODY;
+  };
+  return fw.stops === undefined ? { value } : { value, stops: fw.stops };
+}
+
 const leaksOf = (fill: Parameters<typeof fillLeaks>[0]): WaterBodyReport['leaks'] => fillLeaks(fill).map((l) => ({ at: [l.at[0] * VOXEL_SIZE_M, l.at[1] * VOXEL_SIZE_M, l.at[2] * VOXEL_SIZE_M] as const, kind: l.kind, cells: l.cells }));
 
 /** The water bodies of the worlds this backend serves: what each owns and its last report, held between steps. */
@@ -287,11 +315,12 @@ export class WaterBodies {
       const hit = boxes.filter((box) => meets(spec, box));
       if (hit.length === 0) continue;
       fw ??= waterFillWorld(w);
-      let owned = this.ownedOf(w, b.entityId, spec, fw);
+      const bw = bodyFillWorld(fw, w, spec);
+      let owned = this.ownedOf(w, b.entityId, spec, bw);
       let written = 0;
       let whole: FollowWholeWhy | null = null;
       for (const box of hit) {
-        const f = followBody(spec, fw, owned, box);
+        const f = followBody(spec, bw, owned, box);
         if (f.kind === 'whole') {
           whole = f.why;
           break;
@@ -300,7 +329,7 @@ export class WaterBodies {
         owned = f.owned;
       }
       if (whole !== null) {
-        this.whole(w, fw, out, b, spec, owned, whole);
+        this.whole(w, bw, out, b, spec, owned, whole);
         continue;
       }
       const report: WaterBodyReport = { entityId: b.entityId, status: 'filled', cells: owned.size, leaks: [], via: 'local', written };
@@ -326,18 +355,19 @@ export class WaterBodies {
       if (was === null && now === null) continue;
       touched.add((now ?? was)!.entityId);
       const oldSpec = was === null ? null : waterSpecOf(was);
-      const before = oldSpec === null ? undefined : this.ownedOf(w, was!.entityId, oldSpec, fw);
+      const before = oldSpec === null ? undefined : this.ownedOf(w, was!.entityId, oldSpec, bodyFillWorld(fw, w, oldSpec));
       const spec = now === null ? null : waterSpecOf(now);
       if (spec === null) {
         // Deleted, moved to another world, or without a place: the liquid it owned goes with it.
-        const written = before === undefined ? 0 : out.write(w, clearBody(before, fw));
+        // A river's cells stay: its own rewrite, earlier in the command, has written them without the body.
+        const written = before === undefined ? 0 : out.write(w, clearBody(before, bodyFillWorld(fw, w, null)));
         const id = (now ?? was)!.entityId;
         this.owned.delete(`${w.key}\u0000${id}`);
         this.held.delete(`${w.key}\u0000${id}`);
         out.bodies.push({ entityId: id, status: 'seed_blocked', cells: 0, leaks: [], via: 'whole', written });
         continue;
       }
-      this.whole(w, fw, out, now!, spec, before);
+      this.whole(w, bodyFillWorld(fw, w, spec), out, now!, spec, before);
     }
     const rest = bodies.filter((b) => b.body.world === world && !touched.has(b.entityId));
     const followed = boxes.length === 0 ? null : this.follow(w, rest, boxes);
@@ -370,8 +400,9 @@ export class WaterBodies {
       if (held !== undefined && this.owned.get(`${w.key}\u0000${b.entityId}`)?.spec === JSON.stringify(spec)) return [held];
       if (spec === null) return [];
       fw ??= waterFillWorld(w);
-      const owned = bodyCells(spec, fw);
-      const g = regenerateBody(spec, fw, owned);
+      const bw = bodyFillWorld(fw, w, spec);
+      const owned = bodyCells(spec, bw);
+      const g = regenerateBody(spec, bw, owned);
       // A check: what a regenerate would write is not written; the body's state is the fill's.
       const report: WaterBodyReport = { entityId: b.entityId, status: g.fill.status, cells: owned.size, leaks: g.fill.status === 'breached' ? leaksOf(g.fill) : [], via: 'check', written: 0 };
       this.keep(w, b.entityId, spec, owned, report);

@@ -260,6 +260,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-spline-falloff-default"></a>`SPLINE_FALLOFF_DEFAULT` | `4` | Metres past the half width over which a carve, flatten or paint fades out. |
 | <a id="limit-spline-limits"></a>`SPLINE_LIMITS` | `{"minPoints":2,"maxPoints":4096,"coordinate":100000,"widthMax":1000,"rollMax":89,"distanceMax":1000,"profilePoints":64,"pieces":16}` | The bounds of one spline's values (per request: the 64 KiB command bounds a spline's points first). |
 | <a id="limit-spline-mesh-step-default"></a>`SPLINE_MESH_STEP_DEFAULT` | `1` | Metres between the cross-sections of a spline's mesh (its finest level). |
+| <a id="limit-spline-river-depth-default"></a>`SPLINE_RIVER_DEPTH_DEFAULT` | `1` | A river's depth (metres) when its `voxels` section names no bed. |
 | <a id="limit-spline-scatter-margin-default"></a>`SPLINE_SCATTER_MARGIN_DEFAULT` | `1` | Metres past the half width kept clear of scatter. |
 | <a id="limit-spline-surface-offset-default"></a>`SPLINE_SURFACE_OFFSET_DEFAULT` | `0.05` | Metres a surface mesh sits above its points (above ground the spline flattened to them). |
 | <a id="limit-spline-water-flow-default"></a>`SPLINE_WATER_FLOW_DEFAULT` | `1` | A river's flow along the spline (m/s) and how far its foam reaches in from each bank (m). |

@@ -798,6 +798,7 @@
 "limit.SPLINE_FALLOFF_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--spline"},
 "limit.SPLINE_LIMITS": {"page":"limits-project-model-2.md","section":"limits-project-model--spline"},
 "limit.SPLINE_MESH_STEP_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--spline"},
+"limit.SPLINE_RIVER_DEPTH_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--spline"},
 "limit.SPLINE_SCATTER_MARGIN_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--spline"},
 "limit.SPLINE_SURFACE_OFFSET_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--spline"},
 "limit.SPLINE_WATER_FLOW_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--spline"},

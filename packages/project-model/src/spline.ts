@@ -22,6 +22,7 @@ import { ID_RE } from './validate';
 import { validateDecalLayerMask } from './decals';
 import { isPlainObject } from '@thirdlight/shared';
 import { isDigest } from './content-helpers';
+import { MATERIAL_ID_MAX, SPLINE_VOXEL_KINDS, type SplineVoxelKind } from '@thirdlight/voxel';
 
 /** The bounds of one spline's values (per request: the 64 KiB command bounds a spline's points first). */
 export const SPLINE_LIMITS = Object.freeze({
@@ -52,6 +53,8 @@ export const SPLINE_SURFACE_OFFSET_DEFAULT = 0.05;
 /** A river's flow along the spline (m/s) and how far its foam reaches in from each bank (m). */
 export const SPLINE_WATER_FLOW_DEFAULT = 1;
 export const SPLINE_WATER_FOAM_DEFAULT = 1.5;
+/** A river's depth (metres) when its `voxels` section names no bed. */
+export const SPLINE_RIVER_DEPTH_DEFAULT = 1;
 /** The material slot a spline's mesh wears (`materials: {"spline": id}` or `{"*": id}`). */
 export const SPLINE_MATERIAL_SLOT = 'spline';
 
@@ -133,6 +136,25 @@ export interface SplinePieceSettings {
   castShadow?: boolean;
 }
 
+/**
+ * What a spline writes into its scene's voxel world (the world its scene's `voxelWorld` object names): a road or a
+ * path (its surface material across the width at the curve's height, its bed under it, its shoulders meeting the
+ * ground, air cleared above) or a river (its liquid from the curve's height down its depth, its bed under it). The
+ * backend writes the voxels and keeps what they replaced, so a changed spline gives the ground back and writes again
+ * (one undo step); exports ship the voxels, never this section.
+ */
+export interface SplineVoxelSettings {
+  kind: SplineVoxelKind;
+  /** The surface's voxel material (a road, a path) or the liquid's (a river). */
+  material: number;
+  /** Under a road: its material and depth (metres); a river's bed material and its depth. */
+  bed?: { material: number; depth: number };
+  /** How the sides meet the ground: metres across, and metres up or down a metre across (1: 45°). */
+  shoulder?: { width: number; slope: number };
+  /** Metres of air cleared above (a road through a hill). */
+  clear?: number;
+}
+
 export interface SplineComponent {
   points: SplinePoint[];
   /** The curve runs back from the last point to the first (absent: false). */
@@ -151,10 +173,13 @@ export interface SplineComponent {
   data?: string;
   /** The decal layers projected decals mark its mesh and pieces in, a bit mask (decals.ts; absent: every layer). */
   decalLayers?: number;
+  /** Voxels it writes into its scene's voxel world (absent: none). */
+  voxels?: SplineVoxelSettings;
 }
 
 /** The component's fields in canonical order. */
-export const SPLINE_FIELDS: readonly string[] = Object.freeze(['points', 'closed', 'width', 'terrain', 'scatter', 'mesh', 'pieces', 'data', 'decalLayers']);
+export const SPLINE_FIELDS: readonly string[] = Object.freeze(['points', 'closed', 'width', 'terrain', 'scatter', 'mesh', 'pieces', 'data', 'decalLayers', 'voxels']);
+const VOXELS_FIELDS = ['kind', 'material', 'bed', 'shoulder', 'clear'];
 const POINT_FIELDS = ['at', 'tangent', 'width', 'roll'];
 const TERRAIN_FIELDS_ = ['shape', 'falloff', 'depth', 'offset', 'paint', 'order'];
 const PAINT_FIELDS = ['layer', 'strength', 'width', 'falloff'];
@@ -280,8 +305,39 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
       });
     }
   }
+  validateSplineVoxels(value['voxels'], `${path}/voxels`, errors);
   if (value['data'] !== undefined && !isDigest(value['data'])) err(errors, 'field_value', `${path}/data`, 'data is the SHA-256 of what the host made along the spline (64 lowercase hex)', value['data']);
   validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);
+}
+
+const voxelMaterial = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MATERIAL_ID_MAX;
+
+function validateSplineVoxels(v: unknown, p: string, errors: ModelErrorV2[]): void {
+  if (v === undefined) return;
+  const L = SPLINE_LIMITS;
+  if (!isPlainObject(v)) return err(errors, 'field_type', p, 'voxels is {kind, material, bed?, shoulder?, clear?}', v);
+  only(v, VOXELS_FIELDS, p, errors, 'voxels');
+  if (!(SPLINE_VOXEL_KINDS as readonly unknown[]).includes(v['kind'])) err(errors, v['kind'] === undefined ? 'field_missing' : 'field_value', `${p}/kind`, `kind is ${SPLINE_VOXEL_KINDS.join(', ')}`, v['kind']);
+  if (!voxelMaterial(v['material'])) err(errors, v['material'] === undefined ? 'field_missing' : 'field_value', `${p}/material`, `material is a voxel material id (1-${MATERIAL_ID_MAX}): the surface's, or a river's liquid`, v['material']);
+  const bed = v['bed'];
+  if (bed !== undefined) {
+    if (!isPlainObject(bed)) err(errors, 'field_type', `${p}/bed`, 'bed is {material, depth}', bed);
+    else {
+      only(bed, ['material', 'depth'], `${p}/bed`, errors, 'bed');
+      if (!voxelMaterial(bed['material'])) err(errors, 'field_value', `${p}/bed/material`, `material is a voxel material id (1-${MATERIAL_ID_MAX})`, bed['material']);
+      if (!(finite(bed['depth']) && bed['depth'] > 0 && bed['depth'] <= L.distanceMax)) err(errors, 'field_value', `${p}/bed/depth`, `depth is metres above 0, at most ${L.distanceMax}`, bed['depth']);
+    }
+  }
+  const sh = v['shoulder'];
+  if (sh !== undefined) {
+    if (!isPlainObject(sh)) err(errors, 'field_type', `${p}/shoulder`, 'shoulder is {width, slope}', sh);
+    else {
+      only(sh, ['width', 'slope'], `${p}/shoulder`, errors, 'shoulder');
+      if (!(finite(sh['width']) && sh['width'] > 0 && sh['width'] <= L.distanceMax)) err(errors, 'field_value', `${p}/shoulder/width`, `width is metres above 0, at most ${L.distanceMax}`, sh['width']);
+      if (!(finite(sh['slope']) && sh['slope'] > 0 && sh['slope'] <= 100)) err(errors, 'field_value', `${p}/shoulder/slope`, 'slope is metres up or down a metre across, above 0, at most 100 (1: 45°)', sh['slope']);
+    }
+  }
+  metres(v, 'clear', p, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
 }
 
 const v3 = (v: readonly number[]): [number, number, number] => [v[0]!, v[1]!, v[2]!];
@@ -310,6 +366,10 @@ export function canonicalSpline(c: SplineComponent): SplineComponent {
   if (c.pieces !== undefined) out.pieces = c.pieces.map((q) => pick({ ...q, asset: { assetId: q.asset.assetId, ...(q.asset.piece !== undefined ? { piece: q.asset.piece } : {}) }, ...(q.offset !== undefined ? { offset: [q.offset[0], q.offset[1]] as [number, number] } : {}) }, PIECE_FIELDS));
   if (c.data !== undefined) out.data = c.data;
   if (c.decalLayers !== undefined) out.decalLayers = c.decalLayers;
+  if (c.voxels !== undefined) {
+    const v = c.voxels;
+    out.voxels = { kind: v.kind, material: v.material, ...(v.bed !== undefined ? { bed: { material: v.bed.material, depth: v.bed.depth } } : {}), ...(v.shoulder !== undefined ? { shoulder: { width: v.shoulder.width, slope: v.shoulder.slope } } : {}), ...(v.clear !== undefined ? { clear: v.clear } : {}) };
+  }
   return out;
 }
 
