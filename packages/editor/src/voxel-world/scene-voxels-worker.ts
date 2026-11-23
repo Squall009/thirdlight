@@ -204,7 +204,7 @@ function pick(m: Extract<SceneVoxelsIn, { t: 'pick' }>): Extract<SceneVoxelsOut,
     if (w.walk === null) continue;
     const grids = [...w.grids.values()].filter((g): g is SceneGridStream => g instanceof SceneGridStream).map((g) => g.walk());
     const h = walkWithGrids(w.walk, grids, ray, best?.t ?? m.maxM, { far: false });
-    if (h !== null && (best === null || h.t < best.t)) best = { world: w.name, grid: h.gridId, t: h.t };
+    if (h !== null && (best === null || h.t < best.t)) best = { world: w.name, grid: h.gridId, t: h.t, cell: h.hit.cell, normal: h.hit.normal, record: h.hit.record };
   }
   return best;
 }

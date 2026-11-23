@@ -25,9 +25,11 @@ import type { DecalAtlas } from '../shell/useDecalAtlas';
 import type { DecalTools } from '../shell/useDecalTools';
 import type { TerrainTools } from '../shell/useTerrainTools';
 import type { VertexPaintTools } from '../shell/useVertexPaintTools';
+import type { StructureTools } from '../shell/useStructureTools';
 import { blockMode } from './block-mode';
 import { decalMode } from './decal-mode';
 import { prefabMode, type PrefabModeHost } from './prefab-mode';
+import { structureMode } from './structure-mode';
 import { terrainMode } from './terrain-mode';
 import { vertexPaintMode } from './vertex-paint-mode';
 import type { RailItem } from './ToolRail';
@@ -56,6 +58,10 @@ export interface EditModeHost {
   palette: PaletteHost;
   /** The prefab editor's wiring: the prefab opened on its own, the object picked, the Inspector. */
   prefab: PrefabModeHost;
+  /** The structure editor's wiring: its Scene-view tool, commands, materials and the world's reports. */
+  structure: StructureTools;
+  /** Frame a box in world metres (a misfit's place). */
+  frameBox(box: { min: readonly number[]; max: readonly number[] }): void;
 }
 
 /** One mode of an editor's rail. */
@@ -196,7 +202,7 @@ export const isSceneMode = (k: EditModeKind): k is SceneEditModeKind => k.scope 
 
 /** Every edit mode, in the order one is chosen for an object that several would edit. */
 // The prefab editor first: a prefab's root on its stage is edited as the prefab, whatever else it is.
-export const EDIT_MODES: readonly EditModeKind[] = [prefabMode, terrainMode, blockMode, vertexPaintMode, decalMode];
+export const EDIT_MODES: readonly EditModeKind[] = [prefabMode, terrainMode, blockMode, structureMode, vertexPaintMode, decalMode];
 
 const BY_KIND = new Map(EDIT_MODES.map((k) => [k.kind, k]));
 

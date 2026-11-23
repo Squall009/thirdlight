@@ -59,6 +59,9 @@ import type { PlaySession } from './usePlaySession';
 import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
 import { KitInspectorLink } from '../kit/KitPanels';
+import { StructureFields } from '../structure/StructureFields';
+import type { StructureTools } from './useStructureTools';
+import type { StructureValue } from '../../session/structure-shape';
 import type { KitEditor } from '../kit/useKitEditor';
 
 export interface InspectorDockProps {
@@ -111,6 +114,8 @@ export interface InspectorDockProps {
   sceneInFront: boolean;
   /** The selection's edit mode: its button's label and what opens it (null: none). */
   editMode: { label: string; enter: () => void; skips?: Readonly<Record<string, readonly string[]>>; also?: { label: string; enter: () => void } } | null;
+  /** The structure editor's commands and reports (a structure's section is drawn from them). */
+  structure: StructureTools;
 }
 
 const NO_KIT_NAMES = { materials: new Map<string, string>(), graphs: new Map<string, string>(), blockTypes: new Map<string, string>() };
@@ -426,6 +431,8 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
               ),
               // The overrides are edited in the Materials section above.
               materialParams: <p className="tl-inspector__hint">Edited in the Materials section (per graph material, public parameters only).</p>,
+              // A building's settings in metres and named materials; its footprint is the structure editor's handles.
+              ...(selected.components['voxelStructure'] !== undefined ? { voxelStructure: <StructureFields entityId={selected.id} value={selected.components['voxelStructure'] as StructureValue} tools={props.structure} /> } : {}),
             }
       }
       extensions={

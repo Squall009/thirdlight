@@ -35,4 +35,18 @@ export type SceneVoxelsOut =
   /** What a world holds (after it settles; tests and the status read it). */
   | { readonly t: 'state'; readonly world: string; readonly revision: number; readonly resident: number; readonly settled: boolean; readonly bytes: number; readonly grids?: Readonly<Record<string, { readonly resident: number; readonly settled: boolean }>> }
   /** A pick's answer: the nearest stop (metres along the ray), its world and grid (0: the world grid), or none. */
-  | { readonly t: 'picked'; readonly id: number; readonly hit: { readonly world: string; readonly grid: number; readonly t: number } | null };
+  | { readonly t: 'picked'; readonly id: number; readonly hit: ScenePickHit | null };
+
+/**
+ * Where a pick's ray stopped: metres along it, the world and grid (0: the world grid), the cell in that grid and the
+ * face it entered by (the stopping cell's outward normal, in the grid's frame; 0, 0, 0: it started inside), and the
+ * cell's voxel value (null: not read).
+ */
+export interface ScenePickHit {
+  readonly world: string;
+  readonly grid: number;
+  readonly t: number;
+  readonly cell: readonly [number, number, number];
+  readonly normal: readonly [number, number, number];
+  readonly record: number | null;
+}

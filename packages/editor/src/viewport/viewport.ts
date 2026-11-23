@@ -72,6 +72,8 @@ import type { BlockEditor, BlockEditorCallbacks } from './block-editor';
 import type { TerrainEditor, TerrainEditorCallbacks } from './terrain-editor';
 import { decalSurfaceOf, DECAL_PREVIEW_ID, type DecalArm, type DecalToolCallbacks } from './decal-tool';
 import type { VertexPaintArm, VertexPaintToolCallbacks } from './vertex-paint-tool';
+import type { StructureArm, StructureToolCallbacks } from './structure-tool';
+import { aimAtPointer } from './scene-queries';
 import type { BrushStore } from '../session/brush';
 import { ViewportTools } from './tool-input';
 import { SceneVisibility } from './scene-visibility';
@@ -356,6 +358,18 @@ export class Viewport {
         blockLayers: () => this.blocks.surfaces.layers(),
       },
       brushStroke: (entityId, stroke) => this.cb.onBrushStroke?.(entityId, stroke) ?? Promise.resolve(false),
+      structure: {
+        pick: (x, y) => {
+          const r = new THREE.Raycaster();
+          aimAtPointer(r, this.camera, x, y, this.root.getBoundingClientRect());
+          return this.voxels.pickHit(r.ray.origin, r.ray.direction, this.camera.far);
+        },
+        place: (id, stored) => this.voxels.structurePlace(id, stored),
+        preview: (id, t) => {
+          this.source.setOverride(id, t === null ? null : { position: [...t.position], rotation: [...t.rotation], scale: [1, 1, 1] });
+          this.requestRender();
+        },
+      },
       decal: {
         overlay: this.overlay,
         camera: this.camera,
@@ -1090,13 +1104,24 @@ export class Viewport {
   }
 
   /**
-   * A voxel world edit or undo applied by any client (the editor feed): the world's changed chunks are read again.
-   * `'kits'`: the project's voxel kits or settings changed: the worlds draw the new kit pieces, re-deriving what they change.
-   * `{ materials }`: the project's material records (as the Scene view draws them): the worlds' material tables follow.
+   * The voxel worlds the view draws, as the editor reaches them:
+   * - `changed`: a voxel world edit or undo applied by any client (the editor feed): the world's changed chunks are
+   *   read again; `'kits'`: the project's voxel kits or settings changed: the worlds draw the new kit pieces,
+   *   re-deriving what they change; `{ materials }`: the project's material records (as the Scene view draws them):
+   *   the worlds' material tables follow;
+   * - `structureTool`: the structure tool armed (null: off; the gizmo stands aside while a tool of it is in hand), its
+   *   edits sent through `cb`;
+   * - `info`: a world's route as the backend answers it now (null: not read);
+   * - `listen`: the feed's voxel changes (the structure mode's counts and misfits); returns the unsubscribe.
    */
-  voxelsChanged(c: VoxelsChangedPayload | 'kits' | { readonly materials: readonly VoxelLookRecord[] }): void {
-    if (c === 'kits') this.voxels.kitsChanged();
-    else if ('materials' in c) this.voxels.setMaterials(c.materials);
-    else this.voxels.changed(c);
-  }
+  readonly voxelWorlds = {
+    changed: (c: VoxelsChangedPayload | 'kits' | { readonly materials: readonly VoxelLookRecord[] }): void => {
+      if (c === 'kits') this.voxels.kitsChanged();
+      else if ('materials' in c) this.voxels.setMaterials(c.materials);
+      else this.voxels.changed(c);
+    },
+    structureTool: (arm: StructureArm | null, cb: StructureToolCallbacks | null): void => this.tools.setStructureTool(arm, cb),
+    info: (world: string): Promise<Record<string, unknown> | null> => this.voxels.worldInfo(world),
+    listen: (listener: (c: VoxelsChangedPayload) => void): (() => void) => this.voxels.listen(listener),
+  };
 }

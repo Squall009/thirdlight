@@ -12,7 +12,7 @@ import type { CommandError } from '@thirdlight/commands';
 import { RESOURCE_CREATING_OPS } from '@thirdlight/protocol';
 import { makeEnvelope, makeRequestId, refusalResponse, type CommandOutcome, type MutationResponse, type Origin } from './envelope';
 import type { FolderImportView } from './folder-upload';
-import { CHANGE_FEED_CATCH_UP_MS, CHANGE_FEED_POLL_MS, OwnCommands, WHOLE_DOCUMENT_OPS } from './own-commands';
+import { CHANGE_FEED_CATCH_UP_MS, CHANGE_FEED_POLL_MS, OwnCommands, WHOLE_DOCUMENT_OPS, WORLD_REVISION_OPS } from './own-commands';
 import type { Projection } from './projection';
 
 /** A command's answer (a staged library commit also says which scripts it recompiled). */
@@ -76,6 +76,8 @@ export class CommandSender {
    * once more after the feed caught up; without, it is surfaced.
    */
   issue(op: string, args: unknown, expectedRevision: number, requestId: string | undefined, origin: Origin, afterFeed: boolean): Promise<CommandResult> {
+    // A stroke is applied to its world as the world stands: the project's revision is not the world's, so it is not sent.
+    if (WORLD_REVISION_OPS.has(op)) return this.ownCommands.enqueue(() => this.send(op, typeof args === 'function' ? (args as () => unknown)() : args, null, requestId, origin, true));
     const lazy = typeof args === 'function';
     // A whole-document op with args built at call time keeps its revision (stale args conflict instead of undoing an edit).
     const rebases = lazy || !WHOLE_DOCUMENT_OPS.has(op);
@@ -108,7 +110,7 @@ export class CommandSender {
     return projection.revision >= revision;
   }
 
-  private async send(op: string, args: unknown, expectedRevision: number, requestId: string | undefined, origin: Origin, final: boolean): Promise<CommandResult> {
+  private async send(op: string, args: unknown, expectedRevision: number | null, requestId: string | undefined, origin: Origin, final: boolean): Promise<CommandResult> {
     const rid = requestId ?? makeRequestId();
     // A new root entity goes into the active scene (with a
     // parent, the parent's scene decides).
@@ -125,7 +127,8 @@ export class CommandSender {
     if (folder !== '' && RESOURCE_CREATING_OPS.includes(op) && typeof args === 'object' && args !== null && (args as Record<string, unknown>)['folder'] === undefined) {
       args = { ...(args as Record<string, unknown>), folder };
     }
-    const env = makeEnvelope(op, this.host.projectId, rid, expectedRevision, args, origin);
+    const made = makeEnvelope(op, this.host.projectId, rid, expectedRevision ?? 0, args, origin);
+    const env = expectedRevision === null ? (({ expectedRevision: _e, ...rest }) => rest)(made) : made;
     this.host.report({ save: 'pending' });
     let outcome = await this.post(env);
     // A lost ack retries ONCE with the same requestId (idempotent; the backend
@@ -135,10 +138,11 @@ export class CommandSender {
       this.host.report({ save: 'pending' });
       outcome = await this.post(env);
     }
-    if (outcome.status === 'response' && outcome.response.ok) this.applyOwnAck(rid, outcome.response);
+    // A world's answer carries the world's revision, never the project's: nothing of it is the projection's.
+    if (outcome.status === 'response' && outcome.response.ok && expectedRevision !== null) this.applyOwnAck(rid, outcome.response);
     // A conflict that may still be sent again is not shown until it is the answer.
     if (!final && outcome.status === 'response' && !outcome.response.ok && outcome.response.code === 'revision_conflict') return { ok: false, response: outcome.response };
-    return this.finish(outcome, expectedRevision, op);
+    return this.finish(outcome, expectedRevision ?? -1, op);
   }
 
   /**
@@ -206,7 +210,7 @@ export class CommandSender {
     return { ok: false, response: { ok: false, code: 'network', message } };
   }
 
-  private async post(env: ReturnType<typeof makeEnvelope>): Promise<CommandOutcome> {
+  private async post(env: Omit<ReturnType<typeof makeEnvelope>, 'expectedRevision'> & { expectedRevision?: number }): Promise<CommandOutcome> {
     try {
       const r = await this.host.post<MutationResponse>(env);
       return { status: 'response', response: r };

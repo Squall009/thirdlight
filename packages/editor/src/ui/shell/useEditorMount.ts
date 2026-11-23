@@ -108,8 +108,8 @@ export function useEditorMount(deps: EditorMountDeps): void {
       },
       onRelayRequest: (req) => forwardRelayRef.current(req),
       onLightingBakeRequest: (relayId, sceneId) => deps.lightingBakeRef.current(relayId, sceneId),
-      onVoxelsChanged: (change) => viewportRef.current?.voxelsChanged(change),
-      onVoxelKitsChanged: () => viewportRef.current?.voxelsChanged('kits'),
+      onVoxelsChanged: (change) => viewportRef.current?.voxelWorlds.changed(change),
+      onVoxelKitsChanged: () => viewportRef.current?.voxelWorlds.changed('kits'),
     });
     clientRef.current = client;
     setSessionClient(client);

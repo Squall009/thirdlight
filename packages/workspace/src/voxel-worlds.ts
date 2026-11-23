@@ -289,8 +289,8 @@ export type VoxelWorldInfo =
       world: string;
       manifest: VoxelWorldManifest;
       files: Array<{ name: string; etag: string | null }>;
-      /** Each structure grid the manifest lists: its files, where its structure object stands (absent: no object owns it), and its last regenerate's report this backend holds (absent: none since the world was opened, or undone since). */
-      grids: Array<{ id: number; files: Array<{ name: string; etag: string | null }>; place?: GridPlacement; lastRegenerate?: StructureGridReport }>;
+      /** Each structure grid the manifest lists: its files, where its structure object stands (absent: no object owns it), its last regenerate's report this backend holds (absent: none since the world was opened, or undone since), and how many cells its hand edits (overrides) hold. */
+      grids: Array<{ id: number; files: Array<{ name: string; etag: string | null }>; place?: GridPlacement; lastRegenerate?: StructureGridReport; overrides: number }>;
     }
   | { ok: false; error: VoxelWorldError };
 
@@ -749,6 +749,7 @@ export class VoxelWorlds {
       if (!Array.isArray(fresh)) return fresh;
       const tags = (g: RegionWorld): Array<{ name: string; etag: string | null }> => g.listedRegions().map((file) => ({ name: file, etag: g.files.get(file)?.hash ?? null }));
       const places = this.placements(w);
+      const host = this.gridHost(w);
       return {
         ok: true,
         world: name,
@@ -757,7 +758,9 @@ export class VoxelWorlds {
         grids: w.manifest.grids.map((g) => {
           const report = w.reports.get(g.id);
           const place = places.find((p) => p.gridId === g.id);
-          return { id: g.id, files: tags(this.gridOf(w, g.id)), ...(place !== undefined ? { place } : {}), ...(report !== undefined ? { lastRegenerate: this.reportAt(w, report) } : {}) };
+          let overrides = 0;
+          for (const c of host.overrides(g.id).value.chunks.values()) overrides += c.value.count;
+          return { id: g.id, files: tags(this.gridOf(w, g.id)), ...(place !== undefined ? { place } : {}), ...(report !== undefined ? { lastRegenerate: this.reportAt(w, report) } : {}), overrides };
         }),
       };
     });

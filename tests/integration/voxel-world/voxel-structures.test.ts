@@ -257,9 +257,14 @@ describe('structures through the commands', () => {
     const store = await gridOnDisk(1);
     expect(differences(store, fresh(definitionOf(await structureOf(house)))).filter((d) => d.x === wallX && d.z === 1).map((d) => [d.y, d.a])).toEqual([[2, 0], [3, 0]]);
     // Listed again from the backend's memory (never stored).
-    const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { grids: Array<{ id: number; place?: { gridId: number }; lastRegenerate?: { misfits: unknown[] } }> };
+    const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { grids: Array<{ id: number; place?: { gridId: number }; lastRegenerate?: { misfits: unknown[] }; overrides: number }> };
     expect(info.grids[0]!.place?.gridId).toBe(1);
     expect(info.grids[0]!.lastRegenerate?.misfits.length).toBe(rep.misfits.length);
+    // The hand edits the grid keeps, counted in cells (the structure mode's "hand edits kept"): the overrides file's.
+    let kept = 0;
+    for (const ch of decodeOverrides(grid, new Uint8Array(readFileSync(ovPath))).chunks.values()) kept += ch.value.count;
+    expect(kept).toBeGreaterThanOrEqual(2);
+    expect(info.grids[0]!.overrides).toBe(kept);
     void c;
   });
 

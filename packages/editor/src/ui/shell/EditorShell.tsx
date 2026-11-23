@@ -105,8 +105,10 @@ function makeBlockModeHost(m: EditorModel, via?: SessionClient): BlockModeHost {
 
 /** What the edit modes read from the app. */
 function makeEditModeHost(m: EditorModel): Omit<EditModeHost, 'prefab'> {
-  const { terrainTools, vertexPaint, decalTools, decalAtlas, entities, activeScene, hierarchyFlags, blocks, tileThumbnails, materials, newMaterialId, openDocument, clientRef } = m;
+  const { terrainTools, vertexPaint, decalTools, decalAtlas, entities, activeScene, hierarchyFlags, blocks, tileThumbnails, materials, newMaterialId, openDocument, clientRef, structureTools, viewportRef } = m;
   return {
+    structure: structureTools,
+    frameBox: (box) => viewportRef.current?.frameBox(box),
     terrain: terrainTools,
     paint: vertexPaint,
     decals: decalTools,
@@ -317,6 +319,7 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
     createPrefabFromSelection: () => void prefab.createPrefabFromSelection(),
     createBlockLayer: () => void blocks.createBlockLayer(),
     createTerrain: () => void terrainTools.createTerrain(),
+    createStructure: () => m.structureTools.startCreate(),
     resync,
     scene: sceneEditing,
     entity: entityEditing,
@@ -365,6 +368,7 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
       kit={kitEditor}
       select={setSelectedId}
       sceneInFront={centerTab === 'scene'}
+      structure={m.structureTools}
       editMode={(() => {
         // A prefab's own objects are edited in the prefab editor, which is open.
         if (selected === null || onPrefabStage(selected)) return null;

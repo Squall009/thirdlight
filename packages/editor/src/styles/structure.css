@@ -1,0 +1,16 @@
+/* ---- A structure's settings (ui/structure/StructureFields.tsx): the Inspector's section and the structure editor's
+   Shape column. The counts as a two-column table, the polygons with their remove buttons, the misfit report as a list
+   of plain rows (a picked one marked), the outdated-structures note. */
+.tl-structure { display: flex; flex-direction: column; gap: 6px; }
+.tl-structure__counts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; font-size: var(--text-xs); }
+.tl-structure__counts dt { color: var(--text-dim); }
+.tl-structure__counts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.tl-structure__polygons { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); }
+.tl-structure__polygons li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tl-structure__misfits { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--warn); border-radius: var(--radius-md); font-size: var(--text-xs); }
+.tl-structure__misfits > .tl-btn { align-self: flex-start; }
+.tl-structure__misfits ol { margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 2px; }
+.tl-structure__misfit { display: block; width: 100%; padding: 3px 6px; text-align: left; font: inherit; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
+.tl-structure__misfit:hover { border-color: var(--line-strong); }
+.tl-structure__misfit.is-active { border-color: var(--err); background: rgba(255, 74, 74, .08); }
+.tl-structure__outdated { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); color: var(--text-dim); }

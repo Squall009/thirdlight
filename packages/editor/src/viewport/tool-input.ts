@@ -26,6 +26,7 @@ import { BlockEditor, type BlockEditorCallbacks, type BlockEditorHost } from './
 import { TerrainEditor, type TerrainEditorCallbacks, type TerrainEditorHost } from './terrain-editor';
 import { DecalTool, type DecalArm, type DecalToolCallbacks, type DecalToolHost } from './decal-tool';
 import { VertexPaintTool, type VertexPaintArm, type VertexPaintToolCallbacks, type VertexPaintToolHost } from './vertex-paint-tool';
+import { StructureTool, type StructureArm, type StructureToolCallbacks, type StructureToolHost } from './structure-tool';
 
 /** A pointer that moved less than this (px) between down and up is a click. */
 export const CLICK_SLOP_PX = 4;
@@ -184,6 +185,8 @@ export interface ViewportToolsHost {
   /** The view's sides of the Decal tool, the vertex paint tool and the instance brush. */
   decal: DecalToolHost;
   paint: VertexPaintToolHost;
+  /** The structure tool's view: the voxel pick, where structures are drawn, a turn's preview. */
+  structure: Pick<StructureToolHost, 'pick' | 'place' | 'preview'>;
   brush: Omit<InstanceBrushDeps, 'refused'>;
   brushStroke(entityId: string, stroke: InstanceStroke): Promise<boolean>;
 }
@@ -197,12 +200,14 @@ export class ViewportTools {
   readonly decal: DecalTool;
   readonly paint: VertexPaintTool;
   readonly brush: InstanceBrushTool;
+  readonly structure: StructureTool;
   readonly router: ToolRouter;
   private blockEd: BlockEditor | null = null;
   private terrainEd: TerrainEditor | null = null;
   /** Where the Decal tool's placements and grip edits go (set with the tool's settings). */
   private decalCb: DecalToolCallbacks | null = null;
   private paintCb: VertexPaintToolCallbacks | null = null;
+  private structureCb: StructureToolCallbacks | null = null;
   /** A handle drag is in flight (the overlay holds the previewed shape). */
   private handleDragging = false;
   /** The left button went down on a brush stroke (its release ends it, even one the brush gave up). */
@@ -221,7 +226,20 @@ export class ViewportTools {
       refused: (m) => decalCb()?.refused(m),
     }, CLICK_SLOP_PX);
     this.paint = new VertexPaintTool(host.paint, { stroke: (args) => this.paintCb?.stroke(args) ?? Promise.resolve({ ok: false, message: 'the Scene view is not connected' }), refused: (m) => this.paintCb?.refused(m) });
-    this.router = new ToolRouter({ canvas: () => host.canvas(), setOrbit: (on) => (host.orbit.enabled = on) }, [this.paintTool(), this.blockTool(), this.terrainTool(), this.decalTool(), this.handleTool(), this.brushTool()], ['block', 'terrain', 'handles', 'brush', 'decal', 'paint']);
+    const scb = (): StructureToolCallbacks | null => this.structureCb;
+    const off = (): Promise<void> => Promise.reject(new Error('the Scene view is not connected'));
+    this.structure = new StructureTool(
+      { overlay: host.overlay, camera: host.camera, canvas: () => host.canvas(), requestRender: () => host.requestRender(), ...host.structure },
+      {
+        create: (w, c, x, z) => scb()?.create(w, c, x, z) ?? off(),
+        define: (id, def) => scb()?.define(id, def) ?? off(),
+        place: (id, p, yaw) => scb()?.place(id, p, yaw) ?? off(),
+        stroke: (id, c) => scb()?.stroke(id, c) ?? off(),
+        refused: (m) => scb()?.refused(m),
+        readout: (t) => scb()?.readout(t),
+      },
+    );
+    this.router = new ToolRouter({ canvas: () => host.canvas(), setOrbit: (on) => (host.orbit.enabled = on) }, [this.paintTool(), this.blockTool(), this.terrainTool(), this.decalTool(), this.structureTool(), this.handleTool(), this.brushTool()], ['structure', 'block', 'terrain', 'handles', 'brush', 'decal', 'paint']);
   }
 
   /** The block-layer tools (made on first use with the App's callbacks). */
@@ -264,10 +282,18 @@ export class ViewportTools {
     this.host.reselect();
   }
 
+  /** The structure tool armed (null: off), its edits sent through `cb`. */
+  setStructureTool(arm: StructureArm | null, cb: StructureToolCallbacks | null): void {
+    this.structureCb = cb;
+    this.structure.arm(arm);
+    this.host.reselect();
+  }
+
   /** Before a frame: the tools' grips and published state follow the view. */
   frame(): void {
     this.decal.frame();
     this.paint.frame();
+    this.structure.frame();
   }
 
   /** After a drawn frame. */
@@ -283,6 +309,7 @@ export class ViewportTools {
     this.brush.dispose();
     this.decal.dispose();
     this.paint.dispose();
+    this.structure.dispose();
   }
 
   // ---- The tools as the router sees them -----------------------------------
@@ -343,6 +370,21 @@ export class ViewportTools {
 
   private terrainTool(): SceneTool {
     return this.editorTool('terrain', () => this.terrainEd);
+  }
+
+  /** The structure tool: armed, it owns the left button (a press that is not its own still orbits). */
+  private structureTool(): SceneTool {
+    const t = this.structure;
+    return {
+      name: 'structure',
+      armed: () => t.armed(),
+      pointerDown: (e) => t.pointerDown(e),
+      pointerMove: (e) => t.pointerMove(e),
+      pointerUp: (e) => (t.pointerUp(e) ? 'stop' : null),
+      leave: () => t.leave(),
+      cancel: () => t.cancel(),
+      key: (e) => t.key(e),
+    };
   }
 
   private decalTool(): SceneTool {

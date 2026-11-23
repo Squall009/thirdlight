@@ -34,6 +34,13 @@
  * setting changed before the first one's answer reached the page goes on top
  * of it instead of being refused.
  */
+/**
+ * Ops whose revision is a voxel world's, not the project's (a stroke: `editVoxels`): sent without the project's
+ * revision (a stroke applies to its world as the world stands), never rebased or sent again, and their answer, which
+ * carries the world's revision, is never applied to the projection.
+ */
+export const WORLD_REVISION_OPS: ReadonlySet<string> = new Set(['editVoxels']);
+
 export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   'setTags',
   'setAssetOptions',

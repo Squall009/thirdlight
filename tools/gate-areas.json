@@ -46,6 +46,12 @@
         "packages/three-adapter/src/voxel-*",
         "packages/runtime/src/voxel-*",
         "packages/editor/src/voxel-world/**",
+        "packages/editor/src/viewport/scene-voxels*",
+        "packages/editor/src/viewport/structure-*",
+        "packages/editor/src/ui/editmode/structure-mode.tsx",
+        "packages/editor/src/ui/structure/**",
+        "packages/editor/src/ui/shell/useStructureTools.ts",
+        "packages/editor/src/session/structure-shape*",
         "packages/backend/src/voxel-*",
         "packages/game-host/src/voxel*",
         "tools/voxel-bench/**",
@@ -57,6 +63,7 @@
       ],
       "e2e": [
         "voxel-world",
+        "structure-mode",
         "webgl2-smoke"
       ]
     },

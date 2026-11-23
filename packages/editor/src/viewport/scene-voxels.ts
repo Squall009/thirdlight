@@ -55,7 +55,7 @@ import { pageKitPieces, readVoxelKits, type KitRoute, type ProjectVoxelKits } fr
 import * as THREE from 'three';
 import { textureSlotSetKey, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import type { ProjectedEntity } from '../session/projection';
-import type { SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-wire';
+import type { ScenePickHit, SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-wire';
 
 /** Where the editor reads a project's voxel worlds: the backend's route of a world and the headers it needs. */
 export interface SceneVoxelsSource {
@@ -146,8 +146,10 @@ export class SceneVoxels {
   /** The open scenes' structure objects (by object id), and each world's grid places as last told to the worker. */
   private readonly structures = new Map<string, StructureDraw>();
   private readonly gridsSent = new Map<string, string>();
+  /** Who hears of the feed's voxel changes. */
+  private readonly listeners = new Set<(c: VoxelsChangedPayload) => void>();
   /** Picks waiting for the worker's answer, by id. */
-  private readonly picks = new Map<number, (hit: Extract<SceneVoxelsOut, { t: 'picked' }>['hit']) => void>();
+  private readonly picks = new Map<number, (hit: ScenePickHit | null) => void>();
   private pickSeq = 0;
   /** Structure draws moved to their objects (a move, a turn, a drag's frame) and the ms it took in all (diagnostics). */
   private readonly moved = { count: 0, ms: 0, lastMs: 0 };
@@ -431,14 +433,41 @@ export class SceneVoxels {
    */
   pick(origin: THREE.Vector3, dir: THREE.Vector3, within: number): Promise<string | null> | null {
     if (this.worker === null || this.structures.size === 0) return null;
-    const id = ++this.pickSeq;
-    const answer = new Promise<Extract<SceneVoxelsOut, { t: 'picked' }>['hit']>((ok) => this.picks.set(id, ok));
-    this.post({ t: 'pick', id, origin: [origin.x, origin.y, origin.z], dir: [dir.x, dir.y, dir.z], maxM: within });
-    return answer.then((hit) => {
+    return this.pickHit(origin, dir, within)!.then((hit) => {
       if (hit === null || hit.grid === 0) return null;
       for (const [entity, s] of this.structures) if (s.world === hit.world && s.grid === hit.grid) return entity;
       return null;
     });
+  }
+
+  /**
+   * What a ray (world metres) meets first within `within` metres in every open world and its grids, each grid in its
+   * own frame: the world, the grid, the cell and the face it entered by (null: nothing; null at once with no world open).
+   */
+  pickHit(origin: THREE.Vector3, dir: THREE.Vector3, within: number): Promise<ScenePickHit | null> | null {
+    if (this.worker === null) return null;
+    const id = ++this.pickSeq;
+    const answer = new Promise<ScenePickHit | null>((ok) => this.picks.set(id, ok));
+    this.post({ t: 'pick', id, origin: [origin.x, origin.y, origin.z], dir: [dir.x, dir.y, dir.z], maxM: within });
+    return answer;
+  }
+
+  /** A world's route as the backend answers it now (its manifest, its grids' files, places, last regenerate reports and hand-edit counts); null: no source or not read. */
+  async worldInfo(world: string): Promise<Record<string, unknown> | null> {
+    const source = this.host.source;
+    if (source === null) return null;
+    try {
+      const r = await fetch(source.url(world), { headers: source.headers });
+      return r.ok ? ((await r.json()) as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Where a structure object's grid is drawn now (a drag's or a preview's place, else its stored one; `stored`: where its object is stored; null: not a structure drawn). */
+  structurePlace(id: string, stored = false): GridPlacement | null {
+    const s = this.structures.get(id);
+    return s === undefined ? null : stored ? s.place : (s.drawn ?? s.place);
   }
 
   /** Where the view looks (the orbit's target, metres): the worlds stream around it. */
@@ -461,10 +490,17 @@ export class SceneVoxels {
     this.post({ t: 'focus', x: at.x, y: at.y, z: at.z });
   }
 
-  /** A voxel world change from the editor feed. */
+  /** A voxel world change from the editor feed (its listeners hear of it too). */
   changed(c: VoxelsChangedPayload): void {
+    for (const l of this.listeners) l(c);
     if (!this.open.has(c.world)) return;
     this.post({ t: 'changed', world: c.world, change: c });
+  }
+
+  /** Hear of every voxel world change the feed brings (the structure mode's counts and misfits); returns the unsubscribe. */
+  listen(listener: (c: VoxelsChangedPayload) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /** The adapter (and its renderer) was replaced: the draws start again in its scene, every world streamed again. */

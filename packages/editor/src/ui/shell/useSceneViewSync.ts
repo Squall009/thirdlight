@@ -66,7 +66,7 @@ export function useSceneViewSync(deps: SceneViewSyncDeps) {
     // draws from the composed decal pages (as in Play) while the decal atlas has current ones.
     materialLibraryRef.current?.setMaterials(withDecalPageRefs(withSlotTextureKeys(last.mats), pages?.refs ?? null) as unknown as MaterialDefLike[], last.libFunctions as unknown as MaterialFunctionLike[]);
     // The voxel worlds' material tables are built from the same records (only the table changes, nothing remeshes).
-    viewportRef.current?.voxelsChanged({ materials: last.mats });
+    viewportRef.current?.voxelWorlds.changed({ materials: last.mats });
     // A material that animates (wind, water) keeps the Scene view drawing from this frame on.
     viewportRef.current?.requestRender();
   }, [viewportRef]);
