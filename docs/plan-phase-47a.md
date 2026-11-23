@@ -175,7 +175,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.6 | Done 2026-11-23 (cce0d13f, 54f9db51): structure editor mode (draw, edge/corner handles, Extend, storeys, 15° turn, Inspector section with a material a part, Dig/Add/Paint, misfit list and marker); e2e 13–16 s. The gate's one red (D761) was a test's camera jump tripping the streamer: fixed ad116a9b, every-area gate green; D762–D764. Interim look `acc47a-interim` |
 | 47a.7 | Done 2026-11-23. (a) 7b5d2598, 20fc9bf7, a8e2028e: `voxelPortal`, props follow, portal state where the world runs. (b) 6c0cf4f1…0c446ea1: shut doors link (D770), Play/export e2e, the mode's Openings (ghost, place, move, delete, fitting props, glass); flip→light 0.7–1.7 s, 100 doors one 14–16 ms step; stairs tool D775
 | 47a.8 | Done 2026-11-23 (a27a11e4, 39c31b65, 1488dc66, 494d8315 …): radius as a footprint (default 0.3 m, two cells), queries wait for edits (bound 90 serves, `stale`), shut doors in the levels, reach through grids, portal runs split; town 131/131 every check; D780 the Export failure fixed (hourly sweep); D778, D779, D781 |
-| 47a.9 | not started |
+| 47a.9 | Done 2026-11-23 (e1a62759…3452d5bb): proof on 1.34 M liquid cells (shader data read liquid: now air); `changeFeeds`/`EditOutcome.parts`; liquid part (16 B quads), drawn plain near; liquid dab 4 full derives → 4 liquid, worker 8.4 → 4.6 ms; town orbit, 128 lamps equal; lake near not resolved; D782–D784 |
 | 47a.10 | not started |
 | 47a.11 | not started |
 | 47a.12 | not started |
@@ -1875,6 +1875,84 @@ Play test 2.1 min; `tracer-terrain-rings.test.ts` failed once, passed alone). `a
 **D-rows:** D735, D736, D748, D771, D772 fixed; D780 fixed (the Export failure); new D778 (the band's remakes),
 D779 (feet over a turned slab edge), D781 (no way through a grid between two points of one graph).
 
+### 47a.9 — liquid: narrowed feeds and a plain look
+
+**Built** (e1a62759, da199f63, cc3c3f35, 022684f1, 85c412e3, 3452d5bb; F7 as approved, derived data 33, nothing
+stored). **The proof first** (`tools/voxel-bench/liquid.test.ts`): every chunk holding or beside liquid in the hilly
+world's small lake (51,542 liquid cells, 180 chunks), a stretch of its large lake (457,814, 222) and the caves world's
+pools (831,331, 398) derived with the liquid and with every liquid cell made air: mesh, collision, nav, light,
+occupancy and region bytes equal in every chunk. **The shader data read liquid** (it held the liquid's material, so a
+surface beside or under water blended toward it: 38, 66 and 183 chunks differed; the base pictures show it as blue
+tints along the dry bed's rim). It now holds liquid as air (entry 0), and the roof words read liquid as plain air
+(a cell of water on a wall top under an eave; no difference was found there without a kit filling wall tops). With
+those, all seven are equal.
+
+- **The rule** (record.ts `changeFeeds`, spec §2.2): each changed cell decided on its own while the edit writes
+  (`EditOutcome.parts`; the worker's edit job, a structure regenerate and the backend's structure writes the same; an
+  undo answers the parts of the edit it takes back): air or liquid on both sides → the liquid part (`DERIVED_PART.
+  liquid` 32, all parts 63); else the fields' feeds, role or shape also feeding the liquid part (a dig beside water
+  bares its side), material or wetness of a cell that is neither the shader data alone. Consumers use `parts`: the
+  command route, the streamer's edits and refreshes, the page, the Scene view's grids, Play (`fieldsFeed` stays for
+  a change whose cells are not known, now conservative). A liquid-only change derives the liquid part of the derive
+  sections within one cell (a parts-only job, no assembly evaluation), leaves coarser levels and fine far bricks as
+  they are (D782), keeps bodies, the walk and the regions (the chunk event's `shaderOnly`, now "the surfaces
+  stand", and the game's `VoxelChange.shaderOnly` say so), and its batch entry (`liquid`) replaces the chunk's
+  liquid mesh alone. The backend's far cache still rebuilds the edit's chunks after answering (D783).
+- **The liquid part** (`derived-liquid.ts`, spec §3.7): a level-0 unit's liquid faces against open space (air, an
+  opening, ground below the surface iso), exact to the fill level in 1/15-cell steps; nothing against ground at the
+  surface or a built role, a side step where a neighbour's fill is lower; tops and bottoms merged into rectangles a
+  layer, sides merged up a column then along the row; 16 bytes a quad; null without a liquid face. Built in every
+  full derive (outside the canonical bytes) and alone; joined per chunk for the draw.
+- **The draw** (`voxel-liquid-draw.ts`): one more mesh of a level-0 chunk's draw, its program made with the first
+  liquid face: the material's colour (table colour × its wall set's mean, `VoxelSurface.farColour`, no wetness),
+  roughness 0.35, opaque, lit by the sun, its maps, the lamps and the light volume's read as a `surface`; receives
+  shadows, casts none (water stands over a bed nobody sees through opaque water; a liquid edit then redraws no static
+  shadow). Culled whole like the surface (a row of the culling table), counted in the chunk's mesh bytes for the
+  stream budget. `?voxelLiquid=off` leaves it undrawn (a bench switch, passed to Play). Not pickable (a click picks
+  the bed). Structure grids derive and draw their liquid through the same code (not looked at in a picture).
+- **What did not change:** collision (bodies fall through water to the bed), navigation (walkers walk the bed), light
+  (water blocks none), the far field and the mips (past the detail ring a lake's bed shows dry, owner's default 3 of
+  2026-11-20), kit pieces. The voxel world page's Add brush still writes ground; water is written by the edit command
+  (the page's hook, MCP) and `ctx.voxels.set` in Play (47b brings the brushes).
+
+**Measured.** *Derives after a liquid-only dab* (Node, real workers, region files, the page's refresh path: a 3-cell
+sphere dug out of the large lake's open water and put back, 6 rounds each, head 022684f1 with the rule before it
+passed as the refresh's parts): before, 4 full section derives, 0 shader, 0 liquid, worker 8.4 ms in 4 jobs (longest
+2.7), edit → swap 5.8–6.0 ms; after, 0 full, 0 shader, 4 liquid derives, worker 4.5–4.7 ms (longest 1.6), 3.9–4.3 ms
+(`work/47a.9/m/node.json`). On staging's backend every water stroke answered `parts` 32 (the lake's 40,272 cells in
+22 ms apply). The browser's edit → screen for a liquid dab was not measured apart (the e2e asserts the derives).
+*The part* (bundled as the workers run it, `m/liquid-cost-v2.json`): a chunk of open lake 0.8–1.0 ms and 0.8–1.9 KB,
+a shore chunk 0.15–0.35 ms and 0.1–0.8 KB; a chunk without liquid 43 µs (its look at its cells, 1.3 % of its 3.0–3.3 ms
+derive); with liquid the part is 10–16 % of the chunk's full derive (5.4–7.2 ms). The small lake whole: 30 chunks,
+43.5 KB, 2,720 quads; the large lake's stretch: 56 chunks, 113 KB, 7,060 quads (about 8× that on the GPU: 124 B a
+quad). *Lit programs* (low, WebGPU, 1280 × 720, the 30 Hz cap, each alone, head 85c412e3 against base 47230d51, A B A
+B 13:15–14:25 UTC, load 0.7–1.8, second rounds; `m/orbit-*`, `m/lamps-*`): the town orbit GPU near 3.20, 4.35
+against 4.24, 3.31 ms, lighting 4.71, 4.96 against 5.46, 4.74, page 5.23, 5.78 against 5.77, 5.48 ms, missed 0; 128
+lamps near 8.30, 7.99 against 8.74, 8.76, lighting 4.88, 4.34 against 5.57, 3.92, page 7.22, 6.83 against 7.32, 6.98:
+equal within the spread. The town has no liquid cell, so no liquid part is derived and no liquid program made (the
+program is made only with the first liquid face: `voxel-chunk-view.test.ts` asserts no program before water). *A lake
+view* (staging's town with a 60 m lake dug round the street, bench data, the world restored from its backup after):
+the headroom orbit could not run on the edited world at the head or the base (the far field never settled in 7 min,
+D784), so the page's GPU measurement at the street camera looking over the lake (`light-shots --gpu`), liquid drawn
+and `?voxelLiquid=off`, A B A B 14:56–15:08 UTC, load 3.3–4.3 (the backend rebuilding its far cache): near 5.44,
+4.88 against 4.68, 4.82 ms (spread 0.4–1.2), lighting 3.31, 3.55 against 3.30, 3.04: the water's cost is not resolved
+at this view (under 0.8 ms). *E2E*: `voxel-world.e2e.ts` 6.3 → 6.2 min; its assembly test 1.1 → 1.2 min (water on the
+page: 5,235 blue pixels, liquid triangles 2 → 4 with the bank dug); Play 2.1 → 2.1 min (the pool: 979 blue pixels).
+
+**Pictures** (`~/.cache/thirdlight-phase47a/work/47a.9/look/`, Play, low, 1280 × 720; the lake is bench data):
+`01-lake-before.png` (base: the dug lake dry, blue tints along the bed's rim from the shader data's old blend),
+`02-lake-plain-water.png` (head: flat blue water to the far shore, the step 0.5 m down at x −20 m as a darker band, the
+block of water standing on the street), `04-water-step-and-side.png` (2 m closer: the block's sides, the shore),
+`06-far-view-bed-dry.png` (from 140 m east: the lake past the ring as a brown dry bed), `07-night-lamp-on-water.png`
+(the lamps' light on the water, beside `07b-night-before.png`). What is wrong or ugly: the water is one flat colour
+with no variation, so its surface reads as a painted plane and the step's face only as a darker band; at night its
+far part is lighter than the ground round it (a bluish band at the horizon); the standing block is a hard-edged box
+(the "wall of water" 47a.10 removes); no z-fighting or seams were seen at the shore or across chunk borders in these
+views (the shore is a ground wall, not a slope, in this bench lake). **Not obtained:** `03-shore-close.png` (no camera
+close at a shore; the shore is at the left of 04) and `05-cave-pool.png` (the pool was written, 632 cells, `parts`
+32, but the cave camera's picture shows none: it lies outside that view or under the floor it sees; unverified).
+Structure grids' water and the voxel world page's own pictures were not looked at.
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -2094,6 +2172,17 @@ D779 (feet over a turned slab edge), D781 (no way through a grid between two poi
   serves (3 s at the 30 Hz cap), then answers on what is made with `stale: true`; never for chunks not loaded.
 - 2026-11-23 (47a.8; default chosen, owner to confirm): **two props in one run of opening cells split it at the
   boundary nearest their midpoint** where the world runs; the definition still takes touching openings.
+
+- 2026-11-23 (47a.9; default chosen, owner to confirm): **the shader data holds a liquid cell as air** (derived 33),
+  so no ground or wall blends toward a water's material (the liquid part draws it in its own); the roof words read
+  liquid as plain air. Without these the narrowed feeds would leave stale blends beside water.
+- 2026-11-23 (47a.9; default chosen, owner to confirm): **the plain water**: the material's colour times its texture
+  set's mean (no texture), roughness 0.35, opaque, receiving shadows, **casting none**; drawn in the detail ring only.
+- 2026-11-23 (47a.9; default chosen, owner to confirm): **a liquid face is made toward air, an opening and ground
+  below the surface iso; never toward a built cell of any form** (the part reads the value alone, without the rules:
+  a rail or post beside water is a wall to it); a partly filled cell shows its top even under liquid.
+- 2026-11-23 (47a.9; default chosen, owner to confirm): **the game's `VoxelChange.shaderOnly` is true for a
+  liquid-only change** (meshes and colliders stand), its text says so.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 

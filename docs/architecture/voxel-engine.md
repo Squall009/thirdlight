@@ -146,8 +146,14 @@ page in the same commit.
   through the worlds and their grids). Measured: plan-47a §8a "47a.5a".
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
   water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); `liquid` is
-  excluded by scattered checks, not one predicate; a liquid edit re-derives mesh, collision, navigation and
-  light until its feeds are narrowed; a brick cannot hold rule-built crisp geometry exactly.
+  excluded by scattered checks, not one predicate; a brick cannot hold rule-built crisp geometry exactly. Since
+  47a.9 (F7) every derived output but the liquid part reads a liquid cell as the air it stands in (proved on the
+  test worlds' lakes and pools), so a change only between air and liquid, or of a liquid's fill or material, feeds
+  the **liquid part** alone (`changeFeeds`, `EditOutcome.parts`): no mesh, collision, navigation, light, shader
+  data, coarser level or fine far brick is derived again. Water blocks no light, collides with nothing (bodies
+  fall through it to the bed) and walkers walk its bed; the coarser levels keep the liquid values a liquid-only
+  edit left behind (nothing reads them before 49, D782); the backend's far cache still rebuilds such an edit's
+  chunks (D783).
 
 ## 3. Drawing, near to far
 
@@ -159,6 +165,14 @@ page in the same commit.
 | Finer than the bake, where a world asks for it (`fineBuild: compute`) | fine bricks built on the GPU | compute, from the chunks' voxel grids |
 | To the horizon | bricks at 2 m and coarser, chosen by screen error (8 px low, 4 medium, 3 high) | the far cache |
 
+- **Liquid** (47a.9, the plain look; 49 replaces it): inside the detail ring each chunk's liquid part (its
+  derive sections' liquid faces against open space, exact to the fill level, merged into quads with their
+  material; `derived-liquid.ts`) is one more mesh of the chunk's draw (`voxel-liquid-draw.ts`): the material's
+  colour (table colour times its texture set's mean, as the far field reads it), opaque, lit as any voxel surface
+  (sun and its maps, lamps, the light volume's read), receiving shadows and casting none; replaced alone when only
+  the liquid part changes (a chunk batch's `liquid` entry); its program made with the first liquid face, so a world
+  without liquid compiles nothing. Past the ring a lake's bed shows dry (the far cache has no liquid channel until
+  49; owner's default of 2026-11-20). Structure grids draw their liquid the same way (the same derive and chunk view; not looked at in a picture).
 - **Bricks**: 8³ cells with 9³ distance samples, 4³ bricks a node, a node 32³ cells of its level; two 3D
   atlases; drawn through a **visibility target** (brick id and depth) and **one deferred shade** with fog by
   the hit's depth; node boxes are rows of the **culled-instance table** (frustum and depth pyramid in compute,
@@ -285,8 +299,9 @@ Play and export.
 
 ## 7. What is planned on top (see the roadmap)
 
-Water is liquid-role voxels: bodies that regenerate when the ground is edited in the editor (47a), a derived
-surface, flow and falls, queries and buoyancy (49). Fog is a new non-solid role with the fill bits as density
+Water is liquid-role voxels: drawn plain near the eye with narrowed feeds (47a.9), bodies that regenerate when
+the ground is edited in the editor (47a.10), a surface shader, far water, flow and falls, queries and buoyancy (49,
+extending the liquid part). Fog is a new non-solid role with the fill bits as density
 and the material id as fog type, painted with the voxel brushes and one height-based fill shared with water
 (47b); lit fog and an interactive ground fog on the interaction field (51). Vegetation is rules hanging off the
 material record as a dressing; a hand-placed tree is an ordinary prop; density by material variations (47b),
