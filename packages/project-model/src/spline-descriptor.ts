@@ -87,9 +87,9 @@ export const spline: ComponentDescriptor = {
     ]), { maxItems: L.pieces }),
     obj('voxels', 'Voxels', "Voxels it writes into its scene's voxel world: a road or path (surface, bed, shoulders, air above) or a river (liquid down its depth over its bed). The ground it replaced comes back when it moves or goes; one undo step with the edit. Exports ship the voxels, never this section.", [
       enm('kind', 'Kind', 'A road or a path at the curve\'s height, or a river whose surface is the curve.', SPLINE_VOXEL_KINDS, { required: true, default: 'road', labels: { road: 'Road', path: 'Path', river: 'River' } }),
-      int('material', 'Material', `The surface's voxel material, or a river's liquid (its id, 1-${MATERIAL_ID_MAX}).`, { required: true, min: 1, max: MATERIAL_ID_MAX }),
+      int('material', 'Material', `The surface's voxel material, or a river's liquid (its id, 1-${MATERIAL_ID_MAX}).`, { required: true, min: 1, max: MATERIAL_ID_MAX, default: 1 }),
       obj('bed', 'Bed', 'What lies under a road (its depth), or a river\'s bed material and its depth.', [
-        int('material', 'Material', `The bed's voxel material (1-${MATERIAL_ID_MAX}).`, { required: true, min: 1, max: MATERIAL_ID_MAX }),
+        int('material', 'Material', `The bed's voxel material (1-${MATERIAL_ID_MAX}).`, { required: true, min: 1, max: MATERIAL_ID_MAX, default: 1 }),
         num('depth', 'Depth', `Metres: under a road's surface; a river's depth (empty bed: ${SPLINE_RIVER_DEPTH_DEFAULT} m).`, { required: true, min: 0, minExclusive: true, max: D, step: 0.5, unit: 'm', default: 1 }),
       ]),
       obj('shoulder', 'Shoulders', 'How the sides meet the ground: cut down or filled up to a slope.', [
