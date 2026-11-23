@@ -2162,8 +2162,7 @@ the catalog or content, no record, every region file shipped. E2E: a fourth test
 (4.2–6.0 s): a spline made a road by the section's Road button, its material and clear set there, "Holds 1,024 cells",
 the road drawn (18,800–39,000 road pixels), the middle grip dragged (nothing sent mid-drag; one command on release):
 **the old cut gone** and the new course drawn (pixels only in each), one Ctrl+Z: the point and the road back (pixels
-within 5 %). File time: its three earlier tests 28.7 s in gate-fast-20261123-203237, its four 38.6 s in the last gate (below). With a feature off: the put-back off fails fresh = rewritten and the folder hashes; the masking of river cells
-off drains the lake in the river test (it breached into the channel); the strip off finds the section in the export.
+within 5 %). File time: its three earlier tests 28.7 s in gate-fast-20261123-203237, its four 38.6 s in the last gate (below). Seen while building: before bodies read a river's cells as ground, the river test's lake breached into the channel and drained (the test caught it). Not tried: the other parts switched off one at a time.
 
 **Measured** (2026-11-23 21:50 UTC, in-process backend over HTTP, nothing else running, load 1.9–2.2, no far cache;
 `work/47a.11/m/measure-splines.test.ts`, raw `m/measure-1.json`; medians of 5; rolling ground ±1.75 m; roads 6 m wide,
