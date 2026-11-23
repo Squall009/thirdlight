@@ -402,9 +402,10 @@ async function main(): Promise<void> {
     // Draws and bodies follow the batcher (above): chunks, level nodes, their seams and the levels chosen.
     if (e.type === 'node') return levelLog.node(e.level, frames);
     if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk' || e.type === 'seams' || e.type === 'levels' || e.type === 'relief') return;
-    if (e.type === 'shader') {
-      // Only the shader data changed (material or wetness): bodies stand as they are; the view uploads the chunk's grid.
-      for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:shader`);
+    if (e.type === 'shader' || e.type === 'liquid') {
+      // Only the shader data (material or wetness) or the liquid part (only between air and liquid) changed: bodies
+      // stand as they are; the view uploads the chunk's grid, or replaces its liquid mesh.
+      for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:${e.type}`);
       return;
     }
     for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}`);
@@ -666,6 +667,7 @@ async function main(): Promise<void> {
         shadows,
         reliefCasters,
         textures: { ...materials.textures, current: materials.texturesCurrent, textured: surface.textured },
+        liquid: { triangles: meshes.liquids.triangles, sets: meshes.liquids.sets, program: meshes.liquids.look.built },
         surface: { shading, blendM: surface.blendMetres, tableUploads: surface.tableUploads, tableMs: surface.tableMs, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshes.meshBuilds,
         section: sectionEdge,

@@ -1,6 +1,6 @@
 /**
  * The Play project's script (voxel-world.e2e.ts's Play tests drive it by debug commands): it digs once the test asks
- * after the pit's ground is resident; on further commands it wets the ground beside the pit, saves the world into
+ * after the pit's ground is resident (a second dig pools water in the pit); on further commands it wets the ground beside the pit, saves the world into
  * the game's save slot 1 and restores it from there; casts rays; builds and reads rooms; builds the walls, the hut
  * and the other shapes the shadow and light checks read; asks for a path out of the hut; moves objects by id; places
  * and walks the character. `at`: where the character stands
@@ -42,8 +42,10 @@ export function playScriptSource(at: readonly number[], gridRoom?: readonly numb
     `    const pit = ${pit};`,
     '    if (state.wait < 0) state.wait = v.whenResident(pit);',
     "    for (const w of v.waits) if (w.wait === state.wait && w.resident && state.at < 0) { state.at = ctx.stepIndex; ctx.game.add('resident', 1); }",
-    "    for (const c of v.changes) ctx.game.add('changes', 1);",
-    "    for (const _ of ctx.debug.command('dig')) if (!state.dug) { const r = v.dig(pit); state.dug = r.ok; ctx.game.add(r.ok ? 'dug' : 'refused', 1); }",
+    // A change whose meshes and colliders stand (shader data, or only the liquid's faces) is counted apart.
+    "    for (const c of v.changes) { ctx.game.add('changes', 1); if (c.shaderOnly) ctx.game.add('standing', 1); }",
+    // The second 'dig' puts a pool of water in the pit's bottom (a ball inside the pit: air to liquid only).
+    `    for (const _ of ctx.debug.command('dig')) if (!state.dug) { const r = v.dig(pit); state.dug = r.ok; ctx.game.add(r.ok ? 'dug' : 'refused', 1); } else if (!state.pooled) { const r = v.set({ center: [${at[0]}, ${at[1] - 1.3}, ${at[2]}], radius: 0.7 }, { material: ${MAT.water}, role: ${VOXEL_ROLE.liquid} }); state.pooled = r.ok; ctx.game.add(r.ok ? 'pooled' : 'refused', 1); }`,
     // Rays from 6 m over the pad: down meets the pad's top face (a voxel with its material, the face looking up), up meets nothing.
     `    const eye = [${at[0]}, ${at[1] + 6}, ${at[2]}];`,
     "    for (const _ of ctx.debug.command('rays')) {",
