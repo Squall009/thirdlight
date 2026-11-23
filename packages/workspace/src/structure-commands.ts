@@ -172,8 +172,8 @@ export class StructureCommands {
   }
 
   /**
-   * Regenerate all (R34): every structure an older generator wrote gets the generator's version through one
-   * `setComponent` a scene (its objects in one transaction), and its voxels written again by this generator, the
+   * Regenerate all (no structure stays pinned to an older generator): every structure an older generator wrote
+   * gets the generator's version through one `setComponent` a scene (its objects in one transaction), and its voxels written again by this generator, the
    * scene edit and the voxels one step. Nothing outdated: `no_change`.
    */
   async regenerateAll(projectId: string, env: Record<string, unknown>): Promise<StructureCommandOutcome> {
