@@ -172,7 +172,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.3 | Done 2026-11-22 (68fbec87, b4ff1315): `@thirdlight/voxel` `structures/`: generator contract, F1 record + checks, building generator (union walls, 45° roofs, hip over the outline), regenerate (undo/redo, fit rule), capture, regenerate-all; town house = bench pattern but beams, landing; small house 1.4 ms, 131 houses 78 ms, regenerate with 1,000 overrides 30 ms; D751, D752 |
 | 47a.4 | Done 2026-11-22 (4059d423): `voxelStructure` (F1), its grid written by the backend through the commands, one undo step with the scene edit; create (next grid, anchor), regenerate, copy, delete, material swap, hand edits as overrides, `regenerateStructures`; Play/export read places from the objects. Small house 20 ms, L 60–76 ms; +0.8–2.2 s with a far cache (D754); D753, D755 |
 | 47a.5 | Done 2026-11-22. (a) 6be74d26, ef33ad6f, 6003c541: Scene view draws, moves, picks grids; `ctx.voxels` by grid; spec §3.6. (b) d41e0c49, 7b83e3a0, 471d16bb, 894fb4e0: grids planned at ring crossings (G30 sim 1.4–1.5 × W, base 1.8–1.9), stamp sliced, far rebuild after the answer (house 27 ms, was 832), fine bake reads grids; lane reserve backed out; D759, D760 |
-| 47a.6 | not started |
+| 47a.6 | Built 2026-11-23 (cce0d13f, 54f9db51): structure editor mode (draw, edge/corner handles, Extend, storeys, 15° turn, Inspector section with a material a part, Dig/Add/Paint on its grid, misfit list and marker); e2e 13–16 s. Gate red only on the voxel-world assembly test, failing at the base too (D761, from 894fb4e0); D762–D764 |
 | 47a.7 | not started |
 | 47a.8 | not started |
 | 47a.9 | not started |
@@ -1407,6 +1407,95 @@ gate-area-20261123-003454 GREEN (24 passed). The Play test 2.0–2.1 min in the 
 **D-rows:** D743 narrowed; D745 left (the reserve backed out, measured); D747 narrowed; D754 fixed; D755 fixed;
 D753, D711 noted; D759 (a lost far rebuild of a structure move), D760 (watch: the glow check under load).
 
+### 47a.6 — the structure mode
+
+**Built** (cce0d13f, 54f9db51; no stored thing added, F1 as approved). A designer can, in order:
+1. **GameObject → Structure** in a scene with a voxel world: the notice says to drag; a drag on the ground (found by
+   the Scene view's voxel pick, then read on that level) draws a rectangle on the world's 0.5 m lattice, aligned with
+   it, its size said live in the notice; release → one `createEntity` with the footprint, storeys 1, storey height 6
+   cells, foundation 2, a gable roof along x, overhang 1, the project's first construction voxel material (lowest id)
+   on every part, anchored in the editor as the backend anchors it (so the house stands where it was drawn). No
+   construction material: a message, nothing made. The structure mode opens on it.
+2. **The mode** (`ui/editmode/structure-mode.tsx`, an `EDIT_MODES` entry; the shell's header, rail, keys, Esc, docks
+   and status line). Rail: *Shape* (tools Shape S, Extend E) and *Hand edits* (Dig D, Add A, Paint P). The view keeps
+   the voxel world's ground (voxel draws are not objects the isolation hides); other objects are hidden; the
+   structure's own grid is drawn faint round its footprint, turned with it, and its outline at the floor.
+3. **Shape**: a box at each corner, a smaller one at each edge's middle (whole cells; a corner moves its two edges), a
+   blue arrow over the roof (drag up or down: whole storeys, a wire ghost of the new height and "Storeys 2" in the
+   status line), a green knob on a ring (turn about the footprint's middle, 15° steps, Shift free; the house turns
+   live by the object's preview). Each drag sends one command at its end (`setComponent`, or `setTransform` for the
+   turn); a shape the building generator refuses is not sent and its check's message is the status line's.
+4. **Extend**: a drag on the floor's level draws a rectangle in the structure's grid → another polygon (an L, a T).
+   A polygon is removed from the column's list (not the last; not one an opening or stair stands on).
+5. **The Structure section** (`ui/structure/StructureFields.tsx`), the same in the Inspector (in place of the raw JSON
+   fields) and in the Shape column: Storeys; Storey height, Foundation, Overhang in metres (0.5 m steps); Roof shape;
+   Ridge along (gable only); a voxel material picker a part (a swap is one `setComponent`, material ids only);
+   counts: polygons, openings, stairs, hand edits kept (the world route's new `grids[].overrides`, cells); the last
+   regenerate's misfits ("1 edit did not fit the new shape", a list in plain words: "Cell (17, 2, 4): a painted cell
+   (wall, Stone over Brick; now air is generated there)"); a picked one is framed and its cell drawn as a red box in
+   the structure's grid. A banner over the view says the misfit count, or offers Regenerate all when any structure
+   is older than the generator. Openings and stairs are counted and kept through every edit (47a.7 places them).
+6. **Hand edits**: Dig, Add (a role from Wall, Floor, Roof, Pillar, Foundation, Stair and a material), Paint (a
+   material; the role of the cell the stroke starts on, D762), with the shared brush panel (size; `[` `]` and F) and
+   a Box/Ball choice; the brush is the nearest odd number of cells across, centred on the structure's cell under the
+   pointer (its own grid only: the pick says which grid), drawn as the cells' box turned with the structure plus the
+   shared cursor flat on the face. A stroke is one `editVoxels` with `command.grid`; the hand-edit count follows.
+7. Undo and redo are the editor's one line: every step above is one step.
+
+Also: the editor's command sender sends `editVoxels` without the project's revision (a stroke applies to its world as
+it stands, as the voxel page sends it; its answer, which carries the world's revision, is never applied to the
+projection) — sent with it, every stroke was refused as a revision conflict. The Scene view's pick answers the cell,
+the face and the voxel (`ScenePickHit`). `Viewport.voxelWorlds` holds the voxel entry points (the class stays within
+its size ratchet).
+
+**Tests.** E2E `tests/e2e/structure-mode.e2e.ts` (one backend, a flat 64 m yard, four material records; registered
+in the voxel area): draws the house by a drag; the edge handle widens it 2 m (footprint checked, pixels change); a
+wing drawn with Extend lands on the drawn cells (the floor plane mapped from the corner handles); the arrow gives
+storeys 2 (more stone pixels); the wall material swapped in the column (brick pixels; the regenerate's `fields` is
+the material bit alone); a 3-cell hole dug in the wing and a cell painted on the end wall (hand edits 10); the end
+wall moved 2 cells out → the painted cell is a misfit: banner, list entry "a painted cell", marker drawn; turned 30°
+by the knob; Done; Ctrl+Z eight times walks back through every recorded state (component, transform, hand-edit
+count), a ninth takes the house away (no stone or brick left in the picture), Ctrl+Shift+Z nine times redoes every
+state and the last picture equals the one before the undo. 13.0–15.7 s alone. Vitest `session/structure-shape.test.ts`
+(11): rectangles and their minimum, anchoring, edge and corner moves staying right-angled, a collapsed edge refused
+by the generator's message, extend ids, polygon removal rules, openings kept, storeys from a drag, 15° snapping and
+the turn's fixed middle, default materials, brush cells and the stroke command, misfit words. Integration
+`voxel-structures.test.ts`: the route's `overrides` equals the overrides file's cells.
+
+**Measured** (2026-11-23 01:00–01:22 UTC, WebGPU, 1280 × 800 page with the editor's panels, the e2e backend, load
+0.9–1.9, the editor has no frame cap): release → the new house drawn and settled in the Scene view (polled every
+16 ms): small house widened 142–146 ms; the L (wing added) 454–491 ms; the L's second storey 481–499 ms. Frame:
+`data-render-ms` (p50 / p95 CPU ms of a drawn frame) while the left button orbits 3 s, two rounds, three L houses
+in view: plain Scene view 1.5–1.9 / 2.0–3.0, the structure mode with the Shape tool's handles, grid and ring 1.7–2.6
+/ 2.3–3.0 (scratch spec `work/47a.6/scratch/zz-structure-look.e2e.ts`).
+
+**Pictures** (`~/.cache/thirdlight-phase47a/work/47a.6/look/`, full editor window 1280 × 800, all looked at):
+`01-draw-footprint` (the drawn rectangle and its faint world grid, "6.5 × 5.0 m" in the notice); `02-house-made` (the
+mode on the new gable house, its grid and outline, the Structure section); `03-widened` (handles: corners, edge
+middles, the ring and knob; the arrow is a small grey cone over the roof, easy to miss); `04-wing` (the L: the wing's
+gable runs along x like the main roof, an M-shaped pair with a valley, D752); `05-second-storey-ghost` (the blue
+wire ghost during the drag) and `05-second-storey`; `06-material-swapped` (brick walls, stone roof and foundation);
+`07-hole-and-paint` (a 3 × 3-cell hole in the wing's front at the ground floor, one stone cell on the brick end wall;
+the folded Brush panel still covers a strip of the view); `08-misfit-list` (the camera framed close on the misfit's
+red cell box; the list entry marked); `09-turned` (30°, the misfit banner still up); `10-roofs-flat-gable-hip` (three
+L houses, too far to read the roofs well); `11-play` (the same three in Play: flat, gable, hip on an L, brick and
+roof tile, readable); `12-inspector-structure` (the Inspector's section outside the mode). Ugly or wrong: handles
+drawn through walls and grabbed through them (D764); the stair-stepped gable ends of plain voxel faces (no kit in this
+project); every roof edge is a staircase without kit pieces; the misfit frame is too close to read the house.
+
+**Unverified:** medium and high tiers; WebGL 2 (its smoke only); other structures of the world in the mode (by the
+code they stay drawn: voxel draws are not objects the isolation hides; not looked at); a house on a slope; a drag on
+the knob past ±180°; Add (the e2e uses Dig and Paint; Add is the vitest command only).
+
+**Gates:** gate-fast-20261123-012338 RED (vitest: my own test's misfit words, fixed 54f9db51);
+gate-rerun-20261123-013609 RED (52 e2e files, 1 failed: `voxel-world.e2e.ts` assembly proof, 186 console errors round
+its backend restart), gate-rerun-20261123-014753 and -015013 RED (the same test: a material paint's window holding
+~33,800 non-shader derives). Alone-runs (D761): it fails at 33f664d2 and since 894fb4e0; this item's code does not
+change it. The structure-mode test passed in the gate's run.
+
+**D-rows:** D761 (the assembly test since 894fb4e0), D762 (paint keeps the start cell's role), D763 (misfits only of
+the last regenerate), D764 (handles through walls).
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -1561,6 +1650,17 @@ D753, D711 noted; D759 (a lost far rebuild of a structure move), D760 (watch: th
 - 2026-11-22 (47a.5b; default chosen, owner to confirm): **a structure grid is planned again only when the focus
   crosses a ring its chunks meet** (or moves the old share of its gap, whichever is longer); the air round a house
   (its read box's margin) counts for its loads only, not its levels or bodies.
+
+- 2026-11-23 (47a.6; default chosen, owner to confirm): **a new structure takes the project's first construction voxel
+  material (lowest id) on every part**, one storey of 3 m, a 1 m foundation, a gable roof along x with a 0.5 m
+  overhang; the designer swaps parts in the Structure section. No construction material: nothing is made, a message.
+- 2026-11-23 (47a.6; default chosen, owner to confirm): **a structure is drawn aligned with the world grid** and turned
+  afterwards with the knob (15° steps, Shift free), about its footprint's middle.
+- 2026-11-23 (47a.6; default chosen, owner to confirm): **hand-edit brushes are an odd number of cells across**
+  (nearest to the shared brush's size), so a dab is centred on the cell under the pointer; Paint takes the role of the
+  cell the stroke starts on (D762).
+- 2026-11-23 (47a.6; default chosen, owner to confirm): **the editor sends `editVoxels` without the project's
+  revision**, as the voxel world page does: a stroke applies to its world as it stands.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
