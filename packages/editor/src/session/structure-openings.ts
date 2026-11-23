@@ -59,7 +59,7 @@ export function wallUnderCell(def: StructureDefinition, cell: readonly [number, 
   const row = cell[1] - storey * h - 1;
   if (storey < 0 || storey >= def.storeys || row < 0) return null;
   let best: StructureWall | null = null;
-  let bestScore = -1;
+  let bestFacing = -1;
   for (const p of def.footprint) {
     for (let k = 0; k < p.points.length; k++) {
       const e = edgeOf(def, p.id, k)!;
@@ -69,9 +69,9 @@ export function wallUnderCell(def: StructureDefinition, cell: readonly [number, 
       const j = c.columns.findIndex((q) => q[0] === cell[0] && q[1] === cell[2]);
       if (j < 0) continue;
       // Facing: the face looks out of (or into) this wall; a corner's other wall looks across it.
-      const score = Math.abs(c.out[0] * normal[0] + c.out[1] * normal[2]);
-      if (score > bestScore) {
-        bestScore = score;
+      const facing = Math.abs(c.out[0] * normal[0] + c.out[1] * normal[2]);
+      if (facing > bestFacing) {
+        bestFacing = facing;
         best = { polygon: p.id, edge: k, storey, length: e.length, along: j, row };
       }
     }
