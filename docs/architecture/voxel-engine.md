@@ -32,25 +32,36 @@ page in the same commit.
 - **The walk graph** (`@thirdlight/voxel` `walk-graph-cells.ts`, `walk-graph.ts`, `walk-graph-queries.ts`), derived
   where the world runs (the simulation's thread in Play and exports, the voxel world page's own), never stored: each
   storage chunk's standable cells (the derived navigation's: free, on a cell that supports) with their clearance
-  counted to 8 m, its **pieces** (cells joined by steps inside the chunk for the 2 m walker) and between pieces of
-  neighbouring chunks the **exits** (runs of crossing steps, an exit at a run's middle and, past six cells, its ends),
-  made in the derive slice after the open regions as chunks arrive, change and leave; a chunk made again with the same
-  cells stands, so a one-cell edit makes one or two chunks again. A step goes to the eight columns round on the same
-  level or one cell up or down, with room for the walker at both ends (a cell more at a step's lower end), diagonals
-  only past two walkable sides and inside a chunk, drops off ledges only when a query allows them; the walker is a
-  column one cell wide (radius ≤ 0.25 m). Props and doors as objects are not in it. `ctx.voxels.findPath` and `reach`
-  queue queries served in order within the simulation frame's `pathfinding` share (span `path finding`; the steps a
-  tick runs share it): one A* over the
-  cells first, a long path over the pieces' exits (straight-line costs across a piece) and then the cells of the
-  route's pieces and their neighbours; past chunks not known the answer is `unknown`, never `unreachable`. With
-  structure grids, each grid keeps a walk graph of its own in its own frame (its own derived navigation: exact floors,
-  stairs and doors), the world's walker is blocked by the grids' stamps and stands nowhere inside a footprint, and
-  **links** join a grid's standable cell to the nearest world one a step away (a diagonal's reach, one cell up or down,
-  room at both ends, the grid's own cells free along the way: doorsteps, foundation edges), made again with either
-  side's chunk (`walk-graph-links.ts`); a path between graphs takes the cheapest of the best three doors' legs, each
-  graph's own query (`walk-graph-linked.ts`, runtime `voxel-world-paths.ts`); a walker of another height or with drops
-  crosses at the links too (a taller one only where a link's ends have room for it); `reach` searches the world graph
-  alone (D748).
+  counted to 8 m and, for walkers 2 to 4 cells across, their **footprint clearance** (a byte a span: the least, over
+  the square of columns the walker stands on, of the free run from a step over its floor; read from column bits over
+  a band of the neighbouring chunks, a chunk not known counting as free; a chunk whose face columns' blocking changed
+  has the chunks beside and below-beside it made again), its **pieces** (cells joined by steps inside the chunk for the
+  default walker: 2 m tall, two cells across, the default character's 0.3 m radius; a shut door's cells are pieces of
+  their own, flagged) and between pieces of neighbouring chunks the **exits** (runs of crossing steps, an exit at a
+  run's middle and, past six cells, its ends; with the steps into and out of a chunk's shut-door pieces as exits
+  flagged `shut`), made in the derive slice after the open regions as chunks arrive, change and leave; a chunk made
+  again with the same cells stands. A step goes to the eight columns round on the same level or one cell up or down,
+  with room for the walker at both ends (its footprint's; a cell more at a step's lower end), diagonals only past two
+  walkable sides and inside a chunk, drops off ledges only when a query allows them. **The walker** is `radius`
+  (default `DEFAULT_CONTROLLER_CAPSULE.radius`, at most 1 m) as a square of ceil(2r / 0.5 m) cells (a disc fits it
+  wherever its middle is between two cells it steps between: answers are conservative), so a 1 m door passes a 0.5 m
+  radius and a 1.5 m door 0.75 m; its waypoints are where its middle stands (a cell's corner for an even span). Props
+  are not in it; shut portals are (`doors`). `ctx.voxels.findPath` and `reach` queue queries served in order within the
+  simulation frame's `pathfinding` share (span `path finding`): for the default walker (through shut doors or not) one
+  A* over the cells first, a long path over the pieces' exits (straight-line costs across a piece, exits into shut
+  doors only through shut doors) and then the cells of the route's pieces and their neighbours; any other walker one A*
+  over the cells. **A query reads the world as it is:** a chunk an edit was sent for and not swapped in, or whose results
+  are not made in the graph yet, is stale; a search that reads one waits (served again once it is made, then starts
+  over), at most `WALK_QUERY_WAIT_SERVES` serves, after which it answers on what is made with `stale: true`; chunks not
+  loaded are never waited for (past them the answer is `unknown`, never `unreachable`). With structure grids, each grid
+  keeps a walk graph of its own in its own frame (exact floors, stairs and doors), the world's walker is blocked by the
+  grids' stamps and stands nowhere inside a footprint, and **links** join a grid's standable cell to the nearest world
+  one a step away for each footprint span (both ends fit it, the way between read in the grid's own cells and the
+  world's; a wider walker's reach a little longer: doorsteps, foundation edges), made again with either side's chunk
+  (`walk-graph-links.ts`); a path between graphs takes the cheapest of the best three doors' legs, each graph's own
+  query, after waiting for the grids it reads and their links to be made (`walk-graph-linked.ts`, runtime
+  `voxel-world-paths.ts`); a reach runs from its start's graph through the links into the grids and back
+  (`walk-graph-linked-reach.ts`, at most four passes).
 - **Doors, windows and shutters: portal state** (F4, 47a.7): a prop with a `voxelPortal` (open; what it stops while
   shut: light, sight, walkers) stands in a structure's opening as the structure's child; the opening's record names it
   in the editor (`openings[].prop`, kept by the backend's follow-ups: `workspace/structure-prop-follows.ts`). Where
@@ -59,6 +70,8 @@ page in the same commit.
   are one more stamp in the prop channel (every world cell they reach stops light whole; no structure class, so rooms
   keep the portal) and shut cells of the grid's walk graph (`WalkGraph.setShut`; `findPath` option `doors`; a shut
   cell keeps its link to the world, taken only by a walker through shut doors); a flip recombines only those cells.
+  Two props whose middles lie in one run of opening cells (two openings side by side) each take the cells on their side
+  of the cell boundary nearest the midpoint between them.
   The leaf itself is never stamped. Open or shut is state, never voxels; `portalsOf` names the prop and its state; a
   script writes `open`, a save keeps it. In the editor the structure mode's Openings column places, moves and deletes
   openings on walls and puts a prop from the project's models that fit (`queryAssets` answers a model's bounds).

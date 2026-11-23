@@ -174,7 +174,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.5 | Done 2026-11-22. (a) 6be74d26, ef33ad6f, 6003c541: Scene view draws, moves, picks grids; `ctx.voxels` by grid; spec §3.6. (b) d41e0c49, 7b83e3a0, 471d16bb, 894fb4e0: grids planned at ring crossings (G30 sim 1.4–1.5 × W, base 1.8–1.9), stamp sliced, far rebuild after the answer (house 27 ms, was 832), fine bake reads grids; lane reserve backed out; D759, D760 |
 | 47a.6 | Done 2026-11-23 (cce0d13f, 54f9db51): structure editor mode (draw, edge/corner handles, Extend, storeys, 15° turn, Inspector section with a material a part, Dig/Add/Paint, misfit list and marker); e2e 13–16 s. The gate's one red (D761) was a test's camera jump tripping the streamer: fixed ad116a9b, every-area gate green; D762–D764. Interim look `acc47a-interim` |
 | 47a.7 | Done 2026-11-23. (a) 7b5d2598, 20fc9bf7, a8e2028e: `voxelPortal`, props follow, portal state where the world runs. (b) 6c0cf4f1…0c446ea1: shut doors link (D770), Play/export e2e, the mode's Openings (ghost, place, move, delete, fitting props, glass); flip→light 0.7–1.7 s, 100 doors one 14–16 ms step; stairs tool D775
-| 47a.8 | not started |
+| 47a.8 | Done 2026-11-23 (a27a11e4, 39c31b65, 1488dc66, 494d8315 …): radius as a footprint (default 0.3 m, two cells), queries wait for edits (bound 90 serves, `stale`), shut doors in the levels, reach through grids, portal runs split; town 131/131 every check; D780 the Export failure fixed (hourly sweep); D778, D779, D781 |
 | 47a.9 | not started |
 | 47a.10 | not started |
 | 47a.11 | not started |
@@ -518,6 +518,11 @@ camera shows none (`m/S-g0/house-60m.png` against `m/S-g0-off/house-60m.png`), a
 show almost none. Ruled out: z-fighting of eave pieces (they draw with the volume off), the geometry at level 1 (open
 edges of a house's surfaces counted in Node, `scratch/eaves.ts`: present at both lattice parities, at level 0 too, so not
 what differs between W and G). Not fixed here: it is slice b's (light seeing grids).
+
+**Stairs:** the generator's stairs are two cells wide: the default walker climbs them in the links test's house at 0°
+and 30° and in every town house at 30° (91 upper storeys), 45° not run here. A stair one cell wide climbs, by the
+rule, only a walker of 0.25 m between walls, and one of 0.5 m where its sides are open over the floor below (the
+footprint's other columns need only be free over the floor); not tested.
 
 **Unverified:** medium and high tiers; WebGL 2 (its smoke test only); anything in motion beyond the numbers; a turned
 house on a slope; the grids' bodies in Play beyond the test house (the bodies above are Node's with the engine's port).
@@ -1244,6 +1249,11 @@ graph (unreachable).
   resolved (one run; its second is 128). No lit program was touched: the 128-lamp reading was not run.
 - The Play test 2.0 min alone and in the gate (1.8–2.3 before); the Scene view test 19–20 s.
 
+**Stairs:** the generator's stairs are two cells wide: the default walker climbs them in the links test's house at 0°
+and 30° and in every town house at 30° (91 upper storeys), 45° not run here. A stair one cell wide climbs, by the
+rule, only a walker of 0.25 m between walls, and one of 0.5 m where its sides are open over the floor below (the
+footprint's other columns need only be free over the floor); not tested.
+
 **Unverified:** medium and high tiers; WebGL 2 (its smoke test only); a turned house on a slope; anything in motion
 but the drag's numbers and its one picture; exports' `ctx.voxels` in grids (the runtime is the same code; no export
 test casts or digs a grid); the editor's preview beyond Play's runtime; the Inspector.
@@ -1483,6 +1493,11 @@ roof tile, readable); `12-inspector-structure` (the Inspector's section outside 
 drawn through walls and grabbed through them (D764); the stair-stepped gable ends of plain voxel faces (no kit in this
 project); every roof edge is a staircase without kit pieces; the misfit frame is too close to read the house.
 
+**Stairs:** the generator's stairs are two cells wide: the default walker climbs them in the links test's house at 0°
+and 30° and in every town house at 30° (91 upper storeys), 45° not run here. A stair one cell wide climbs, by the
+rule, only a walker of 0.25 m between walls, and one of 0.5 m where its sides are open over the floor below (the
+footprint's other columns need only be free over the floor); not tested.
+
 **Unverified:** medium and high tiers; WebGL 2 (its smoke only); other structures of the world in the mode (by the
 code they stay drawn: voxel draws are not objects the isolation hides; not looked at); a house on a slope; a drag on
 the knob past ±180°; Add (the e2e uses Dig and Paint; Add is the vitest command only).
@@ -1661,6 +1676,11 @@ list's rows wrap into two or three lines in the 300 px column; the glass checkbo
 picker; the room pictures are dark and blocky at the low tier; the sun's direct light at the threshold is not stopped
 by a shut door whose leaf is not there to cast the shadow.
 
+**Stairs:** the generator's stairs are two cells wide: the default walker climbs them in the links test's house at 0°
+and 30° and in every town house at 30° (91 upper storeys), 45° not run here. A stair one cell wide climbs, by the
+rule, only a walker of 0.25 m between walls, and one of 0.5 m where its sides are open over the floor below (the
+footprint's other columns need only be free over the floor); not tested.
+
 **Unverified:** medium and high tiers; WebGL 2 (its smoke only); the 30° and 45° houses' doors in Play pictures
 other than the one; a custom size from the field in the browser (the vitest checks its maths); the touch refusal and
 the corner refusal in the browser (vitest only); stairs (D775); prefab props (D776).
@@ -1735,6 +1755,125 @@ commits before 894fb4e0): `work/d761/alone3-1.log`–`5`.
 **Unverified:** the far nodes' picture after a landing (counts only, no picture looked at); the Scene view's far
 re-read (its counters show no difference); a structure's move or make on an open page (its change names no world
 chunks, so nothing is re-read there, as before 894fb4e0).
+
+### 47a.8 — the walk graph with structures
+
+**Built** (a27a11e4, 39c31b65, 1488dc66, 1fca8253…c889f8b6 and the last Play test commit, 494d8315; derived, nothing stored). What a script can do, in order:
+1. **Ask for a walker's width** (D735): `findPath` and `reach` take `radius` (m; default the default character's,
+   project-model `DEFAULT_CONTROLLER_CAPSULE.radius` 0.3 m, read by the runtime, `DEFAULT_WALK_RADIUS_M`; at most 1 m).
+   The walker stands on a square of ceil(2r / 0.5 m) cells (`walkSpanOf`: 0.25 m one cell, 0.3–0.5 m two, 0.7–0.75 m
+   three, 1 m four), from `(span − 1) >> 1` columns back to `span >> 1` forward on x and z; it stands where its own
+   column has its height free and every other column of the square is free from one cell over the floor to its head
+   (a step's cell at floor height is allowed: it may step onto it). The square holds the disc wherever its middle lies
+   between two cells it steps between (straight: the two squares' union; diagonal: both sides walked, the four
+   squares' union), so answers are conservative. Each standable cell keeps its footprint clearance for spans 2–4 (3
+   bytes a cell, `wide`), read from column bits of the chunk and a band of 1–2 columns of the chunks beside it (a chunk
+   not known counts as free, as the chunk above does for the clearance); a chunk whose face columns' blocking changed
+   (a hash, `bandSig`) has the chunks beside and below-beside it made again (D778). Waypoints are where the walker's
+   middle stands (an even span: the cell's corner). **The levels** (pieces, exits) are the default walker's: two cells,
+   2 m. Any other radius or height searches the cells alone, bounded by the budget (a second level was not built: the
+   0.7 m cross-town queries below are 33–83 ms over the cells).
+2. **Ask just after an edit** (D736): an edit marks its chunks (its cells' box and a cell round) stale in its grid's
+   walk graph until its swap (`editSent`, `editSwapped`); a chunk touched and not made is stale too. A search that
+   reads a stale chunk stops, waits (other queries go first) until every stale chunk it read is made, and starts over;
+   a query across graphs waits first until the grids it lies in, their graphs, their links and the world's chunks under
+   them are made. A query waits at most `WALK_QUERY_WAIT_SERVES` (90) serves in all, shared by its legs; past it, it
+   answers on what is made with `stale: true` on the answer. Chunks not loaded are never waited for (`unknown` as
+   before). Waits and restarts are in the walk diagnostics (`waits`; joined queries' in `grids.waits`, `grids.restarts`).
+3. **Path through shut doors over the levels** (D772): a shut door's cells are pieces of their own (`shut`), the steps
+   into them exits flagged `shut` (between chunks, and within a chunk as its door exits); `doors: 'shut-too'` takes
+   them, the default walker never; a shut door costs its one chunk made again, as before.
+4. **Reach into structures** (D748): `reach` runs in its start's graph, then every place it settles that has a link
+   the walker takes seeds the graph across with what is left of the distance (each graph's reach from all its seeds at
+   their costs, a virtual start a seed), back out the same way, at most four passes; places counted once, in world
+   metres. A structure grid's reach past its own chunks is not `unknown` (D781).
+5. **Links for every width**: a grid cell links to the nearest world cell for each span from one to four (both ends'
+   footprint clearances fit; the way between read in the grid's own cells within the footprint's half-width less half
+   a cell, and in the world's own cells over its floor; a wider walker's reach `linkReachCells` one diagonal more per
+   extra half-cell), a link naming its spans (`spans`); a walker takes a link of its own span.
+6. **Two openings side by side** (D771): the portal join splits a run of opening cells holding two props at the cell
+   boundary nearest the midpoint between them; the smaller honest one (the generator's checks would refuse definitions
+   already made, and need a format note).
+
+**The Export failure** (D780, fixed 494d8315): every one of the 20 gate runs with "the configured exportRoot is not a
+directory" since 2026-11-02 had its e2e step span minute 17 of an hour; the host's hourly `~/.cache/clean-disk-tmp.sh`
+deletes empty folders two deep in `~/.cache/thirdlight-tmp`, and the e2e backend's export root (`mkdtemp` under the
+gate's temp folder, empty until the Export test writes) is one. The fixture now writes a file into it. Ruled out: an
+agent cleaning the temp folder (none ran), a restart re-reading config (same path), a shared folder between workers.
+
+**Tests.** `walk-graph.test.ts`: the brute force with a footprint (span 2 by default) gives every chunk's cells and
+pieces, one A* equal on 40+ pairs and the levels within 8 %, the reach's set; hand scraps: a 1 m doorway passes the
+default walker (its middle on the doorway's), a 0.5 m gap does not (one cell across does), a 1.5 m doorway passes three
+cells and not two cells' door, four cells go round; the 2-cell stair climbed (its 5 rises); a shut door a flagged piece, `shut-too` over the
+levels at the open way's cost, the default `unreachable`; the wait: events in order (served while the edit is out,
+served before the graph made it, made, answered `found` with 1 wait), an edit that never swaps answered `stale` after
+the bound, `unknown` past a chunk not loaded with 0 waits. `walk-graph-links.test.ts`: 0° and 30°: the default
+walker in by the 1 m door (no waypoint in a wall: the point touches only stopping cells), three cells refused, no
+link for span 3 at the door; a reach from the street stands in the room (2 graphs, > 20 places); a path asked before a
+dug house's links are made waits and is found through the hole, and under a graph never made answers `stale` after the
+bound. `world-host-grids.test.ts` (real runtime, workers): 0.3 m and 0.7 m in by each 1.5 m door at 0°/30°/45°, 0.8 m
+not; a reach from the street with places in the room; a dig and a path asked in one step: found, under 9 m, after the
+dig's change was reported, `grids.waits` > 0. `voxel-paths.test.ts`: the default radius is the controller's and its
+span the pieces' walker's. `voxel-portals.test.ts`: two props in one run, either order: cells x 5–6 and 7.
+Play e2e (`voxel-world.e2e.ts`, the 30° house, 1.5 m door): 0.7 m found, 0.8 m unreachable; a dig and a path asked in
+the dig's step from 1.5 m before the hole to 2 m inside: found, its segment through cells that were wall, under 4.5 m
+(the door's way is about 6.5 m). The house of the Play test has a 1.5 m door, so "0.7 m refused at a 1 m door" is
+vitest's and the town's, not the browser's. The Play test 2.1 min (2.0–2.1 before).
+
+**R40 on the turned town** (Node, `work/47a.8/scratch/town-doors.ts`, raw `m/town-doors-2.json`; 131 houses at 30°
+each in its own grid with its own graph, stamped (share), linked; the door as a shut portal's cells): every house:
+street → room found (131/131), → upper storey (91/91); door shut: no way in by default (131/131), `shut-too` found
+(131/131); 0.7 m refused at the 1 m door (131/131); doors widened to 1.5 m (an opening cell written to each grid,
+derived again): 0.7 m found (131/131). Waypoints: 9,341 checked, none at body height in a grid's cell; 236 (all
+world-side) have their feet point over a foundation's slab edge (D779). Across the town corner to corner: the default
+walker 214.2 m and 217.1 m (24 / 12 ms, 20 k / 15 k nodes); 0.7 m: 399.3 m one way, `unreachable` the other (148 k
+nodes, 83 ms: the town's gaps a metre wide). Reach 15 m from a street: 917 places in 2 graphs. Graph: world 972
+chunks, 204 k cells, 3.55 MB; the 131 grids' graphs 2.15 MB; 526 links, 0.13 MB; built: world 812 ms, grids 120 ms,
+links 90 ms (i5-12600H, load 1–4). D772 on the town (houses in the world grid, `m/shut-levels.json`): a 365 m way from
+one house's room to the far corner house's, both doors shut, `shut-too`: 44.7 ms / 14 steps of 3.33 ms (one A* first,
+then the levels), 29.6 ms / 9 (the levels at once), 70.2 ms / 21 over the cells alone; open, the default 48.7 ms.
+
+**Measured** (Node, `run.mjs paths`, staging's 8 km world from its region files, head against 0457ad90,
+`m/paths-{head,base}.json`): a chunk made p50 / p95 / max 0.32 / 0.85 / 8.5 ms (base 0.29 / 1.00 / 6.6); an empty
+one 0.022 ms (0.003: the band hash); kept on arrival 1,007 (153: the neighbours made again by the band, D778); the
+graph 3.70 MB (3.11), 16.3 kB a chunk with cells (13.7); an edit (a door walled up) 2 chunks made, 13 kept, 9.0 ms
+(2 and 2, 4.2 ms); queries: across the room 9.78 m, room → street 15.36 m (14.07: longer, not traced; a gap a cell wide
+on its way would no longer pass two cells), up the stairs 19.76 m, the far corner 194.75 m in 19.2 ms (17.2 before), 100 at once all found in 89 steps of
+3.37 ms. `run.mjs walk` (rays, Node): short 609 / 629, medium 219 / 224, long 9.2 / 9.0 rays a ms, head / base: no
+walk code changed.
+
+**In Play** (staging's 8 km world, low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone, head c889f8b6 against
+0457ad90 built in a scratch worktree with its own links, removed after; `work/47a.8/measure.sh`, `measure2.sh`, raw
+`m/`): *the town's walk graph* (`run.mjs paths --play`, the ring settled at the street): 2,682 chunks, 529 k cells,
+1,814 pieces (2,016), 9,252 exits (9,934); **9.23 MB (7.61) + the searches' 8.81 MB = 18.0 MB against the `walkGraph`
+row's 16 MiB (16.8 MB) at low: over (16.4 MB before, over already; D778)**; made in 1,104 ms (462) and 544 ms of
+crossings (466) over the ring's fill, 880 chunks kept (356); travelling to the cave `walk graph stitched` 2.51 ms a
+frame, at most 14 (1.15, at most 16.7): the band's remakes (D778); the fixed queries as before (across the room 9.78 m
+1.1 ms; the far corner 194.75 m in 9 steps, 28.1 ms (189.77 m, 8, 25.8)); 100 at once all found, 1.93 steps a query
+(2.15), `path finding` 2.73 ms a frame (3.19). *The town orbit* (`run.mjs headroom --quality low --rounds 2`, A B A B
+10:42–11:55 UTC, load 1.2–3.9; second rounds): **simulation ms a frame** W (houses in the world grid) head 2.10, 2.32
+against base 2.17, 2.10; G30 (131 houses in their own grids at 30°) head 3.10, 3.09 against 3.16, 3.02; page ms W
+6.34, 5.83 against 6.23, 5.50, G30 6.36, 6.39 against 6.81, 6.74; missed 0 of 89 in every second round. Equal within
+the spread: the width layer and the waits cost nothing that can be resolved on the orbit. The edge search's room
+varied in both (7–128 in first rounds, 15 and 88 in two head second rounds, 120–128 elsewhere; not resolved).
+
+**Stairs:** the generator's stairs are two cells wide: the default walker climbs them in the links test's house at 0°
+and 30° and in every town house at 30° (91 upper storeys), 45° not run here. A stair one cell wide climbs, by the
+rule, only a walker of 0.25 m between walls, and one of 0.5 m where its sides are open over the floor below (the
+footprint's other columns need only be free over the floor); not tested.
+
+**Unverified:** medium and high tiers; WebGL 2 (its smoke only); a door 1 m wide in the browser (the Play house's is
+1.5 m); anything in motion; the editor's voxel page overlay of wide walkers (it draws the default walker's pieces).
+
+**Gates:** gate-fast-20261123-092119 RED (vitest: `world-host.test.ts` read a waypoint at the cell's middle, fixed
+494d8315); gate-rerun-20261123-093410 RED (the Play test's dig check read waypoints only, and the Scene view test after
+it, its props left by the failed Play test; `structure-mode` redo once); gate-fast-20261123-094648 RED (the same Play
+check: the door's way was as short; the Scene view again after it; `structure-mode` passed); alone at the head the
+Play test passed after the fix and Play + Scene view passed together; gate-fast-20261123-101803 GREEN (80 e2e, the
+Play test 2.1 min; `tracer-terrain-rings.test.ts` failed once, passed alone).
+
+**D-rows:** D735, D736, D748, D771, D772 fixed; D780 fixed (the Export failure); new D778 (the band's remakes),
+D779 (feet over a turned slab edge), D781 (no way through a grid between two points of one graph).
 
 ## 9. Decision log
 
@@ -1946,6 +2085,15 @@ chunks, so nothing is re-read there, as before 894fb4e0).
   are offered as "size unknown"; models that do not fit are not offered; prefabs are not offered (D776).
 - 2026-11-23 (47a.7 (b); default chosen, owner to confirm): **stairs placement is left to a later item** (D775): the
   Openings tool and its props took the time.
+- 2026-11-23 (47a.8; default chosen, owner to confirm): **a walker's default radius is the default character's
+  capsule (0.3 m)**, so the pieces are made for a walker two cells across: a 0.5 m gap no longer passes the default
+  walker (a radius up to 0.25 m asks for it); **the footprint is a square of ceil(2r / 0.5 m) cells, its other columns
+  free from one cell over the floor** (a step at floor height allowed), which holds the disc between cells: answers
+  conservative; widths to 1 m (four cells).
+- 2026-11-23 (47a.8; default chosen, owner to confirm): **a query waits for chunks it reads to be made**, at most 90
+  serves (3 s at the 30 Hz cap), then answers on what is made with `stale: true`; never for chunks not loaded.
+- 2026-11-23 (47a.8; default chosen, owner to confirm): **two props in one run of opening cells split it at the
+  boundary nearest their midpoint** where the world runs; the definition still takes touching openings.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
