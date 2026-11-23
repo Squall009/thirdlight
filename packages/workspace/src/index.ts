@@ -145,9 +145,12 @@ export {
   type VoxelWorldsOptions,
   type VoxelStepDirection,
   STRUCTURE_WRITE_OP,
+  WATER_WRITE_OP,
   type StructureGridReport,
   type StructureMisfitAt,
+  type VoxelWaterAnswer,
 } from './voxel-worlds';
+export { type WaterBodyReport } from './voxel-water';
 export { UndoTimeline, type AttachedStroke, type SkippedStep, type TimelineEntry, type TimelineStep } from './undo-timeline';
 export { StructureCommands, type StructureCommandOutcome } from './structure-commands';
 export { STRUCTURE_OVERRIDES_FILE, type StructureChange, type StructureChangeReport } from './voxel-structure-writes';

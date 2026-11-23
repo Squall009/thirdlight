@@ -42,7 +42,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { REQUEST_ID_RE } from '@thirdlight/project-model/request-id';
-import { sceneStructures, structureDefinitionOf, structurePlacements, voxelWorldBakeLevel, voxelWorldBakeLevels } from '@thirdlight/project-model';
+import { sceneStructures, sceneWaterBodies, structureDefinitionOf, structurePlacements, voxelWorldBakeLevel, voxelWorldBakeLevels, type SceneWaterBody } from '@thirdlight/project-model';
 import {
   canonicalEditCommand,
   chunkGrid,
@@ -101,6 +101,7 @@ import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCa
 import { farFineComplete, farFinePending, farFineProgress, rebakeFarFine, startFarFine, writeFarFineColumn, type FarFineResult } from './voxel-far-fine';
 import { FarFollow } from './voxel-far-follow';
 import { inProcessFarJobs, type FarCacheJobs } from './voxel-far-jobs';
+import { gridBoxInWorld, WaterBodies, type WaterBodyReport, type WaterChange, type WaterWorld, type WaterWrites } from './voxel-water';
 
 /** The project folder holding its voxel worlds, one folder each. */
 export const VOXEL_WORLDS_FOLDER = 'voxels';
@@ -290,6 +291,8 @@ export type VoxelWorldInfo =
       files: Array<{ name: string; etag: string | null }>;
       /** Each structure grid the manifest lists: its files, where its structure object stands (absent: no object owns it), its last regenerate's report this backend holds (absent: none since the world was opened, or undone since), and how many cells its hand edits (overrides) hold. */
       grids: Array<{ id: number; files: Array<{ name: string; etag: string | null }>; place?: GridPlacement; lastRegenerate?: StructureGridReport; overrides: number }>;
+      /** Each water body of the world (its object placed): its state after the last step that wrote it, or as the fill finds it now (filled, drained by a leak and where, its start cell blocked). Memory only, never stored. */
+      bodies: WaterBodyReport[];
     }
   | { ok: false; error: VoxelWorldError };
 
@@ -359,6 +362,18 @@ async function waitAtMost(p: Promise<unknown>, ms: number): Promise<void> {
 
 /** A structure command's writes to a world (voxel-structure-writes.ts), its own op on the world's line of strokes. */
 export const STRUCTURE_WRITE_OP = 'writeStructures';
+/** A command's water (voxel-water.ts: bodies made, changed or deleted, and those round the structures it wrote), its own op on the world's line of strokes. */
+export const WATER_WRITE_OP = 'writeWater';
+
+/** The water a stroke wrote after its edit, in the same stroke: what a client derives again for it (the liquid part, round `box`), and each body's report. */
+export interface VoxelWaterAnswer {
+  readonly box: Readonly<CellBox>;
+  readonly parts: number;
+  readonly chunks: ReadonlyArray<readonly [number, number, number]>;
+  readonly bodies?: readonly WaterBodyReport[];
+  /** Milliseconds the water took (inside `ms.apply`). */
+  readonly ms?: number;
+}
 
 /** An empty cell box: a change of structure grids only touches no cell of the world grid. */
 const NO_CELLS: Readonly<CellBox> = Object.freeze({ minX: 0, minY: 0, minZ: 0, maxX: -1, maxY: -1, maxZ: -1 });
@@ -376,8 +391,8 @@ export interface StructureGridReport extends Omit<StructureChangeReport, 'misfit
 /** What an applied voxel command answers. */
 export interface VoxelCommandApplied {
   readonly ok: true;
-  /** The op applied: a forward op (a structure command's writes: {@link STRUCTURE_WRITE_OP}), or `undo` / `redo` of one of the world's strokes ({@link VoxelWorlds.step}). */
-  readonly op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP;
+  /** The op applied: a forward op (a structure command's writes: {@link STRUCTURE_WRITE_OP}; its water: {@link WATER_WRITE_OP}), or `undo` / `redo` of one of the world's strokes ({@link VoxelWorlds.step}). */
+  readonly op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP | typeof WATER_WRITE_OP;
   readonly requestId: string | null;
   readonly world: string;
   /** The world's revision after the change. */
@@ -398,6 +413,12 @@ export interface VoxelCommandApplied {
   readonly grids?: ReadonlyArray<{ readonly grid: number; readonly chunks: ReadonlyArray<readonly [number, number, number]> }>;
   /** A structure command's writes, a grid each: cells, kept and absorbed overrides, misfits (in the grid's cells and in world metres). */
   readonly structures?: readonly StructureGridReport[];
+  /**
+   * The water bodies the stroke followed after its edit (absent: none met): the cells their liquid took or left,
+   * which feed the liquid part alone (`box` and `parts` above are the edit's own). A {@link WATER_WRITE_OP} step
+   * answers its bodies here too, its `box` and `parts` its own.
+   */
+  readonly water?: VoxelWaterAnswer;
   /**
    * The cells the change can have touched (inclusive; an undo answers the
    * box of the edit it undoes): what a client derives again from, only the
@@ -454,6 +475,8 @@ interface HistoryEntry {
   readonly overrides?: ReadonlyArray<{ readonly grid: number; readonly before: Uint8Array | null; readonly after: Uint8Array | null }>;
   /** A structure command's writes: the far field under its grids is the command's to build again (its objects may come or go with it). */
   readonly structural?: true;
+  /** The water a stroke wrote after its edit (answered again by its undo and redo). */
+  readonly water?: { readonly box: Readonly<CellBox>; readonly parts: number; readonly chunks: ReadonlyArray<readonly [number, number, number]> };
 }
 
 /** What a world folder holds as this process last read or wrote it. */
@@ -584,6 +607,8 @@ export class VoxelWorlds {
   private nextStroke = 1;
   /** The generator structure grids are written with. */
   readonly generator: StructureGenerator<StructureDefinition>;
+  /** The water bodies' held state (what each owns, its last report): memory only. */
+  private readonly water = new WaterBodies();
   /** Per world, the highest structure grid id handed out in this process ({@link nextGridId}). */
   private readonly gridsGiven = new Map<string, number>();
 
@@ -724,6 +749,8 @@ export class VoxelWorlds {
       return state;
     }
     Object.assign(w, state);
+    // What the bodies owned was read from the files as they were.
+    this.water.forget(worldKey(w));
     return changed;
   }
 
@@ -761,6 +788,7 @@ export class VoxelWorlds {
           for (const c of host.overrides(g.id).value.chunks.values()) overrides += c.value.count;
           return { id: g.id, files: tags(this.gridOf(w, g.id)), ...(place !== undefined ? { place } : {}), ...(report !== undefined ? { lastRegenerate: this.reportAt(w, report) } : {}), overrides };
         }),
+        bodies: await this.waterReports(w),
       };
     });
   }
@@ -1199,6 +1227,19 @@ export class VoxelWorlds {
   }
 
   /**
+   * A command's water as one stroke of the world (voxel-water.ts): the bodies it made, changed, moved or deleted
+   * (`changes`, as the scenes held them before and hold them now) written again or cleared, then every other body
+   * of the world whose reach `boxes` meet (the world cells under the structures it wrote) followed round them. The
+   * answer's `water.bodies` reports each body; `no_change` when no cell changes.
+   */
+  async writeWater(projectId: string, world: string, changes: readonly WaterChange[], boxes: readonly CellBox[], requestId: string | null): Promise<VoxelCommandResult> {
+    if (changes.length === 0 && boxes.length === 0) return refuse('no_change', 'validation', 'no water to write');
+    const w = await this.load(projectId, world);
+    if ('ok' in w) return w;
+    return this.queued(w, () => this.apply(w, WATER_WRITE_OP, { changes, boxes }, requestId));
+  }
+
+  /**
    * The next free structure grid id of a world, given out once: one above every id the world's manifest lists, the
    * project's structure objects name, a command made in this process and this process gave out before. So an id is
    * never given again while this backend runs, which is as long as an undo can bring back a deleted structure (the
@@ -1296,7 +1337,7 @@ export class VoxelWorlds {
     return refuse('world_changed', 'conflict', `voxel world ${w.name} changed on disk outside this backend (${shown}); reloaded at revision ${w.manifest.revision}, undo history cleared: read the world again, then send the edit again`);
   }
 
-  private async apply(w: OpenWorld, op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP, a: Record<string, unknown>, requestId: string | null, expectedRevision?: number, stroke?: number): Promise<VoxelCommandResult> {
+  private async apply(w: OpenWorld, op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP | typeof WATER_WRITE_OP, a: Record<string, unknown>, requestId: string | null, expectedRevision?: number, stroke?: number): Promise<VoxelCommandResult> {
     if (requestId !== null) {
       const seen = w.answers.get(requestId);
       if (seen !== undefined) return { ...seen, duplicated: true };
@@ -1319,6 +1360,8 @@ export class VoxelWorlds {
     /** Overrides files this change writes (null: the file goes), by grid; their bytes before, for the undo. */
     const flips = new Map<number, { before: Uint8Array | null; after: Uint8Array | null; value?: StructureOverrides }>();
     let structures: StructureChangeReport[] | undefined;
+    /** The water a stroke wrote after its edit (or a water step's bodies). */
+    let water: VoxelWaterAnswer | undefined;
     /** A step's chunks as it found them: the other way's record, and written back if the step cannot be saved. */
     let inverse: ChunkUndo[] = [];
     const isStep = op === 'undo' || op === 'redo';
@@ -1343,6 +1386,15 @@ export class VoxelWorlds {
         if (def !== null) {
           const captured = capturedOverrides(host, this.generator, cmd.grid, def, out.chunks);
           if (captured !== null) flips.set(cmd.grid, { before: host.overrides(cmd.grid).bytes, after: captured.bytes, value: captured.value });
+        }
+        // The bodies whose reach the stroke meets follow it, in the same stroke: ground (or a building's hand edit) first, then water.
+        const reached = cmd.grid === WORLD_GRID_ID ? [box] : this.gridEditBoxes(w, cmd.grid, out.chunks);
+        const followed = reached.length === 0 ? null : await this.followWater(w, reached);
+        if (followed !== null) {
+          record = [...followed.record, ...record];
+          cells += followed.cells;
+          for (const sw of followed.materialSwaps) if (!materialSwaps.includes(sw)) materialSwaps = [...materialSwaps, sw].sort((x, y) => x - y);
+          water = { box: followed.box ?? NO_CELLS, parts: followed.parts, chunks: followed.chunks, bodies: followed.bodies, ms: followed.ms };
         }
       } catch (e) {
         if (e instanceof EditCommandError) return refuse('invalid_args', 'validation', e.message, `/args/command${e.path}`);
@@ -1375,6 +1427,18 @@ export class VoxelWorlds {
       materialSwaps = made.materialSwaps;
       for (const [grid, o] of made.overrides) flips.set(grid, { before: host.overrides(grid).bytes, after: o.bytes, value: o.value });
       structures = made.reports;
+    } else if (op === WATER_WRITE_OP) {
+      const made = this.water.rewrite(await this.waterWorld(w), w.name, a.changes as readonly WaterChange[], this.waterBodies(w), a.boxes as readonly CellBox[]);
+      if (made === null || made.cells === 0) {
+        // Nothing to write; the bodies' reports stand for the world's route all the same.
+        return refuse('no_change', 'validation', 'the water bodies already hold this water: nothing to write');
+      }
+      record = made.record;
+      cells = made.cells;
+      box = made.box ?? NO_CELLS;
+      parts = made.parts;
+      materialSwaps = made.materialSwaps;
+      water = { box, parts, chunks: made.chunks, bodies: made.bodies, ms: made.ms };
     } else {
       const top = from[from.length - 1];
       if (top === undefined || top.stroke !== stroke) return refuse('history_gone', 'conflict', `voxel world ${w.name} holds no stroke ${stroke} to ${op} (the world was read again since, or the stroke was stepped by another command)`);
@@ -1385,6 +1449,9 @@ export class VoxelWorlds {
         return refuse('history_gone', 'conflict', `voxel world ${w.name}: the record of stroke ${stroke} is lost (${e instanceof Error ? e.message : String(e)}); it cannot be ${op === 'undo' ? 'undone' : 'redone'}`);
       }
       stepped = top;
+      // What the bodies owned is the step's to change: they read it again from the voxels when next followed.
+      this.water.forget(worldKey(w));
+      if (top.water !== undefined) water = top.water;
       await this.ensureRecord(w, record);
       inverse = record.map((u) => ({ grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz, before: { kind: 'image', bytes: this.gridOf(w, u.grid).store.encodeChunk(u.cx, u.cy, u.cz) } }));
       this.undoInto(w, record);
@@ -1426,7 +1493,7 @@ export class VoxelWorlds {
     } else {
       made = this.nextStroke++;
       const overrides = [...flips].map(([grid, f]) => ({ grid, before: f.before, after: f.after }));
-      w.history.push({ stroke: made, id: await w.undo.put(record), cells, box, parts, materialSwaps, ...(overrides.length > 0 ? { overrides } : {}), ...(structural ? { structural: true as const } : {}) });
+      w.history.push({ stroke: made, id: await w.undo.put(record), cells, box, parts, materialSwaps, ...(overrides.length > 0 ? { overrides } : {}), ...(structural ? { structural: true as const } : {}), ...(water !== undefined && op === 'editVoxels' ? { water: { box: water.box, parts: water.parts, chunks: water.chunks } } : {}) });
       // A new edit ends the redo of what was undone before it.
       for (const e of w.redo.splice(0)) await w.undo.drop(e.id);
       for (const r of structures ?? []) if (r.kind === 'write') w.reports.set(r.grid, r);
@@ -1453,6 +1520,7 @@ export class VoxelWorlds {
       chunks,
       ...(gridIds.length > 0 ? { grids: gridIds.map((grid) => ({ grid, chunks: chunksOf(grid) })) } : {}),
       ...(structures !== undefined ? { structures: structures.map((r) => this.reportAt(w, r)) } : {}),
+      ...(water !== undefined ? { water } : {}),
       box,
       parts,
       materialSwaps,
@@ -1557,6 +1625,53 @@ export class VoxelWorlds {
         return held;
       },
     };
+  }
+
+  /** The world's water bodies as the project's scenes hold them now (placed ones only: a seed is a place). */
+  private waterBodies(w: OpenWorld): SceneWaterBody[] {
+    return this.opts.scenes === undefined ? [] : sceneWaterBodies(this.opts.scenes(w.projectId)).filter((b) => b.body.world === w.name && b.seed !== null);
+  }
+
+  /** The world as its water reads it: its grid and its placed structure grids, loaded whole (they are small). */
+  private async waterWorld(w: OpenWorld): Promise<WaterWorld> {
+    const grids: Array<{ place: GridPlacement; world: RegionWorld }> = [];
+    for (const place of this.placements(w)) {
+      if (!w.manifest.grids.some((g) => g.id === place.gridId) && !w.grids.has(place.gridId)) continue;
+      const rw = this.gridOf(w, place.gridId);
+      await rw.ensureAll();
+      grids.push({ place, world: rw });
+    }
+    return { key: worldKey(w), world: w.world, grids };
+  }
+
+  /** The bodies a change of the world's cells inside `boxes` meets, followed round it and written (null: none met). */
+  private async followWater(w: OpenWorld, boxes: readonly CellBox[]): Promise<WaterWrites | null> {
+    const bodies = this.waterBodies(w);
+    if (bodies.length === 0) return null;
+    return this.water.follow(await this.waterWorld(w), bodies, boxes);
+  }
+
+  /** The world cells a hand edit on structure grid `gridId` can have changed (its chunks where the grid stands; none while it is not placed). */
+  private gridEditBoxes(w: OpenWorld, gridId: number, chunks: readonly ChunkCoord[]): CellBox[] {
+    const place = this.placements(w).find((p) => p.gridId === gridId);
+    if (place === undefined || chunks.length === 0) return [];
+    const s = w.world.opts.grid.shift;
+    const b = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
+    for (const c of chunks) {
+      b.minX = Math.min(b.minX, c.cx << s);
+      b.minY = Math.min(b.minY, c.cy << s);
+      b.minZ = Math.min(b.minZ, c.cz << s);
+      b.maxX = Math.max(b.maxX, ((c.cx + 1) << s) - 1);
+      b.maxY = Math.max(b.maxY, ((c.cy + 1) << s) - 1);
+      b.maxZ = Math.max(b.maxZ, ((c.cz + 1) << s) - 1);
+    }
+    return [gridBoxInWorld(b, place)];
+  }
+
+  /** Each placed body's report (held, or the fill read now). */
+  private async waterReports(w: OpenWorld): Promise<WaterBodyReport[]> {
+    const bodies = this.waterBodies(w);
+    return bodies.length === 0 ? [] : this.water.reports(await this.waterWorld(w), bodies);
   }
 
   /** The chunks of an undo record loaded, each in its grid. */

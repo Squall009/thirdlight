@@ -70,7 +70,7 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
 
   /** Tells the editor's feed what a voxel change (a stroke, or the project's undo or redo of one) changed. */
   const applied = (projectId: string, r: VoxelCommandApplied, origin: unknown): void => {
-    onApplied?.(projectId, { op: r.op, world: r.world, revision: r.revision, chunks: r.chunks, box: r.box, parts: r.parts, materialSwaps: r.materialSwaps, files: r.files, ...(r.grids !== undefined ? { grids: r.grids } : {}), requestId: r.requestId, origin: originOf(origin) });
+    onApplied?.(projectId, { op: r.op, world: r.world, revision: r.revision, chunks: r.chunks, box: r.box, parts: r.parts, materialSwaps: r.materialSwaps, files: r.files, ...(r.grids !== undefined ? { grids: r.grids } : {}), ...(r.water !== undefined ? { water: { box: r.water.box, parts: r.water.parts, chunks: r.water.chunks } } : {}), requestId: r.requestId, origin: originOf(origin) });
   };
 
   /** The manifest and the region files with their tags (the caller checked who may read them). */

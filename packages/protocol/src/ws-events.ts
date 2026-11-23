@@ -174,13 +174,15 @@ export interface VoxelsChangedPayload {
   files: ReadonlyArray<{ name: string; etag: string | null }>;
   /** The structure grids' chunks whose content changed, by grid (absent: none): what a client re-reads of each grid. */
   grids?: ReadonlyArray<{ grid: number; chunks: ReadonlyArray<readonly [number, number, number]> }>;
+  /** The water bodies a stroke followed after its edit (absent: none): their cells feed the liquid part alone, derived again round `box` in `chunks`. */
+  water?: { box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }; parts: number; chunks: ReadonlyArray<readonly [number, number, number]> };
   /** The command's request id, so the client that sent it can tell its own change. */
   requestId: string | null;
   origin: Origin | null;
 }
 
 export function makeVoxelsChanged(p: VoxelsChangedPayload): string {
-  return emit({ type: 'voxelsChanged', op: p.op, world: p.world, revision: p.revision, chunks: p.chunks, box: p.box, parts: p.parts, materialSwaps: p.materialSwaps, files: p.files, ...(p.grids !== undefined ? { grids: p.grids } : {}), requestId: p.requestId, origin: p.origin });
+  return emit({ type: 'voxelsChanged', op: p.op, world: p.world, revision: p.revision, chunks: p.chunks, box: p.box, parts: p.parts, materialSwaps: p.materialSwaps, files: p.files, ...(p.grids !== undefined ? { grids: p.grids } : {}), ...(p.water !== undefined ? { water: p.water } : {}), requestId: p.requestId, origin: p.origin });
 }
 
 /**

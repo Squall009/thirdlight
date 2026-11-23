@@ -27,6 +27,7 @@
  * Pure: the world is read through the caller's reader; the writes are
  * returned, never made.
  */
+import { ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from '../record';
 import type { CellBox } from '../stroke';
 import { CellQueue, CellSet } from './cell-set';
 import { fillShapeAt, fillStartRow, isLiquidOf, levelFill, liquidValue, Triples, walkFill, withinReach, FILL_BREACH, FILL_OUTSIDE, type FillWorld, type LevelFillResult, type LevelFillSpec } from './level-fill';
@@ -133,13 +134,24 @@ export function regenerateBody(spec: LevelFillSpec, world: FillWorld, before?: C
   const w = new Writes();
   held.forEach((x, y, z) => {
     if (keep && fill.set.has(x, y, z)) return;
-    // Only the body's own liquid is cleared: a cell an edit made ground since is not the body's any more.
-    if (isLiquidOf(world.value(x, y, z), spec.material)) w.add(world, x, y, z, 0);
+    // Only liquid is cleared: a cell an edit made ground since is not the body's any more (a material changed: the old liquid goes).
+    if (isLiquid(world.value(x, y, z))) w.add(world, x, y, z, 0);
   });
   const owned = keep ? fill.set : new CellSet();
   if (keep) for (let i = 0; i < fill.values.length; i++) w.add(world, fill.cells[3 * i]!, fill.cells[3 * i + 1]!, fill.cells[3 * i + 2]!, fill.values[i]!);
   return { fill, writes: w.done(), owned };
 }
+
+/** The liquid a body owned cleared (a body deleted, or moved to another world): its cells that still hold liquid become air. */
+export function clearBody(owned: CellSet, world: FillWorld): CellWrites {
+  const w = new Writes();
+  owned.forEach((x, y, z) => {
+    if (isLiquid(world.value(x, y, z))) w.add(world, x, y, z, 0);
+  });
+  return w.done();
+}
+
+const isLiquid = (v: number): boolean => v > 0 && ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.liquid;
 
 /** A local follow-up's answer: the writes and the liquid owned after them, or why it must be whole. */
 export type BodyFollow =

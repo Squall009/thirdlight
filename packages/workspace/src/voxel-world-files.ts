@@ -490,6 +490,42 @@ export class RegionWorld {
     if (broken.length > 0) await this.repair(broken, this.sources);
   }
 
+  /**
+   * Loads the region file holding chunk (cx, cy, cz) at once (opened on
+   * demand), for a reader that cannot wait (the level fill walks cell by
+   * cell). A chunk of it that does not read is kept damaged: no repair
+   * source is asked here. Whether the chunk can be read now (false: its
+   * file or the chunk is damaged).
+   */
+  ensureNow(cx: number, cy: number, cz: number): boolean {
+    const name = addressName(addressOf(this.opts.grid, this.opts.layout, this.opts.footprint, { cx, cy, cz }));
+    const f = this.files.get(name);
+    if (this.damagedRegions.has(name)) return false;
+    if (this.budget !== null && f !== undefined && !f.loaded) {
+      try {
+        const { index, bytes } = this.readFile(name);
+        if (sha256HexNative(bytes) !== f.hash) throw new Error('changed on disk since the world was opened');
+        f.entries = new Map();
+        f.loaded = true;
+        this.counters.loads++;
+        const broken: { c: ChunkCoord; file: string; entry: RegionEntry | null }[] = [];
+        this.importFile(name, f, index, bytes, broken);
+        for (const b of broken) {
+          if (b.entry !== null) f.entries.set(chunkKey(this.opts.grid, b.c.cx, b.c.cy, b.c.cz), b.entry);
+          this.damaged.set(chunkKey(this.opts.grid, b.c.cx, b.c.cy, b.c.cz), { file: b.file, reasons: ['its bytes do not read (not repaired: read while a fill walked)'] });
+        }
+      } catch (e) {
+        this.damagedRegions.set(name, e instanceof Error ? e.message : String(e));
+        return false;
+      }
+    }
+    if (f !== undefined) {
+      this.order.delete(name);
+      this.order.add(name);
+    }
+    return !this.damaged.has(chunkKey(this.opts.grid, cx, cy, cz));
+  }
+
   /** Store bytes of the files loaded now (opened on demand; 0 when opened whole). */
   get residentBytes(): number {
     let n = 0;

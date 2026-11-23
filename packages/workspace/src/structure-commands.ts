@@ -25,16 +25,23 @@
  * A structure moved or turned rewrites no voxel: the far field under it
  * (where it stood and where it stands) is built again once the step is done,
  * forward or by undo and redo.
+ *
+ * Water bodies go the same way, after the structures (ground, buildings,
+ * water): a command that makes, changes, moves or deletes a `waterBody`
+ * object, or writes or moves a structure inside a body's reach, writes the
+ * water as its own stroke a world (voxel-water.ts), attached to the same
+ * project entry.
  */
 import { randomBytes } from 'node:crypto';
 import type { MutationResult } from '@thirdlight/commands';
-import { sceneStructures, structureDefinitionOf, structurePlacementOf, type VoxelStructureComponent } from '@thirdlight/project-model';
-import { anchoredDefinition, StructureDefinitionError, type GridPlacement, type StructureDefinition } from '@thirdlight/voxel';
+import { sceneStructures, sceneWaterBodies, structureDefinitionOf, structurePlacementOf, type SceneWaterBody, type VoxelStructureComponent } from '@thirdlight/project-model';
+import { anchoredDefinition, StructureDefinitionError, type CellBox, type GridPlacement, type StructureDefinition } from '@thirdlight/voxel';
 import type { WorkspaceService } from './types';
 import type { AttachedStroke, TimelineStep, UndoTimeline } from './undo-timeline';
 import { dropStructureFollows, queueStructureFollow } from './structure-prop-follows';
 import type { StructureChange } from './voxel-structure-writes';
 import type { VoxelCommandApplied, VoxelStepDirection, VoxelWorldError, VoxelWorlds } from './voxel-worlds';
+import { gridBoxInWorld, type WaterChange } from './voxel-water';
 
 /** The ops whose arguments can bring a structure into a scene. */
 const BRINGING_OPS: ReadonlySet<string> = new Set(['createEntity', 'createEntities', 'pasteEntities', 'setComponent']);
@@ -111,10 +118,12 @@ export class StructureCommands {
       .map((s) => ({ entityId: s.entityId, world: s.component.world, grid: s.component.grid, generator: s.component.generator }));
   }
 
-  /** Whether a project envelope can change structures (else it runs as any command). */
+  /** Whether a project envelope can change structures or water bodies (else it runs as any command). */
   touches(projectId: string, env: Record<string, unknown>): boolean {
-    if (BRINGING_OPS.has(String(env.op)) && JSON.stringify(env.args ?? null).includes('"voxelStructure"')) return true;
-    return sceneStructures(this.scenes(projectId)).length > 0;
+    const args = BRINGING_OPS.has(String(env.op)) ? JSON.stringify(env.args ?? null) : '';
+    if (args.includes('"voxelStructure"') || args.includes('"waterBody"')) return true;
+    const scenes = this.scenes(projectId);
+    return sceneStructures(scenes).length > 0 || sceneWaterBodies(scenes).length > 0;
   }
 
   /**
@@ -133,13 +142,18 @@ export class StructureCommands {
       const after = heldOf(this.scenes(projectId));
       await this.rememberFar(projectId, held);
       const written = await this.writeChanges(projectId, held, after, prepared.copies, result.requestId);
-      if (!written.ok) {
+      // Ground, then buildings, then water: the bodies the command changed, and those round the structures it wrote.
+      const wet = written.ok ? await this.writeWater(projectId, before, held, after) : null;
+      if (!written.ok || (wet !== null && !wet.ok)) {
+        if (written.ok) for (const done of [...written.voxels].reverse()) await this.worlds.step(projectId, done.world, 'undo', done.stroke, null);
         this.service.runCommand({ op: 'undo', projectId, requestId: `req-${randomBytes(16).toString('hex')}`, expectedRevision: result.revision, args: {} });
         this.service.dropRedoTail(projectId);
-        return { result: { ok: false, op: result.op, projectId, requestId: result.requestId, error: written.error } as MutationResult, voxels: [], strokes: [], far: [] };
+        const error = !written.ok ? written.error : (wet as { ok: false; error: VoxelWorldError }).error;
+        return { result: { ok: false, op: result.op, projectId, requestId: result.requestId, error } as MutationResult, voxels: [], strokes: [], far: [] };
       }
+      const voxels = [...written.voxels, ...(wet?.ok === true ? wet.voxels : [])];
       const far = await this.followFar(projectId, held, after);
-      return { result, voxels: written.voxels, strokes: written.voxels.map((v) => ({ world: v.world, stroke: v.stroke })), far };
+      return { result, voxels, strokes: voxels.map((v) => ({ world: v.world, stroke: v.stroke })), far };
     });
   }
 
@@ -329,6 +343,66 @@ export class StructureCommands {
       if (r.error.code === 'no_change') continue;
       for (const done of voxels.reverse()) await this.worlds.step(projectId, done.world, 'undo', done.stroke, null);
       void requestId;
+      return { ok: false, error: r.error };
+    }
+    return { ok: true, voxels };
+  }
+
+  /**
+   * The command's water, a stroke a world after its structures': each body it made, changed, moved or deleted, and
+   * the bodies round the structures it made, changed, moved or deleted (their world cells before and after). A body
+   * whose scene holds no `voxelWorld` object naming its world is refused, as a structure is.
+   */
+  private async writeWater(projectId: string, scenesBefore: readonly unknown[], before: ReadonlyMap<string, Held>, after: ReadonlyMap<string, Held>): Promise<{ ok: true; voxels: VoxelCommandApplied[] } | { ok: false; error: VoxelWorldError }> {
+    const scenes = this.scenes(projectId);
+    const was = new Map(sceneWaterBodies(scenesBefore).map((b) => [b.entityId, b]));
+    const now = new Map(sceneWaterBodies(scenes).map((b) => [b.entityId, b]));
+    const same = (a: SceneWaterBody, b: SceneWaterBody): boolean => JSON.stringify([a.body, a.seed]) === JSON.stringify([b.body, b.seed]);
+    const changes = new Map<string, WaterChange[]>();
+    const add = (world: string, ch: WaterChange): void => void (changes.get(world) ?? changes.set(world, []).get(world)!).push(ch);
+    for (const id of new Set([...was.keys(), ...now.keys()])) {
+      const a = was.get(id) ?? null;
+      const b = now.get(id) ?? null;
+      if (a !== null && b !== null && same(a, b)) continue;
+      if (b !== null) {
+        const scene = scenes.find((s) => ((s as { sceneId?: string }).sceneId ?? null) === b.sceneId) as { entities?: Array<{ components?: { voxelWorld?: { world?: unknown } } }> } | undefined;
+        if (!(scene?.entities ?? []).some((e) => e.components?.voxelWorld?.world === b.body.world)) {
+          return { ok: false, error: { code: 'reference_missing', cls: 'validation', message: `water body ${b.entityId} names voxel world "${b.body.world}", which no voxelWorld object of its scene names: a body stands in the scene of its world`, path: '/components/waterBody/world' } };
+        }
+      }
+      for (const world of new Set([a?.body.world, b?.body.world].filter((x): x is string => x !== undefined))) add(world, { before: a, after: b });
+    }
+    // The world cells under every structure the command wrote or moved, where it stood and where it stands.
+    const boxes = new Map<string, CellBox[]>();
+    const gen = this.worlds.generator;
+    for (const key of new Set([...before.keys(), ...after.keys()])) {
+      const x = before.get(key);
+      const y = after.get(key);
+      if (x !== undefined && y !== undefined && samePlace(x.place, y.place) && x.def === y.def) continue;
+      for (const h of [x, y]) {
+        if (h === undefined || h.place === null) continue;
+        let cells: CellBox;
+        try {
+          cells = gen.box(gen.canonical(structureDefinitionOf(h.component as unknown as Record<string, unknown>)));
+        } catch {
+          continue;
+        }
+        (boxes.get(h.component.world) ?? boxes.set(h.component.world, []).get(h.component.world)!).push(gridBoxInWorld(cells, h.place));
+      }
+    }
+    const voxels: VoxelCommandApplied[] = [];
+    const bodiesIn = (world: string): boolean => [...now.values()].some((b) => b.body.world === world);
+    for (const world of [...new Set([...changes.keys(), ...boxes.keys()])].sort()) {
+      const ch = changes.get(world) ?? [];
+      const bx = bodiesIn(world) ? (boxes.get(world) ?? []) : [];
+      if (ch.length === 0 && bx.length === 0) continue;
+      const r = await this.worlds.writeWater(projectId, world, ch, bx, null);
+      if (r.ok) {
+        voxels.push(r);
+        continue;
+      }
+      if (r.error.code === 'no_change') continue;
+      for (const done of voxels.reverse()) await this.worlds.step(projectId, done.world, 'undo', done.stroke, null);
       return { ok: false, error: r.error };
     }
     return { ok: true, voxels };
