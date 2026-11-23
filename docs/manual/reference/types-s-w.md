@@ -1174,7 +1174,9 @@ type V3OwnedComponent =
   /** v4 scenes only: a building's definition, written into its own grid of a voxel world by the backend. */
   | 'voxelStructure'
   /** v4 scenes only: open or shut state of a prop standing in an opening of a voxel structure. */
-  | 'voxelPortal';
+  | 'voxelPortal'
+  /** v4 scenes only: a lake's definition, its liquid voxels written by the backend. */
+  | 'waterBody';
 ```
 
 <a id="type-vec3"></a>

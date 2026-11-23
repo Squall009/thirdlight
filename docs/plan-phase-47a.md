@@ -176,7 +176,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.7 | Done 2026-11-23. (a) 7b5d2598, 20fc9bf7, a8e2028e: `voxelPortal`, props follow, portal state where the world runs. (b) 6c0cf4f1…0c446ea1: shut doors link (D770), Play/export e2e, the mode's Openings (ghost, place, move, delete, fitting props, glass); flip→light 0.7–1.7 s, 100 doors one 14–16 ms step; stairs tool D775
 | 47a.8 | Done 2026-11-23 (a27a11e4, 39c31b65, 1488dc66, 494d8315 …): radius as a footprint (default 0.3 m, two cells), queries wait for edits (bound 90 serves, `stale`), shut doors in the levels, reach through grids, portal runs split; town 131/131 every check; D780 the Export failure fixed (hourly sweep); D778, D779, D781 |
 | 47a.9 | Done 2026-11-23 (e1a62759…3452d5bb): proof on 1.34 M liquid cells (shader data read liquid: now air); `changeFeeds`/`EditOutcome.parts`; liquid part (16 B quads), drawn plain near; liquid dab 4 full derives → 4 liquid, worker 8.4 → 4.6 ms; town orbit, 128 lamps equal; lake near not resolved; D782–D785 |
-| 47a.10 | not started |
+| 47a.10 | Done 2026-11-23 (123cd86e, fa4c996b, 2faad81c, b46b3ae9): level fill, `waterBody` (F6), a stroke or command in a body's reach rewrites it in the same undo step, locally (bank dab 0.5–2.1 ms, 16 cells; 251 m lake whole 1.37 s), a breach drained and flagged with a marker; Inspector, level handle; e2e 7–8 s; D786 (a stroke waits a far rebuild: 0.6–0.7 s), D787 |
 | 47a.11 | not started |
 | 47a.12 | not started |
 | 47a.13 | not started |
@@ -1961,6 +1961,120 @@ light-shots digs again each run, which took the first pool) was filled (560 cell
 cave camera (the pool lies at the floor's level in the dark tube, lit by the light volume alone; it is not told apart
 from the floor in the picture): unverified. Structure grids' water was not looked at.
 
+### 47a.10 — water bodies
+
+**Built** (123cd86e, fa4c996b, 2faad81c, b46b3ae9; F6 as approved, its text in `format-versions.md`; nothing else stored).
+
+- **The level fill** (`@thirdlight/voxel` `water/level-fill.ts`, one pure function: a seed cell, a level in cells, a
+  material, a reach in cells; the world read through a `FillWorld` reader, `value` and an optional `stops`): a
+  6-connected walk from the seed through air and its own liquid, never into a cell whose bottom is at or over the
+  level, the top row at its share of the 16 fill levels (a share that rounds to empty is not entered); bounded by
+  every other cell (ground, built cells, openings, another liquid) and by the reach (horizontal distance between
+  column centres). Every cell where it would step past the reach, or into a cell the reader cannot give
+  (`FILL_OUTSIDE`), is reported with its bound, and the walk goes on elsewhere, so every leak is reported. A seed
+  over the level starts at the level's row in its column; a start cell that is not open is `seed_blocked`.
+  Deterministic (same cells, same order). `CellSet` (bits in 32³ blocks) holds what it walks. A fill stroke (47b)
+  and a settle (49) call `levelFill` / `walkFill` with their own reader.
+- **The body** (`water/body.ts`): `bodyCells` (its material's liquid joined to its start cell, within the reach),
+  `regenerateBody` (what it owned cleared, the fill written; nothing kept when the fill breaches or the seed is
+  blocked), `followBody` (round a change's box: owned cells the change closed leave, open cells under the level next
+  to the body and what they open onto fill, liquid of its material that joins is absorbed; **whole** instead when it
+  held nothing, its start cell changed, a closed cell's neighbours do not join again within 16 cells of the change
+  (a cut), or the new water leaks), `clearBody`, `fillLeaks` (a place per 16 m of ground), `writeCells` (the writes
+  with an undo record a chunk, parts by `changeFeeds`).
+- **The component** (project-model `water-body.ts`, `-descriptor.ts`): `waterBody: { world, level, material, reach }`
+  rebuilt field by field (reach 256 when absent), a root object (a parent is refused), not in prefabs, not read by
+  scripts, left out of exports with the structures' definitions (`closure-voxel-worlds.ts`); the commands accept it
+  (`v3.ts`, `validate-content-args.ts`). Its handle: the generic `height` handle with a new `scene` flag (the
+  value is the scene's height, drawn over the object).
+- **The backend** (workspace `voxel-water.ts`, hooks in `voxel-worlds.ts` and `structure-commands.ts`): a world-grid
+  stroke (or a hand edit on a placed structure grid) follows every body whose reach its box meets, after the edit,
+  inside the same stroke: the writes go first in the stroke's undo record, so one undo takes back the dig and the
+  water and a redo puts both back (record images). The answer's `water` gives the water's box, chunks and parts
+  (the liquid part alone) and each body's report; the editor feed carries it. A command that makes, changes, moves or
+  deletes a body, or makes, changes, moves or deletes a structure inside a body's reach, writes the water as a
+  `writeWater` stroke after the structures' (ground, buildings, water), attached to the same project entry; a body
+  whose scene has no `voxelWorld` naming its world is refused (`reference_missing`). The fill reads the world grid
+  within the box of its listed region files (past it: outside, a breach), each region file loaded when the walk
+  reaches it (`RegionWorld.ensureNow`), and a world cell as closed where a placed structure's cell there stops light
+  (water stands round a house and comes in at its door). What each body owns and its last report are held in memory
+  (forgotten on an undo, a redo or files changed on disk: read again from the voxels); the world's route answers
+  `bodies` (a check, the fill read without writing, for a body with no report).
+- **The clients**: the streamer's `refresh` takes the water as a second change (each chunk it reached rebuilds its
+  parts round the water's own cells, apart from the edit's box and parts, one swap group); the Scene view and the
+  voxel world page pass it through `range-world.ts`. **The editor**: "+ Add component → Water body" (the scene's
+  world, the object's height rounded to 0.5 m, the project's first liquid material, the default reach), the
+  Inspector's water section (`ui/water/WaterBodyFields.tsx`: level, a picker of liquid materials, reach, "Holds N cells",
+  the breach warning naming where it leaks, a blocked seed), the level ring over the object, the leak markers
+  (`viewport/water-leaks.ts`: a red cross and ring at each place, over everything).
+
+**Tests.** Vitest `voxel/src/water/level-fill.test.ts` (17: a basin, a partial top, a sloped shore, an island, a
+cave joined and a sealed pocket, a breach at the reach and out of the readable world with their places, determinism,
+a seed in ground and over the level, a cell a structure closes; regenerate with undo exact, drain and refill, painted
+liquid owned; follow-ups equal to the whole regenerate for a dug bank, a dab under water, ground added under water, a
+cut, a leak, an empty body, and 40 seeded random digs and adds). `project-model/src/water-body.test.ts` (4).
+Integration `tests/integration/voxel-world/voxel-water.test.ts` (7, a real backend over HTTP, the world on disk): a
+body made (6,400 cells, one step with the scene edit, undo and redo exact by the folder's hashes); a bank dug back
+followed locally in the same stroke (128 cells, `water.parts` = liquid, one undo and one redo exact); a house built in
+the water written first and the water after it (`writeStructures`, `writeWater`; none in a wall cell, water in at the
+door and in the room); a level changed; a trench past the reach drained and flagged at its place, the route's
+`bodies` breached, the trench closed and the water back cell for cell; a deleted body's water gone and back with its
+undo; an export holding the lake's region files byte for byte and no `"waterBody"` in its catalog or content.
+`tools/voxel-bench/stream.test.ts`'s refresh test: a dig and a body's water in one refresh, the dig's chunks derived
+whole round the dig, a chunk only the water reached deriving its liquid part alone, every result equal to a fresh
+derive. E2E: a third test in `tests/e2e/structure-mode.e2e.ts` (7–8 s alone): a hollow dug, "+ Add component → Water
+body", the Inspector's 512 cells and 12,932 blue pixels where there were none, a bank dug back (local, 32 cells,
+`parts` 32), one Ctrl+Z (512 cells, the lake's pixels within 2 %), the level ring dragged up half a metre and set back
+in the Inspector, the reach set to 8 m and a trench past it: drained, the warning, a marker at (−15.3, −1.5, 24.3) m
+and red pixels, the trench closed: 544 cells, no marker. With a feature off: the follow-up off leaves the dug notch dry
+(the cell counts fail); the parts rule off fails the stream test's "no full derive"; the strip off finds
+`"waterBody"` in the export.
+
+**Measured** (2026-11-23, in-process backend over HTTP in an 8G scope, nothing else running, load 1.5–4.5;
+`work/47a.10/m/measure-water.test.ts`, raw `m/measure-1.json`): a bowl 260 cells round filled to −0.5 m, **a lake 251 m
+across, 1,274,184 cells**. Made (the whole fill and write): water 1,365 ms, command 1,459 ms, save 77 ms. **A dab dug on
+its bank** (brush sphere 2 cells, 6 places round the shore): water 0.5–2.1 ms, apply 0.8–4.4 ms, save 4.3–6.5 ms,
+HTTP 7–23 ms; 16 cells of water written each, all local. A dab dug in the bed under water: 32 cells, water 0.8–1.0 ms.
+Ground added under water: local, nothing written, 1.4–2.3 ms. **The first dab after an undo: 611 ms** (the body's
+water walked again, D787); the one after it 0.5 ms. The level raised 0.25 m (whole): water 1,086 ms, 212,376 cells
+written. **In the browser** (the structure-mode e2e, WebGPU, its 16 × 16 m pond): the bank dab answered in 14–15 ms
+and the Scene view swapped the dig and the water in 60–63 ms after the send when no far rebuild was waiting; right
+after the body was made it answered in 622–728 ms (D786). So the 0.5 s aim is met for a dab on a 250 m lake (the
+backend's part under 25 ms; the browser's swap measured on the small pond only, not on the 250 m lake), missed by
+the first dab after an undo (0.61 s, D787) and by a dab queued behind a far rebuild (D786). Gate time: before, the
+structure-mode e2e file 2 tests (its time in gate-fast-20261123-151856); after, the water test adds 7–8 s alone.
+
+**Pictures** (`~/.cache/thirdlight-phase47a/work/47a.10/look/`, the editor at 1280 × 720, WebGPU, the project's
+quality set to low for the run; the e2e's yard, not staging's world): `20-hollow.png` and `21-lake-made.png` (before
+and after: the hollow filled flat to the level, the walls standing 1 m above it), `22-bank-dug-shore-followed.png`
+(the east bank dug back 1 m: the water runs into the notch to the level; same camera as 21), `23-bank-undone.png`,
+`24-level-raised.png` and `25-level-lowered.png` (half a metre up: the rim closer to the ground's top, then back),
+`26-breach-warning-and-marker.png` (the reach at 8 m and a trench past it: the basin dry, the red ring and cross at the
+trench's end, the Inspector's warning naming the place), `27-breach-drained.png`, `28-breach-closed.png`. What is wrong
+or ugly: the water is one flat colour (47a.9's plain look), so its depth and the notch's step read only by outline;
+the shore is the dug cells' stair; the 1 m dry rim above the level is a hard grey-green wall; the Scene view is small
+in the 1280 × 720 window (the docks take half), so the pond is a few hundred pixels; the trench is one cell wide and
+not seen at this angle, so the marker stands on grass with nothing to show the leak's path; the marker's ring is wide
+(1.5 m) and is cut by the view's edge in 26; a drained basin shows no trace of where the water stood. That the Scene
+view drew at the low tier is unverified (nothing in the picture says it).
+
+**Unverified**: anything in Play or an export drawn (the export test checks files, not pixels); water round a turned
+structure in a browser (the integration test reads cells); a 250 m lake in a browser (edit → swap measured on the
+small pond only); the level handle's look beyond the e2e's drag; WebGL 2 (its smoke test only).
+
+**Left out** (as the brief): water drawn past the detail ring (49), D782, D783 (the backend's far rebuild of liquid
+chunks: D786 is what it costs a next stroke), D784; the fill as a brush stroke and the world edit mode (47b); flow,
+settle, surface shader, far water, buoyancy (49); splines and rivers (47a.11). No lit program or default draw path
+changed (no town orbit or 128-lamp reading run). Staging was not used: the 250 m lake is a bench world in an
+in-process backend, and the pictures are the e2e's.
+
+**For 47a.11** (a river meeting a body "writes down to its level"): call `levelFill` / `walkFill` with a reader of the
+world (`waterFillWorld` in workspace `voxel-water.ts` gives the backend's, structures' stops included) and the body's
+spec from `waterSpecOf`; a river's cells written down to a body's level are liquid of the body's material joined to
+it, so `followBody` absorbs them (they are the body's on its next regenerate); write a spline's liquid through
+`writeCells` so its parts are the liquid part, and order it after the structures' stroke and before the bodies'
+(`StructureCommands.writeWater` runs last in a command).
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
@@ -2191,6 +2305,30 @@ from the floor in the picture): unverified. Structure grids' water was not looke
   a rail or post beside water is a wall to it); a partly filled cell shows its top even under liquid.
 - 2026-11-23 (47a.9; default chosen, owner to confirm): **the game's `VoxelChange.shaderOnly` is true for a
   liquid-only change** (meshes and colliders stand), its text says so.
+
+- 2026-11-23 (47a.10; default chosen, owner to confirm): **a breached body holds no water**: when its fill would pass
+  its reach or leave the world it knows, nothing is written past the bound and the water it owned inside is cleared
+  too, so the designer sees a dry basin, the warning and the marker, never a wall of water standing at the dug bank;
+  closing the gap fills it again. So a body's water is always what the fill makes, or nothing.
+- 2026-11-23 (47a.10; default chosen, owner to confirm): **deleting a water body clears its water** (one undo brings it
+  back); removing the component does the same.
+- 2026-11-23 (47a.10; default chosen, owner to confirm): **what bounds the fill**: air and its own liquid are open;
+  ground, built cells, openings and another liquid bound it; a world cell under a placed structure's cell that stops
+  light is closed (water stands round a house and comes in at its door); past the box of the world's listed region
+  files is outside (a breach). The reach is a horizontal distance between column centres; the water may go down
+  without bound inside the world. A seed over the level starts at the level's row in its column.
+- 2026-11-23 (47a.10; default chosen, owner to confirm): **a follow-up is local where it can be** and whole when the
+  body held nothing, its start cell changed, a closed cell may have cut it (its neighbours do not join again within
+  16 cells of the change), or the new water leaks; a local follow-up keeps liquid painted above the level against the
+  body (it is the body's), a whole one clears it.
+- 2026-11-23 (47a.10; default chosen, owner to confirm): **a structure command's water is its own stroke after the
+  structures'**, on the same project entry; a stroke's water is inside the stroke (one record).
+- 2026-11-23 (47a.10; default chosen, owner to confirm): **"+ Add component → Water body"** takes the scene's voxel
+  world, the object's height rounded to 0.5 m as the level, the project's first liquid material and the 256 m reach;
+  **a water body is a root object** (its position is its seed, never composed with a parent's).
+- 2026-11-23 (47a.10; default chosen, owner to confirm): **leak places are grouped one per 16 m of ground** (the mean
+  of the cells where the fill would leave its bound there), each marked in the Scene view and the first named in the
+  Inspector.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 

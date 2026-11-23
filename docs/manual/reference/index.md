@@ -74,7 +74,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: runtime](limits-runtime.md) | 27 sections |
 | [MCP tools (part 1, from tl_bake_lighting)](mcp-tools-1.md) | `tl_bake_lighting`, `tl_command` |
 | [MCP tools (part 2, from tl_command: Models, bulk creation, deleting, asset options, imports, labels, addresses, files)](mcp-tools-2.md) | 17 sections |
-| [MCP tools (part 3, from tl_command: Block layers: block types, the layer component, editBlocks, stamps)](mcp-tools-3.md) | `tl_content_job`, `tl_content_query`, `tl_content_upload`, `tl_diagnostics`, `tl_docs`, `tl_game_control` |
-| [MCP tools (part 4, from tl_game_observe)](mcp-tools-4.md) | `tl_game_observe`, `tl_input_exercise`, `tl_inspect`, `tl_instance_buffer`, `tl_play_start`, `tl_play_stop`, `tl_playtest`, `tl_screenshot`, `tl_script_publish`, `tl_sessions` |
+| [MCP tools (part 3, from tl_command: Block layers: block types, the layer component, editBlocks, stamps)](mcp-tools-3.md) | `tl_content_job`, `tl_content_query`, `tl_content_upload`, `tl_diagnostics`, `tl_docs` |
+| [MCP tools (part 4, from tl_game_control)](mcp-tools-4.md) | `tl_game_control`, `tl_game_observe`, `tl_input_exercise`, `tl_inspect`, `tl_instance_buffer`, `tl_play_start`, `tl_play_stop`, `tl_playtest`, `tl_screenshot`, `tl_script_publish`, `tl_sessions` |
 
 The topic kinds: `component`, `components`, `content`, `ctx`, `entity`, `graph`, `graphs`, `handles`, `limit`, `limits`, `node`, `op`, `ops`, `scene-environment`, `script-type`, `script`, `tool`, `type`, `ui`.

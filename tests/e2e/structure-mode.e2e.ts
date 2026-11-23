@@ -814,6 +814,8 @@ test('water bodies: a hollow becomes a lake from Add component, a bank dug back 
   await page.setViewportSize({ width: 1280, height: 720 });
   const errors = consoleErrors(page);
   await cmd('setMaterial', { material: { materialId: 'mat-water', name: 'Water', shader: 'standard', params: { color: '#2a5fc0' }, textures: {}, voxel: { id: MAT.water, use: 'liquid' } } });
+  // The owner's pictures (TL_LOOK_DIR) are taken at the low tier.
+  if ((process.env['TL_LOOK_DIR'] ?? '') !== '') await cmd('setEnvironment', { environment: { quality: 'low' } });
   const all = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { components: Record<string, unknown> }[] }).entities;
   if (!all.some((e) => (e.components['voxelWorld'] as { world?: string } | undefined)?.world === WORLD)) await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Yard', transform: { position: [0, 0, 0] }, components: { voxelWorld: { world: WORLD } } });
   // The hollow: 8 × 8 m, 2 m deep, dug in the yard's far corner (cells x −56…−41, z 40…55, rows −4…−1).
@@ -945,6 +947,7 @@ test('water bodies: a hollow becomes a lake from Add component, a bank dug back 
   expect(at[0]!).toBeGreaterThan(-17);
   expect(at[0]!).toBeLessThan(-14);
   await settled();
+  await inspect.getByLabel('water breach').scrollIntoViewIfNeeded();
   await look(page, '26-breach-warning-and-marker');
   const drained = await pictureOf('27-breach-drained');
   expect(waterCount(drained), 'nothing is held while it leaks').toBeLessThan(blue0 + 2_000);

@@ -494,6 +494,22 @@ of a 1 m ball at cell (0, 4, 0):
    "points": [0, 4, 0], "mode": "dig", "smooth": false}}}
 ```
 
+- **Water bodies follow a stroke.** A stroke inside a water body's reach
+  (a `waterBody` object: a seed, a `level` in metres, a liquid `material`,
+  a `reach`, default 256 m) also writes the body's water in the same
+  stroke, after the edit: dig a bank back and the shore follows, and one
+  undo takes back the dig and the water together. The answer's `water`
+  names the cells' `box`, `chunks` and `parts` (the liquid part alone) and
+  each body's state (`filled`; `breached` with the places it leaks, the
+  basin then holding no water: nothing is ever written past the reach;
+  `seed_blocked` when the object stands in solid ground). Making, changing,
+  moving or deleting a body (`createEntity`, `setComponent`,
+  `setTransform`, `deleteEntity`), or a structure inside its reach, writes
+  its water as part of that command's one undo step; deleting a body takes
+  its water with it. The world's route answers each body's state under
+  `bodies`. Exports ship the water, never the body's record; nothing
+  regenerates while a game runs.
+
 - **The world's revision.** A world keeps its own revision, apart from
   the project's: `expectedRevision` is optional on a voxel op, and when
   given it is the world's (a stale one is refused with `revision_conflict`
