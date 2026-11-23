@@ -173,7 +173,7 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.4 | Done 2026-11-22 (4059d423): `voxelStructure` (F1), its grid written by the backend through the commands, one undo step with the scene edit; create (next grid, anchor), regenerate, copy, delete, material swap, hand edits as overrides, `regenerateStructures`; Play/export read places from the objects. Small house 20 ms, L 60–76 ms; +0.8–2.2 s with a far cache (D754); D753, D755 |
 | 47a.5 | Done 2026-11-22. (a) 6be74d26, ef33ad6f, 6003c541: Scene view draws, moves, picks grids; `ctx.voxels` by grid; spec §3.6. (b) d41e0c49, 7b83e3a0, 471d16bb, 894fb4e0: grids planned at ring crossings (G30 sim 1.4–1.5 × W, base 1.8–1.9), stamp sliced, far rebuild after the answer (house 27 ms, was 832), fine bake reads grids; lane reserve backed out; D759, D760 |
 | 47a.6 | Done 2026-11-23 (cce0d13f, 54f9db51): structure editor mode (draw, edge/corner handles, Extend, storeys, 15° turn, Inspector section with a material a part, Dig/Add/Paint, misfit list and marker); e2e 13–16 s. The gate's one red (D761) was a test's camera jump tripping the streamer: fixed ad116a9b, every-area gate green; D762–D764. Interim look `acc47a-interim` |
-| 47a.7 | Partial 2026-11-23 (7b5d2598, 20fc9bf7, a8e2028e): `voxelPortal` (F4); props follow, are named by and go with their openings in one undo step; a shut prop closes its opening to light (a channel stamp, a flip recombines its cells only) and walkers (shut cells, `doors: 'shut-too'`); `portalsOf` names it; scripts flip and save it. Not built: Openings tool, Play e2e, measures (D769, D770) |
+| 47a.7 | Done 2026-11-23. (a) 7b5d2598, 20fc9bf7, a8e2028e: `voxelPortal`, props follow, portal state where the world runs. (b) 6c0cf4f1…0c446ea1: shut doors link (D770), Play/export e2e, the mode's Openings (ghost, place, move, delete, fitting props, glass); flip→light 0.7–1.7 s, 100 doors one 14–16 ms step; stairs tool D775
 | 47a.8 | not started |
 | 47a.9 | not started |
 | 47a.10 | not started |
@@ -1567,6 +1567,113 @@ vitest 806 files green) RED on D410 (`project-items`), D643 (`terrain-cdlod`) an
 gate-rerun-20261123-050337 GREEN; the Play and Export tests and the structure-mode test passed in the first run;
 `area play` with the leak test gate-area-20261123-050948 GREEN (`memory.e2e.ts:435` failed once, passed alone: D768).
 
+**Part (b)** (6c0cf4f1, f5d9831a, 9ddc085f, 0c446ea1; no stored thing beyond F4). What a designer can do now, in order:
+1. **Openings** (the structure mode's third rail column, key O for Place): pick a standard size (`OPENING_SIZES`) or
+   *Custom* (width, height, sill in cells); hover a wall: a ghost of the opening snapped to that wall's cells at that
+   storey (`session/structure-openings.ts`: the wall a face looks out of, centred on the cell under the pointer, kept
+   off the wall's end cells), red where it cannot go, and the status line says "Click: Door 1 × 2 m on wall 1 of main,
+   storey 0" or why not; a click sends one `setComponent`. Refused without sending: a corner cell, an opening touching
+   or overlapping another on its wall, and whatever the building generator's checks say (too tall for the storey,
+   inside the building where wings meet).
+2. **Select, move, delete**: a click on an opening selects it (its cells boxed, a handle at its middle); dragging the
+   handle moves it along its wall in whole cells ("+1.0 m along the wall"), one `setComponent` at the release (its
+   prop follows: the backend's follow-up); Delete removes it, and its prop with it, one step.
+3. **The Structure section** lists the openings (kind and size, wall and storey, its prop and whether it is shut or
+   glass) with select and delete; the selected one's width, height and sill are fields; **Prop** lists the project's
+   models that fit it (bounds within the opening, a cell deep, 5 cm: the voxel package's rule), "none (an open hole)"
+   first, a model whose bounds were never recorded marked "size unknown"; choosing one makes the structure's child
+   with the model and a shut `voxelPortal` placed by its bounds in the opening (one `createEntity`; a prop already
+   there is deleted first, a second step); **glass (light passes)** sets `stops.light: false` (a window starts as
+   glass). The fit needs a model's bounds: `queryAssets` now answers a model's `bounds` from its import's recorded
+   metrics (nothing new stored). A prop that no longer fits after a resize is said under the picker.
+4. **A script** shuts or opens it (`ctx.entity(id).set('voxelPortal', { open })`), in Play and in an export.
+   **Flipping `open` does not move the leaf**: the engine has no door behaviour, so an "open" leaf still stands in
+   its doorway and draws there (blocking the sun's direct light and the view); a game moves or swings it itself.
+
+**D770 traced.** The Node harness asked its paths before the walk graphs and the grids' links were made, so a query
+answered from what was made (no link yet: `unreachable`, D736's kind); waiting for them, a real bug showed: a grid's
+links skipped every cell in no piece, and a shut door's cells are in none, so a house whose one door was shut had no
+link and `doors: 'shut-too'` found no way in (the default's "no path" was right for the wrong reason). Shut cells now
+link; the queries leave such a link to a walker through shut doors (`walk-graph-links.ts`).
+
+**Tests.** `tools/voxel-bench/world-host-grids.test.ts`: at 0°, 30° and 45°, shut: no path from the street into the
+room by default, one with `shut-too` ending in the room; opened by a script: one by default (links skipped for shut
+cells → the `shut-too` check fails). Play e2e (`voxel-world.e2e.ts`, the 30° house): a door leaf and a pane (fixture
+models, children with `voxelPortal`); the script shuts the leaf → `portalsOf` names it shut, the room's light-volume
+cell falls to 0.06 of open (bound 0.5), no path by default, one with `shut-too`; opened → light (≥ 0.8) and path
+back; the pane (`stops.light: false`) put in the door shut keeps the light (≥ 0.8). The door props leave with the
+Play test's other objects (a model in the scene moves where the editor's first view frames, which the Scene view test
+starts from) and come back for the Export test: the export served with the backend stopped joins the leaf by its
+place (no definition ships), the console shuts it, `portalsOf` says shut, the room cell falls (0.596 → 0.102). The
+Play test 2.0 min alone before, 2.1 min after (its grid checks 15.1 → 21.0 s). `structure-mode.e2e.ts` second test
+(the pointer and keys as a user): a door and a window placed on one wall (the holes: > 300 px changed), the leaf and
+the pane picked from the fitting models (the 3 × 3 m crate not offered; brown and blue pixels), the door moved 1 m by
+its handle (the leaf moved 1 m), the shop widened 1 m at the end of the door's wall (openings and leaf unchanged),
+the window deleted by Delete (its pane gone, no blue), seven undos to no opening and seven redos, the picture equal;
+6.9 s, the file 22.5 s. Vitest `session/structure-openings.test.ts` (6): the wall under a cell (a corner by the face),
+snapping, the ghost's box, ids, moves, the refusal words (corner, touching, overlapping, too tall, inside where wings
+meet), the fit list and a prop's placement by its bounds.
+
+**Measured** (2026-11-23, WebGPU, the editor's Play at the low tier and its 30 Hz cap, the preview canvas inside a
+1280 × 800 window; scratch spec `work/47a.7b/scratch/zz-door-look.e2e.ts`, numbers in `work/47a.7b/m/`; a yard with
+100 stone houses from the generator, each with a door prop, and a look house at 45°; uptime 1.0–1.4):
+- **Flip → light**: from the script's flip command to the room's volume cell moving a fifth (polled each animation
+  frame, the command's round trip included): shut 729, 974, 967 ms; open 1655, 1624, 971 ms (the first run, houses
+  overlapping by mistake: 679–724 / 495–728). The room's cell: open 0.353, shut 0.068.
+- **Doors flipped in one step** (the second after the flip against the second before it, two rounds; ms):
+
+  | doors | simulation mean / max a step | the peak step and ten after | page lighting mean / max | the peak and ten after |
+  |---|---|---|---|---|
+  | none (before) | 2.1–2.3 / 4.9–8.3 | — | 1.0–1.1 / 1.3–1.5 | — |
+  | 1 | 2.3–2.4 / 8.2–11.9 | 29.8–33.8 | 1.13 / 3.4–4.6 | 13.6–17.4 |
+  | 20 | 2.5 / 9.6–9.8 | 29.6–34.1 | 1.24–1.27 / 4.0–4.6 | 15.0–19.7 |
+  | 100 | 2.8 / 14.0–16.2 | 56.9–60.0 | 1.41–1.54 / 5.0–5.5 | 32.6–35.7 |
+
+  A hundred doors at once cost one simulation step of 14–16 ms (the flips' channel recombines and walk chunks) and
+  the page's lighting about 2× for a second (the volume taking the edits in).
+- **Idle**: 100 open doors against none (the same houses, a Play each, two 5 s windows): simulation 2.14, 2.23 against
+  2.16, 1.95 ms a step: the difference is inside the spread (not resolved).
+- **A world with no portal** (the town orbit, `run.mjs headroom --quality low --rounds 2`, staging's 8 km world, head
+  0c446ea1 against 54d30e9d, the commit before 47a.7, A B A B 07:19–07:55 UTC, load 1.2–1.6; `work/47a.7b/m/O-*`,
+  `summ.py`): simulation ms a frame, rounds 1 and 2: base 2.92 / 2.06 and 2.93 / 2.26, head 2.85 / 2.29 and 3.09 /
+  2.08; page ms base 8.23 / 5.55, 7.65 / 5.78, head 7.31 / 5.92, 8.31 / 5.22; 0–1 missed frames of 89 each. Equal within
+  the spread between rounds: the portal work on the default path costs nothing that can be resolved.
+
+**Pictures** (`~/.cache/thirdlight-phase47a/work/47a.7/look/`, full editor window 1280 × 800, all looked at):
+`01-openings-tool-ghost` (the door's ghost as a blue wire box on the wall, "Click: Door 1 × 2 m on wall 1 of main,
+storey 0" in the status line); `02-door-and-window-placed` (both holes in the wall, the list of two); `03-prop-picker`
+(the selected door boxed with its handle, its fields; the picker's options are a native list the picture cannot show,
+the e2e reads them); `04-door-prop-and-pane` (the brown leaf in the door, the blue pane in the window, the list saying
+"Door leaf (door-1), shut" and "Window pane (window-1), shut, glass"); `05-opening-moved` (the door and leaf a metre
+on); `06-room-door-open-play` and `07-room-door-shut-play` (the same camera in the 45° house's room at the scene's
+default sun, low tier, the leaf left in its doorway in both because flipping `open` does not move it: what the light
+volume alone does): open, the floor and the right wall take bounce light (the room cell 0.306); shut, the room goes
+darker (0.041), but a bright strip stays on the floor inside the threshold and the leaf's inner edge is lit (the sun's
+direct light and its shadow map are not portal state); the two look much alike at a glance. `06b-room-door-open-leaf-
+away-play` and `07b-room-door-shut-leaf-in-play` (the same camera; the test's script takes the leaf out of the doorway
+when it opens the door and puts it back when it shuts it, as a game would): open, the yard and the bench houses are
+seen through the doorway and the floor is lit (0.280); shut, the leaf fills the doorway and the room is dark but for
+the threshold strip (0.057): the difference is plain. `08-house-45deg-door-shut-play` (the turned house with its
+brown leaf, the bench houses behind). Pictures 01–05 were retaken after the openings list was styled as the
+section's other lists (rows on the panel, the selected one marked, its delete beside it). **Ugly or wrong:** the
+structure mode draws the house half transparent with the grid over it, so a ghost reads as inside the wall; the
+list's rows wrap into two or three lines in the 300 px column; the glass checkbox sits on a line of its own under the
+picker; the room pictures are dark and blocky at the low tier; the sun's direct light at the threshold is not stopped
+by a shut door whose leaf is not there to cast the shadow.
+
+**Unverified:** medium and high tiers; WebGL 2 (its smoke only); the 30° and 45° houses' doors in Play pictures
+other than the one; a custom size from the field in the browser (the vitest checks its maths); the touch refusal and
+the corner refusal in the browser (vitest only); stairs (D775); prefab props (D776).
+
+**Gates:** gate-fast-20261123-054403 RED (the Scene view test after Play: the door models moved the editor's first
+view; fixed f5d9831a), gate-fast-20261123-061623 GREEN; gate-fast-20261123-064625 RED (the build: the word "score" in
+the openings maths, fixed 0c446ea1), gate-fast-20261123-064727 (957 vitest files, 79 e2e) RED on
+`scene-loads.e2e.ts:234` alone, its rerun gate-rerun-20261123-071018 RED again; alone it passes 3/3 at the head and
+2/2 at ca0b7718 (D777, watch). The final gates follow.
+
+**D-rows:** D769 fixed (9ddc085f), D770 fixed (6c0cf4f1), D771 narrowed, D736 noted; new D774 (the Scene view's grid
+draw a step behind under fast regenerates), D775 (no stairs tool), D776 (no prefab props), D777 (watch).
+
 ### D761 — a landing far rebuild re-derived the page's near field
 
 **Cause: not the far rebuild.** The ~33,800 `derived` sections in the paint's window (5,046 chunks read again) were
@@ -1822,6 +1929,23 @@ chunks, so nothing is re-read there, as before 894fb4e0).
 - 2026-11-23 (47a.7; default chosen, owner to confirm): **standard opening sizes** (engine data with reasons,
   `OPENING_SIZES`): doors 1 × 2, 1.5 × 2, 2 × 2.5 m; windows 1 × 1, 1 × 1.5, 2 × 1 m on a 1 m sill; **the fit rule**
   (`propFitsOpening`): bounds no wider or taller than the opening and no deeper than a cell, 5 cm tolerance each.
+
+- 2026-11-23 (47a.7 (b); default chosen, owner to confirm): **the structure mode keeps an opening off its wall's end
+  cells and a cell away from any other opening on its wall** (a corner cell belongs to two walls; two openings side by
+  side are one hole and one portal where the world runs, D771); the definition itself still takes both (the
+  generator's checks are unchanged), so MCP may send them.
+- 2026-11-23 (47a.7 (b); default chosen, owner to confirm): **a placed opening is centred on the cell under the
+  pointer and pushed inside the wall's cells**, not refused, when it would reach a corner; a size too wide for the wall
+  is refused with the cells it may use.
+- 2026-11-23 (47a.7 (b); default chosen, owner to confirm): **a prop is placed by its model's bounds** (centred on the
+  opening's width and the wall's thickness, its bottom on the sill), so a model whose origin is a corner stands in its
+  opening; a new prop starts shut (F4's example), a window's as glass; changing an opening's prop is two steps (the old
+  one deleted, the new one made).
+- 2026-11-23 (47a.7 (b); default chosen, owner to confirm): **the prop picker reads a model's bounds from its import's
+  recorded metrics**, answered by `queryAssets` (`bounds`, models only); models imported before bounds were recorded
+  are offered as "size unknown"; models that do not fit are not offered; prefabs are not offered (D776).
+- 2026-11-23 (47a.7 (b); default chosen, owner to confirm): **stairs placement is left to a later item** (D775): the
+  Openings tool and its props took the time.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
