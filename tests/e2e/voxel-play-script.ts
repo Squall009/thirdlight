@@ -153,12 +153,15 @@ export function playScriptSource(at: readonly number[], gridRoom?: readonly numb
     ...(gridPath === undefined ? [] : [
       `    const gyaw = ${gridPath.yawRad}, gP = [${gridPath.position.join(', ')}];`,
       '    const gw = (x: number, y: number, z: number) => [Math.cos(gyaw) * x + Math.sin(gyaw) * z + gP[0], y + gP[1], -Math.sin(gyaw) * x + Math.cos(gyaw) * z + gP[2]];',
-      "    for (const c of ctx.debug.command('gridedit', { description: 'At the house: ray, dig (its wall); shut, open, pane (its door); path, pathshut (porch to room)', args: [{ name: 'what', type: 'string' }] })) {",
-      "      if (c.what === 'dig') {",
+      "    for (const c of ctx.debug.command('gridedit', { description: 'At the house: ray, dig, digpath (its wall); shut, open, pane (its door); path, pathshut, path07, path08 (porch to room)', args: [{ name: 'what', type: 'string' }] })) {",
+      // `digpath`: the dig and, in the same step, a path from the porch before the hole into the room (it waits for the
+      // dig to be in the walk, so it goes through the hole: its waypoints there count as in a wall by the house's cells).
+      "      if (c.what === 'dig' || c.what === 'digpath') {",
       '        const cs = [[0.75, 0.5, -0.25], [2.75, 3, 0.75]];',
       '        const pts = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => gw(cs[k & 1][0], cs[(k >> 1) & 1][1], cs[(k >> 2) & 1][2]));',
       '        const lo = [0, 1, 2].map((a) => Math.min(...pts.map((p) => p[a]))), hi = [0, 1, 2].map((a) => Math.max(...pts.map((p) => p[a])));',
       "        ctx.game.add(v.dig({ min: lo, max: hi }).ok ? 'gridDug' : 'gridDigRefused', 1);",
+      `        if (c.what === 'digpath') state.gpath = v.findPath(gw(1.75, ${gridPath.from[1]} - gP[1], -1.5), [${gridPath.to.join(', ')}]);`,
       '        continue;',
       '      }',
       // The door: its leaf shut or opened by the generic component access; the pane put in the door (the leaf in the
@@ -168,7 +171,8 @@ export function playScriptSource(at: readonly number[], gridRoom?: readonly numb
         "        if (c.what === 'shut' || c.what === 'open') { ctx.game.add(ctx.entity(D.leaf)?.set('voxelPortal', { open: c.what === 'open' }).ok === true ? 'doorSet' : 'doorRefused', 1); continue; }",
         "        if (c.what === 'pane') { const a = ctx.entity(D.leaf)?.set('transform', { position: D.inRoom }); const b = ctx.entity(D.pane)?.set('transform', { position: D.inDoor }); ctx.game.add(a?.ok === true && b?.ok === true ? 'doorSet' : 'doorRefused', 1); continue; }",
       ]),
-      `        if (c.what === 'path' || c.what === 'pathshut') { state.gpath = v.findPath([${gridPath.from.join(', ')}], [${gridPath.to.join(', ')}], c.what === 'pathshut' ? { doors: 'shut-too' } : undefined); continue; }`,
+      // A path by default, through shut doors, or for a walker of 0.7 m (three cells: the 1.5 m door takes it) or 0.8 m (four: none does).
+      `        if (c.what === 'path' || c.what === 'pathshut' || c.what === 'path07' || c.what === 'path08') { state.gpath = v.findPath([${gridPath.from.join(', ')}], [${gridPath.to.join(', ')}], c.what === 'pathshut' ? { doors: 'shut-too' } : c.what === 'path07' ? { radius: 0.7 } : c.what === 'path08' ? { radius: 0.8 } : undefined); continue; }`,
       '      const h = v.raycast(gw(1.75, 1.25, -1.5), [Math.sin(gyaw), 0, Math.cos(gyaw)], 10);',
       '      const nOk = h !== null && Math.abs(h.normal[0] + Math.sin(gyaw)) < 1e-6 && Math.abs(h.normal[1]) < 1e-6 && Math.abs(h.normal[2] + Math.cos(gyaw)) < 1e-6 ? 1 : 0;',
       "      state.gray = (Math.floor((state.gray ?? 0) / 1e8) + 1) * 1e8 + (h === null ? 0 : Math.min(h.grid, 99) * 1e6 + (h.cell[2] + 50) * 1e4 + nOk * 1e3 + Math.min(Math.round(h.distance * 100), 999));",

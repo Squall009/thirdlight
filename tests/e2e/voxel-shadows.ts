@@ -1311,6 +1311,15 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   await expect.poll(gpath, { timeout: 20_000, intervals: [500], message: "a path from the turned house's porch into its room: found, its last waypoint in the room, none in a wall" }).toBe('1,1,0');
   const pathInfo = { inRoom: Math.floor(packed / 1e5) % 1000, cm: packed % 1e5, ms: Date.now() - pathT0 };
   expect(pathInfo.inRoom, 'waypoints in the room').toBeGreaterThan(0);
+  // The walker's width at the 1.5 m door: 0.7 m (three cells) goes in, 0.8 m (four) finds no way (1 found, 3 unreachable).
+  const sized = async (what: 'path07' | 'path08'): Promise<number> => {
+    const n = Math.floor((await counter('gpath')) / 1e12);
+    await control('gridedit', { what });
+    await expect.poll(async () => Math.floor((packed = await counter('gpath')) / 1e12), { timeout: 10_000 }).toBeGreaterThan(n);
+    return Math.floor((packed % 1e12) / 1e11);
+  };
+  expect(await sized('path07'), 'a 0.7 m walker through the 1.5 m door').toBe(1);
+  expect(await sized('path08'), 'a 0.8 m walker: no way in').toBe(3);
   // `ctx.voxels.raycast` at the front wall left of the door meets the house's own cells (grid 1, the wall's row z 0,
   // its face turned outward, 1.5 m on); a dig through that wall opens it: the character then walks in there, and the
   // light in the room rises (the volume on, the house's camera live; the time from the dig to the room's light moving).
@@ -1330,7 +1339,8 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   const shut = await settled("the room's light before the dig");
   const changes = await counter('changes');
   const dugAt = Date.now();
-  await counted('gridedit', 'gridDug', { what: 'dig' });
+  const askedN = Math.floor((await counter('gpath')) / 1e12);
+  await counted('gridedit', 'gridDug', { what: 'digpath' });
   // The room's light moves (an edit restarts what its rays reach: the house's stamp is read again with the hole).
   let moved = shut;
   await expect.poll(async () => { const c = (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? []; moved = lightOf(c[0]); return Math.abs(moved - shut) > 0.2 * Math.max(shut, 0.05); }, { timeout: 30_000, intervals: [100], message: "the room's light moves after the dig" }).toBe(true);
@@ -1341,6 +1351,10 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
   await hook('setStore', 'off');
   await counted('uncam', 'camOff', { id: o.camera });
   await expect.poll(() => counter('changes'), { timeout: 10_000, message: 'the dig swapped in' }).toBeGreaterThan(changes);
+  // The path asked in the dig's step: found, ending in the room, through the hole (its cells were the wall's).
+  await expect.poll(async () => Math.floor((packed = await counter('gpath')) / 1e12), { timeout: 20_000, message: 'the path asked with the dig answered' }).toBeGreaterThan(askedN);
+  const dug = packed % 1e12;
+  expect({ status: Math.floor(dug / 1e11), last: Math.floor(dug / 1e10) % 10, throughHole: Math.floor(dug / 1e8) % 100 > 0 }, 'a path asked in the step of the dig goes in through the hole').toEqual({ status: 1, last: 1, throughHole: true });
   // The dig's way from the script to the screen in the grid's draws (the play page's edit hook, its last for the grid).
   const edits = (await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate(() => (window as unknown as { __tlVoxelPlay: { edits(): unknown[] } }).__tlVoxelPlay.edits())) as { world: string; swapMs: number; visibleMs: number; chunks: number }[];
   const toScreen = edits.filter((e) => e.world === o.drawName).pop() ?? null;
