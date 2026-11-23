@@ -98,6 +98,7 @@ import { placeholderPng, placeholderSet } from '../../tools/voxel-bench/texture-
 import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS } from '@thirdlight/project-model';
 import { canonicalEditCommand, chunkGrid, gridDrawName, cubeRotationIndex, dependentChunks, editBounds, jobRadius, kitTestScene, WORLD_RULES, sectionGrid, VOXEL_ROLE, VOXEL_SIZE_M, type SectionEdge } from '@thirdlight/voxel';
 import { mustCommand } from '../support/commands';
+import { poolInPlay, waterOnPage } from './voxel-liquid';
 import { exportDoorCheck, GLOW_MAT, glowMaskFiles, PLAY_FOV_Y_DEG, PLAY_PITCH, voxelFarLightChecks, voxelGridChecks, voxelRoomChecks, voxelShadowChecks, voxelVolumeLightChecks } from './voxel-shadows';
 import { playScriptSource } from './voxel-play-script';
 import { GRID_HOUSE, GRID_HOUSE_M, gridHouseDoor, gridHousePlacement, gridHousePorch, gridHouseStructure, siteTop } from './voxel-grid-house';
@@ -631,47 +632,7 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
     }
     expect(await hook<{ material: number; wetness: number }>(page, 'voxelAt', ...wallCell)).toMatchObject({ material, wetness: 7 });
 
-    // Water: a pit dug in the pad beside the wall, then liquid added into its lower two rows. Liquid is open space to
-    // every derived output but the liquid part, so the water feeds that part alone: only liquid derives, no mesh built,
-    // and the water drawn flat in its material's (blue) colour. A dig of the pit's bank at the water's level is ground
-    // and feeds what a dig feeds, the water's new side face with it. Each undone in turn.
-    type Water = { liquid: { triangles: number; sets: number; program: boolean }; surface: { meshBuilds: number } };
-    const pit = { min: [ox + 6, oy - 3, oz - 8], max: [ox + 9, oy - 1, oz - 5] };
-    await hook(page, 'look', ox + 8, oy - 2, oz - 6.5, 0.6, 0.75, 9);
-    expect((await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'fill', ...pit, mode: 'dig' })).ok).toBe(true);
-    await hook(page, 'settle');
-    const dryPit = await shot(page);
-    const w0 = await hook<Water>(page, 'state');
-    expect(w0.liquid.triangles).toBe(0);
-    const water = await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'fill', min: pit.min, max: [ox + 9, oy - 2, oz - 5], mode: 'add', voxel: { material: MAT.water, role: VOXEL_ROLE.liquid, wetness: 0 } });
-    expect(water.ok, water.code).toBe(true);
-    expect(water.rederived.length).toBeGreaterThan(0);
-    expect(water.rederived.every((c) => c.endsWith(':liquid')), water.rederived.join(' ')).toBe(true);
-    const w1 = await hook<Water>(page, 'state');
-    expect(w1.surface.meshBuilds - w0.surface.meshBuilds, 'meshes built for the water').toBe(0);
-    expect(w1.liquid.program).toBe(true);
-    // Its top alone (the pit's walls are ground): one quad, or one a derive section it spans.
-    expect(w1.liquid.triangles).toBeGreaterThanOrEqual(2);
-    await hook(page, 'settle');
-    const wet = await shot(page);
-    const blue = (r: number, g: number, b: number): boolean => b > r + 40 && b > g + 10;
-    expect(changedPixels(dryPit, wet, blue), 'blue water pixels in the pit').toBeGreaterThan(400);
-    const bank = await hook<EditAnswer>(page, 'edit', { v: 2, grid: 0, kind: 'fill', min: [ox + 10, oy - 3, oz - 8], max: [ox + 10, oy - 1, oz - 5], mode: 'dig' });
-    expect(bank.ok, bank.code).toBe(true);
-    expect(bank.rederived.some((c) => /^-?\d+,-?\d+,-?\d+$/.test(c)), `the bank's dig derives whole: ${bank.rederived.join(' ')}`).toBe(true);
-    const w2 = await hook<Water>(page, 'state');
-    expect(w2.surface.meshBuilds).toBeGreaterThan(w1.surface.meshBuilds);
-    expect(w2.liquid.triangles, 'the water\'s side face toward the dug bank').toBeGreaterThan(w1.liquid.triangles);
-    expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
-    expect((await hook<Water>(page, 'state')).liquid.triangles).toBe(w1.liquid.triangles);
-    const unwet = await hook<EditAnswer>(page, 'undo');
-    expect(unwet.ok).toBe(true);
-    expect(unwet.rederived.every((c) => c.endsWith(':liquid')), unwet.rederived.join(' ')).toBe(true);
-    expect((await hook<Water>(page, 'state')).liquid.triangles).toBe(0);
-    await hook(page, 'settle');
-    expect(changedPixels(dryPit, await shot(page)), 'the pit as it was before the water').toBeLessThan(100);
-    expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
-    await hook(page, 'look', ox, oy + 3, oz + 2, -0.75, 0.42, 16);
+    await waterOnPage({ page, hook, shot, at: [ox, oy, oz] });
 
     // A restarted backend and a reload (the assembly proof reloaded the page alone and compared every derived hash):
     // the same picture as before, from the region files (the view and the world are the same). The backend builds the
@@ -1556,16 +1517,7 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     await expect.poll(async () => standing.y - ((await observe()).player?.y ?? standing.y), { timeout: 10_000, message: 'the character falls into the pit' }).toBeGreaterThan(1);
     const after = decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('after.png') }));
     expect(changedPixels(before, after)).toBeGreaterThan(500);
-    // A pool of water set in the pit's bottom (air to liquid only): its change keeps meshes and colliders standing, and
-    // the water is drawn, flat in its material's colour (the stand-in blue).
-    const standing0 = (await observe()).counters?.['standing'] ?? 0;
-    expect((await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' })).status).toBe(200);
-    await expect.poll(async () => (await observe()).counters?.['pooled'] ?? 0, { timeout: 10_000 }).toBe(1);
-    await expect.poll(async () => ((await observe()).counters?.['standing'] ?? 0) - standing0, { timeout: 10_000, message: 'the pool\'s change keeps meshes and colliders' }).toBeGreaterThanOrEqual(1);
-    const isWater = (r: number, g: number, b: number): boolean => b > r + 40 && b > g + 10;
-    let pooledPx = 0;
-    await expect.poll(async () => (pooledPx = changedPixels(after, decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot({ path: test.info().outputPath('pooled.png') })), isWater)), { timeout: 10_000, message: 'the pool drawn blue in the pit' }).toBeGreaterThan(100);
-    console.log(`[voxel-play] ${renderer} pool: ${pooledPx} blue pixels`);
+    console.log(`[voxel-play] ${renderer} pool: ${await poolInPlay({ page, after, observe, api: projectApi, psid })} blue pixels`);
     const edits = await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay: VoxelPlayHook }).__tlVoxelPlay.edits());
     expect(edits.length).toBeGreaterThanOrEqual(1);
     const pipeline = ((await projectApi(`play/${psid}/diagnostics`)).json as { diagnostics?: { simulation?: { pipeline?: { workerRoundTripMs: { avg: number; max: number } } | null } } }).diagnostics?.simulation?.pipeline ?? null;
