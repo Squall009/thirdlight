@@ -394,6 +394,61 @@ describe('ctx.voxels in a world with structure grids', () => {
     }
   }, 180_000);
 
+  it('the walker\'s width at the 1.5 m doors, a reach through them, and a path asked in the step of a dig going through the hole', async () => {
+    const g = await game(ALL);
+    await g.inStep(ready, 'the houses loaded and derived');
+    await walkMade(g);
+    // The default character (0.3 m) and a 0.7 m walker (three cells) go in by each 1.5 m door; 0.8 m (four cells) does not.
+    const ways = await paths(g, [{}, { radius: 0.7 }, { radius: 0.8 }]);
+    for (const h of HOUSES) {
+      expect(ways.get(`${h.id}:0`)!.status, `${h.yawDeg}° 0.3 m`).toBe('found');
+      expect(endsIn(ways.get(`${h.id}:0`)!, h.id)).toBe(true);
+      expect(ways.get(`${h.id}:1`)!.status, `${h.yawDeg}° 0.7 m`).toBe('found');
+      expect(ways.get(`${h.id}:2`)!.status, `${h.yawDeg}° 0.8 m`).toBe('unreachable');
+    }
+    // A reach from the street before the 30° house: places in its room (house cells x 1 … 10, z 1 … 8) among them.
+    let reachId = -1;
+    const reached = await g.inStep((v) => {
+      if (reachId < 0) reachId = v.reach(street(2), 10, { points: true });
+      return v.reaches.find((r) => r.reach === reachId);
+    }, 'the reach answered');
+    // (`unknown` where the world's reach meets chunks of the ring's edge not made: its answer, not the grids'.)
+    expect(['found', 'unknown']).toContain(reached.status);
+    const inside = reached.points!.filter((p) => {
+      const q = frameOf(2).toGrid(p[0], p[1], p[2]);
+      return q[0] / M > 1 && q[0] / M < 10 && q[2] / M > 1 && q[2] / M < 8;
+    });
+    expect(inside.length).toBeGreaterThan(20);
+    // In one step: the 0° house's back wall dug (three cells wide, 2 m) and a path asked from behind it into the room.
+    const f = frameOf(1);
+    const a = f.toWorld(5 * M + 0.01, 1 * M + 0.01, (HOUSE.d - 1) * M + 0.01);
+    const b = f.toWorld(8 * M - 0.01, 5 * M - 0.01, HOUSE.d * M - 0.01);
+    const behind = f.toWorld(6.5 * M, 0.25, HOUSE.d * M + 3);
+    const order: string[] = [];
+    let pathId = -1;
+    let digEdit = -1;
+    const answer = await g.inStep((v) => {
+      if (pathId < 0) {
+        const r = v.dig({ min: [Math.min(a[0], b[0]), a[1], Math.min(a[2], b[2])], max: [Math.max(a[0], b[0]), b[1], Math.max(a[2], b[2])] });
+        if (!r.ok) throw new Error(r.message);
+        digEdit = r.edit;
+        pathId = v.findPath(behind, inRoom(1));
+        return undefined;
+      }
+      if (v.changes.some((c) => c.edit === digEdit)) order.push('dig swapped');
+      const p = v.paths.find((x) => x.path === pathId);
+      if (p !== undefined) order.push('path answered');
+      return p;
+    }, 'the path through the hole');
+    expect(answer.status).toBe('found');
+    expect(answer.stale).toBeUndefined();
+    expect(answer.length).toBeLessThan(9);
+    expect(order.indexOf('dig swapped')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('dig swapped')).toBeLessThanOrEqual(order.indexOf('path answered'));
+    // It waited for the dig's chunks and the house's links (the queries across graphs count it).
+    expect((g.walk() as { grids?: { waits: number } } | undefined)?.grids?.waits ?? 0).toBeGreaterThan(0);
+  }, 180_000);
+
   it('a change spanning a house and the ground changes both, each in its own cells, as one change; a set replaces the wall and fills the air before it in the world grid', async () => {
     const g = await game(ALL);
     await g.inStep(ready, 'the houses loaded and derived');

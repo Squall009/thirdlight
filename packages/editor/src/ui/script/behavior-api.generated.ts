@@ -3216,7 +3216,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "reach",
       "kind": "method",
       "detail": "(from: readonly [number, number, number], maxDistance: number, options?: (VoxelWalkOptions & { readonly points?: boolean | undefined; }) | undefined): number",
-      "doc": "Asks for every place a walker can stand within `maxDistance` metres walked from `from`. Returns the query's id, answered in `ctx.voxels.reaches` at a later step: how many, their box and floor area (with `points: true`, each place's middle a"
+      "doc": "Asks for every place a walker can stand within `maxDistance` metres walked from `from`, structures' rooms through their doors included. Returns the query's id, answered in `ctx.voxels.reaches` at a later step: how many, their box and floor "
     },
     {
       "name": "materialAt",
@@ -3387,7 +3387,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "reach",
       "kind": "method",
       "detail": "(from: readonly [number, number, number], maxDistance: number, options?: (VoxelWalkOptions & { readonly points?: boolean | undefined; }) | undefined): number",
-      "doc": "Asks for every place a walker can stand within `maxDistance` metres walked from `from`. Returns the query's id, answered in `ctx.voxels.reaches` at a later step: how many, their box and floor area (with `points: true`, each place's middle a"
+      "doc": "Asks for every place a walker can stand within `maxDistance` metres walked from `from`, structures' rooms through their doors included. Returns the query's id, answered in `ctx.voxels.reaches` at a later step: how many, their box and floor "
     },
     {
       "name": "materialAt",

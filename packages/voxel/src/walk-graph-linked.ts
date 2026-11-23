@@ -114,6 +114,9 @@ export class LinkedWalkQueries {
   private readonly grids = new Map<number, QueryGrid>();
   private readonly jobs: LinkedJob[] = [];
   private readonly reaches: LinkedReach[] = [];
+  /** Waits and restarts of the queries across graphs, their legs' included (the world's own queries count theirs too). */
+  waits = 0;
+  restarts = 0;
 
   constructor(
     readonly world: WalkQueries,
@@ -435,6 +438,8 @@ class LinkedJob {
     });
     this.finished = true;
     const run = { ...this.run, waits: this.run.waits + this.waits, waited: this.run.waited + this.waitServes };
+    this.q.waits += run.waits;
+    this.q.restarts += run.restarts;
     this.done(Object.freeze({ status, ...(reason !== undefined ? { reason } : {}), points, grids, cost, legs: answers.length, tried: this.tried, ...(stale ? { stale: true as const } : {}), run }));
   }
 }

@@ -159,6 +159,8 @@ export class LinkedReach {
   private finishWith(status: 'found' | 'unreachable' | 'unknown'): void {
     if (this.finished) return;
     this.finished = true;
+    this.q.waits += this.run.waits;
+    this.q.restarts += this.run.restarts;
     const M = this.q.world.graph.cellM;
     let count = 0;
     const min = [Infinity, Infinity, Infinity];

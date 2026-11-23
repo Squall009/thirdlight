@@ -62,13 +62,15 @@
  *
  * Paths: `findPath` asks for a way a walker can go from one point to
  * another over the world's voxels (standing on what supports, a step up or
- * down of one cell, through doors as tall as it), `reach` for every place
- * within a walking distance; each is answered at a later step in `paths` or
- * `reaches`, served in the order asked within the path-finding share of a
- * step, so many questions at once never stall one. A path that runs into
- * chunks not loaded yet answers `unknown` with the way to where the known
- * world ends, never `unreachable`. Props and doors are not in the walk: a
- * game steers round its moving obstacles itself.
+ * down of one cell, through doors as tall and as wide as it, into and out of
+ * structures), `reach` for every place within a walking distance; each is
+ * answered at a later step in `paths` or `reaches`, served in the order asked
+ * within the path-finding share of a step, so many questions at once never
+ * stall one. A question asked right after an edit waits until the edit is in
+ * the walk. A path that runs into chunks not loaded yet answers `unknown`
+ * with the way to where the known world ends, never `unreachable`. Props are
+ * not in the walk (a shut door's portal is: `doors`); a game steers round
+ * its moving obstacles itself.
  *
  * Materials: a voxel names its material by id; `materialOf(id)` and
  * `materialAt(x, y, z)` answer with the material record that id is (its name,
@@ -283,9 +285,16 @@ export function voxelPortalInfo(p: OpenPortalInfo, prop: { readonly id: string; 
 export interface VoxelWalkOptions {
   /**
    * The walker's height (default 2 m, at most 8): it goes only where that much is free over the floor (whole 0.5 m
-   * cells, rounded up). Its footprint is one cell: a walker up to 0.25 m in radius.
+   * cells, rounded up).
    */
   readonly height?: number;
+  /**
+   * The walker's radius (default 0.3 m, the default character's capsule; more than 0 and at most 1): it stands on
+   * the square of 0.5 m cells its disc fits in (0.25 m: one cell, 0.5 m: two, 0.75 m: three, 1 m: four), every one
+   * free from a step over its floor to its head, so a 1 m door passes a radius up to 0.5 m and a 1.5 m door one up to
+   * 0.75 m. Waypoints are where its middle stands (a cell's corner for an even number of cells across).
+   */
+  readonly radius?: number;
   /** The deepest drop it walks off a ledge (default 0: it never drops; whole cells, rounded down; with its height at most 8 m). */
   readonly maxDrop?: number;
   /** At most this many places searched (default: no bound): past it the answer is `partial`, the way to where it got closest. */
@@ -311,6 +320,12 @@ export interface VoxelPathAnswer {
   readonly path: number;
   readonly world: string;
   readonly status: VoxelPathStatus;
+  /**
+   * Present (true) when the query read chunks whose walk was not made yet after waiting its bound: an answer asked
+   * just after an edit waits for the edit to be in the walk (a few steps) and starts over; under edits that never stop
+   * it answers from the world as it was, saying so here.
+   */
+  readonly stale?: true;
   /** Why nothing was walked: no place to stand near the start (`from`) or the end (`to`), a malformed point or option (`invalid`), no voxel world loaded (`no_world`). */
   readonly reason?: 'from' | 'to' | 'invalid' | 'no_world';
   /**
@@ -334,6 +349,8 @@ export interface VoxelReachAnswer {
   /** `found`: every way within the distance is known; `unknown`: some way may go on into chunks not loaded yet; `unreachable`: no place to stand near the start. */
   readonly status: 'found' | 'unreachable' | 'unknown';
   readonly reason?: 'from' | 'invalid' | 'no_world';
+  /** Present (true) as a path's {@link VoxelPathAnswer.stale}. */
+  readonly stale?: true;
   /** The places (standing cells of 0.5 × 0.5 m) and the floor area they cover (m²). */
   readonly count: number;
   readonly area: number;
@@ -433,13 +450,14 @@ export interface BehaviorVoxelWorld {
    * Asks for a way a walker can go from `from` to `to` (world metres: where it stands or its middle; the standing
    * place under it, to 2 m, or beside it, is taken). Returns the query's id, answered in `ctx.voxels.paths` at a
    * later step: its waypoints, length and how it ended. Walks over standing places (free cells on what supports, as
-   * tall as the walker), one cell (0.5 m) up or down a step (stairs), round corners (never across one); through
-   * doorways, not props.
+   * tall and as wide as the walker), one cell (0.5 m) up or down a step (stairs), round corners (never across one);
+   * through doorways, not props; into and out of structures by their doors.
    * @graphNode skip a path's points are a list, which a graph output cannot take yet
    */
   findPath(from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions): number;
   /**
-   * Asks for every place a walker can stand within `maxDistance` metres walked from `from`. Returns the query's id,
+   * Asks for every place a walker can stand within `maxDistance` metres walked from `from`, structures' rooms
+   * through their doors included. Returns the query's id,
    * answered in `ctx.voxels.reaches` at a later step: how many, their box and floor area (with `points: true`, each
    * place's middle at its floor).
    * @graphNode skip a reach's answer is an object, which a graph output cannot take yet

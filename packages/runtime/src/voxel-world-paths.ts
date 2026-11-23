@@ -9,11 +9,11 @@
  * The grids' graphs and their links are kept in what the derive slice leaves
  * after the world's graph; their bytes count in the walk graph's budget row.
  */
-import { LinkedWalkQueries, WalkGraphLinks, WalkQueries, type WalkGraph, type WalkQueryOptions, type WalkReachAnswer } from '@thirdlight/voxel';
+import { LinkedWalkQueries, WalkGraphLinks, WalkQueries, type WalkGraph, type WalkQueryOptions } from '@thirdlight/voxel';
 
-import type { VoxelPathAnswer } from './voxel-api';
+import type { VoxelPathAnswer, VoxelReachAnswer } from './voxel-api';
 import type { VoxelGridHost } from './voxel-grid-host';
-import { voxelLinkedPathAnswer, voxelPathAnswer } from './voxel-paths';
+import { voxelLinkedPathAnswer, voxelLinkedReachAnswer, voxelPathAnswer, voxelReachAnswer } from './voxel-paths';
 
 /** The grids' walk graphs summed, and their links (diagnostics). */
 export interface GridWalkStats {
@@ -28,6 +28,9 @@ export interface GridWalkStats {
   readonly links: number;
   readonly linkChunksMade: number;
   readonly linkMs: number;
+  /** Waits and restarts of the queries across graphs (their legs' included). */
+  readonly waits: number;
+  readonly restarts: number;
 }
 
 export class WorldPaths {
@@ -56,9 +59,10 @@ export class WorldPaths {
     else this.queries.path(from, to, options, (w) => answered(voxelPathAnswer(id, world, w)));
   }
 
-  /** The places within a cost of a world cell (the world grid's alone). */
-  reach(from: readonly [number, number, number], maxCost: number, options: WalkQueryOptions & { readonly cells?: boolean }, done: (a: WalkReachAnswer) => void): void {
-    this.queries.reach(from, maxCost, options, done);
+  /** The places within a cost of a world cell, in the world grid and, through their links, the structure grids. */
+  reach(id: number, world: string, from: readonly [number, number, number], maxCost: number, options: WalkQueryOptions & { readonly cells?: boolean }, answered: (a: VoxelReachAnswer) => void): void {
+    if (this.linked !== null) this.linked.reach(from, maxCost, options, (w) => answered(voxelLinkedReachAnswer(id, world, w)));
+    else this.queries.reach(from, maxCost, options, (w) => answered(voxelReachAnswer(id, world, w)));
   }
 
   /** Serves the queries in order within `ms` (the grids' legs after the world's). */
@@ -123,7 +127,7 @@ export class WorldPaths {
       if (g.walk.pending) pending++;
     }
     const l = this.links.stats();
-    return { chunks, cells, pieces, exits, buildMs: Math.round(buildMs * 100) / 100, pending, bytes, links: l.links, linkChunksMade: l.made, linkMs: Math.round(l.ms * 100) / 100 };
+    return { chunks, cells, pieces, exits, buildMs: Math.round(buildMs * 100) / 100, pending, bytes, links: l.links, linkChunksMade: l.made, linkMs: Math.round(l.ms * 100) / 100, waits: this.linked!.waits, restarts: this.linked!.restarts };
   }
 
   /** The grids' part of the world's walk diagnostics (nothing with no grid). */

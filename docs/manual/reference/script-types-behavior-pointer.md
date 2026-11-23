@@ -803,13 +803,14 @@ export interface BehaviorVoxelWorld {
    * Asks for a way a walker can go from `from` to `to` (world metres: where it stands or its middle; the standing
    * place under it, to 2 m, or beside it, is taken). Returns the query's id, answered in `ctx.voxels.paths` at a
    * later step: its waypoints, length and how it ended. Walks over standing places (free cells on what supports, as
-   * tall as the walker), one cell (0.5 m) up or down a step (stairs), round corners (never across one); through
-   * doorways, not props.
+   * tall and as wide as the walker), one cell (0.5 m) up or down a step (stairs), round corners (never across one);
+   * through doorways, not props; into and out of structures by their doors.
    * @graphNode skip a path's points are a list, which a graph output cannot take yet
    */
   findPath(from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions): number;
   /**
-   * Asks for every place a walker can stand within `maxDistance` metres walked from `from`. Returns the query's id,
+   * Asks for every place a walker can stand within `maxDistance` metres walked from `from`, structures' rooms
+   * through their doors included. Returns the query's id,
    * answered in `ctx.voxels.reaches` at a later step: how many, their box and floor area (with `points: true`, each
    * place's middle at its floor).
    * @graphNode skip a reach's answer is an object, which a graph output cannot take yet
@@ -947,6 +948,12 @@ export interface VoxelPathAnswer {
   readonly path: number;
   readonly world: string;
   readonly status: VoxelPathStatus;
+  /**
+   * Present (true) when the query read chunks whose walk was not made yet after waiting its bound: an answer asked
+   * just after an edit waits for the edit to be in the walk (a few steps) and starts over; under edits that never stop
+   * it answers from the world as it was, saying so here.
+   */
+  readonly stale?: true;
   /** Why nothing was walked: no place to stand near the start (`from`) or the end (`to`), a malformed point or option (`invalid`), no voxel world loaded (`no_world`). */
   readonly reason?: 'from' | 'to' | 'invalid' | 'no_world';
   /**
@@ -975,6 +982,8 @@ export interface VoxelReachAnswer {
   /** `found`: every way within the distance is known; `unknown`: some way may go on into chunks not loaded yet; `unreachable`: no place to stand near the start. */
   readonly status: 'found' | 'unreachable' | 'unknown';
   readonly reason?: 'from' | 'invalid' | 'no_world';
+  /** Present (true) as a path's {@link VoxelPathAnswer.stale}. */
+  readonly stale?: true;
   /** The places (standing cells of 0.5 × 0.5 m) and the floor area they cover (m²). */
   readonly count: number;
   readonly area: number;
@@ -1271,24 +1280,5 @@ export interface BehaviorCameraState {
   readonly railSpeed: number;
   readonly fovY: number;
   readonly letterbox: number;
-}
-```
-
-<a id="script-type-save-meta"></a>
-## `SaveMeta`
-
-```ts
-/** What a save shows in the slot list (`ctx.saves.save(slot, meta)`). */
-export interface SaveMeta {
-  /** A title for the slot (up to 128 characters). */
-  title?: string;
-  /** The chapter (up to 128 characters). */
-  chapter?: string;
-  /** The location (up to 128 characters). */
-  location?: string;
-  /** Keep a small picture of the view with the slot. */
-  thumbnail?: boolean;
-  /** The game's own fields for the slot card (at most 8 names → texts of up to 128 characters), returned by `slots()`. */
-  meta?: Readonly<Record<string, string>>;
 }
 ```

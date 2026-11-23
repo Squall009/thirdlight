@@ -1,8 +1,27 @@
-# Script API types (from `SaveSlotInfo`)
+# Script API types (from `SaveMeta`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-save-meta"></a>
+## `SaveMeta`
+
+```ts
+/** What a save shows in the slot list (`ctx.saves.save(slot, meta)`). */
+export interface SaveMeta {
+  /** A title for the slot (up to 128 characters). */
+  title?: string;
+  /** The chapter (up to 128 characters). */
+  chapter?: string;
+  /** The location (up to 128 characters). */
+  location?: string;
+  /** Keep a small picture of the view with the slot. */
+  thumbnail?: boolean;
+  /** The game's own fields for the slot card (at most 8 names → texts of up to 128 characters), returned by `slots()`. */
+  meta?: Readonly<Record<string, string>>;
+}
+```
 
 <a id="script-type-save-slot-info"></a>
 ## `SaveSlotInfo`
@@ -703,9 +722,16 @@ export interface VoxelPortalInfo {
 export interface VoxelWalkOptions {
   /**
    * The walker's height (default 2 m, at most 8): it goes only where that much is free over the floor (whole 0.5 m
-   * cells, rounded up). Its footprint is one cell: a walker up to 0.25 m in radius.
+   * cells, rounded up).
    */
   readonly height?: number;
+  /**
+   * The walker's radius (default 0.3 m, the default character's capsule; more than 0 and at most 1): it stands on
+   * the square of 0.5 m cells its disc fits in (0.25 m: one cell, 0.5 m: two, 0.75 m: three, 1 m: four), every one
+   * free from a step over its floor to its head, so a 1 m door passes a radius up to 0.5 m and a 1.5 m door one up to
+   * 0.75 m. Waypoints are where its middle stands (a cell's corner for an even number of cells across).
+   */
+  readonly radius?: number;
   /** The deepest drop it walks off a ledge (default 0: it never drops; whole cells, rounded down; with its height at most 8 m). */
   readonly maxDrop?: number;
   /** At most this many places searched (default: no bound): past it the answer is `partial`, the way to where it got closest. */

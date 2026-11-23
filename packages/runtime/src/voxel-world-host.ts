@@ -60,6 +60,7 @@ import {
   CollisionRing,
   collisionLeadPoints,
   collisionRingBounds,
+  editBounds,
   EditCommandError,
   EditRefused,
   FarGround,
@@ -88,6 +89,7 @@ import {
   worldBudgetBytes,
   worldStreamer,
   writeSave,
+  type CellBox,
   type ChunkGrid,
   type ChunkSource,
   type FarNodeSource,
@@ -112,7 +114,7 @@ import type { ColliderShape3D, PhysicsPort3D } from './ports';
 import { WorldPortals, type PortalProp } from './voxel-portals';
 import { gridStats, streamerCollisionFeed, VoxelGridHost, type VoxelGridConnection } from './voxel-grid-host';
 import { floorColumns, VoxelFloors } from './voxel-floor';
-import { noPathAnswer, noReachAnswer, voxelReachAnswer, walkCellAt, walkOptionsOf } from './voxel-paths';
+import { noPathAnswer, noReachAnswer, walkCellAt, walkOptionsOf } from './voxel-paths';
 import { WorldPaths } from './voxel-world-paths';
 import { cellCoverage, gridCellsIn, gridChunkBox, gridResident, raycastWithGrids, structureAt, structureBoxAt, VoxelChanges } from './voxel-grid-access';
 import {
@@ -536,7 +538,10 @@ export class VoxelWorldHost {
       host.streamer.on((e) => {
         if (this.disposed) return;
         if (e.type === 'chunk') this.changes.chunk(id, e.cx, e.cy, e.cz, e.shaderOnly);
-        else if (e.type === 'swap') this.changes.swap(id, e.report, (cx, cy, cz) => gridChunkBox(host, cx, cy, cz));
+        else if (e.type === 'swap') {
+          host.walk.editSwapped(e.report.groups);
+          this.changes.swap(id, e.report, (cx, cy, cz) => gridChunkBox(host, cx, cy, cz));
+        }
         else if (e.type === 'mismatch') this.events.mismatch(Object.freeze({ world: this.name, grid: id, chunk: gridChunkBox(host, e.cx, e.cy, e.cz), kept: e.applied }));
       });
     }
@@ -644,6 +649,7 @@ export class VoxelWorldHost {
     } else if (e.type === 'mismatch') {
       this.events.mismatch(Object.freeze({ world: this.name, grid: 0, chunk: this.chunkBox(e.cx, e.cy, e.cz), kept: e.applied }));
     } else if (e.type === 'swap') {
+      this.walk?.editSwapped(e.report.groups);
       this.changes.swap(0, e.report, (cx, cy, cz) => this.chunkBox(cx, cy, cz));
     }
   }
@@ -1040,7 +1046,7 @@ export class VoxelWorldHost {
     const o = walkOptionsOf(options);
     if (a === null || o === null || typeof maxDistance !== 'number' || !(maxDistance >= 0) || !Number.isFinite(maxDistance)) this.events.reachAnswered(noReachAnswer(id, this.name, 'unreachable', 'invalid'));
     else if (this.paths === null) this.events.reachAnswered(noReachAnswer(id, this.name, 'unknown'));
-    else this.paths.reach(a, maxDistance, { ...o, cells: options?.points === true }, (w) => this.events.reachAnswered(voxelReachAnswer(id, this.name, w)));
+    else this.paths.reach(id, this.name, a, maxDistance, { ...o, cells: options?.points === true }, (w) => this.events.reachAnswered(w));
     return id;
   }
 
@@ -1187,6 +1193,8 @@ export class VoxelWorldHost {
         cells += o.cells;
         if (o.cells === 0) continue;
         this.changes.joined(change, cmd.grid, o.group);
+        // A path asked before the edit's swap reads its chunks as not current and waits for them.
+        (g?.walk ?? this.walk)?.editSent(o.group, walkEditChunks((g?.streamer ?? s).grid, cmd));
         // A structure's cells changed: its stamp into the world's light, sun heights and rooms is read again.
         if (g !== null) g.stampDirty = true;
       }
@@ -1272,4 +1280,21 @@ export class VoxelWorldHost {
     };
     return this.apply([...painted(0, this.streamer!, regionCellList(r)), ...this.gridCommands(region, r, (grid, cells) => painted(grid, this.grids.find((h) => h.frame.gridId === grid)!.streamer, cells))]);
   }
+}
+
+/**
+ * The chunks whose walk an edit can change: its cells' box and a cell round it (a cell edited changes whether the one
+ * over it stands, and the clearance of those under it), as chunks.
+ */
+function walkEditChunks(grid: ChunkGrid, cmd: VoxelEditCommand): (readonly [number, number, number])[] {
+  let b: CellBox;
+  try {
+    b = editBounds(grid, cmd);
+  } catch {
+    return [];
+  }
+  const s = grid.shift;
+  const out: (readonly [number, number, number])[] = [];
+  for (let cx = (b.minX - 1) >> s; cx <= (b.maxX + 1) >> s; cx++) for (let cy = (b.minY - 1) >> s; cy <= (b.maxY + 1) >> s; cy++) for (let cz = (b.minZ - 1) >> s; cz <= (b.maxZ + 1) >> s; cz++) out.push([cx, cy, cz]);
+  return out;
 }
