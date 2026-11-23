@@ -27,6 +27,7 @@ import { defaultMaterials, definitionOf, newStructure, NO_CONSTRUCTION_MATERIAL,
 import type { StructureArm } from '../../viewport/structure-tool';
 import type { ClientRef, SetNotice, ViewportRef } from './commands';
 import { useWaterTools, type WaterTools } from './useWaterTools';
+import { useSplineVoxelTools, type SplineVoxelTools } from './useSplineVoxelTools';
 
 /** A grid as the world's route answers it (what the mode reads). */
 export interface StructureGridInfo {
@@ -73,6 +74,8 @@ export interface StructureTools {
   setGlass(propId: string, glass: boolean): Promise<void>;
   /** The water bodies' section and reports (the same voxel materials and world routes). */
   readonly water: WaterTools;
+  /** Splines that write voxels: their Inspector section's commands and the backend's reports. */
+  readonly splines: SplineVoxelTools;
 }
 
 interface Deps {
@@ -316,6 +319,7 @@ export function useStructureTools(deps: Deps): StructureTools {
   }, [run]);
 
   const water = useWaterTools({ clientRef, viewportRef, materials, entities: deps.entities });
+  const splines = useSplineVoxelTools({ clientRef, viewportRef, materials, entities: deps.entities });
 
-  return { startCreate, arm, materials, define, regenerateAll, grids, refresh, readout, refusal, creating, picked, pick, opening, selectOpening, propAssets, setProp, setGlass, entities: deps.entities, water };
+  return { startCreate, arm, materials, define, regenerateAll, grids, refresh, readout, refusal, creating, picked, pick, opening, selectOpening, propAssets, setProp, setGlass, entities: deps.entities, water, splines };
 }

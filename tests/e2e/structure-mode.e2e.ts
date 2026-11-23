@@ -10,6 +10,9 @@
  * A water body in a hollow of the same yard: made from "+ Add component", followed when its bank is dug back (one
  * undo for the dig and the water), raised by its level handle, drained and flagged when a trench passes its reach.
  *
+ * A spline across the yard made a road from the Inspector's spline voxels section (a cut with a road floor), its middle
+ * point's grip dragged (one command on release: the old cut filled, the new one cut), and one undo putting it back.
+ *
  * One backend for the file. Pictures go to the test's output folder and, with TL_LOOK_DIR set, the owner's set there.
  */
 import { copyFileSync, mkdirSync } from 'node:fs';
@@ -32,7 +35,7 @@ let be: E2EBackend;
 const WORLD = 'yard';
 /** The yard: flat grass, its top at y = 0, 64 m a side round the origin. */
 const HALF_CELLS = 64;
-const MAT = { grass: 3, stone: 10, roof: 13, brick: 20, water: 30 } as const;
+const MAT = { grass: 3, stone: 10, roof: 13, brick: 20, road: 21, water: 30 } as const;
 
 test.beforeAll(async () => {
   be = await startBackend('e2e-structure');
@@ -979,5 +982,124 @@ test('water bodies: a hollow becomes a lake from Add component, a bank dug back 
   // At the camera of the drained picture (the view may have backed off for the marker).
   expect(waterCount(await pictureOf('28-breach-closed')), 'the lake back').toBeGreaterThan(waterCount(drained) + 5_000);
   console.log(`[water] water body test ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  expect(errors).toEqual([]);
+});
+
+/** Pixels of the road's yellow. */
+function roadMask(img: Image): Uint8Array {
+  const m = new Uint8Array(img.width * img.height);
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, b] = img.pixel(x, y);
+    if (r > 140 && g > 120 && r > b + 50 && g > b + 30) m[y * img.width + x] = 1;
+  }
+  return m;
+}
+const ones = (m: Uint8Array): number => m.reduce((n, v) => n + v, 0);
+/** Pixels set in `a` and not in `b`. */
+const only = (a: Uint8Array, b: Uint8Array): number => a.reduce((n, v, i) => n + (v === 1 && b[i] === 0 ? 1 : 0), 0);
+
+test('splines write voxels: a spline made a road from the Inspector, its middle point dragged (the old cut gone, the new one written), one undo puts it back', async ({ page }) => {
+  test.setTimeout(180_000);
+  const t0 = Date.now();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const errors = consoleErrors(page);
+  const lookDir = process.env['TL_LOOK_DIR'] ?? '';
+  if (lookDir !== '') await cmd('setEnvironment', { environment: { quality: 'low' } });
+  await cmd('setMaterial', { material: { materialId: 'mat-road', name: 'Road', shader: 'standard', params: { color: '#d8b830' }, textures: {}, voxel: { id: MAT.road, use: 'terrain' } } });
+  const all = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { components: Record<string, unknown> }[] }).entities;
+  if (!all.some((e) => (e.components['voxelWorld'] as { world?: string } | undefined)?.world === WORLD)) await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Yard', transform: { position: [0, 0, 0] }, components: { voxelWorld: { world: WORLD } } });
+  // A spline across the yard's near side, half a metre under the grass: a road there is a cut with a floor of road.
+  const points = [{ at: [-16, -0.5, 0] }, { at: [0, -0.5, 0] }, { at: [16, -0.5, 0] }];
+  const spline = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Lane', transform: { position: [0, 0, -24] }, components: { spline: { points, width: 4 } } }))['createdId']);
+  const marker = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Marker 4', transform: { position: [400, 0, 0] } }))['createdId']);
+  await page.goto(editorUrlFor(be.editorUrl, 'webgpu'));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const view = page.locator('canvas.tl-viewport');
+  const box = (await view.boundingBox())!;
+  const select = async (id: string): Promise<void> => page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
+  await select(spline);
+  await page.keyboard.press('f');
+  // Backed off from the framed spline: the road's whole run and the ground either side in the view.
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let k = 0; k < 4; k++) await page.mouse.wheel(0, 300);
+  const settled = async (): Promise<number> => {
+    let rev = -1;
+    await expect.poll(async () => { const v = (await sceneViewVoxels(page))?.states[WORLD]; rev = v?.revision ?? -1; return v?.settled === true; }, { timeout: 60_000, intervals: [16], message: 'the yard drawn as it stands' }).toBe(true);
+    return rev;
+  };
+  await settled();
+  const pictureOf = async (name: string): Promise<Image> => {
+    await select(marker);
+    const img = await still(page, name);
+    await look(page, name);
+    return img;
+  };
+  const splineOf = async (): Promise<{ points: { at: number[] }[]; voxels?: Record<string, unknown> }> => ((await query('queryEntity', { entityId: spline })) as { entity: { components: { spline: never } } }).entity.components.spline;
+  const bare = await pictureOf('30-lane-bare');
+  const inspect = inspector(page);
+  const state = inspect.getByLabel('spline voxels state');
+  const written = async (): Promise<number> => Number((await state.getAttribute('data-written')) ?? '-1');
+
+  // ---- Made: the Inspector's Road button, its surface the road material, a metre of air cleared over it -----------
+  await select(spline);
+  await inspect.getByLabel('write a road').click();
+  await expect.poll(async () => (await splineOf()).voxels?.['kind'], { timeout: 20_000 }).toBe('road');
+  await select(spline);
+  await inspect.getByLabel('spline writes material').selectOption(String(MAT.road));
+  await expect.poll(async () => (await splineOf()).voxels?.['material'], { timeout: 20_000 }).toBe(MAT.road);
+  await select(spline);
+  const clear = inspect.getByLabel('spline writes clear', { exact: true });
+  await clear.fill('1');
+  await clear.press('Enter');
+  await expect.poll(async () => (await splineOf()).voxels?.['clear'], { timeout: 20_000 }).toBe(1);
+  await select(spline);
+  // 32 m long, 4 m wide: 64 × 8 columns, each its road cell and the grass row over it cut away (its bed of grass is the ground's own).
+  await expect.poll(written, { timeout: 20_000, message: 'the Inspector says what the road holds' }).toBe(64 * 8 * 2);
+  const madeRev = await settled();
+  const made = roadMask(await pictureOf('31-lane-road'));
+  console.log(`[splines] road pixels: bare ${ones(roadMask(bare))}, road ${ones(made)}`);
+  expect(ones(made) - ones(roadMask(bare)), 'the road drawn').toBeGreaterThan(3_000);
+
+  // ---- The middle point's grip dragged across the ground: one command on release, the old cut filled, the new one cut
+  await select(spline);
+  type Grip = { component: string; kind: string; handle: string; x: number; y: number };
+  const grips = async (): Promise<Grip[]> => JSON.parse((await view.getAttribute('data-size-handles')) ?? '[]') as Grip[];
+  let grip: Grip | undefined;
+  await expect.poll(async () => (grip = (await grips()).find((g) => g.component === 'spline' && g.handle === 'p1')) !== undefined, { timeout: 10_000, message: "the middle point's grip" }).toBe(true);
+  const before = await splineOf();
+  const sentAt = Date.now();
+  await page.mouse.move(grip!.x, grip!.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 12; i++) await page.mouse.move(grip!.x, grip!.y + i * 10);
+  // Held still mid-drag: nothing is sent until the release.
+  expect(JSON.stringify((await splineOf()).points)).toBe(JSON.stringify(before.points));
+  await page.mouse.up();
+  await expect.poll(async () => JSON.stringify((await splineOf()).points) !== JSON.stringify(before.points), { timeout: 20_000, message: 'the point moved on release' }).toBe(true);
+  const moved = (await splineOf()).points[1]!.at;
+  expect(Math.abs(moved[2]!), 'dragged a few metres across').toBeGreaterThan(2);
+  await expect.poll(async () => (await sceneViewVoxels(page))?.states[WORLD]?.revision ?? 0, { timeout: 20_000, intervals: [16] }).toBeGreaterThan(madeRev);
+  const movedRev = await settled();
+  console.log(`[splines] the point dragged to ${JSON.stringify(moved)}; written and settled ${Date.now() - sentAt} ms after the press`);
+  const after = roadMask(await pictureOf('32-lane-point-moved'));
+  expect(only(made, after), 'the old cut gone (grass where the road ran)').toBeGreaterThan(1_000);
+  expect(only(after, made), 'the new course written').toBeGreaterThan(1_000);
+  await select(spline);
+  await expect.poll(async () => Number((await inspect.getByLabel('spline voxels state').getAttribute('data-written')) ?? '-1'), { timeout: 20_000 }).toBeGreaterThan(0);
+
+  // ---- One undo: the point back, the road where it ran ------------------------------------------------------------
+  await view.hover();
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => JSON.stringify((await splineOf()).points), { timeout: 20_000, message: 'one undo takes the point back' }).toBe(JSON.stringify(before.points));
+  await expect.poll(async () => (await sceneViewVoxels(page))?.states[WORLD]?.revision ?? 0, { timeout: 20_000, intervals: [16], message: "the undo's voxels in the view" }).toBeGreaterThan(movedRev);
+  await settled();
+  // The view's revision can move before its settled flag drops for the chunks it reads again: pictures until it shows them.
+  let undone = roadMask(await pictureOf('33-lane-undone'));
+  for (let k = 0; k < 40 && only(made, undone) + only(undone, made) >= 0.05 * ones(made); k++) {
+    await page.waitForTimeout(250);
+    await settled();
+    undone = roadMask(await pictureOf('33-lane-undone'));
+  }
+  expect(only(made, undone) + only(undone, made), 'the road as it was before the drag').toBeLessThan(0.05 * ones(made));
+  console.log(`[splines] spline test ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   expect(errors).toEqual([]);
 });

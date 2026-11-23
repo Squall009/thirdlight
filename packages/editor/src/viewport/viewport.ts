@@ -1114,7 +1114,8 @@ export class Viewport {
    *   edits sent through `cb`;
    * - `info`: a world's route as the backend answers it now (null: not read);
    * - `listen`: the feed's voxel changes (the structure mode's counts and misfits); returns the unsubscribe;
-   * - `waterLeaks`: where the water bodies leak (the backend's reports), marked in the view (an empty list: none).
+   * - `waterLeaks`: where the water bodies leak (the backend's reports), marked in the view (an empty list: none);
+   * - `splineMarks`: the cells splines' last writes left alone or could not keep, marked the same way.
    */
   readonly voxelWorlds = {
     changed: (c: VoxelsChangedPayload | 'kits' | { readonly materials: readonly VoxelLookRecord[] }): void => {
@@ -1129,6 +1130,11 @@ export class Viewport {
       this.voxels.waterLeaks(marks);
       // Where the marks stand (tests read them).
       this.root.setAttribute('data-water-leaks', JSON.stringify(marks.map((m) => m.at)));
+      this.requestRender();
+    },
+    splineMarks: (marks: readonly WaterLeakMark[]): void => {
+      this.voxels.splineMarks(marks);
+      this.root.setAttribute('data-spline-marks', JSON.stringify(marks.map((m) => m.at)));
       this.requestRender();
     },
   };

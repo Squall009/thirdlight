@@ -162,16 +162,24 @@ export class SceneVoxels {
 
   /** Where the water bodies leak, marked over the scene (the backend's reports). */
   private readonly leaks: WaterLeakMarkers | null;
+  /** The cells splines' last writes left alone or could not keep. */
+  private readonly splineCells: WaterLeakMarkers | null;
 
   constructor(private readonly host: SceneVoxelsHost) {
     this.textureStreamer = createTextureStreamer({ budgetBytes: textureBudgetBytesOf(undefined), onChange: () => host.requestRender() });
     this.draws = this.makeDraws();
     this.leaks = host.overlay === undefined ? null : new WaterLeakMarkers(host.overlay);
+    this.splineCells = host.overlay === undefined ? null : new WaterLeakMarkers(host.overlay, 'spline-cells');
   }
 
   /** The places water bodies leak, marked in the view (an empty list clears them). */
   waterLeaks(marks: readonly WaterLeakMark[]): void {
     this.leaks?.set(marks);
+  }
+
+  /** The cells splines' last writes left alone or could not keep, marked in the view (an empty list clears them). */
+  splineMarks(marks: readonly WaterLeakMark[]): void {
+    this.splineCells?.set(marks);
   }
 
   /** Reads the project's kits once and gives the draws their pieces; resolves to the kits the worker derives with. */
@@ -550,6 +558,7 @@ export class SceneVoxels {
 
   dispose(): void {
     this.leaks?.dispose();
+    this.splineCells?.dispose();
     for (const answer of this.picks.values()) answer(null);
     this.picks.clear();
     this.worker?.terminate();

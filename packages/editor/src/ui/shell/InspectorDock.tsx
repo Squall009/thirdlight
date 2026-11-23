@@ -61,6 +61,7 @@ import type { EntityEditing } from './useEntityEditing';
 import { KitInspectorLink } from '../kit/KitPanels';
 import { StructureFields } from '../structure/StructureFields';
 import { WaterBodyFields } from '../water/WaterBodyFields';
+import { SplineVoxelFields } from '../spline/SplineVoxelFields';
 import type { WaterBodyValue } from './useWaterTools';
 import type { StructureTools } from './useStructureTools';
 import type { StructureValue } from '../../session/structure-shape';
@@ -449,6 +450,8 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
           : {
               ...(roomsSection !== null || archCover !== null ? { architecture: <>{roomsSection}{archCover}</> } : {}),
               ...(modelCover !== null ? { model: modelCover } : {}),
+              // What the spline writes into its scene's voxel world: named materials, and the backend's report of its last write.
+              ...(selected.components['spline'] !== undefined ? { spline: <SplineVoxelFields entity={selected} tools={props.structure.splines} /> } : {}),
               ...(typeof (selected.components['voxelWorld'] as { world?: unknown } | undefined)?.world === 'string'
                 ? {
                     voxelWorld: (

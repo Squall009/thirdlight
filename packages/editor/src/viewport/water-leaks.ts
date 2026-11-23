@@ -2,7 +2,8 @@
  * Where water bodies leak, drawn over the Scene view: a marker at each
  * place the backend reports a body's fill would leave its bound (past its
  * reach, out of the world it knows), so the designer sees where to close
- * the gap. A post from the place down to the ground it stands over is not
+ * the gap. The same markers show the cells a spline's last write left
+ * alone or could not keep (edited since it wrote them). A post from the place down to the ground it stands over is not
  * known here: the marker is a cross of three lines and a ring at the
  * place, in the misfit colour, drawn over everything (no depth test: a
  * leak behind a hill is still found). Drawn only, never picked.
@@ -29,8 +30,9 @@ export class WaterLeakMarkers {
   private lines: THREE.LineSegments | null = null;
   private key = '';
 
-  constructor(parent: THREE.Object3D) {
-    this.group.name = 'water-leaks';
+  /** `name`: what the view's group is called (the leaks', or another set of marks). */
+  constructor(parent: THREE.Object3D, private readonly name = 'water-leaks') {
+    this.group.name = name;
     parent.add(this.group);
   }
 
@@ -58,7 +60,7 @@ export class WaterLeakMarkers {
     this.lines = new THREE.LineSegments(g, m);
     this.lines.renderOrder = ORDER;
     this.lines.frustumCulled = false;
-    this.lines.name = 'water-leak-marks';
+    this.lines.name = `${this.name}-marks`;
     this.lines.userData['marks'] = marks.length;
     this.group.add(this.lines);
   }
