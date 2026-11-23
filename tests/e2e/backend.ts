@@ -5,7 +5,7 @@
  * specs share.
  */
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -41,6 +41,10 @@ export interface E2EBackend {
 export async function startBackend(projectId = 'e2e-0001', template?: string, extraEnv: Record<string, string> = {}): Promise<E2EBackend> {
   const dataRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-'));
   const exportRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-export-'));
+  // Never empty: the host's hourly disk-temp sweep deletes empty folders two deep in the temp roots
+  // (~/.cache/clean-disk-tmp.sh), and an export root nothing has written to yet is one: a file's Export test that ran
+  // past the hour's 17th minute found "the configured exportRoot is not a directory".
+  writeFileSync(join(exportRoot, 'README'), 'e2e export root\n');
   // One owner token covers the project routes and the admin routes.
   const token = `e2e-owner-${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
   const adminToken = token;

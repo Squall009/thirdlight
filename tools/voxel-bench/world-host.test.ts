@@ -1155,7 +1155,9 @@ describe('paths and reaches over a world (ctx.voxels.findPath, reach)', () => {
     expect(found.status).toBe('found');
     // The start's standing place: in its column, or in one beside it (where its own has no floor near the point).
     expect(Math.max(Math.abs(found.points[0]![0] - 0.25), Math.abs(found.points[0]![2] - 0.25))).toBeLessThanOrEqual(VOXEL_SIZE_M);
-    expect(found.points.at(-1)).toEqual(far);
+    // It ends on the reached place's cell, where the default walker (two cells across) has its middle: the cell's
+    // corner a half-cell on x and z from the place's middle.
+    expect(found.points.at(-1)).toEqual([far[0] + VOXEL_SIZE_M / 2, far[1], far[2] + VOXEL_SIZE_M / 2]);
     const p0 = found.points[0]!;
     expect(found.length).toBeGreaterThanOrEqual(Math.hypot(far[0] - p0[0], far[2] - p0[2]) - 1e-9);
     expect(found.length).toBeLessThanOrEqual(8 + 1e-9);
