@@ -9,7 +9,7 @@ branch code. Nothing is merged or deployed in phase 46 (the merge is 48c). tools
 folder with main, so one gate at a time still holds.
 Main at the freeze: d4053cab. Phase 46 base on the branch: aeb8114a (phase 45 done, format spec v1 APPROVED by the owner 2026-11-02).
 46a DONE at ac283f22 (2026-11-03); 46b DONE at 6ffc2031 (2026-11-04). Last D-row used: D499; NEW BLOCK D500–D599 (continue at D500).
-CURRENT PHASE: 47a, structures and water bodies (see the "47a" section at the end: it takes precedence over older
+CURRENT PHASE: 47L, the lighting pass (see the "47L" section at the very end: it takes precedence; the "47a" section's HOW YOU WORK still holds). Before it: 47a, structures and water bodies (see the "47a" section at the end: it takes precedence over older
 sections where they differ; the lead's prompt names your item). 46e-b is DONE and accepted (6eab7d86). NEVER start 47b.
 Code agents run one at a time (they share the worktree's dist/); a docs-only agent may run beside you.
 
@@ -409,3 +409,23 @@ REPORT to the lead at the end: commits, the gate's log name and result, numbers 
 by path, D-rows opened or closed, what is unverified, what you left out and why.
 DONE = works in a real browser on WebGPU, a test at the boundary it changes, the gate green, §7's row and §8a's results
 written (§6 untouched), pushed.
+
+47L (owner 2026-11-24). CURRENT PHASE = 47L, the lighting pass: docs/plan-phase-47l.md §6 is the item table (the
+CONTRACT: never edit it; status in §7's row, at most 400 characters; results in §8a; decisions in §9). Start commit
+41bbcf38. D-rows continue at D802 (block to D899; grep both audit files first).
+READ: AGENTS.md; docs/plan-phase-47l.md in full; docs/architecture/voxel-engine.md; the "47a" section above (its OWNER
+DECISIONS, SCOPE FENCE and HOW YOU WORK hold in full) and the 46e-b section (how anything that draws or lights is
+measured); then only what your brief points at.
+WHAT IS DIFFERENT IN 47L:
+- You run in the FOREGROUND of the lead's turn. NEVER use `run_in_background`, never start a detached helper and
+  poll it with sleep loops in separate calls: every command is one blocking call under 10 minutes (`timeout 560 …`;
+  for a gate: `tools/gate.sh start …` then repeated `timeout 560 tools/gate.sh wait`). A command that hits a tool
+  timeout is moved to the background by the harness: avoid it by the 560 s bound.
+- Work folder ~/.cache/thirdlight-phase47l/work/<item>/ with `progress.txt` (a dated line a step).
+- No stored thing is expected in this phase: a fix that needs one is an OWNER STOP (report to the lead).
+- The light walk and its WGSL twin change together, in one commit, with the test that pairs them.
+- A picture is evidence only with its settle state recorded (streaming settled or not, far field settled or not);
+  every picture you report you have opened and looked at, and you say what is still wrong in it.
+- Reference cameras live in tools/voxel-bench/lighting-cameras.ts (one list); bench worlds are changed only through
+  the commands and restored after; staging on 127.0.0.1 only while you test; leave nothing running.
+- Gates by affected area (never `phase` or `full`): the lead runs the close's gates.
