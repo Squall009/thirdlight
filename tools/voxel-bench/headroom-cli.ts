@@ -270,7 +270,8 @@ async function main(): Promise<void> {
       if (trace.length < 200 && (Date.now() - T0) / 5000 >= trace.length) trace.push({ s: Math.round((Date.now() - T0) / 1000), far: s?.far ?? null, sim: sim ?? null });
       if (madeAt === null && sim !== undefined && (sim.drawn ?? 0) > 0 && sim.pending === 0 && sim.jobs === 0 && (s?.far.nodes ?? 0) > 0) madeAt = Date.now();
       if (settle.step(s?.far, Date.now()) || (madeAt !== null && Date.now() - madeAt > 5000)) break;
-      if (Date.now() - T0 > 420_000) throw new Error('the far field did not settle in 7 min');
+      // Name what it stopped on: a far field that selects nothing (none drawn, nothing pending) is not one still moving.
+      if (Date.now() - T0 > 420_000) throw new Error(`the far field did not settle in 7 min (last: ${JSON.stringify({ selected: (sim as { selected?: number } | undefined)?.selected ?? null, drawn: sim?.drawn ?? null, pending: sim?.pending ?? null, jobs: sim?.jobs ?? null, nodes: s?.far.nodes ?? null })})`);
       await page.waitForTimeout(250);
     }
     out['fillS'] = Number(((Math.min(settle.since, madeAt ?? Infinity) - T0) / 1000).toFixed(1));

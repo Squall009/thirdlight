@@ -94,7 +94,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 |---|---|
 | 47L.0 | Done 2026-11-24 (no fix, no gate): reference cameras `ref-30m`…`ref-150m` (4230f8e7); clean world proven by regeneration; 30 shots settled. Specks and roof-ridge gaps are old: the same at 760c2aa0, b5093d11 and the head; specks gone with the volume off (a light read), gaps not (level 1 geometry, D802). Not 47a, no bisect. water/02's missing front is the lake dig (§8a) |
 | 47L.1 | not started |
-| 47L.2 | not started |
+| 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
 | 47L.3 | not started |
 | 47L.4 | not started |
 | 47L.5 | not started |
@@ -170,6 +170,65 @@ cells. D802 opened; D744 and D784 written with this evidence; D803 (the bench ca
 camera's auto-exposure (D803) changes the pictures; the gaps' cause at level 1 is inferred from the tier comparison, not
 traced.
 
+### 47L.2 — the missing house parts: the seam between level 0 and level 1 across a roof
+
+**Not the 1 m level.** In Node (scripts in `work/47L.2/scripts/`) every world-grid house of the town at level 1 has one
+roof cell a column, steps of one (`scan.ts`), whole top-down and oblique coverage (`rays.ts`) and every roof triangle
+showing roof tiles (`shown.ts`). In the browser (a diagnostic hook, kept only as `work/47L.2/diag-hooks.patch`) the 47
+level-1 nodes drawn at `ref-100m` have exactly Node's index counts and their shader grids read back from the GPU equal
+Node's texel for texel (`raw/diag-region-off/`, `scripts/grids.ts`); with the far field hidden the bands stay
+(`crops/diag-100m-far-hidden.png`): near geometry. And the gapped houses change from run to run
+(`crops/diag-60m.png` against 47L.0's): the level choice.
+
+**The cause.** At `ref-100m` house (7, 6) (three storeys, x 15–28 m, z −4–8 m) is cut along its ridge by the face z = 0
+m between a level-1 node drawn split into level-0 chunks (the part within the level-0 ring) and one drawn at level 1.
+Level 1 lays the roof a fine cell or two higher than level 0 (by design: the coarse stair's eave is the parent of the
+fine eave), so the seam (lod-seam.ts) joins two slabs a fine cell thick that do not line up: by distance alone the
+coarse underside's boundary landed on the fine top's, the fine underside's boundary was reached by no strip, and its
+flap, hung a coarse cell inward along its normal, stood out through the fine roof's top facing down and out. Camera rays
+through the band's pixels on the drawn set rebuilt in Node (`scripts/cam.ts`, back faces culled) meet that flap first
+(rows 291–297, normal (0, −0.71, −0.71), above the level-0 roof): the grey band (sky-lit underside) with the light off,
+the dark band with specks with it on.
+
+**The fix** (9d9a88da, `packages/voxel/src/lod-seam.ts`): a coarse boundary vertex whose nearest fine edge faces the
+other way (cosine below −½: a thin slab's far side) moves to the nearest fine edge facing its way (cosine above ½)
+when that lies at most a coarse cell farther; rims and creases, whose normals lean between, keep the nearest. Generic:
+any slab a fine cell thick that the two levels place differently (sloped roofs at 45° and 1:2; a floor or a wall is
+already matched by distance, the levels' faces lining up within a fine cell). Nothing stored changes; seams are derived.
+
+**Test** (`tools/voxel-bench/derived.test.ts`, "closes a gabled roof cut by a level-1 node face…"): the town's
+three-storey house cut by a level-1 node face along its ridge on the near slope, at the ridge, on the far slope, and
+across it; rays from above at 8°–70° and every azimuth aimed at the roof within four cells of the face, against the
+level-1 node, the level-0 chunks and the seam as the page draws them; a ray level 0 alone shows the roof to must not meet
+a face looking down. Without the fix 100 of 5,120 rays fail on the near-slope cut; with it none. The seam patch test,
+stream-levels and mesh-cases stay green.
+
+**Cost.** The level-1 derive is untouched (its meshes and bytes are what they were). The seam bench (`run.mjs seams
+--patches features,town --levels 0,1 --sparse 4`, `work/47L.2/seams/{base,fixed}/seams.md`): no crack ray on any patch
+before or after; on the town L0|L1 the seam adds 1,585 triangles instead of 1,754, unmatched edges 56 instead of 218,
+open edges 524 m instead of 714 m; L1|L2 1,278 triangles instead of 2,840. Triangles drawn at mid distance fall
+slightly, so the orbit and the 128-lamp headroom were not run again (the plan's rule: only when they grow by a few
+percent).
+
+**Pictures** (2026-11-24 15:58–16:01 UTC, low, WebGPU, 1280 × 720, built at 9d9a88da, every shot settled in 3.8–12.4 s
+with nothing pending; `work/47L.2/shots/after/<camera>-{on,off}.png` and `.json`; before: 47L.0's `shots/head/`; crops
+before above after in `work/47L.2/crops/`: `ref-100m-{on,off}-ridges.png`, `ref-60m-{on,off}-gables.png`,
+`ref-150m-{on,off}-mid.png`, `street-noon-{on,off}-far.png`). Opened and looked at: with the light off the grey bands on
+the 60 m and 100 m houses are gone and the roofs are whole at 150 m. **Still wrong:** at 100 m two grey slivers a few
+pixels long remain where the seam meets a verge (D804); with the light on the specks stay (47L.1), some of them now
+along the line where the seam joins the two levels' roofs.
+
+**D750 and D784** (the box, 30 minutes). D750: at 47a.1cd's refused shots of the 131-grid town the job queue, jobs in
+flight and the far field's pending work and jobs were all 0 (`work/47a.1cd/d/S-g30-*/light-shots.json`), so the settle
+check waited either for the simulation's state (read as null when the diagnostics call fails, which the record cannot
+tell from 0) or for a draw count still moving; light-shots now records what it waited for on a refused shot
+(`waiting`), and a G30 run was not made (it rewrites staging's world). D784: the headroom meter's fill trace
+(`work/47a.9/m/lake-head-r1.json`) shows the far field selecting and drawing nothing for the whole 7 minutes after the
+lake edits (selected 0, drawn 0, pending 0, jobs 0, far nodes 0) while the near cover grew: not a settle that never
+comes but a far field that is empty; the meter's error now names that state. Its cause was not looked for.
+**Unverified:** nothing in motion; the level boundary moving across a house while the camera moves; houses on structure
+grids (their seams are the same code, not looked at in a picture).
+
 ## 9. Decision log
 
 - **2026-11-24 — the pass is placed and started on the owner's word** ("Write the lighting pass and get it
@@ -181,6 +240,10 @@ traced.
 - **2026-11-24 — 47L.0: no regression from 47a, so no fix comes first.** The specks and the roof gaps are the same at
   760c2aa0, b5093d11 and the head on a clean world; 47L.1 and 47L.2 start from 46e-b's code paths (the volume's coarse
   read; level-1 roofs), not from 47a's commits. 760c2aa0 was shot although its build equals b5093d11's byte for byte.
+- **2026-11-24 — lead's order: 47L.2 before 47L.1**, since many specks sit on faces only visible through the ridge gaps.
+- **2026-11-24 — 47L.2: the roof gaps are fixed in the seam, not in level 1** (default chosen, owner to confirm): the
+  level-1 roof stays a fine cell or two above level 0's (the mips' roof rule) and the seam joins the two slabs
+  side to side; the alternative, laying level 1's roof on level 0's planes, changes every far roof and was not needed.
 
 ## 10. Open questions for the owner (each with the default that stands if unanswered)
 

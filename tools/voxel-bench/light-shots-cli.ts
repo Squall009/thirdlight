@@ -294,21 +294,39 @@ async function counts(game: PlayGame): Promise<Record<(typeof COUNTS)[number], n
   return { chunks: w.chunks, l0: w.levels[0] ?? 0, l1: w.levels[1] ?? 0, l2: w.levels[2] ?? 0, kits: w.kitInstances, farNodes: w.far.nodes, farBricks: w.far.bricks };
 }
 
-/** Waits until the counts hold still for `holdS` and the simulation has nothing pending; how long it took, or null by the timeout. */
-async function settle(game: PlayGame): Promise<{ settledS: number | null; counts: Record<string, number> | null; pending: number[] }> {
+/**
+ * Waits until the counts hold still for `holdS` and the simulation has nothing pending; how long it took, or null by the
+ * timeout. `waiting` says what it still waited for at the end: the simulation's state not read, pending work, or the
+ * counts that moved over the last hold (each with its least and most), so a shot refused as unsettled names its cause.
+ */
+async function settle(game: PlayGame): Promise<{ settledS: number | null; counts: Record<string, number> | null; pending: number[]; waiting: string[] }> {
   const t0 = Date.now();
   const series: CountSample[] = [];
   let last: Record<(typeof COUNTS)[number], number> | null = null;
   let pending: number[] = [];
+  const stillness = COUNTS.map((k) => (k.startsWith('far') ? FAR_STILL : NEAR_STILL));
   for (;;) {
     const t = (Date.now() - t0) / 1000;
     last = await counts(game);
     const sim = await game.sim().catch(() => null);
     pending = [Number(sim?.['pool']?.queued ?? 0), Number(sim?.['pool']?.inFlight ?? 0), Number(sim?.['far']?.pending ?? 0), Number(sim?.['far']?.jobs ?? 0)];
     if (last !== null) series.push({ t, v: COUNTS.map((k) => last![k]) });
-    const still = settleAfter(series, 0, COUNTS.map((k) => (k.startsWith('far') ? FAR_STILL : NEAR_STILL)), O.holdS);
-    if (still !== null && sim !== null && pending.every((x) => x === 0)) return { settledS: Number(t.toFixed(1)), counts: last, pending };
-    if (t > O.timeoutS) return { settledS: null, counts: last, pending };
+    const still = settleAfter(series, 0, stillness, O.holdS);
+    if (still !== null && sim !== null && pending.every((x) => x === 0)) return { settledS: Number(t.toFixed(1)), counts: last, pending, waiting: [] };
+    if (t > O.timeoutS) {
+      const waiting: string[] = [];
+      if (sim === null) waiting.push('simulation state not read');
+      if (pending.some((x) => x !== 0)) waiting.push(`pending ${pending.join('/')}`);
+      if (last === null) waiting.push('draw counts not read');
+      const recent = series.filter((x) => x.t >= t - O.holdS);
+      COUNTS.forEach((k, i) => {
+        const v = recent.map((x) => x.v[i]!);
+        if (v.length === 0) return;
+        const lo = Math.min(...v), hi = Math.max(...v);
+        if (hi - lo > Math.max(stillness[i]!.abs, stillness[i]!.share * hi)) waiting.push(`${k} ${lo}–${hi}`);
+      });
+      return { settledS: null, counts: last, pending, waiting };
+    }
     await game.page.waitForTimeout(250);
   }
 }
@@ -786,6 +804,7 @@ async function main(): Promise<void> {
         shows: cam.shows,
         settledS: s.settledS,
         pending: s.pending,
+        waiting: s.waiting,
         counts: s.counts,
         voxelShare: Number(voxelShare.toFixed(3)),
         secondShare: Number(secondShare.toFixed(4)),
@@ -815,7 +834,7 @@ async function main(): Promise<void> {
         at: host(),
       });
       console.log(`${cam.name}: lighting spans ${JSON.stringify(lightingSpans(report))}`);
-      console.log(`${cam.name}: settled ${s.settledS ?? 'never'} s, ${JSON.stringify(s.counts)}, voxels change ${(voxelShare * 100).toFixed(1)} % of the picture${shotProblemsFound.length > 0 ? `; REFUSED: ${shotProblemsFound.join('; ')}` : ''}; profile ${JSON.stringify(report === null ? null : profileSummary(report).msPerFrame)}; sun field ${JSON.stringify(sun)}`);
+      console.log(`${cam.name}: settled ${s.settledS ?? 'never'} s, ${JSON.stringify(s.counts)}, voxels change ${(voxelShare * 100).toFixed(1)} % of the picture${shotProblemsFound.length > 0 ? `; REFUSED: ${shotProblemsFound.join('; ')}` : ''}${s.waiting.length > 0 ? ` (waited for: ${s.waiting.join(', ')})` : ''}; profile ${JSON.stringify(report === null ? null : profileSummary(report).msPerFrame)}; sun field ${JSON.stringify(sun)}`);
     }
     if (O.edits > 0) {
       // Edit → screen: digs in front of the street camera, one at a time, each read from the page's edit record.
