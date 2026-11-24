@@ -93,7 +93,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | Item | Status |
 |---|---|
 | 47L.0 | Done 2026-11-24 (no fix, no gate): reference cameras `ref-30m`…`ref-150m` (4230f8e7); clean world proven by regeneration; 30 shots settled. Specks and roof-ridge gaps are old: the same at 760c2aa0, b5093d11 and the head; specks gone with the volume off (a light read), gaps not (level 1 geometry, D802). Not 47a, no bisect. water/02's missing front is the lake dig (§8a) |
-| 47L.1 | not started |
+| 47L.1 | In progress 2026-11-24, stopped for the lead: specks are made by level 0's per-pixel read, not stored (cells read back are sane, coarse-only and the as-built read show none). The one-cell read past readFullM makes the green ones; the 8-cell loop adds white, black and magenta ones not yet traced. Not fixed; options in §8a |
 | 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
 | 47L.3 | not started |
 | 47L.4 | not started |
@@ -228,6 +228,51 @@ lake edits (selected 0, drawn 0, pending 0, jobs 0, far nodes 0) while the near 
 comes but a far field that is empty; the meter's error now names that state. Its cause was not looked for.
 **Unverified:** nothing in motion; the level boundary moving across a house while the camera moves; houses on structure
 grids (their seams are the same code, not looked at in a picture).
+
+### 47L.1 — the specks: made by level 0's per-pixel read (in progress, stopped for the lead)
+
+Counted as 47L.0 counted them (white / green, whole frame) on the after-pictures of 47L.2 (built at 9d9a88da, light on,
+settled): street 4/0, `ref-60m` 99/6, `ref-100m` 268/116, `ref-150m` 399/115 (47L.0's head: 7/0, 107/0, 243/138,
+380/114). Work folder `work/47L.1/`.
+
+**Not stored light.** Speck pixels were mapped to their surfaces in Node (the town's level-0 and level-1 meshes from the
+reference camera, `scripts/where.ts`) and the volume's cells there read back from the GPU at levels 0–3 (light-shots'
+new `--cells-at`, `raw/probe-on/`, `probe/table-nearest.txt`): a speck and a control pixel a few pixels away read the
+same cells and the same light. Dense boxes round six speck sites (about 13,000 level-0 cells and the coarse cells round
+them, `raw/box-on/`) hold no word out of range: the brightest face is the sky on a +y face (luminance 2.2), the
+greenest the ground's bounce on a −y face (0.37 green), and no cell holds light the CPU's rule says it cannot.
+
+**Made in the read.** One run each of `ref-100m` and `ref-150m` (white / green), every other part of the read as
+shipped unless named; the variants were source changes kept only in this folder (`read.orig.ts` is the shipped read):
+
+| read | 100 m | 150 m |
+|---|---|---|
+| as shipped (two runs) | 268/116, 248/147 | 399/115, 517/145 |
+| `surfaceRead=coarse` (levels 1–3 only) | 0/0 | 0/0 |
+| `surfaceRead=allfaces` (the read as first built: eight cells, every face; two runs) | 0/0, 0/0 | 0/0, 0/0 |
+| as built **with** the one-cell read past `readFullM` (24 m at low) | 9/51 | 13/39 |
+| as shipped **without** the one-cell read | 124/0 | 165/0 |
+| eight-cell loop only, no one-cell branch | 58/0 | 172/7 |
+| the same, faces read as built, no shared slot | 90/0 | 114/21 |
+| the same, the eight cells unrolled | 34/0 | 14/0 |
+| the same, face weights n² in place of `ambientCubeFaceWeights` | 0/0 | 0/0 |
+| as shipped, faces read as built / no shared slot / face floor a constant 0 / no window guard | 202/97, 207/103, 246/97, 202/119 | 368/159, 535/230, 388/232, 430/307 |
+
+A probe in place of the light showed the read's normals (shading and geometric) unit length everywhere and no NaN.
+So: (1) level 0's **one-cell read past `readFullM`** makes the green specks (and some white) on grass beside walls, on
+gables and roofs: one cell in front of the surface, where the eight round it give the surface's light; (2) the
+**eight-cell loop** of the shipped read makes white, black and magenta pixels at gable undersides and wall feet that the
+as-built read over the same cells does not (`crops/exp-150m-varC.png`, `exp-*-varE.png`): random-looking colours, so
+something reads a word that is not the cell's light or a weight that is not finite; which expression does it is not
+determined (none of the single changes above removes it; the unrolled loop with n² weights does, which may be chance).
+Pictures: `work/47L.1/crops/exp-150m-ground.png` (shipped, without the one-cell read, as built, coarse only),
+`exp-100m-varM.png` (as built with the one-cell read).
+
+**Options** (not taken; the lead decides): (a) level 0 read as built (eight cells, every face) and no one-cell read:
+none in four shots, its cost to be measured A B A B (the design page says one cell costs what eight do; D724 put the
+read's floor at about 2 ms of `near` at a street); (b) drop the one-cell read only (green gone, white remains) and trace
+the loop's garbage with a single-pixel GPU dump before choosing. Either changes the read and its CPU reference
+(`volumeReadAt`, `voxel-light-volume-layout.ts`) together. Grid houses not looked at yet.
 
 ## 9. Decision log
 
