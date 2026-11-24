@@ -221,10 +221,11 @@ page in the same commit.
   light it (a spot's cone, an area light's front) less those negligible against the rest; read per pixel by
   every lit draw (voxel surfaces, kit pieces, props, moving objects; the far shade opts out; lit particles once a
   vertex instead, below) in place of the flat ambient term (`voxel-light-volume-read.ts`): level 0, then each coarse level for what it left, a level read only
-  where its window holds the point's bricks; the eight cells round the point half a cell off the surface in one loop
-  (the far four of an axis face weigh 0: never across a wall), one index load for every cell in the first one's brick,
-  only the faces the normal weights (`readFaceFloor`); past the tier's `readFullM` (low 24 m) the one cell in front
-  alone. Where no level holds light for a pixel (past the windows, or before its bricks are lit) the flat ambient, sky
+  where its window holds the point's bricks; the eight cells round the point half a cell off the surface at every
+  distance (the far four of an axis face weigh 0: never across a wall), each written out with its own index load and
+  its three faces toward the normal by n². A shorter form (one loop, a shared index load, only the faces with a weight,
+  one cell past a distance) drew white, green, magenta and black pixels at gables, ridges and wall feet on the Iris Xe
+  with every value it computed sane; its cause was not found (plan-47l §8a 47L.1). Where no level holds light for a pixel (past the windows, or before its bricks are lit) the flat ambient, sky
 and environment term stands in; under a roof (the sun field's near tops over the point taken two columns off its
 surface, read at each vertex: `sunCovered`) it is taken at the tier's `indoorShare` (0.2), so a far house's rooms
 seen through its windows are not lit as the street is; not a minimum (no light from the volume is changed). Its floor on the Iris Xe is about 2 ms of `near` at a street (the read's presence in the lit program, not its

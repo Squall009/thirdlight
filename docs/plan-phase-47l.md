@@ -93,7 +93,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | Item | Status |
 |---|---|
 | 47L.0 | Done 2026-11-24 (no fix, no gate): reference cameras `ref-30m`…`ref-150m` (4230f8e7); clean world proven by regeneration; 30 shots settled. Specks and roof-ridge gaps are old: the same at 760c2aa0, b5093d11 and the head; specks gone with the volume off (a light read), gaps not (level 1 geometry, D802). Not 47a, no bisect. water/02's missing front is the lake dig (§8a) |
-| 47L.1 | In progress 2026-11-24, stopped for the lead: specks are made by level 0's per-pixel read, not stored (cells read back are sane, coarse-only and the as-built read show none). The one-cell read past readFullM makes the green ones; the 8-cell loop adds white, black and magenta ones not yet traced. Not fixed; options in §8a |
+| 47L.1 | Done 2026-11-24 (07eee3c8): the shipped read's form (one loop, shared index load, faces by weight, one cell past readFullM) drew the specks; no expression found (GPU dumps: every value finite, in range). Every level now read as first built, early-out kept; readFullM, readFaceFloor gone. Specks 0 at all cameras twice, grid houses 781 to 0; cost within spread |
 | 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
 | 47L.3 | not started |
 | 47L.4 | not started |
@@ -229,9 +229,9 @@ comes but a far field that is empty; the meter's error now names that state. Its
 **Unverified:** nothing in motion; the level boundary moving across a house while the camera moves; houses on structure
 grids (their seams are the same code, not looked at in a picture).
 
-### 47L.1 — the specks: made by level 0's per-pixel read (in progress, stopped for the lead)
+### 47L.1 — the specks: the surfaces' read as first built (07eee3c8)
 
-Counted as 47L.0 counted them (white / green, whole frame) on the after-pictures of 47L.2 (built at 9d9a88da, light on,
+**First session** (stopped for the lead): Counted as 47L.0 counted them (white / green, whole frame) on the after-pictures of 47L.2 (built at 9d9a88da, light on,
 settled): street 4/0, `ref-60m` 99/6, `ref-100m` 268/116, `ref-150m` 399/115 (47L.0's head: 7/0, 107/0, 243/138,
 380/114). Work folder `work/47L.1/`.
 
@@ -268,11 +268,82 @@ determined (none of the single changes above removes it; the unrolled loop with 
 Pictures: `work/47L.1/crops/exp-150m-ground.png` (shipped, without the one-cell read, as built, coarse only),
 `exp-100m-varM.png` (as built with the one-cell read).
 
-**Options** (not taken; the lead decides): (a) level 0 read as built (eight cells, every face) and no one-cell read:
-none in four shots, its cost to be measured A B A B (the design page says one cell costs what eight do; D724 put the
-read's floor at about 2 ms of `near` at a street); (b) drop the one-cell read only (green gone, white remains) and trace
-the loop's garbage with a single-pixel GPU dump before choosing. Either changes the read and its CPU reference
-(`volumeReadAt`, `voxel-light-volume-layout.ts`) together. Grid houses not looked at yet.
+**The lead's decision**: trace for at most an hour, then fix by the evidence; if the cause is not found, the read as
+first built with no one-cell read.
+
+**The trace (not found in the box).** The surface program three builds from the shipped read was dumped in Node
+(`work/47L.1/trace/frag-shipped.wgsl`): it is the intended WGSL (every variable assigned before each use, no stale or
+uninitialised path; the one read-before-write, the kept irradiance, is the probe light's and set in the page). On the GPU
+a mask dump (`?surfaceRead=dumpN`, kept only as `work/47L.1/trace/dump-probe.patch`: flagged pixels drawn black, the rest
+as drawn; one run each of `ref-100m` and `ref-150m`, `raw/trace-*`) answered at the speck pixels: level 0's weight is 0
+there (`dump9`: everything level 0 reads goes black, the specks stay); no level's light or weight, the summed light, the
+final irradiance, radiance, environment term, direct diffuse or specular is non-finite or above 2.5 (`dump4`, 10–13,
+17–21, 25–28); no window index falls outside its level's window (`dump32`); every counted level-0 cell holds all six words
+(`dump1`). Yet the pixels are white, green, magenta or black (`crops` in `trace/`). With the temporal upscale off
+(`&taau=0`) every read variant, the coarse levels alone and the read as first built included, shows the same kind of
+pixels along roof bands (`trace/pair-t-coarse-normal.png`; light off: none, `pair-t-off-on.png`): there the sharpening
+makes counts meaningless, so the comparisons below are with it on, as shipped. Mixed reads (`dump30`: level 0 as first
+built, the coarse levels as shipped: 64/0, 228/0 at 100/150 m, white, magenta and black along an eave,
+`trace/pair-a30-150m.png`; `dump31`: the reverse, 12/45, 15/73) put the fault in the shipped form at every level, not in
+one expression found: the same arithmetic in a different program shape (one loop, a shared index load, faces skipped by
+weight, the one-cell branch) draws them, the written-out form does not. Not determined: why (a compiler or driver
+behaviour on the Iris Xe is the remaining candidate; not shown). The CPU twin cannot reproduce it.
+
+**The fix** (option (a), at every level): `voxel-light-volume-read.ts` reads each level as first built: eight cells
+written out, each its own index load (inside its window) and its three faces toward the normal by the ambient cube's
+n², a cell counted where its first face's word is not 0; the level's window early-out kept (it is what made the read
+cheaper at a high view in 46e.14); no distance branch. Lit particles keep the one cell at their centre (a build-time
+choice, not a branch). `volumeReadAt` takes `ambientCubeSteps` (equal to the face-floor weights at floor 0 for a unit
+normal); `readFullM` and `readFaceFloor` had no reader left and went from the tier settings with
+`VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX` and the `allfaces` flag (§9).
+
+**Tests.** `voxel-light-volume-read.test.ts` builds the lit program in Node and holds the read's form: no loop, no
+camera distance, per level eight index loads and the faces' loads, the index probe none; at c16a8ca3 it fails (a loop
+found; 9 loads for 32). `voxel-light-volume-layout.test.ts` holds the twin on the town scrap's 2,000+ surface points
+(axis faces and normals up to 70° off) to the read written out on its own, a surface's read to the eight cells' blend at
+any distance (the one cell in front differs from it at more than a quarter of the points: what far pixels took before),
+a particle's one cell, and the leak rule for 1,200 normals with a weight on both sides. The twin's tests pass at the
+base too (the GPU's shape is what changed); the made case for a cause was not written: no cause was found.
+
+**Cost** (2026-11-24 18:49–19:45 UTC, low, WebGPU, 1280 × 720, 30 Hz cap, each run alone, A = c16a8ca3 in its own
+worktree, B = 07eee3c8, A B A B, second rounds; `--copies none --scales none` on all eight: two rounds with them did not
+fit the agent's 9-minute call; `work/47L.1/m/*.{json,log,uptime}`, 1-minute load 0.9–1.5, one 2.9 at a start):
+
+| | GPU near (ms) | GPU lighting (6.67) | page ms a frame | page lighting (2.0) | room (copies) | missed |
+|---|---|---|---|---|---|---|
+| town A | 3.84 ±0.4, 4.73 ±2.1 | 5.33, 5.46 | 5.42, 5.74 | 0.71, 0.83 | 128, 120 | 0, 0 |
+| town B | 3.94 ±1.2, 4.65 ±0.8 | 5.41, 5.06 | 5.67, 6.22 | 0.93, 0.94 | 128, 128 | 0, 0 |
+| 128 lamps A | 8.44 ±0.9, 7.98 ±1.6 | 4.96, 5.01 | 6.62, 6.89 | 2.04, 2.00 | 80, 96 | 0, 0 |
+| 128 lamps B | 8.37 ±3.5, 8.77 ±1.0 | 4.86, 4.60 | 7.53, 6.90 | 1.99, 1.93 | 76, 76 | 0, 0 |
+
+Every row within its spread (±: the GPU measurement's spread of five samples). The first B 128-lamp run ended with "no
+GPU frame times arrived" (14 missed frames at no load while its programs compiled) and was run again (`m/lamps-B-r1-failed.*`).
+**D740**: the read's form does not move the 128-lamp scene's `near` (8.4, 8.8 against 8.4, 8.0); its room is 76–96 copies
+at both commits, not 47a.13's 15 and 14 (the world was regenerated in 47L.0 and the seam changed in 47L.2 since):
+written into D740, not looked into (47L.7).
+
+**Pictures** (2026-11-24, low, WebGPU, 1280 × 720, built at 07eee3c8, light on, two runs, every shot settled in 3.8–12.2 s
+with nothing waiting and the volume settled; `work/47L.1/shots/after/<camera>-on-r{1,2}.png`, `light-shots-r{1,2}.json`):
+white/green 0/0 at every camera in both runs (before, 47L.2's pictures: street 4/0, `ref-60m` 99/6, `ref-100m` 268/116,
+`ref-150m` 399/115). Crops before above after (`work/47L.1/crops/after-*.png`: `ref-100m-ridges`, `ref-100m-wallfoot`,
+`ref-60m-gables`, `ref-150m-mid`, `ref-150m-eave`, `street-noon-far`, `ref-30m-house`): opened; the specks are gone from
+gables, ridges, eaves and the grass by walls. Nothing lit became darker or flatter: the sunlit gable and the shaded walls
+keep their light, the grass by a wall its green; the 30 m house's brick front is smoother (it read one cell a pixel past
+24 m before: its blocky patches are gone); the rooms seen through windows at 30 m stay dark. **Still wrong:** the grey
+slivers of D804 at `ref-100m`, small notches along one ridge at `ref-60m` (level-1 geometry, seen with the light off too).
+**Indoors** (`shots/indoor/<camera>-{A,B}.png`, crops `after-indoor-*.png`, same build pair): `room-window` and
+`room-window-2m` alike in brightness, the floor's blotches (D692, 47L.5) a little softer, no new leak; `cave` the same;
+`house-above` the same. **Grid houses** (`town-grids --variant g30`, every house in its own grid turned 30°, the world
+restored after and its voxel files byte-equal, `raw/grids-{A,B}-on/`, `crops/after-grids-g30-lroom-above.png`):
+`lroom-above` (looking down on the grid houses from 38 m) 781 white/green at c16a8ca3 (gables, ridges, eaves of the turned
+houses, one gable drawn half see-through), 0 at the fix; `ref-60m` at the fix (its view blocked by turned houses within
+10–60 m): none. Both shots were refused by the settle check (D750: "simulation state not read"), the volume settled
+in each. **Gates**: `npm run build` and `npm run lint` green; the fast gate at 07eee3c8
+(`gate-fast-20261124-200637`: build, lint, vitest 799 passed with `retry-scene-id.test.ts` failing once and passing
+alone (D807), 326 of 327 e2e in 28 min over every area the read reaches) red only on `frame-rate-cap` (D659's
+load-sensitive check: 64 fps uncapped against > 90, load mean 6.0), green on `gate.sh rerun`
+(`gate-rerun-20261124-204644`, with the perf check). No expectation changed. **Unverified:** nothing in motion; the 45°
+grids; medium and high (same code); the cause on the GPU.
 
 ## 9. Decision log
 
@@ -289,6 +360,11 @@ the loop's garbage with a single-pixel GPU dump before choosing. Either changes 
 - **2026-11-24 — 47L.2: the roof gaps are fixed in the seam, not in level 1** (default chosen, owner to confirm): the
   level-1 roof stays a fine cell or two above level 0's (the mips' roof rule) and the seam joins the two slabs
   side to side; the alternative, laying level 1's roof on level 0's planes, changes every far roof and was not needed.
+
+- **2026-11-24 — 47L.1: the surfaces' read as first built at every level, its cause not found** (lead's decision; default
+  chosen, owner to confirm): the shipped read's form drew the specks while every value it computed tested sane; the
+  written-out form draws none at the same cost on the orbit. `readFullM` and `readFaceFloor` had no reader left and were
+  removed with their tier entries rather than left as dead knobs; the `allfaces` bench flag went with them.
 
 ## 10. Open questions for the owner (each with the default that stands if unanswered)
 
