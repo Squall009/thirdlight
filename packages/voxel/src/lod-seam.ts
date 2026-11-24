@@ -268,6 +268,12 @@ const EDGE_KEY = 1 << 26;
 /** Longest walk along the fine boundary between the targets of one coarse edge's ends (a search bound, not a content cap). */
 export const SEAM_WALK_STEPS = 64;
 
+/**
+ * The cosine past which a fine boundary edge faces a coarse vertex's way (and below its negative, the other way): a
+ * slab's two sides are far apart either side of it, a rim's leaning normals fall between.
+ */
+const SEAM_SAME_SIDE = 0.5;
+
 /** Bucket rings searched for a coarse vertex's nearest fine boundary edge (coarse cells). */
 const SEARCH_RINGS = 64;
 
@@ -402,15 +408,34 @@ export function buildFaceSeam(input: SeamFaceInput): FaceSeam {
     }
     const reached = new Uint8Array(fEdges.length);
     const proj = new Map<number, Proj>();
+    // How a fine edge faces against a coarse vertex's normal: the cosine between them (its ends' normals averaged).
+    // A thin slab's top and underside lie a fine cell apart, so by distance alone a coarse underside lands on the fine
+    // top and the fine underside is left to a flap, which reaches a coarse cell inward and so stands out through the
+    // slab's top.
+    const facing = (i: number, cn: readonly [number, number, number]): number => {
+      const [u, w] = fEdges[i]!;
+      const a = fine.normal(u), b = fine.normal(w);
+      const m = [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+      const l = Math.hypot(m[0]!, m[1]!, m[2]!) || 1;
+      return (m[0]! * cn[0] + m[1]! * cn[1] + m[2]! * cn[2]) / l;
+    };
     const project = (v: number): Proj => {
       const known = proj.get(v);
       if (known !== undefined) return known;
       const [x, y, z] = coarse.point(v);
+      const cn = coarse.normal(v);
       const pt = [x, y, z];
       const hu = Math.floor(pt[inPlane[0]]! / bucket), hw = Math.floor(pt[inPlane[1]]! / bucket);
+      // The nearest fine edge; where it faces the other way (the other side of a thin slab), the nearest facing the
+      // coarse vertex's way instead, when that one lies at most a coarse cell farther (the levels' surfaces lie within
+      // a coarse cell of each other). Rims and creases, whose normals lean between, keep the nearest.
       let best = Infinity;
       let e = -1, t = 0;
       let at: [number, number, number] = [x, y, z];
+      let bestFacing = Infinity;
+      let eFacing = -1, tFacing = 0;
+      let atFacing: [number, number, number] = [x, y, z];
+      const within = (): number => (Math.sqrt(best) + bucket) ** 2;
       for (let r = 0; r < SEARCH_RINGS; r++) {
         for (let du = -r; du <= r; du++) for (let dw = -r; dw <= r; dw++) {
           if (Math.max(Math.abs(du), Math.abs(dw)) !== r) continue;
@@ -424,10 +449,21 @@ export function buildFaceSeam(input: SeamFaceInput): FaceSeam {
               t = c[3];
               at = [c[0], c[1], c[2]];
             }
+            if (d < bestFacing && facing(i, cn) > SEAM_SAME_SIDE) {
+              bestFacing = d;
+              eFacing = i;
+              tFacing = c[3];
+              atFacing = [c[0], c[1], c[2]];
+            }
           }
         }
         // Buckets past ring r lie at least r buckets away on the face.
-        if (best <= (r * bucket) ** 2) break;
+        if (Math.min(bestFacing, within()) <= (r * bucket) ** 2) break;
+      }
+      if (e >= 0 && eFacing >= 0 && eFacing !== e && facing(e, cn) < -SEAM_SAME_SIDE && bestFacing <= within()) {
+        e = eFacing;
+        t = tFacing;
+        at = atFacing;
       }
       // The nearer end of the edge, not the point on it: every seam vertex is then exactly a vertex of one of the
       // two surfaces (a point inside a fine edge, rounded to whole steps, leaves a sliver along the boundary).

@@ -18,6 +18,7 @@ import {
   combineCoverage,
   createDenseChunk,
   createNeighbourhood,
+  buildFaceSeam,
   createWorldStore,
   DEFAULT_REGION_FOOTPRINT,
   dependentChunks,
@@ -89,6 +90,7 @@ import {
   type DenseChunk,
   type DeriveOutput,
   type DerivedData,
+  type NodeFace,
   type JoinedChunk,
   type MipNode,
   type PaletteStore,
@@ -1541,6 +1543,111 @@ describe('seams between levels: the coarser node\'s transition strip (lod-seam.t
       expect(by('transition+flaps').crackRays, at).toBe(0);
       expect(by('seam').crackRays, at).toBe(0);
       expect(by('seam').addedTriangles, at).toBeGreaterThan(0);
+    }
+  });
+
+  it('closes a gabled roof cut by a level-1 node face along its ridge or across it: no ray from above that level 0 shows the roof to meets a surface looking down there', { timeout: 120_000 }, () => {
+    // The town's three-storey house (one-cell walls and a one-cell 45° roof slab with eaves), placed so a level-1
+    // node's low face cuts it: along the ridge on its near slope, at the ridge, on its far slope, and across the ridge.
+    // Level 1 lays the roof a fine cell or two above level 0's, so the seam there joins two slabs that do not line up.
+    const house: House = { w: 26, d: 24, storeys: 3, wall: MAT.brick, balcony: false };
+    const v = voxel();
+    const S = POSITION_STEPS_PER_CELL;
+    type Surface = { x0: number; y0: number; z0: number; ground: SurfaceBuffer; base: SurfaceBuffer };
+    // Triangles as nine numbers (world steps of level 0).
+    const push = (out: number[], buf: SurfaceBuffer, at: (p: number, a: number) => number): void => {
+      const view = new DataView(buf.vertices.buffer, buf.vertices.byteOffset, buf.vertices.byteLength);
+      for (const i of buf.indices) for (let a = 0; a < 3; a++) out.push(at(view.getUint16(i * SURFACE_VERTEX_BYTES + 2 * a, true), a));
+    };
+    // The first triangle facing a ray (as drawn: back faces culled): its normal's y, or null when there is none.
+    const firstFacing = (tris: readonly number[], o: readonly number[], d: readonly number[]): number | null => {
+      let best = Infinity;
+      let ny: number | null = null;
+      for (let t = 0; t < tris.length; t += 9) {
+        const e1 = [0, 1, 2].map((k) => tris[t + 3 + k]! - tris[t + k]!), e2 = [0, 1, 2].map((k) => tris[t + 6 + k]! - tris[t + k]!);
+        const n = [e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!];
+        if (n[0]! * d[0]! + n[1]! * d[1]! + n[2]! * d[2]! >= 0) continue;
+        const h = [d[1]! * e2[2]! - d[2]! * e2[1]!, d[2]! * e2[0]! - d[0]! * e2[2]!, d[0]! * e2[1]! - d[1]! * e2[0]!];
+        const det = e1[0]! * h[0]! + e1[1]! * h[1]! + e1[2]! * h[2]!;
+        const q0 = [0, 1, 2].map((k) => o[k]! - tris[t + k]!);
+        const bu = (q0[0]! * h[0]! + q0[1]! * h[1]! + q0[2]! * h[2]!) / det;
+        if (bu < 0 || bu > 1) continue;
+        const q = [q0[1]! * e1[2]! - q0[2]! * e1[1]!, q0[2]! * e1[0]! - q0[0]! * e1[2]!, q0[0]! * e1[1]! - q0[1]! * e1[0]!];
+        const bv = (d[0]! * q[0]! + d[1]! * q[1]! + d[2]! * q[2]!) / det;
+        if (bv < 0 || bu + bv > 1) continue;
+        const dist = (e2[0]! * q[0]! + e2[1]! * q[1]! + e2[2]! * q[2]!) / det;
+        if (dist > 0 && dist < best) {
+          best = dist;
+          ny = n[1]! / Math.hypot(n[0]!, n[1]!, n[2]!);
+        }
+      }
+      return ny;
+    };
+    const looksDown = (ny: number | null): boolean => ny === null || ny < -0.3;
+    for (const cut of [{ axis: 2, at: 8 }, { axis: 2, at: 12 }, { axis: 2, at: 16 }, { axis: 0, at: 10 }] as const) {
+      const face = 64;
+      const x0 = cut.axis === 0 ? face - cut.at : 10;
+      const z0 = cut.axis === 2 ? face - cut.at : 10;
+      const s = createWorldStore(grid);
+      ground(s, x0 - 8, x0 + house.w + 8, z0 - 8, z0 + house.d + 8);
+      for (let x = -1; x <= house.w; x++) for (let z = -3; z <= house.d; z++) for (let y = 0; y < 40; y++) {
+        if (houseVoxel(house, x, y, z, v)) put(s, x0 + x, y, z0 + z, v.material, v.role, v.shape);
+      }
+      const tree = new MipTree(s);
+      const node = { nx: cut.axis === 0 ? 1 : 0, ny: 0, nz: cut.axis === 2 ? 1 : 0 };
+      const inPlane = [0, 1, 2].filter((a) => a !== cut.axis);
+      const surface = (l: number, n: readonly number[]): Surface => {
+        const d = l === 0 ? deriveFromStore(s, n[0]!, n[1]!, n[2]!, WORLD_RULES) : deriveMipNode(tree, { level: l, nx: n[0]!, ny: n[1]!, nz: n[2]! }, WORLD_RULES);
+        return { x0: n[0]! * E, y0: n[1]! * E, z0: n[2]! * E, ground: d.ground, base: d.base };
+      };
+      // What the page draws there: the level-1 node, the level-0 chunks against its face and the node's seam on it;
+      // and level 0 alone on both sides, the reference.
+      const drawn: number[] = [];
+      const level0: number[] = [];
+      const own = surface(1, [node.nx, node.ny, node.nz]);
+      for (const b of [own.ground, own.base]) push(drawn, b, (p, a) => (([node.nx, node.ny, node.nz][a]! * E - 1) * S + p) * 2);
+      const around: Surface[] = [];
+      for (let du = -1; du <= 1; du++) for (let dw = -1; dw <= 1; dw++) {
+        if (du === 0 && dw === 0) continue;
+        const m = [node.nx, node.ny, node.nz];
+        m[inPlane[0]!]! += du;
+        m[inPlane[1]!]! += dw;
+        around.push(surface(1, m));
+      }
+      const fine: Surface[] = [];
+      for (let i = -1; i <= 2; i++) for (let j = -1; j <= 2; j++) for (const k of [-1, 0, 1, 2]) {
+        const c = [2 * node.nx, 2 * node.ny, 2 * node.nz];
+        c[cut.axis]! += k;
+        c[inPlane[0]!]! += i;
+        c[inPlane[1]!]! += j;
+        const f = surface(0, c);
+        const against = k === -1;
+        const middle = i >= 0 && i <= 1 && j >= 0 && j <= 1;
+        if (against) fine.push(f);
+        if (middle) for (const b of [f.ground, f.base]) push(level0, b, (p, a) => (c[a]! * E - 1) * S + p);
+        if (middle && against) for (const b of [f.ground, f.base]) push(drawn, b, (p, a) => (c[a]! * E - 1) * S + p);
+      }
+      const seam = buildFaceSeam({ edge: E, level: 1, ...node, face: (cut.axis === 0 ? 0 : 4) as NodeFace, coarse: own, coarseAround: around, fine });
+      for (const piece of seam.pieces) for (const b of [piece.ground, piece.base]) push(drawn, b, (p, a) => piece.origin[a]! * S + p);
+      // Rays from above at grazing to steep pitches and every azimuth, aimed at level 0's roof top within four cells of
+      // the face, away from the gable ends; a ray level 0 alone shows a surface looking down (into the attic through
+      // the open steps under a verge) is not the seam's.
+      const top = (z: number): number => house.storeys * 6 + 1 + Math.min(z - z0, z0 + house.d - z);
+      const bad: string[] = [];
+      let rays = 0;
+      for (let a = 0; a < 8; a++) for (const pitch of [8, 20, 40, 70]) {
+        const az = (a * Math.PI) / 4, pt = (pitch * Math.PI) / 180;
+        const d = [Math.cos(az) * Math.cos(pt), -Math.sin(pt), Math.sin(az) * Math.cos(pt)];
+        for (let u = -3.75; u <= 4; u += 0.5) for (let w = 6.25; w < (cut.axis === 2 ? house.w : house.d) - 6; w += 1.5) {
+          const x = cut.axis === 0 ? face + u : x0 + w, z = cut.axis === 2 ? face + u : z0 + w;
+          const o = [x - 40 * d[0]!, top(z) - 40 * d[1]!, z - 40 * d[2]!].map((q) => q * S);
+          if (looksDown(firstFacing(level0, o, d))) continue;
+          rays++;
+          if (looksDown(firstFacing(drawn, o, d))) bad.push(`${pitch}° from azimuth ${a * 45}° at ${x}, ${z}`);
+        }
+      }
+      expect(rays, `cut along ${cut.axis === 2 ? 'z' : 'x'} ${cut.at}`).toBeGreaterThan(3000);
+      expect(bad.slice(0, 6), `cut along ${cut.axis === 2 ? 'z' : 'x'} ${cut.at} cells in (${bad.length} of ${rays} rays)`).toEqual([]);
     }
   });
 });
