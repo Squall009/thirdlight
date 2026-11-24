@@ -2492,6 +2492,45 @@ D790 (stepped edges of roads and rivers).
 - 2026-11-23 (47a.11; default chosen, owner to confirm): **no generator version on a spline** (F5 names none): a newer
   spline writer rewrites a spline when it is next changed; there is no "regenerate all" for splines.
 
+- 2026-11-23 (**Independent review**, by a fresh agent that did not build the phase; range b5093d11..913c4886; the
+  page `work/review/review.md`; what was done with each finding by 47a.13, 2026-11-24). **Verdict:** the phase does
+  what §6 asks for 47a.0–47a.11, stays inside the scope fence, stores only what F1–F7 name, and §8a is frank about
+  what is ugly or unverified; the weak points are at the edges (two gate failures with no row, a refusal path that
+  rolled back by an undo, hard-coded caps, stored or shown things that do nothing yet). Nothing found blocks the close.
+  **Findings:** (1) the Play test's jobs-lane check failed in the phase gate after d8631caf's fix: cause not found in
+  the box (0 of 4 alone), a diagnostic added (f81ed02c) → D799 open. (2) the Scene view's "house's top row 0 → 0":
+  the house's rows now read from its own patch of change (c4ac1c5a; 3/3 alone before, 6/6 after) → D798 watch.
+  (3) a refused structure, spline or water command: shown over HTTP + WebSocket (revision two ahead, no notice, the
+  editor's next command and undo refused as a conflict); fixed 59f5ea0d (the feed hears of both steps) → D800.
+  (4) D788 re-classed open, one family with D774 and (3): name it on the acceptance page. (5) a portal's reach of
+  8 cells against uncapped openings → D791. (6) `stops.sight` read by nothing → D792 + owner question. (7) spline
+  voxel fields twice in the Inspector → D793. (8) the spline's left-alone and misfit markers never seen → D794
+  (unverified). (9) linked path search capped at 3 doors, 4 passes → D795. (10) the grid id maximum defined five
+  times: one `VOXEL_GRID_ID_MAX` in `@thirdlight/voxel`, imported everywhere (c98b0cf8). (11) the grid refocus rule
+  twice, diverged → D796. (12) every command on the structure path once a project holds one: +8 ms a command with
+  131 houses (4.1–4.2 → 11.4–12.3 ms median over HTTP) → D797. (13) requirement ids in comments reworded (7627b786;
+  the phase's diff holds no others). (14) about 70 "default chosen, owner to confirm" lines: owner question, grouped
+  to those that change an approved entry's text (F2 one region file, D753; F6 a breach drains the body; F5's world
+  derived from the scene; a path written as a road; `stops.sight`). (15) the bench keeps its own `houseVoxel`, so
+  the 131-house numbers are the bench's houses: none (say so on the acceptance page). (16) `voxel-world.e2e.ts` (now
+  1,996 lines) and `voxel-worlds.ts` (1,910) near the 2,000 limit: none now, 47b splits before adding. Also a watch
+  row for the breach marker cut by the view's edge (D801). **Checked and clean:** ratchets (no entry added or grown),
+  the size, redefinition, docs and boundary checks; the scope fence; stored things against F1–F7; exports leave out
+  definitions, sections, overrides and records (each proven on a real export); one fit rule, one mutation path; no
+  `.skip`/`.only`, no mocked backend in the new e2e; §7 against §8a. The gate grew 36 → 37 min (e2e 20.7 → 21.7;
+  the voxel area 349 → 423 s), explained by new coverage; one new e2e file (`structure-mode.e2e.ts`, a new editor
+  mode). **Not checked:** §8a's measurements and raw files, WGSL, pictures, WebGL 2 beyond `webgl2-smoke` (liquid,
+  grids and portals there unverified), `voxel-water.ts` and `structure-tool.ts` internals, a second `voxelWorld`
+  added to a scene with a voxel spline (now: refused, D800's test). **Needs the owner's eyes:** nothing in motion
+  has been seen (travel past structure grids, a door flip, the shore following a dig, a long road's point drag,
+  fast undo/redo D774/D788); the structure mode's feel (D764, the half-transparent house, the openings ghost);
+  stills D746, D744, D752, D790, the plain water and dry far lake bed, a breached lake drained; the interim page's
+  six decisions. Nothing to hear. **Second opinions:** (a) draining whole on a breach is the right default but F6
+  says "writes nothing past the bound": ask the owner; (b) the world derived from the scene's one `voxelWorld` is
+  true to F5, but structures and bodies store `world` and splines do not (an optional `world` would be an add-only
+  owner stop); (c) river cells as ground to a body is sound (no stored cell list) but a lake cannot spill into a
+  lower channel until 49's settle: worth a line in the spec.
+
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
 1. **Where does light through partial cells (D741) go?** It first shows on panes, shutters and, later, trees.
