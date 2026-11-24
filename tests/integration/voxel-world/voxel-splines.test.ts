@@ -11,7 +11,9 @@
  * into the lake joins it at its level and the body follows in the same
  * step, and keeps the river when its level changes; a road through the
  * lake's bank makes the body follow; deleting the spline puts everything
- * back; an export ships the voxels without the section or the record.
+ * back; a scene edit the spline refuses (a second world) is taken back with
+ * a connected editor told of both steps, so its next command and undo are
+ * taken; an export ships the voxels without the section or the record.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -23,6 +25,7 @@ import { chunkGrid, createWorldStore, emptyWorldRecord, rewriteInWorld, SPLINE_W
 import { hexToBytes } from '@thirdlight/shared';
 import { RegionWorld, readVoxelWorldManifest, writeVoxelWorld } from '@thirdlight/workspace';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { WebSocket } from 'ws';
 import { flatGround } from '../../../tools/voxel-bench/scenes';
 import { commandEnvelope } from '../../support/commands';
 
@@ -283,6 +286,53 @@ describe('splines that write voxels, through the commands', () => {
     expect(existsSync(recordPath(road))).toBe(true);
   });
 
+  it('a second voxel world in the scene of a voxel spline is refused: a connected editor hears of the step and its undo, and its next command and undo are taken', async () => {
+    // The project's editor: a registered authoring session and its WebSocket feed.
+    const sessionId = `sess-${randomBytes(16).toString('hex')}`;
+    const est = await fetch(`${base()}/api/v1/sessions`, { method: 'POST', headers: { authorization: `Bearer ${TOKEN}`, origin: ORIGIN, 'content-type': 'application/json' }, body: JSON.stringify({ projectId: PROJECT, sessionId, clientInfo: { kind: 'browser', label: 'refusal-feed' } }) });
+    expect(est.status, await est.clone().text()).toBe(200);
+    const { wsToken } = (await est.json()) as { wsToken: string };
+    const ws = new WebSocket(`${base().replace('http', 'ws')}/api/v1/ws?sessionId=${sessionId}&wsToken=${wsToken}`, { headers: { Origin: ORIGIN } });
+    const feed: Array<Record<string, unknown>> = [];
+    ws.on('message', (data: Uint8Array) => feed.push(JSON.parse(new TextDecoder().decode(data)) as Record<string, unknown>));
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', () => resolve());
+      ws.on('error', reject);
+    });
+    try {
+      // What the editor knows: the revision it read, then only what its feed tells it.
+      let known = await revision();
+      const notices = (): number[] => feed.filter((e) => e.type === 'mutation.applied').map((e) => e.revision as number);
+      const heard = async (n: number): Promise<number> => {
+        for (let t0 = performance.now(); notices().length < n && performance.now() - t0 < 5000; ) await new Promise((r) => setTimeout(r, 10));
+        expect(notices(), JSON.stringify(feed.map((e) => e.type))).toHaveLength(n);
+        return notices().at(-1)!;
+      };
+      const send = (op: string, args: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => post({ ...commandEnvelope(op, PROJECT, known, args, null), origin: { kind: 'browser', clientId: sessionId } });
+      const before = folderState();
+      // The scene's spline would name two worlds: the scene edit applies, the spline's write refuses, the edit is taken back.
+      const refused = await send('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Second world', components: { voxelWorld: { world: 'dale-two' } } });
+      expect(refused.status, JSON.stringify(refused.json)).toBe(400);
+      expect(refused.json['error']).toMatchObject({ code: 'reference_missing' });
+      expect(folderState()).toEqual(before);
+      // Both steps moved the revision; the feed tells of both, so the editor holds the project's revision.
+      known = await heard(2);
+      expect(notices()).toEqual([known - 1, known]);
+      expect(known).toBe(await revision());
+      // The editor's next command, and its undo, sent against what it heard.
+      const next = await send('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Marker' });
+      expect(next.status, JSON.stringify(next.json)).toBe(200);
+      const marker = next.json['createdId'] as string;
+      known = await heard(3);
+      const undo = await send('undo', {});
+      expect(undo.status, JSON.stringify(undo.json)).toBe(200);
+      expect((await query('queryEntity', { entityId: marker }))['entity']).toBeUndefined();
+      expect(folderState()).toEqual(before);
+    } finally {
+      ws.close();
+    }
+  });
+
   it('exports the voxels, never the voxels section or the record', async () => {
     const r = await fetch(`${base()}/api/v1/admin/projects/${PROJECT}/export`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: '{}' });
     const json = (await r.json()) as { outputDir?: string };
@@ -302,3 +352,4 @@ describe('splines that write voxels, through the commands', () => {
     rmSync(out, { recursive: true, force: true });
   });
 });
+

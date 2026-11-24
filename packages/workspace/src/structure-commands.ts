@@ -91,6 +91,11 @@ export interface StructureCommandOutcome {
   readonly strokes: readonly AttachedStroke[];
   /** The far field built again under structures moved, made or deleted (by world). */
   readonly far: ReadonlyArray<{ readonly world: string; readonly far: VoxelCommandApplied['far'] }>;
+  /**
+   * A refusal after the project command applied: the command and the undo that took it back. Both moved the project's
+   * revision, so the editors' feeds are told of both (a connected editor would otherwise hold a revision two behind).
+   */
+  readonly rolledBack?: readonly MutationResult[];
 }
 
 type Refusal = { ok: false; error: { code: string; cls: 'validation' | 'conflict' | 'not_found' | 'internal'; message: string; path?: string } };
@@ -150,10 +155,10 @@ export class StructureCommands {
       if (!written.ok || (splined !== null && !splined.ok) || (wet !== null && !wet.ok)) {
         const made = [...(written.ok ? written.voxels : []), ...(splined?.ok === true ? splined.voxels : [])];
         for (const done of made.reverse()) await this.worlds.step(projectId, done.world, 'undo', done.stroke, null);
-        this.service.runCommand({ op: 'undo', projectId, requestId: `req-${randomBytes(16).toString('hex')}`, expectedRevision: result.revision, args: {} });
+        const undone = this.service.runCommand({ op: 'undo', projectId, requestId: `req-${randomBytes(16).toString('hex')}`, expectedRevision: result.revision, args: {} });
         this.service.dropRedoTail(projectId);
         const error = !written.ok ? written.error : splined !== null && !splined.ok ? splined.error : (wet as { ok: false; error: VoxelWorldError }).error;
-        return { result: { ok: false, op: result.op, projectId, requestId: result.requestId, error } as MutationResult, voxels: [], strokes: [], far: [] };
+        return { result: { ok: false, op: result.op, projectId, requestId: result.requestId, error } as MutationResult, voxels: [], strokes: [], far: [], rolledBack: [result, undone] };
       }
       const voxels = [...written.voxels, ...(splined?.ok === true ? splined.voxels : []), ...(wet?.ok === true ? wet.voxels : [])];
       const far = await this.followFar(projectId, held, after);

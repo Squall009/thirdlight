@@ -457,7 +457,15 @@ function structureReplies(d: {
 }) {
   return (res: ServerResponse, projectId: string, op: string, out: StructureCommandOutcome, origin: OriginDoc | null, session: SessionRecord | undefined): void => {
     const result = out.result;
-    if (!result.ok) return d.refuse(res, projectId, op, result);
+    if (!result.ok) {
+      // The command applied and was taken back: each moved the revision, so the feeds hear of both before the refusal.
+      for (const r of out.rolledBack ?? []) {
+        if (!r.ok || r.duplicated !== false) continue;
+        d.notifyMutationApplied(projectId, r.requestId, r.revision, origin, r.change, (r as { sceneId?: string }).sceneId);
+        if (session) d.record(session, r.requestId, r.revision);
+      }
+      return d.refuse(res, projectId, op, result);
+    }
     if (result.duplicated === false) {
       d.notifyMutationApplied(projectId, result.requestId, result.revision, origin, result.change, (result as { sceneId?: string }).sceneId);
       if (session) d.record(session, result.requestId, result.revision);
