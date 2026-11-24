@@ -92,7 +92,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 
 | Item | Status |
 |---|---|
-| 47L.0 | not started |
+| 47L.0 | Done 2026-11-24 (no fix, no gate): reference cameras `ref-30m`…`ref-150m` (4230f8e7); clean world proven by regeneration; 30 shots settled. Specks and roof-ridge gaps are old: the same at 760c2aa0, b5093d11 and the head; specks gone with the volume off (a light read), gaps not (level 1 geometry, D802). Not 47a, no bisect. water/02's missing front is the lake dig (§8a) |
 | 47L.1 | not started |
 | 47L.2 | not started |
 | 47L.3 | not started |
@@ -111,6 +111,65 @@ stop.
 
 (one section an item)
 
+### 47L.0 — the artefacts dated; the reference cameras
+
+**The cameras** (4230f8e7, `lighting-cameras.ts`, taken with `--only`): `ref-30m`, `ref-60m`, `ref-100m`, `ref-150m`, one
+brick house of the town (lot (9, 6): two storeys, x 55–66 m, z −4–4 m, its west gable lit at noon) from the south-west
+along one bearing (−145°) at 30, 60, 100 and 150 m, 1.7, 8, 16 and 30 m up (as low as the generated town lets each eye
+see over the houses between: a sight-line search over town.ts's houses), looking at its first storey. The test marches
+the town's cells from each eye to the house's gable foot, gable top and front foot (it fails with an eye moved into a
+house or 18 m lower at 150 m). For the base the same block was applied to the base worktree's bench
+(`work/47L.0/scripts/apply-cameras.py`, `ref-cameras-block.ts`: the names appended to `LIGHT_CHECK_NAMES`, the block before
+`moved`, `...REF_CAMERAS` in `LIGHT_CHECK_CAMERAS`; nothing else).
+
+**The world.** Staging's far world regenerated with `run.mjs far-world --no-cache` (the head's bench) and compared file by
+file: all 3,056 region files byte-equal except `r.-2.0.2.vxr` (the bench's cave, 700 m north-west); `world.json` differs
+only in format 2, revision 1 (one edit: the cave) against a fresh format 3, revision 0. No lake, no dig in the town. The
+project was backed up before the base runs and restored byte-equal after.
+
+**The shots** (2026-11-24 14:01–15:02 UTC, 1-minute load 0.7–3.1 at the runs’ starts and ends; low, WebGPU, 1280 × 720, each run alone, staging served from
+each commit's own build; `work/47L.0/shots/<commit>/<camera>-{on,off}.png` with a `.json` each, raw runs in `raw/`).
+760c2aa0 and b5093d11 differ only in docs: their builds are byte-identical (1,279 files, `dist-*.sha`); both were shot
+anyway. The head's dist was rebuilt at 4230f8e7 (code equal to 6c1dec96). **Every one of the 30 shots settled** (streaming
+and far field still, nothing pending, in 3.6–11.8 s; the volume lit in 6–16 s; `voxelLight=off` runs hold no volume
+state). Speck pixels counted (all channels ≥ 235 / green 40 over red and blue and ≥ 150), whole frame, light on; light
+off is 0 / 0 in all 15:
+
+| camera | 760c2aa0 on | b5093d11 on | head on | specks: gables, ridges | specks: ground | parts missing (on and off) |
+|---|---|---|---|---|---|---|
+| street-noon | 15 / 0 | 22 / 0 | 7 / 0 | a few on far gables | one or two by a far fence | none seen (far houses hidden by the near ones) |
+| ref-30m | 49 / 6 | 27 / 2 | 7 / 2 | a few on the gable and roof of houses ~45 m out; the 30 m house clean | none | none |
+| ref-60m | 70 / 0 | 144 / 0 | 107 / 0 | yes: inside far gables, on roofs, ~70–90 m | few | a ridge gap on a house ~75 m out |
+| ref-100m | 181 / 82 | 141 / 101 | 243 / 138 | yes: along two ridges, white and green | yes, beside houses | two ridge gaps (~110–130 m) |
+| ref-150m | 478 / 160 | 447 / 166 | 380 / 114 | yes | yes: on the grass beside houses | ridge gaps; a black wedge under a roof (grey band with the light off) |
+
+Read by eye on every picture and on the crops (`work/47L.0/crops/`, `<commit>-<camera>-<on|off>-*.png`): the three
+commits show the same specks in the same places and the same gaps; counts move run to run (b5093d11 and 760c2aa0 are
+one build: 49 against 27 at `ref-30m`).
+
+**Verdicts.** *Specks*: (i) old: present at 760c2aa0 (46e-b's reading), not brought by 47a; gone in every shot with the
+volume off: a light read. *Missing house parts*: (i) old: gaps along roof ridges (and a wedge under one roof) at 45–130 m,
+present with the volume on and off at all three commits: geometry. No bisect (nothing came in with 47a). **The missing
+brick front in `water/02` is the bench's dig**: the lake's cylinder (centre x 0, z −28 m, radius 30 m, y −2 to 30 m;
+`work/47a.9/water-edits2.mjs`) reaches house (7, 6)'s south-west corner (brick, three storeys, x 15–28, z −4–8; its
+nearest point 28.3 m from the axis), and the crop (`crops/owner02-right.png`) shows its floors and stairs cut open, not a
+part left undrawn. The dig also took the houses within 30 m of the street, which opened the 60–100 m view.
+
+**What 47L.1 starts from** (specks): a light read, not geometry (none with `voxelLight=off`). With `&surfaceRead=level0`
+(head, `raw/head-on-level0/`, `crops/head-ref-1{00,50}m-level0-*.png`) the same pixels go black and fewer (white 33–126
+against 107–380): they are pixels whose level-0 read finds no cell holding light and whose coarse-level read (levels
+1–3) answers bright white or grass green. They start about 45 m out (the 30 m house is clean; a house ~45 m behind it has
+a few), on gables, along ridges and on the ground within a few metres of walls; many sit on the attic faces seen through
+the ridge gaps below. Not determined: which coarse cell a speck reads and why it holds sky or grass light.
+**What 47L.2 starts from** (missing parts): level 1 (1 m cells), not the far field and not settling: at the low tier
+level 0 ends about 45 m out (128 cells × 0.71) and level 1 at 128 m, the gapped houses lie between, and at the high tier
+(level 0 to about 90 m; `raw/head-off-high/`, `crops/head-ref-{60,100}m-off-high-*.png`) the same roofs are whole. Not
+determined: which step of the level-1 roof mesh (the mip of a one-cell 45° roof, the roof mesher's ridge case) drops the
+cells. D802 opened; D744 and D784 written with this evidence; D803 (the bench camera's auto-exposure) opened.
+**Unverified**: nothing in motion was watched; the specks' frame-to-frame flicker was not looked at; whether the
+camera's auto-exposure (D803) changes the pictures; the gaps' cause at level 1 is inferred from the tier comparison, not
+traced.
+
 ## 9. Decision log
 
 - **2026-11-24 — the pass is placed and started on the owner's word** ("Write the lighting pass and get it
@@ -119,6 +178,9 @@ stop.
   question 1 of `acc47a` in substance (a lighting item before vegetation).
 - **2026-11-24 — agents run in the foreground**, one at a time, never backgrounding a command: twice in 47a's
   close a background agent was cut by the chat server's 30-minute ceiling (cause of the difference unproven).
+- **2026-11-24 — 47L.0: no regression from 47a, so no fix comes first.** The specks and the roof gaps are the same at
+  760c2aa0, b5093d11 and the head on a clean world; 47L.1 and 47L.2 start from 46e-b's code paths (the volume's coarse
+  read; level-1 roofs), not from 47a's commits. 760c2aa0 was shot although its build equals b5093d11's byte for byte.
 
 ## 10. Open questions for the owner (each with the default that stands if unanswered)
 
