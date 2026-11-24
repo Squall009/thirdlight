@@ -178,8 +178,8 @@ missing the lead takes the next item whose notes are in, and says so in §9.
 | 47a.9 | Done 2026-11-23 (e1a62759…3452d5bb): proof on 1.34 M liquid cells (shader data read liquid: now air); `changeFeeds`/`EditOutcome.parts`; liquid part (16 B quads), drawn plain near; liquid dab 4 full derives → 4 liquid, worker 8.4 → 4.6 ms; town orbit, 128 lamps equal; lake near not resolved; D782–D785 |
 | 47a.10 | Done 2026-11-23 (123cd86e, fa4c996b, 2faad81c, b46b3ae9, cb320d59): level fill, `waterBody` (F6), a stroke or command in a body's reach rewrites it in the same undo step, locally (bank dab 0.5–2.1 ms, 16 cells; 251 m lake whole 1.37 s), a breach drained and flagged with a marker; Inspector, level handle; e2e 7–8 s; D786 (a stroke waits a far rebuild: 0.6–0.7 s), D787 |
 | 47a.11 | Done 2026-11-23 (d80f958e, e3d9caf3, 1928aa2f): `voxels` on `spline` (F5), world-writer core + spline writer (road/path/river, shoulders, clear, mouth at a body's level), record `structures/<id>.tlvo`, one undo step; 1 km road: point drag 0.96 s (whole course evaluated, ~9.9k cells written), record 1.33 MB; e2e 5-6 s; D788, D789, D790 |
-| 47a.12 | not started |
-| 47a.13 | not started |
+| 47a.12 | Not built (2026-11-24): the item agreed to be cut first if the phase ran long; recommended to the owner on `acc47a` (question 1) for a lighting item before vegetation; D741 stays open |
+| 47a.13 | Done 2026-11-24: phase gate green once (gate-phase-20261123-224831, 37 min); independent review in §9 (16 findings: fixed c98b0cf8, 7627b786, 59f5ea0d D800; D791–D801); end reading in §8a (651cd86e: 128-lamp room 15 copies, near +2 ms, unexplained); acceptance `acc47a`, five questions. 47b not begun |
 
 ## 8. Format and spec steps (owner stops)
 
@@ -2603,6 +2603,8 @@ read again at this commit.
   true to F5, but structures and bodies store `world` and splines do not (an optional `world` would be an add-only
   owner stop); (c) river cells as ground to a body is sound (no stored cell list) but a lake cannot spill into a
   lower channel until 49's settle: worth a line in the spec.
+
+- **2026-11-24 — 47a.12 not built; the close (lead).** D741 (light through partly covered cells) was the item the owner agreed is cut first if the phase runs long; it ran long (five days, three session losses). Not built; recommended on `acc47a` (question 1) for a lighting item before vegetation. Awaiting the owner's word: until then D741 stays open and the register's line is unchanged. The acceptance page also carries, as questions 2–4, the defaults that extend approved entry text (F6: a breached body drained whole, a deleted body's water cleared, river cells read as ground; F5: the world derived from the scene, a path as a road, an open river end square, no regenerate-all, the size estimate; F4: `stops.sight` read by nothing), and as question 5 the six interim decisions, none built.
 
 ## 10. Open questions for the owner (five, each with the default that stands if unanswered)
 
