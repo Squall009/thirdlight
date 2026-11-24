@@ -4,24 +4,22 @@
  * hemisphere light and the environment's diffuse light. The CPU reference is `volumeReadLevels` (voxel-light-volume-
  * layout.ts); the store, its update and its windows are voxel-light-volume.ts.
  *
- * What a pixel loads, and why it is few: the eight cells round its point half a cell off the surface (on an axis face
- * the far four have weight 0 by the leak rule and are skipped), for each the slot of its brick from the index (one load
- * shared by every cell in the first cell's brick: eight cells lie in one brick unless the point is in a brick's last
- * cell along an axis), then only the faces the normal takes a weight from (`ambientCubeFaceWeights` with the tier's
- * face floor: one on an axis face, two or three on a slope).
+ * What a pixel loads: the eight cells round its point half a cell off the surface (on an axis face the far four have
+ * weight 0 by the leak rule and are skipped), for each the slot of its brick from the index and its three faces toward
+ * the normal; a level whose window holds none of the cells' bricks is not read.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import type { N } from './effects-tsl';
 import { KEPT_IRRADIANCE } from './probe-lighting';
 import { texelTexture } from './texel-texture-node';
-import { ambientCubeFaceWeights, ambientCubeSteps, VOLUME_BRICK_CELLS, VOLUME_BRICK_TEXELS, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_PARTICLE_CENTRE_KEY, VOLUME_READ_KEY, VOLUME_READ_KIND_KEY, VOLUME_READ_KINDS, VOLUME_READ_OFFSET_CELLS, VOLUME_WORD, volumeCellM, volumeReadFlag, type VolumeReadFlag, type VolumeReadKind } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_BRICK_CELLS, VOLUME_BRICK_TEXELS, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_PARTICLE_CENTRE_KEY, VOLUME_READ_KEY, VOLUME_READ_KIND_KEY, VOLUME_READ_KINDS, VOLUME_READ_OFFSET_CELLS, VOLUME_WORD, volumeCellM, volumeReadFlag, type VolumeReadFlag, type VolumeReadKind } from './voxel-light-volume-layout';
 import { TSL_SCALAR_OPS } from './field-ops';
 import { VOXEL_KIT_PIECE_KEY } from './voxel-piece-draw';
 import { sunFieldCover } from './voxel-sun-field';
 
 const TSL: N = TSLTyped;
-const { Fn, If, Loop, bool, cameraPosition, float, int, ivec2, luminance, max, mix, normalWorld, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, uint, uniform, vec3, vec4, vertexStage } = TSL;
+const { Fn, If, cameraPosition, float, int, ivec2, luminance, max, mix, normalWorld, normalWorldGeometry, positionWorld, renderGroup, select, smoothstep, uint, uniform, vec3, vec4, vertexStage } = TSL;
 
 /** What the read reads of the store: its pool and index textures and each level's window corner (uniforms). */
 export interface VolumeReadSource {
@@ -36,10 +34,6 @@ export class VoxelVolumeLight extends THREE.Light {
   /** The eye of the last frame drawn (world metres; NaN before one) and the way it looks (unit). */
   readonly eye = [NaN, NaN, NaN];
   readonly forward = [0, 0, -1];
-  /** The face floor of the read (the tier's `readFaceFloor`; set by the store each frame). */
-  readonly faceFloor: N = uniform(0).setGroup(renderGroup);
-  /** Metres from the eye within which level 0 is read from its eight cells (the tier's `readFullM`; set each frame). */
-  readonly fullM: N = uniform(1e9).setGroup(renderGroup);
   /** The flat term's share under a roof where the volume holds no light (the tier's `indoorShare`; set each frame). */
   readonly indoorShare: N = uniform(1).setGroup(renderGroup);
   constructor(
@@ -103,14 +97,13 @@ class VoxelVolumeLightNode extends (THREE.Node as unknown as new () => { updateT
       const centre = (m?.userData?.[VOLUME_PARTICLE_CENTRE_KEY] as N | undefined) ?? positionWorld;
       const toEye = cameraPosition.sub(centre).normalize();
       const read = Fn(() => {
-        const v = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, centre, vec3(0), toEye, this.light.faceFloor, bool(true), flag);
+        const v = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, centre, vec3(0), toEye, true, flag);
         return vec4(v.light, v.weight);
       });
       const at = vertexStage(read());
       r = { light: at.xyz, weight: at.w };
     } else {
-      const nearest = positionWorld.sub(cameraPosition).length().greaterThan(this.light.fullM);
-      r = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, positionWorld, normalWorldGeometry.normalize(), normalWorld, this.light.faceFloor, nearest, flag);
+      r = volumeReadLevels(this.pool, this.index, this.light.gpu.originNodes, positionWorld, normalWorldGeometry.normalize(), normalWorld, false, flag);
     }
     const w = r.weight;
     const replaced = ctx.irradiance.sub(KEPT_IRRADIANCE).add(ctx.iblIrradiance);
@@ -145,26 +138,29 @@ interface LevelRead {
   readonly p: N;
   readonly ng: N;
   readonly n: N;
-  readonly faceFloor: N;
-  /** True where level 0 reads its nearest cell alone (past the tier's `readFullM`). */
-  readonly nearest: N;
+  /** The one cell the point lies in, alone (a lit particle's read at its centre; never a surface's). */
+  readonly nearest: boolean;
   readonly flag: VolumeReadFlag;
 }
 
 /**
- * The surfaces' read of one level (TSL; the CPU reference is `volumeReadAt`): the light at `p` facing `n`, from the
- * eight cells of the level round the point half a cell off it along `ng`, and the weight of those holding light. A
- * level whose window holds none of the eight bricks they can lie in is not read at all (its weight is 0 there anyway);
- * the eight cells are one loop, not eight copies of the code; past `readFullM` level 0 reads the cell the point half a
- * cell off the surface lies in, alone (the cell in front of an axis face: on its own side of any wall).
+ * The surfaces' read of one level (TSL; the CPU reference is `volumeReadAt`): the light at `p` facing `n` from the
+ * eight cells of the level round the point half a cell off it along `ng`, weighted trilinearly, only those holding
+ * light counted, and the weight of those. A level whose window holds none of the bricks the eight cells lie in is not
+ * read at all (its weight is 0 there anyway).
+ *
+ * Each cell is its own copy of the code with its own index load and all three faces toward the normal, at every
+ * distance. A shorter program (the eight cells as one loop sharing the first cell's index load, only the faces with a
+ * weight loaded, and one cell alone past a distance) drew white, green, magenta and black pixels on roofs, gables and
+ * the ground by walls on the integrated GPU, while every value it computed, tested in the same program, was finite and
+ * in range and the cells it read held sane light; this form draws none.
  */
 function volumeRead(r: LevelRead): { light: N; weight: N } {
-  const { level, pool, index, origin, p, ng, n, faceFloor, flag } = r;
-  if (flag.allFaces) return volumeReadAsBuilt(r);
+  const { level, pool, index, origin, p, ng, n, flag } = r;
   const cellM = volumeCellM(level);
   const win = VOLUME_LEVEL_WINDOWS[level]!;
   const tag = `tlVolume${level}`;
-  const q = p.add(ng.mul(VOLUME_READ_OFFSET_CELLS * cellM)).div(cellM).toVar(`${tag}Point`);
+  const q = p.add(ng.mul(VOLUME_READ_OFFSET_CELLS * cellM)).div(cellM);
   const g = q.sub(0.5);
   const i0 = g.floor().toVar(`${tag}Cell`);
   const f = g.sub(i0).toVar(`${tag}Frac`);
@@ -172,113 +168,52 @@ function volumeRead(r: LevelRead): { light: N; weight: N } {
   const ws = float(0).toVar(`${tag}Weights`);
   const dims = vec3(win[0], win[1], win[2]);
   const face = [select(n.x.lessThan(0), uint(1), uint(0)), select(n.y.lessThan(0), uint(3), uint(2)), select(n.z.lessThan(0), uint(5), uint(4))];
-  const fw = ambientCubeFaceWeights(TSL_SCALAR_OPS, n.x, n.y, n.z, faceFloor).map((v, a) => (v as N).toVar(`${tag}Face${a}`));
   const word = (base: N, faceIndex: N): N => {
     const i = base.add(faceIndex);
     return pool.load(ivec2(int(i.mod(uint(VOLUME_POOL_WIDTH))), int(i.div(uint(VOLUME_POOL_WIDTH))))).x;
   };
-  // A brick's slot + 1 (0: none, or outside the level's window).
-  const slotOf = (b: N): N => {
-    const inside = b.greaterThanEqual(origin).all().and(b.lessThan(origin.add(dims)).all());
-    const s = b.sub(dims.mul(b.div(dims).floor()));
-    const slot = index.load(ivec2(int(s.x.add(s.z.mul(win[0]))), int(s.y).add(VOLUME_INDEX_ROW_BASE[level]!))).x;
-    return select(inside, slot, uint(0));
-  };
-  const b0 = i0.div(VOLUME_BRICK_CELLS).floor().toVar(`${tag}Brick`);
-  const b1 = i0.add(1).div(VOLUME_BRICK_CELLS).floor();
-  // A cell (world cell coordinates, float) of weight `w`: its slot (shared with the first cell's brick), its faces.
-  const cell = (c: N, w: N, slot0: N): void => {
+  // A cell (world cell coordinates, float) of weight `w`: its brick's slot from the index (none outside the window),
+  // its faces toward the normal; it holds light when its words are not 0 (all or none).
+  const cell = (c: N, w: N): void => {
     const b = c.div(VOLUME_BRICK_CELLS).floor();
-    const slot = slot0.toVar();
-    If(b.notEqual(b0).any(), () => slot.assign(slotOf(b)));
-    If(slot.greaterThan(uint(0)), () => {
-      const l = c.sub(b.mul(VOLUME_BRICK_CELLS));
-      const local = uint(l.x.add(l.y.mul(VOLUME_BRICK_CELLS)).add(l.z.mul(VOLUME_BRICK_CELLS * VOLUME_BRICK_CELLS)));
-      const base = slot.sub(uint(1)).mul(uint(VOLUME_BRICK_TEXELS)).add(local.mul(uint(VOLUME_FACES))).toVar();
-      if (flag.probe === 'index') {
-        sum.addAssign(vec3(0.3).mul(w));
-        ws.addAssign(w);
-        return;
-      }
-      // Only the faces the normal takes a weight from; a cell holds light when its words are not 0 (all or none).
-      const e = vec3(0).toVar();
-      const held = float(0).toVar();
-      for (let a = 0; a < 3; a++) {
-        If(fw[a]!.greaterThan(0), () => {
-          const wd = word(base, face[a]).toVar();
-          held.assign(max(held, select(wd.notEqual(uint(0)), float(1), float(0))));
-          e.addAssign(wordLight(wd, flag.probe).mul(fw[a]!));
+    const inside = b.greaterThanEqual(origin).all().and(b.lessThan(origin.add(dims)).all());
+    If(inside, () => {
+      const s = b.sub(dims.mul(b.div(dims).floor()));
+      const slot = index.load(ivec2(int(s.x.add(s.z.mul(win[0]))), int(s.y).add(VOLUME_INDEX_ROW_BASE[level]!))).x;
+      If(slot.greaterThan(uint(0)), () => {
+        const l = c.sub(b.mul(VOLUME_BRICK_CELLS));
+        const local = uint(l.x.add(l.y.mul(VOLUME_BRICK_CELLS)).add(l.z.mul(VOLUME_BRICK_CELLS * VOLUME_BRICK_CELLS)));
+        const base = slot.sub(uint(1)).mul(uint(VOLUME_BRICK_TEXELS)).add(local.mul(uint(VOLUME_FACES))).toVar();
+        if (flag.probe === 'index') {
+          sum.addAssign(vec3(0.3).mul(w));
+          ws.addAssign(w);
+          return;
+        }
+        const wx = word(base, face[0]).toVar();
+        If(wx.notEqual(uint(0)), () => {
+          const lx = wordLight(wx, flag.probe);
+          const ly = wordLight(word(base, face[1]), flag.probe);
+          const lz = wordLight(word(base, face[2]), flag.probe);
+          sum.addAssign(ambientCubeSteps(TSL_SCALAR_OPS, n.x, n.y, n.z, [lx, lx, ly, ly, lz, lz]).mul(w));
+          ws.addAssign(w);
         });
-      }
-      sum.addAssign(e.mul(w.mul(held)));
-      ws.addAssign(w.mul(held));
+      });
     });
   };
+  const b0 = i0.div(VOLUME_BRICK_CELLS).floor();
+  const b1 = i0.add(1).div(VOLUME_BRICK_CELLS).floor();
   // The level's window holds one of the bricks the eight cells lie in.
   If(b1.greaterThanEqual(origin).all().and(b0.lessThan(origin.add(dims)).all()), () => {
-    const slot0 = slotOf(b0).toVar(`${tag}Slot`);
-    const loop = (): void => {
-      Loop(8, ({ i }: { i: N }) => {
-        const bits = vec3(float(i.bitAnd(1)), float(i.shiftRight(1).bitAnd(1)), float(i.shiftRight(2).bitAnd(1)));
-        const fk = mix(f.oneMinus(), f, bits);
-        const w = fk.x.mul(fk.y).mul(fk.z);
-        If(w.greaterThan(1e-4), () => cell(i0.add(bits), w, slot0));
-      });
-    };
-    if (level > 0) loop();
-    else If(r.nearest, () => cell(q.floor(), float(1), slot0)).Else(loop);
+    if (r.nearest) {
+      cell(q.floor(), float(1));
+      return;
+    }
+    for (let k = 0; k < 8; k++) {
+      const pick = (a: 'x' | 'y' | 'z', bit: number): N => (((k >> bit) & 1) === 1 ? f[a] : f[a].oneMinus());
+      const w = pick('x', 0).mul(pick('y', 1)).mul(pick('z', 2));
+      If(w.greaterThan(1e-4), () => cell(i0.add(vec3((k >> 0) & 1, (k >> 1) & 1, (k >> 2) & 1)), w));
+    }
   });
-  return { light: sum.div(max(ws, float(1e-4))), weight: ws };
-}
-
-/** The read of one level as it was first built (`allfaces`, a comparison): eight copies, an index load and every face toward the normal a cell. */
-function volumeReadAsBuilt(r: LevelRead): { light: N; weight: N } {
-  const { level, pool, index, origin, p, ng, n, flag } = r;
-  const cellM = volumeCellM(level);
-  const win = VOLUME_LEVEL_WINDOWS[level]!;
-  const tag = `tlVolume${level}`;
-  const g = p.add(ng.mul(VOLUME_READ_OFFSET_CELLS * cellM)).div(cellM).sub(0.5);
-  const i0 = g.floor().toVar(`${tag}Cell`);
-  const f = g.sub(i0).toVar(`${tag}Frac`);
-  const sum = vec3(0).toVar(`${tag}Sum`);
-  const ws = float(0).toVar(`${tag}Weights`);
-  const dims = vec3(win[0], win[1], win[2]);
-  const face = [select(n.x.lessThan(0), uint(1), uint(0)), select(n.y.lessThan(0), uint(3), uint(2)), select(n.z.lessThan(0), uint(5), uint(4))];
-  const word = (base: N, faceIndex: N): N => {
-    const i = base.add(faceIndex);
-    return pool.load(ivec2(int(i.mod(uint(VOLUME_POOL_WIDTH))), int(i.div(uint(VOLUME_POOL_WIDTH))))).x;
-  };
-  for (let k = 0; k < 8; k++) {
-    const pick = (a: 'x' | 'y' | 'z', bit: number): N => (((k >> bit) & 1) === 1 ? f[a] : f[a].oneMinus());
-    const w = pick('x', 0).mul(pick('y', 1)).mul(pick('z', 2));
-    If(w.greaterThan(1e-4), () => {
-      const c = i0.add(vec3((k >> 0) & 1, (k >> 1) & 1, (k >> 2) & 1));
-      const b = c.div(VOLUME_BRICK_CELLS).floor();
-      const inside = b.greaterThanEqual(origin).all().and(b.lessThan(origin.add(dims)).all());
-      If(inside, () => {
-        const s = b.sub(dims.mul(b.div(dims).floor()));
-        const slot = index.load(ivec2(int(s.x.add(s.z.mul(win[0]))), int(s.y).add(VOLUME_INDEX_ROW_BASE[level]!))).x;
-        If(slot.greaterThan(uint(0)), () => {
-          const l = c.sub(b.mul(VOLUME_BRICK_CELLS));
-          const local = uint(l.x.add(l.y.mul(VOLUME_BRICK_CELLS)).add(l.z.mul(VOLUME_BRICK_CELLS * VOLUME_BRICK_CELLS)));
-          const base = slot.sub(uint(1)).mul(uint(VOLUME_BRICK_TEXELS)).add(local.mul(uint(VOLUME_FACES))).toVar();
-          if (flag.probe === 'index') {
-            sum.addAssign(vec3(0.3).mul(w));
-            ws.addAssign(w);
-            return;
-          }
-          const wx = word(base, face[0]).toVar();
-          If(wx.notEqual(uint(0)), () => {
-            const lx = wordLight(wx, flag.probe);
-            const ly = wordLight(word(base, face[1]), flag.probe);
-            const lz = wordLight(word(base, face[2]), flag.probe);
-            sum.addAssign(ambientCubeSteps(TSL_SCALAR_OPS, n.x, n.y, n.z, [lx, lx, ly, ly, lz, lz]).mul(w));
-            ws.addAssign(w);
-          });
-        });
-      });
-    });
-  }
   return { light: sum.div(max(ws, float(1e-4))), weight: ws };
 }
 
@@ -288,14 +223,14 @@ function volumeReadAsBuilt(r: LevelRead): { light: N; weight: N } {
  * level is not read once less than {@link VOLUME_LEFT_MIN} is left, so a surface beside its 0.5 m cells reads only them).
  * Returns the light and the weight it holds (0: no level holds light here; the flat term stays).
  */
-function volumeReadLevels(pool: N, index: N, origins: readonly N[], p: N, ng: N, n: N, faceFloor: N, nearest: N, flag: VolumeReadFlag): { light: N; weight: N } {
+function volumeReadLevels(pool: N, index: N, origins: readonly N[], p: N, ng: N, n: N, nearest: boolean, flag: VolumeReadFlag): { light: N; weight: N } {
   const acc = vec3(0).toVar('tlVolumeLight');
   const left = float(1).toVar('tlVolumeLeft');
   const first = flag.levels === 'coarse' ? 1 : 0;
   const last = flag.levels === 'level0' ? 1 : VOLUME_LEVELS;
   for (let level = first; level < last; level++) {
     const read = (): void => {
-      const r = volumeRead({ level, pool, index, origin: origins[level]!, p, ng, n, faceFloor, nearest, flag });
+      const r = volumeRead({ level, pool, index, origin: origins[level]!, p, ng, n, nearest: nearest && level === 0, flag });
       const a = smoothstep(float(0), float(VOLUME_FULL_WEIGHT), r.weight);
       acc.addAssign(r.light.mul(a.mul(left)));
       left.mulAssign(a.oneMinus());

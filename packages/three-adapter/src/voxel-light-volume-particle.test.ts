@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CPU_SCALAR_OPS, latticeHash4 } from '@thirdlight/shared';
-import { ambientCubeFaceWeights, VOLUME_FULL_WEIGHT, VOLUME_LEVELS, VOLUME_READ_KINDS, volumeCellM, volumeParticleRead, volumeReadFlag } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_FULL_WEIGHT, VOLUME_LEVELS, VOLUME_READ_KINDS, volumeCellM, volumeParticleRead, volumeReadFlag } from './voxel-light-volume-layout';
 
 /** A fixed hash in [0, 1) of a cell of a level and a lane (the same faces every run). */
 const hash = (level: number, x: number, y: number, z: number, k: number): number => latticeHash4(x, y, z, (level + 1) * 1009 + k) / 4294967296;
@@ -20,9 +20,7 @@ function reference(p: number[], eye: number[]): { light: number[]; weight: numbe
   const d = [0, 1, 2].map((a) => eye[a]! - p[a]!);
   const len = Math.hypot(d[0]!, d[1]!, d[2]!);
   const n = d.map((v) => v / len);
-  const fw = ambientCubeFaceWeights(CPU_SCALAR_OPS, n[0]!, n[1]!, n[2]!, 0);
-  const side = n.map((v, a) => 2 * a + (v < 0 ? 1 : 0));
-  const cellLight = (fc: number[][]): number[] => [0, 1, 2].map((ch) => fw[0] * fc[side[0]!]![ch]! + fw[1] * fc[side[1]!]![ch]! + fw[2] * fc[side[2]!]![ch]!);
+  const cellLight = (fc: number[][]): number[] => [0, 1, 2].map((ch) => ambientCubeSteps(CPU_SCALAR_OPS, n[0]!, n[1]!, n[2]!, [fc[0]![ch]!, fc[1]![ch]!, fc[2]![ch]!, fc[3]![ch]!, fc[4]![ch]!, fc[5]![ch]!]));
   let left = 1;
   const acc = [0, 0, 0];
   for (let level = 0; level < VOLUME_LEVELS; level++) {

@@ -345,7 +345,7 @@ describe('the light volume layout', () => {
   });
 });
 
-describe("the surfaces' read with fewer faces (the face floor)", () => {
+describe("the surfaces' read on the town scrap", () => {
   // Cells of the town scrap holding light (open, a solid cell across a face), each face a light of its own.
   const holds = (x: number, y: number, z: number): boolean => !townCell(x, y, z) && (townCell(x + 1, y, z) || townCell(x - 1, y, z) || townCell(x, y + 1, z) || townCell(x, y - 1, z) || townCell(x, y, z + 1) || townCell(x, y, z - 1));
   const hash = (x: number, y: number, z: number, f: number): number => {
@@ -354,7 +354,7 @@ describe("the surfaces' read with fewer faces (the face floor)", () => {
     return ((Math.imul(h, 3266489917) >>> 0) / 2 ** 32) * 4;
   };
   const faces = (x: number, y: number, z: number): number[][] | null => (holds(x, y, z) ? Array.from({ length: 6 }, (_, f) => [hash(x, y, z, f), hash(x, y, z, f + 6), hash(x, y, z, f + 12)]) : null);
-  /** The read as first built: every face toward the normal by the ambient cube's n² (the reference the cheaper read is held to). */
+  /** The read written out on its own: the eight cells round the point half a cell off it, every face toward the normal by n². */
   const fullRead = (p: readonly number[], n: readonly number[]): { light: number[]; weight: number; spread: number } => {
     const g = [0, 1, 2].map((a) => (p[a]! + n[a]! * 0.5 * 0.5) / 0.5 - 0.5);
     const i0 = g.map(Math.floor);
@@ -396,92 +396,76 @@ describe("the surfaces' read with fewer faces (the face floor)", () => {
     }
   }
 
-  it('on an axis face it reads one face a cell and gives the full read exactly, at any floor', () => {
+  it('on an axis face, a slope or a normal-mapped face it gives the read as first built', () => {
     expect(points.length).toBeGreaterThanOrEqual(2000);
-    for (const floor of [0, 0.1, 0.2, 0.3]) for (const { p, n } of points) {
-      const full = fullRead(p, n);
-      const r = volumeReadAt(p, n, 0.5, faces, CPU_SCALAR_OPS, floor);
-      expect(r.weight).toBe(full.weight);
-      for (let ch = 0; ch < 3; ch++) expect(r.light[ch]).toBeCloseTo(full.light[ch]!, 12);
-    }
-  });
-
-  it('on a slope or a normal-mapped face: at a floor of 0 the full read; above it within (3 t / (1 − 3 t)) of the faces\' spread', () => {
-    const worst: Record<number, number> = {};
-    const mean: Record<number, number> = {};
-    let n0 = 0;
-    for (const floor of [0, 0.05, 0.1, 0.2]) {
-      let sum = 0;
-      let count = 0;
-      worst[floor] = 0;
-      for (const { p, n: axis } of points) {
+    let slopes = 0;
+    for (const { p, n: axis } of points) {
+      for (const n of [axis, (() => {
         // A normal up to 70° off the face's, every way round it (a normal map's, a slope's, a kit piece's).
         const v = axis.map((c) => c + (rnd() * 2 - 1) * 1.4);
         const l = Math.hypot(v[0]!, v[1]!, v[2]!);
-        const n = v.map((c) => c / l);
+        return v.map((c) => c / l);
+      })()]) {
         const full = fullRead(p, n);
-        if (full.weight === 0) continue;
-        const r = volumeReadAt(p, n, 0.5, faces, CPU_SCALAR_OPS, floor);
+        if (n !== axis && full.weight > 0) slopes++;
+        const r = volumeReadAt(p, n, 0.5, faces, CPU_SCALAR_OPS);
         expect(r.weight).toBeCloseTo(full.weight, 12);
-        const bound = floor === 0 ? 1e-9 : ((3 * floor) / (1 - 3 * floor)) * full.spread + 1e-9;
-        for (let ch = 0; ch < 3; ch++) {
-          const d = Math.abs(r.light[ch]! - full.light[ch]!);
-          expect(d).toBeLessThanOrEqual(bound);
-          worst[floor] = Math.max(worst[floor]!, d / Math.max(full.spread, 1e-9));
-          sum += d / Math.max(full.light[ch]!, 1e-3);
-          count++;
-        }
+        for (let ch = 0; ch < 3; ch++) expect(r.light[ch]).toBeCloseTo(full.light[ch]!, 9);
       }
-      mean[floor] = sum / count;
-      n0 = count / 3;
     }
-    expect(n0).toBeGreaterThanOrEqual(2000);
-    console.log(`[face floor] ${n0} slope points: mean relative error ${Object.entries(mean).map(([t, m]) => `${t}: ${(m * 100).toFixed(2)} %`).join(', ')}; worst over the spread ${Object.entries(worst).map(([t, m]) => `${t}: ${m.toFixed(3)}`).join(', ')}`);
+    expect(slopes).toBeGreaterThanOrEqual(2000);
   });
 
-  it('past the full distance it reads the cell in front of the surface alone: on an axis face that cell\'s faces exactly, and the eight cells\' blend within their spread', () => {
-    let within = 0;
-    let sum = 0;
+  it("a surface's read is the eight cells' blend at any distance from the eye: within the range of its cells' light, never one cell's alone", () => {
+    // The surfaces' read takes no distance: what a surface reads at 5 m it reads at 150 m. Points where the eight cells
+    // differ most (beside a wall, at a gable's foot) are where one cell alone stood out of its neighbours' light.
+    let differs = 0;
     for (const { p, n } of points) {
-      const r = volumeReadAt(p, n, 0.5, faces, CPU_SCALAR_OPS, 0, true);
-      const front = [0, 1, 2].map((a) => Math.floor(p[a]! / 0.5 + n[a]! * 0.5));
+      const full = fullRead(p, n);
+      if (full.weight === 0) continue;
+      const r = volumeReadLevels(p, n, (level, x, y, z) => (level === 0 ? faces(x, y, z) : null), CPU_SCALAR_OPS);
+      const share = volumeWeightShare(full.weight);
+      expect(r.weight).toBeCloseTo(share, 12);
+      for (let ch = 0; ch < 3; ch++) expect(r.light[ch]).toBeCloseTo(full.light[ch]!, 9);
+      const lone = volumeReadAt(p, n, 0.5, faces, CPU_SCALAR_OPS, true);
+      if (lone.weight > 0 && Math.abs(lone.light[0] - full.light[0]!) > 1e-6) differs++;
+    }
+    // The one cell in front differs from the blend at most of these points: the read the far pixels took before.
+    expect(differs).toBeGreaterThan(points.length / 4);
+  });
+
+  it("a particle's read (nearest) takes the one cell the point lies in, by the ambient cube", () => {
+    for (const { p, n } of points) {
+      // The centre a quarter metre off the face: inside the cell in front of it.
+      const c = p.map((v, a) => v + n[a]! * 0.25);
+      const r = volumeReadAt(c, n, 0.5, faces, CPU_SCALAR_OPS, true, [0, 0, 0]);
+      const front = c.map((v) => Math.floor(v / 0.5));
       const fc = faces(front[0]!, front[1]!, front[2]!);
-      // The cell in front of a face between a solid cell and one holding light is that one.
       expect(fc).not.toBeNull();
       expect(r.weight).toBe(1);
-      const axis = n.findIndex((v) => v !== 0);
-      const f = axis * 2 + (n[axis]! < 0 ? 1 : 0);
-      for (let ch = 0; ch < 3; ch++) expect(r.light[ch]).toBeCloseTo(fc![f]![ch]!, 12);
-      const full = fullRead(p, n);
-      for (let ch = 0; ch < 3; ch++) {
-        const d = Math.abs(r.light[ch]! - full.light[ch]!);
-        expect(d).toBeLessThanOrEqual(full.spread + 1e-9);
-        sum += d / Math.max(full.light[ch]!, 1e-3);
-        within++;
-      }
+      for (let ch = 0; ch < 3; ch++) expect(r.light[ch]).toBeCloseTo(ambientCubeSteps(CPU_SCALAR_OPS, n[0]!, n[1]!, n[2]!, [fc![0]![ch]!, fc![1]![ch]!, fc![2]![ch]!, fc![3]![ch]!, fc![4]![ch]!, fc![5]![ch]!]), 12);
     }
-    console.log(`[nearest] ${points.length} axis points: mean relative difference from the eight cells' blend ${((sum / within) * 100).toFixed(1)} % (faces drawn at random per cell: an upper end)`);
   });
 
-  it('keeps the leak rule: a wall 0.5 m thick keeps 1 and 100 apart at any floor, any normal on its face, near or past the full distance', () => {
+  it('keeps the leak rule: a wall 0.5 m thick keeps 1 and 100 apart for any normal on its face', () => {
     const solid = (x: number, y: number): boolean => x === 10 || y < 0;
     const wallFaces = (x: number, y: number): number[][] | null => {
       if (solid(x, y) || !(solid(x + 1, y) || solid(x - 1, y) || solid(x, y - 1))) return null;
       const v = x < 10 ? 1 : 100;
       return Array.from({ length: 6 }, () => [v, v, v]);
     };
-    for (const floor of [0, 0.1, 0.3]) for (let k = 0; k < 400; k++) {
+    for (let k = 0; k < 1200; k++) {
       const v = [-1 + (rnd() * 2 - 1) * 0.9, (rnd() * 2 - 1) * 0.9, (rnd() * 2 - 1) * 0.9];
       const l = Math.hypot(v[0]!, v[1]!, v[2]!);
       const n = v.map((c) => c / l);
       // The reader's point steps off along the face's own normal (the geometry's): the room side at x = 5 m.
       const p = [5, 0.01 + (k % 20) * 0.37, (k * 0.173) % 3];
-      for (const nearest of [false, true]) {
-        const room = volumeReadAt(p, n, 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, floor, nearest);
-        if (room.weight > 0) expect(room.light[0]).toBeCloseTo(1, 9);
-        const street = volumeReadAt([5.5, p[1]!, p[2]!], [-n[0]!, n[1]!, n[2]!], 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, floor, nearest);
-        if (street.weight > 0) expect(street.light[0]).toBeCloseTo(100, 9);
-      }
+      const room = volumeReadAt(p, n, 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, false, [-1, 0, 0]);
+      expect(room.weight).toBeGreaterThan(0);
+      expect(room.light[0]).toBeCloseTo(1, 9);
+      const street = volumeReadAt([5.5, p[1]!, p[2]!], [-n[0]!, n[1]!, n[2]!], 0.5, (x, y) => wallFaces(x, y), CPU_SCALAR_OPS, false, [1, 0, 0]);
+      expect(street.weight).toBeGreaterThan(0);
+      expect(street.light[0]).toBeCloseTo(100, 9);
     }
   });
 });
@@ -498,12 +482,12 @@ function roomCell(x: number, y: number, z: number): boolean {
 describe("the surfaces' read by the page's flag", () => {
   it('reads everything unless the flag names a part, and nothing at 0', () => {
     const all = VOLUME_READ_KINDS.surface | VOLUME_READ_KINDS.kit | VOLUME_READ_KINDS.prop | VOLUME_READ_KINDS.particle;
-    expect(volumeReadFlag(null)).toEqual({ read: true, levels: 'all', probe: 'light', allFaces: false, kinds: all, particlePixel: false });
-    expect(volumeReadFlag('1')).toEqual({ read: true, levels: 'all', probe: 'light', allFaces: false, kinds: all, particlePixel: false });
+    expect(volumeReadFlag(null)).toEqual({ read: true, levels: 'all', probe: 'light', kinds: all, particlePixel: false });
+    expect(volumeReadFlag('1')).toEqual({ read: true, levels: 'all', probe: 'light', kinds: all, particlePixel: false });
     expect(volumeReadFlag('0').read).toBe(false);
     expect(volumeReadFlag('level0').levels).toBe('level0');
     expect(volumeReadFlag('coarse').levels).toBe('coarse');
-    expect(volumeReadFlag('index,allfaces')).toMatchObject({ probe: 'index', allFaces: true });
+    expect(volumeReadFlag('index')).toMatchObject({ probe: 'index' });
     expect(volumeReadFlag('nodecode').probe).toBe('nodecode');
     expect(volumeReadFlag('kit,prop').kinds).toBe(VOLUME_READ_KINDS.kit | VOLUME_READ_KINDS.prop);
     expect(volumeReadFlag('surface').kinds).toBe(VOLUME_READ_KINDS.surface);

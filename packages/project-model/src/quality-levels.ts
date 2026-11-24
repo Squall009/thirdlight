@@ -152,19 +152,6 @@ export interface VoxelLightVolumeSettings {
    */
   readonly enabled: boolean;
   /**
-   * The surfaces' read leaves out a cell's faces whose share of the normal (its square along their axis) is under
-   * this, and spreads their weight over the rest (0: every face toward the normal; at most
-   * `VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX`). An axis-aligned surface reads one face a cell at any floor; a higher floor
-   * lets a normal-mapped surface read one too, at the cost of the normal map's detail in its soft light.
-   */
-  readonly readFaceFloor: number;
-  /**
-   * Metres from the eye within which the surfaces read the 0.5 m cells round a pixel blended (eight cells, trilinear);
-   * past it a pixel reads the one cell in front of its surface (one brick's slot, its faces toward the normal), where a
-   * cell is a few pixels across and its blend is not seen.
-   */
-  readonly readFullM: number;
-  /**
    * Updates a moving sun's or sky's light is followed over: while the light keeps moving (a day) every kept brick is
    * refreshed in turn and each estimate blended in by at least 1 / this (an exponential mean: the light lags the sun by
    * about this many of a brick's refreshes, its noise held to a mean of this many updates' rays).
@@ -234,14 +221,13 @@ const INDOOR_SHARE = 0.2;
  * The light volume by tier: on at every tier (WebGPU); low measured on its target; medium and high from it (unverified
  * on target hardware): high refines twice as far and lists 24 lamps (both cost memory or idle time only); more rays or
  * a longer reach cost every edit's settle and were not measured where they would run, so they stay low's (the Play test
- * runs at high on the integrated GPU). The read: every face toward the normal (a face floor measured no cheaper), the
- * eight cells blended to 24 m on low (past it one cell: about half the read's cost at a view over the town, nothing
- * seen at that distance), farther on medium and high.
+ * runs at high on the integrated GPU). The surfaces' read has no tier setting: every face toward the normal, the eight
+ * cells blended at every distance (one cell past a distance drew specks on roofs and by walls).
  */
 const VOXEL_LIGHT_VOLUME_BY_TIER: Readonly<Record<LightingTier, Readonly<VoxelLightVolumeSettings>>> = Object.freeze({
-  low: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 24, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48, indoorShare: INDOOR_SHARE }),
-  medium: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 32, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48, indoorShare: INDOOR_SHARE }),
-  high: Object.freeze({ enabled: true, readFaceFloor: 0, readFullM: 64, followWindow: 8, outerSettle: 2, listEntries: 24, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 128, windowBricks: 48, indoorShare: INDOOR_SHARE }),
+  low: Object.freeze({ enabled: true, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48, indoorShare: INDOOR_SHARE }),
+  medium: Object.freeze({ enabled: true, followWindow: 8, outerSettle: 2, listEntries: 16, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 64, windowBricks: 48, indoorShare: INDOOR_SHARE }),
+  high: Object.freeze({ enabled: true, followWindow: 8, outerSettle: 2, listEntries: 24, rays: 4, rayReachM: 24, sunReachM: 48, reachCoarse: false, settleUpdates: 8, historyUpdates: 128, windowBricks: 48, indoorShare: INDOOR_SHARE }),
 });
 
 /** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */
@@ -251,22 +237,18 @@ export const LIGHTING_TIER_SETTINGS: Readonly<Record<LightingTier, Readonly<Ligh
   high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2, shadowAtlas: 8192, voxelSunSteps: 24, voxelLightVolume: VOXEL_LIGHT_VOLUME_BY_TIER.high }),
 });
 
-/** The largest face floor of the light volume's read: below a third, so a unit normal always keeps a face. */
-export const VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX = 0.3;
-
 /**
  * What is wrong with a light volume's settings (empty: nothing): every count a whole number of at least one, the
  * reaches positive metres, the window an even count of bricks of at least 8, the history at least the settle, the
- * read's face floor from 0 to {@link VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX}, the switch a boolean.
+ * switch a boolean.
  */
 export function voxelLightVolumeSettingsProblems(v: VoxelLightVolumeSettings): string[] {
   const out: string[] = [];
   for (const k of ['followWindow', 'outerSettle', 'listEntries', 'rays', 'settleUpdates', 'historyUpdates', 'windowBricks'] as const) if (!Number.isInteger(v[k]) || v[k] < 1) out.push(`${k} is a whole number of at least 1`);
-  for (const k of ['rayReachM', 'sunReachM', 'readFullM'] as const) if (!(v[k] > 0)) out.push(`${k} is a positive number of metres`);
+  for (const k of ['rayReachM', 'sunReachM'] as const) if (!(v[k] > 0)) out.push(`${k} is a positive number of metres`);
   if (v.outerSettle > v.settleUpdates) out.push('outerSettle is at most settleUpdates');
   if (v.historyUpdates < v.settleUpdates) out.push('historyUpdates is at least settleUpdates');
   if (v.windowBricks % 2 !== 0 || v.windowBricks < 8) out.push('windowBricks is an even number of at least 8');
-  if (!(v.readFaceFloor >= 0 && v.readFaceFloor <= VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX)) out.push(`readFaceFloor is from 0 to ${VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX}`);
   if (typeof v.enabled !== 'boolean') out.push('enabled is true or false');
   if (!(v.indoorShare >= 0 && v.indoorShare <= 1)) out.push('indoorShare is from 0 to 1');
   return out;

@@ -1767,7 +1767,6 @@ export {
   LIGHTING_TIER_SETTINGS,
   levelLighting,
   voxelLightVolumeSettingsProblems,
-  VOXEL_LIGHT_VOLUME_FACE_FLOOR_MAX,
   lightingTierRank,
   lightingTierValues,
   LOW_FRAME_RATE_CAP,

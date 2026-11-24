@@ -511,8 +511,6 @@ export class VoxelLightVolume {
     this.look(more);
     if (this.light.read) this.holdAmbient();
     const reading = this.tuning.at(this.deps.level());
-    this.light.faceFloor.value = reading.readFaceFloor;
-    this.light.fullM.value = reading.readFullM;
     this.light.indoorShare.value = reading.indoorShare;
     this.lights();
     this.history.frame(this.frames);
@@ -932,8 +930,8 @@ export class VoxelLightVolume {
       following: this.lightFollow.following,
       lightChanges: this.sunSky.counts,
       followWindow: this.tuning.at(this.deps.level()).followWindow,
-      // What the surfaces' read does (the page's comparison flag, proven by what a bench reads back here) and its face floor.
-      read: { ...this.light.flag, faceFloor: this.tuning.at(this.deps.level()).readFaceFloor, fullM: this.tuning.at(this.deps.level()).readFullM },
+      // What the surfaces' read does (the page's comparison flag, proven by what a bench reads back here).
+      read: { ...this.light.flag },
       refining: this.refiner.ordered,
       lamps: this.lamps.count,
       // Where a hit has no list (no kept brick of any level holds it with one: it loops over the whole table): past every

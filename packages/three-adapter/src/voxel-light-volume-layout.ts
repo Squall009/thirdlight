@@ -75,15 +75,13 @@ export const VOLUME_PARTICLE_CENTRE_KEY = 'tlVoxelLightVolumeParticle';
  * product setting. `0`: nothing reads (the volume lit, unread). Otherwise a list of: `level0` (level 0 alone; where it
  * holds no light the flat term stays), `coarse` (the coarse levels alone), `index` (the index read, no face: a cell in a
  * kept brick reads a fixed grey), `nodecode` (the faces loaded, their words taken as plain numbers: the decode left
- * out), `allfaces` (every face toward the normal and an index load a cell, as the read was first built), the kinds
- * that read (`surface`, `kit`, `prop`, `particle`; none named: all), and `particlepixel` (lit particles read per pixel
+ * out), the kinds that read (`surface`, `kit`, `prop`, `particle`; none named: all), and `particlepixel` (lit particles read per pixel
  * as other lit draws do, as they did before their read was taken once a vertex).
  */
 export interface VolumeReadFlag {
   readonly read: boolean;
   readonly levels: 'all' | 'level0' | 'coarse';
   readonly probe: 'light' | 'index' | 'nodecode';
-  readonly allFaces: boolean;
   readonly kinds: number;
   readonly particlePixel: boolean;
 }
@@ -96,7 +94,6 @@ export function volumeReadFlag(flag: string | null): VolumeReadFlag {
     read: flag !== '0',
     levels: parts.has('level0') ? 'level0' : parts.has('coarse') ? 'coarse' : 'all',
     probe: parts.has('index') ? 'index' : parts.has('nodecode') ? 'nodecode' : 'light',
-    allFaces: parts.has('allfaces'),
     kinds: kinds === 0 ? VOLUME_READ_KINDS.surface | VOLUME_READ_KINDS.kit | VOLUME_READ_KINDS.prop | VOLUME_READ_KINDS.particle : kinds,
     particlePixel: parts.has('particlepixel'),
   };
@@ -258,43 +255,22 @@ export function volumeFilterShare(updates: number): number {
 export const VOLUME_READ_OFFSET_CELLS = 0.5;
 
 /**
- * The ambient cube's weights along x, y and z a read takes for a normal (one definition for the CPU and the surfaces'
- * read): each axis's n² less `floor` (0 below it), over their sum. At a floor of 0 they are the ambient cube's own (n²
- * each, summing to 1 for a unit normal). A read loads only the faces of the axes with a weight, so an axis-aligned
- * normal takes one word a cell, and so does a normal-mapped wall whose normal stays within the floor of its axis.
- * Continuous in the normal (no face comes in with a step) and exact wherever the normal lies on an axis; below 1/3 a
- * unit normal always keeps one axis.
- */
-export function ambientCubeFaceWeights<F, B>(o: ScalarOps<F, B>, nx: F, ny: F, nz: F, floor: F): [F, F, F] {
-  const zero = o.n(0);
-  const wx = o.max(o.sub(o.mul(nx, nx), floor), zero);
-  const wy = o.max(o.sub(o.mul(ny, ny), floor), zero);
-  const wz = o.max(o.sub(o.mul(nz, nz), floor), zero);
-  const s = o.max(o.add(o.add(wx, wy), wz), o.n(1e-6));
-  return [o.div(wx, s), o.div(wy, s), o.div(wz, s)];
-}
-
-/**
  * The light a surface at `p` (metres) facing `n` (unit) reads, the CPU reference of the surfaces' read: the eight
  * cells round the point half a cell off it along `n`, weighted trilinearly, only those holding light counted
  * (`faces(x, y, z)`: the six faces' light of a cell, null where none is held), divided by the weight they had; each
- * cell's light is its faces toward `n` by {@link ambientCubeFaceWeights} with the read's face floor. `nearest`: the one
- * cell the point half a cell off the surface lies in, with all the weight where it holds light (the read past the
- * tier's `readFullM`). `along`: the direction the point is taken off along (absent: `n`; zero: the point itself, a
- * particle's read).
+ * cell's light is the ambient cube's ({@link ambientCubeSteps}: every face toward `n`, by n²). `nearest`: the one cell
+ * the point lies in, with all the weight where it holds light (a lit particle's read at its centre). `along`: the
+ * direction the point is taken off along (absent: `n`; zero: the point itself, a particle's read).
  * Returns the light and the weight (0: none of the eight holds light; the reader keeps its flat term).
  */
-export function volumeReadAt(p: readonly number[], n: readonly number[], cellM: number, faces: (x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, faceFloor = 0, nearest = false, along: readonly number[] = n): { light: [number, number, number]; weight: number } {
+export function volumeReadAt(p: readonly number[], n: readonly number[], cellM: number, faces: (x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, nearest = false, along: readonly number[] = n): { light: [number, number, number]; weight: number } {
   const g = [0, 1, 2].map((a) => (p[a]! + along[a]! * VOLUME_READ_OFFSET_CELLS * cellM) / cellM - 0.5);
-  const fw = ambientCubeFaceWeights(o, n[0]!, n[1]!, n[2]!, faceFloor);
-  const side = [0, 1, 2].map((a) => volumeFace(a, n[a]!));
+  const cube = (fc: readonly (readonly number[])[], ch: number): number => ambientCubeSteps(o, n[0]!, n[1]!, n[2]!, [fc[0]![ch]!, fc[1]![ch]!, fc[2]![ch]!, fc[3]![ch]!, fc[4]![ch]!, fc[5]![ch]!]);
   if (nearest) {
-    // The cell the point half a cell off the surface lies in, alone (the surfaces' read past `readFullM`).
     const c = g.map((v) => Math.floor(v + 0.5));
     const fc = faces(c[0]!, c[1]!, c[2]!);
     if (fc === null) return { light: [0, 0, 0], weight: 0 };
-    const at = (ch: number): number => fw[0] * fc[side[0]!]![ch]! + fw[1] * fc[side[1]!]![ch]! + fw[2] * fc[side[2]!]![ch]!;
-    return { light: [at(0), at(1), at(2)], weight: 1 };
+    return { light: [cube(fc, 0), cube(fc, 1), cube(fc, 2)], weight: 1 };
   }
   const i0 = g.map(Math.floor);
   const f = g.map((v, a) => v - i0[a]!);
@@ -306,7 +282,7 @@ export function volumeReadAt(p: readonly number[], n: readonly number[], cellM: 
     if (w <= 0) continue;
     const fc = faces(c[0]!, c[1]!, c[2]!);
     if (fc === null) continue;
-    for (let ch = 0; ch < 3; ch++) sum[ch as 0 | 1 | 2] += w * (fw[0] * fc[side[0]!]![ch]! + fw[1] * fc[side[1]!]![ch]! + fw[2] * fc[side[2]!]![ch]!);
+    for (let ch = 0; ch < 3; ch++) sum[ch as 0 | 1 | 2] += w * cube(fc, ch);
     wsum += w;
   }
   return { light: wsum > 0 ? [sum[0] / wsum, sum[1] / wsum, sum[2] / wsum] : [0, 0, 0], weight: wsum };
@@ -330,7 +306,7 @@ export function volumeWeightShare(w: number): number {
  * (a character's head over a field, the middle of a room) the first coarse level holding light round it, and a point
  * no level holds keeps its flat term (weight 0). `faces(level, x, y, z)`: a cell of that level's six faces, or null.
  */
-export function volumeReadLevels(p: readonly number[], n: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, faceFloor = 0, nearest = false, along: readonly number[] = n): { light: [number, number, number]; weight: number; shares: number[] } {
+export function volumeReadLevels(p: readonly number[], n: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, nearest = false, along: readonly number[] = n): { light: [number, number, number]; weight: number; shares: number[] } {
   let left = 1;
   const acc = [0, 0, 0];
   const shares: number[] = [];
@@ -339,7 +315,7 @@ export function volumeReadLevels(p: readonly number[], n: readonly number[], fac
       shares.push(0);
       continue;
     }
-    const r = volumeReadAt(p, n, volumeCellM(level), (x, y, z) => faces(level, x, y, z), o, faceFloor, nearest && level === 0, along);
+    const r = volumeReadAt(p, n, volumeCellM(level), (x, y, z) => faces(level, x, y, z), o, nearest && level === 0, along);
     const a = volumeWeightShare(r.weight);
     for (let k = 0; k < 3; k++) acc[k]! += left * a * r.light[k]!;
     shares.push(left * a);
@@ -355,10 +331,10 @@ export function volumeReadLevels(p: readonly number[], n: readonly number[], fac
  * itself (no surface to step off), facing the eye, level 0 from the one cell the centre lies in (where a particle
  * beside a surface finds its 0.5 m cell), the coarse levels from their eight cells round it (open air).
  */
-export function volumeParticleRead(centre: readonly number[], eye: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, faceFloor = 0): { light: [number, number, number]; weight: number; shares: number[] } {
+export function volumeParticleRead(centre: readonly number[], eye: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>): { light: [number, number, number]; weight: number; shares: number[] } {
   const d = [0, 1, 2].map((a) => eye[a]! - centre[a]!);
   const len = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
-  return volumeReadLevels(centre, d.map((v) => v / len), faces, o, faceFloor, true, [0, 0, 0]);
+  return volumeReadLevels(centre, d.map((v) => v / len), faces, o, true, [0, 0, 0]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -50,13 +50,6 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-voxel-portal-defaults"></a>`VOXEL_PORTAL_DEFAULTS` | `{"open":false,"stops":{"light":true,"sight":true,"walk":true}}` | A door: shut, stopping light, sight and walkers (what a new portal starts as). |
 
-<a id="limits-project-model--voxel-structure"></a>
-## `voxel-structure.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-voxel-structure-grid-max"></a>`VOXEL_STRUCTURE_GRID_MAX` | `4294967295` | The highest structure grid id (region files carry it as a u32; 0 is the world grid). |
-
 <a id="limits-project-model--voxel-world"></a>
 ## `voxel-world.ts`
 
