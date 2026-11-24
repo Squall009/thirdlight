@@ -22,12 +22,16 @@ import {
   cacheEditTiming,
   editShadowTiming,
   LAMP_WALL,
+  LIGHT_CHECK_CAMERAS,
   LIGHT_PRESET_IDS,
   LIGHT_SHOT_NAMES,
   LIGHTING_CAMERAS,
+  MANY_LAMP_CAMERAS,
   LIGHTING_PRESETS,
   lightShotsSource,
   parseLightShotsArgs,
+  REF_CAMERAS,
+  REF_HOUSE,
   ROOM_HOUSE,
   shotProblems,
   type Picture,
@@ -38,8 +42,8 @@ const TOWN_SHIFT = 256;
 const grid = chunkGrid(32);
 const town = townWorld({ footprint: 512 }).grids[0]!;
 const chunks = new Map<string, ReturnType<typeof createDenseChunk>>();
-/** The town's voxel at world metres (x, y, z): its role, or -1 for air. */
-function roleAt(x: number, y: number, z: number): number {
+/** The town's voxel at world metres (x, y, z): its material and role (material 0: air). */
+function cellAt(x: number, y: number, z: number): { material: number; role: number } {
   const cx = Math.floor(x * 2) + TOWN_SHIFT, cy = Math.floor(y * 2), cz = Math.floor(z * 2) + TOWN_SHIFT;
   const k = `${cx >> 5},${cy >> 5},${cz >> 5}`;
   let d = chunks.get(k);
@@ -49,7 +53,18 @@ function roleAt(x: number, y: number, z: number): number {
     chunks.set(k, d);
   }
   const i = localIndex(grid, cx & 31, cy & 31, cz & 31);
-  return d.material[i] === 0 ? -1 : d.role[i]!;
+  return { material: d.material[i]!, role: d.role[i]! };
+}
+/** The town's voxel's role at world metres, or -1 for air. */
+function roleAt(x: number, y: number, z: number): number {
+  const c = cellAt(x, y, z);
+  return c.material === 0 ? -1 : c.role;
+}
+/** Whether the straight line from `a` to `b` (metres) runs through air only, every 5 cm. */
+function clearLine(a: readonly number[], b: readonly number[]): boolean {
+  const n = Math.ceil(Math.hypot(b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!) / 0.05);
+  for (let k = 0; k <= n; k++) if (roleAt(a[0]! + ((b[0]! - a[0]!) * k) / n, a[1]! + ((b[1]! - a[1]!) * k) / n, a[2]! + ((b[2]! - a[2]!) * k) / n) !== -1) return false;
+  return true;
 }
 const camera = (name: string) => LIGHTING_CAMERAS.find((c) => c.name === name)!;
 /** The ground heading a camera looks along. */
@@ -97,6 +112,30 @@ describe('the lighting cameras', () => {
     expect(heading(room.yaw)[0]).toBeLessThan(-0.9);
     // The lamps hang in the street's air.
     for (const l of BENCH_LAMPS) expect(roleAt(...l.position), l.name).toBe(-1);
+  });
+
+  it('put the reference cameras where they see one brick house at 30, 60, 100 and 150 m: its gable, its ground contact, its front', () => {
+    expect(REF_CAMERAS.map((c) => c.name)).toEqual(['ref-30m', 'ref-60m', 'ref-100m', 'ref-150m']);
+    const all = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS, ...MANY_LAMP_CAMERAS];
+    expect(new Set(all.map((c) => c.command)).size).toBe(all.length);
+    for (const c of REF_CAMERAS) expect(all).toContain(c);
+    const [x0, , z0] = REF_HOUSE.min;
+    const [x1, , z1] = REF_HOUSE.max;
+    const mid = [(x0 + x1) / 2, (z0 + z1) / 2];
+    // The house: brick walls on its west gable and its front (role wall, material brick: world-kit's MAT.brick 15).
+    expect(cellAt(x0 + 0.25, 2.25, -1.75)).toEqual({ material: 15, role: VOXEL_ROLE.wall });
+    expect(cellAt(x0 + 1.25, 2.25, z0 + 0.25)).toEqual({ material: 15, role: VOXEL_ROLE.wall });
+    REF_CAMERAS.forEach((c, k) => {
+      expect(Math.hypot(c.eye[0] - mid[0]!, c.eye[2] - mid[1]!), c.name).toBeCloseTo([30, 60, 100, 150][k]!, 6);
+      expect(roleAt(...c.eye), `${c.name}'s eye`).toBe(-1);
+      // Looking at the house: its middle straight ahead.
+      const [dx, dz] = heading(c.yaw);
+      expect(dx * (mid[0]! - c.eye[0]) + dz * (mid[1]! - c.eye[2])).toBeCloseTo(Math.hypot(c.eye[0] - mid[0]!, c.eye[2] - mid[1]!), 6);
+      // Clear lines to the west gable's foot and its top, and to the front's foot, from just outside the walls.
+      for (const z of [-2.5, -0.5, 1.5]) expect(clearLine(c.eye, [x0 - 0.1, 0.75, z]), `${c.name}: the gable's foot at z ${z}`).toBe(true);
+      expect(clearLine(c.eye, [x0 - 0.1, 8.25, 0]), `${c.name}: the gable's top`).toBe(true);
+      for (const x of [57, 60.5, 64]) expect(clearLine(c.eye, [x, 0.75, z0 - 0.1]), `${c.name}: the front's foot at x ${x}`).toBe(true);
+    });
   });
 
   it('put the cave camera inside the dug tube, looking out of its mouth', () => {

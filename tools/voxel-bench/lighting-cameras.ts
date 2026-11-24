@@ -16,7 +16,7 @@ import { dayPresets } from './day-cycle';
 /** The pictures' names, fixed (a later item compares files of the same name). */
 export const LIGHT_SHOT_NAMES = ['street-noon', 'room-window', 'cave', 'night-lamps', 'far-view'] as const;
 /** Checks beside the five, taken only when named (`--only`): a far lamp from two places, two cameras moved 1 m, the lit props' two readings (bench-props.ts). */
-export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m', 'props-cart', 'props-table', 'house-60m', 'house-above', 'lroom-above', 'town-100m', 'town-150m', 'town-250m', 'town-600m', 'town-2km'] as const;
+export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m', 'props-cart', 'props-table', 'house-60m', 'house-above', 'lroom-above', 'town-100m', 'town-150m', 'town-250m', 'town-600m', 'town-2km', 'ref-30m', 'ref-60m', 'ref-100m', 'ref-150m'] as const;
 /** The many-lamps scene's cameras (`--lamps N`, many-lamps.ts): a street with many lamps at night, a lamp-lit room, a high view over the lit town. */
 export const MANY_LAMP_SHOT_NAMES = ['lamps-street', 'lamps-room', 'lamps-high'] as const;
 export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number] | (typeof LIGHT_CHECK_NAMES)[number] | (typeof MANY_LAMP_SHOT_NAMES)[number];
@@ -185,8 +185,26 @@ function farLampCamera(name: 'far-lamp-a' | 'far-lamp-b', command: string, side:
   const d = Math.hypot(lx - eye[0], lz - eye[2]);
   return { name, command, eye, yaw: yawOf(lx - eye[0], lz - eye[2]), pitch: Math.atan2(eye[1] - ly, d), preset: 'bench-night', near: false, shows: 'at night, a lamp 2 m before the cave hillside, drawn by the far field from 230 m' };
 }
+/**
+ * The reference cameras: one brick house of the town (lot (9, 6): two storeys, x 55–66 m, z −4–4 m, its west gable
+ * lit by the noon sun) and its neighbours from the south-west along one bearing at 30, 60, 100 and 150 m, each eye as
+ * low as the town lets it see over the houses between to that house's west gable, its ground contact and its brick
+ * front (found by a sight-line search over town.ts's houses; the test marches the town's cells), looking at its first
+ * storey. Taken on the town as generated: nothing is dug for them.
+ */
+export const REF_HOUSE = Object.freeze({ min: Object.freeze([55, 0, -4] as const), max: Object.freeze([66, 10.5, 4] as const) });
+/** The bearing from the house's middle to the eyes (rad, x toward z: south-west), and the height the cameras look at. */
+const REF_BEARING = (-145 * Math.PI) / 180;
+const REF_LOOK_Y = 3;
+function refCamera(name: 'ref-30m' | 'ref-60m' | 'ref-100m' | 'ref-150m', command: string, d: number, up: number): LightingCamera {
+  const mx = (REF_HOUSE.min[0] + REF_HOUSE.max[0]) / 2;
+  const mz = (REF_HOUSE.min[2] + REF_HOUSE.max[2]) / 2;
+  const eye: [number, number, number] = [mx + d * Math.cos(REF_BEARING), up, mz + d * Math.sin(REF_BEARING)];
+  return { name, command, eye, yaw: yawOf(mx - eye[0], mz - eye[2]), pitch: Math.atan2(up - REF_LOOK_Y, d), preset: 'bench-noon', near: true, shows: `at noon, the brick house of lot (9, 6) and its neighbours from ${d} m south-west and ${up} m up: its west gable, its ground contact, its front` };
+}
+export const REF_CAMERAS: readonly LightingCamera[] = Object.freeze([refCamera('ref-30m', 'shot25', 30, 1.7), refCamera('ref-60m', 'shot26', 60, 8), refCamera('ref-100m', 'shot27', 100, 16), refCamera('ref-150m', 'shot28', 150, 30)]);
 const moved = (c: LightingCamera, name: 'far-view-1m' | 'street-noon-1m' | 'street-noon-2m' | 'room-window-2m', command: string, by = 1): LightingCamera => ({ ...c, name, command, eye: [c.eye[0] + by, c.eye[1], c.eye[2]] });
-/** The checks' cameras (LIGHT_CHECK_NAMES): the far lamp from two places 60 m apart, far view and street moved 1 m, street and room moved 2 m (a camera-following store's step). */
+/** The checks' cameras (LIGHT_CHECK_NAMES): the far lamp from two places 60 m apart, far view and street moved 1 m, street and room moved 2 m (a camera-following store's step), the reference cameras. */
 export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   farLampCamera('far-lamp-a', 'shot6', 30),
   farLampCamera('far-lamp-b', 'shot7', -30),
@@ -206,6 +224,7 @@ export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   // The town's middle from the east at a distance and a fifth of it up again (about 19° down), at noon: what draws a
   // house there (100 m and 150 m: the mesh rings; past them the far field's bricks).
   ...([['town-100m', 'shot20', 100], ['town-150m', 'shot21', 150], ['town-250m', 'shot22', 250], ['town-600m', 'shot23', 600], ['town-2km', 'shot24', 2000]] as const).map(([name, command, d]): LightingCamera => ({ name, command, eye: [d, 4 + d * 0.35, 0], yaw: yawOf(-1, 0), pitch: Math.atan2(d * 0.35, d), preset: 'bench-noon', near: d <= 150, shows: `at noon, the town's middle from ${d} m east and ${Math.round(d * 0.35)} m up: its houses as the ${d <= 150 ? 'mesh rings' : 'far field'} draw them` })),
+  ...REF_CAMERAS,
   { name: 'props-table', command: 'shot16', eye: [0.5, 1.9, 3.5], yaw: yawOf(-3.9, -2.7), pitch: 0.3, preset: 'bench-noon', near: true, shows: 'at noon, the bench table under the room camera’s window wall and the floor under it' },
 ]);
 
