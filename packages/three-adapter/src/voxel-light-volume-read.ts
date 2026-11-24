@@ -6,14 +6,15 @@
  *
  * What a pixel loads: the eight cells round its point half a cell off the surface (on an axis face the far four have
  * weight 0 by the leak rule and are skipped), for each the slot of its brick from the index and its three faces toward
- * the normal; a level whose window holds none of the cells' bricks is not read.
+ * the normal; a level whose window holds none of the cells' bricks is not read. Of the eight a surface counts only
+ * those on its own side (reached a face step at a time through cells holding light).
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import type { N } from './effects-tsl';
 import { KEPT_IRRADIANCE } from './probe-lighting';
 import { texelTexture } from './texel-texture-node';
-import { ambientCubeSteps, VOLUME_BRICK_CELLS, VOLUME_BRICK_TEXELS, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_PARTICLE_CENTRE_KEY, VOLUME_READ_KEY, VOLUME_READ_KIND_KEY, VOLUME_READ_KINDS, VOLUME_READ_OFFSET_CELLS, VOLUME_WORD, volumeCellM, volumeReadFlag, type VolumeReadFlag, type VolumeReadKind } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_BRICK_CELLS, VOLUME_BRICK_TEXELS, VOLUME_FACES, VOLUME_FULL_WEIGHT, VOLUME_INDEX_ROW_BASE, VOLUME_LEFT_MIN, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_POOL_WIDTH, VOLUME_PARTICLE_CENTRE_KEY, VOLUME_READ_KEY, VOLUME_READ_KIND_KEY, VOLUME_READ_KINDS, VOLUME_READ_MIN_WEIGHT, VOLUME_READ_OFF_SURFACE, VOLUME_READ_OFFSET_CELLS, VOLUME_WORD, volumeCellM, volumeReadFlag, type VolumeReadFlag, type VolumeReadKind } from './voxel-light-volume-layout';
 import { TSL_SCALAR_OPS } from './field-ops';
 import { VOXEL_KIT_PIECE_KEY } from './voxel-piece-draw';
 import { sunFieldCover } from './voxel-sun-field';
@@ -140,6 +141,8 @@ interface LevelRead {
   readonly n: N;
   /** The one cell the point lies in, alone (a lit particle's read at its centre; never a surface's). */
   readonly nearest: boolean;
+  /** A surface's read (cells across a solid one from it are not counted); false: a particle's, read at its centre. */
+  readonly surface: boolean;
   readonly flag: VolumeReadFlag;
 }
 
@@ -155,7 +158,7 @@ interface LevelRead {
  * the ground by walls on the integrated GPU, while every value it computed, tested in the same program, was finite and
  * in range and the cells it read held sane light; this form draws none.
  */
-function volumeRead(r: LevelRead): { light: N; weight: N } {
+function volumeRead(r: LevelRead): { light: N; weight: N; known: N } {
   const { level, pool, index, origin, p, ng, n, flag } = r;
   const cellM = volumeCellM(level);
   const win = VOLUME_LEVEL_WINDOWS[level]!;
@@ -166,27 +169,36 @@ function volumeRead(r: LevelRead): { light: N; weight: N } {
   const f = g.sub(i0).toVar(`${tag}Frac`);
   const sum = vec3(0).toVar(`${tag}Sum`);
   const ws = float(0).toVar(`${tag}Weights`);
+  // Each cell's light and weight, and a bit a cell holding light (k = x + 2y + 4z of the eight), counted once the
+  // cells a surface may read are known (volumeReadReach).
+  const lights = Array.from({ length: 8 }, (_, k) => vec3(0).toVar(`${tag}Light${k}`));
+  const weights = Array.from({ length: 8 }, (_, k) => float(0).toVar(`${tag}W${k}`));
+  const held = uint(0).toVar(`${tag}Held`);
+  // The weight of the cells the level knows (in its window, in a kept brick), whether they hold light or not.
+  const known = float(0).toVar(`${tag}Known`);
   const dims = vec3(win[0], win[1], win[2]);
   const face = [select(n.x.lessThan(0), uint(1), uint(0)), select(n.y.lessThan(0), uint(3), uint(2)), select(n.z.lessThan(0), uint(5), uint(4))];
   const word = (base: N, faceIndex: N): N => {
     const i = base.add(faceIndex);
     return pool.load(ivec2(int(i.mod(uint(VOLUME_POOL_WIDTH))), int(i.div(uint(VOLUME_POOL_WIDTH))))).x;
   };
-  // A cell (world cell coordinates, float) of weight `w`: its brick's slot from the index (none outside the window),
-  // its faces toward the normal; it holds light when its words are not 0 (all or none).
-  const cell = (c: N, w: N): void => {
+  // A cell (world cell coordinates, float) of weight `w`, the `k`th of the eight: its brick's slot from the index (none
+  // outside the window), its faces toward the normal; it holds light when its words are not 0 (all or none).
+  const cell = (c: N, w: N, k: number): void => {
     const b = c.div(VOLUME_BRICK_CELLS).floor();
     const inside = b.greaterThanEqual(origin).all().and(b.lessThan(origin.add(dims)).all());
     If(inside, () => {
       const s = b.sub(dims.mul(b.div(dims).floor()));
       const slot = index.load(ivec2(int(s.x.add(s.z.mul(win[0]))), int(s.y).add(VOLUME_INDEX_ROW_BASE[level]!))).x;
       If(slot.greaterThan(uint(0)), () => {
+        known.addAssign(w);
         const l = c.sub(b.mul(VOLUME_BRICK_CELLS));
         const local = uint(l.x.add(l.y.mul(VOLUME_BRICK_CELLS)).add(l.z.mul(VOLUME_BRICK_CELLS * VOLUME_BRICK_CELLS)));
         const base = slot.sub(uint(1)).mul(uint(VOLUME_BRICK_TEXELS)).add(local.mul(uint(VOLUME_FACES))).toVar();
         if (flag.probe === 'index') {
-          sum.addAssign(vec3(0.3).mul(w));
-          ws.addAssign(w);
+          lights[k]!.assign(vec3(0.3));
+          weights[k]!.assign(w);
+          held.bitOrAssign(uint(1 << k));
           return;
         }
         const wx = word(base, face[0]).toVar();
@@ -194,8 +206,9 @@ function volumeRead(r: LevelRead): { light: N; weight: N } {
           const lx = wordLight(wx, flag.probe);
           const ly = wordLight(word(base, face[1]), flag.probe);
           const lz = wordLight(word(base, face[2]), flag.probe);
-          sum.addAssign(ambientCubeSteps(TSL_SCALAR_OPS, n.x, n.y, n.z, [lx, lx, ly, ly, lz, lz]).mul(w));
-          ws.addAssign(w);
+          lights[k]!.assign(ambientCubeSteps(TSL_SCALAR_OPS, n.x, n.y, n.z, [lx, lx, ly, ly, lz, lz]));
+          weights[k]!.assign(w);
+          held.bitOrAssign(uint(1 << k));
         });
       });
     });
@@ -205,22 +218,78 @@ function volumeRead(r: LevelRead): { light: N; weight: N } {
   // The level's window holds one of the bricks the eight cells lie in.
   If(b1.greaterThanEqual(origin).all().and(b0.lessThan(origin.add(dims)).all()), () => {
     if (r.nearest) {
-      cell(q.floor(), float(1));
+      cell(q.floor(), float(1), 0);
+      sum.assign(lights[0]!.mul(weights[0]!));
+      ws.assign(weights[0]!);
       return;
     }
     for (let k = 0; k < 8; k++) {
       const pick = (a: 'x' | 'y' | 'z', bit: number): N => (((k >> bit) & 1) === 1 ? f[a] : f[a].oneMinus());
       const w = pick('x', 0).mul(pick('y', 1)).mul(pick('z', 2));
-      If(w.greaterThan(1e-4), () => cell(i0.add(vec3((k >> 0) & 1, (k >> 1) & 1, (k >> 2) & 1)), w));
+      If(w.greaterThan(VOLUME_READ_MIN_WEIGHT), () => cell(i0.add(vec3((k >> 0) & 1, (k >> 1) & 1, (k >> 2) & 1)), w, k));
+    }
+    const counted = r.surface ? reach(held, f, ng, tag) : held;
+    for (let k = 0; k < 8; k++) {
+      const on = float(counted.shiftRight(uint(k)).bitAnd(uint(1)));
+      sum.addAssign(lights[k]!.mul(weights[k]!.mul(on)));
+      ws.addAssign(weights[k]!.mul(on));
     }
   });
-  return { light: sum.div(max(ws, float(1e-4))), weight: ws };
+  return { light: sum.div(max(ws, float(1e-4))), weight: ws, known };
+}
+
+/**
+ * The cells of the eight a surface counts (TSL; the CPU twin is `volumeReadReach`): those a face step at a time from the
+ * cell its point lies in through cells holding light (`held`: a bit a cell, k = x + 2y + 4z), or, where that cell holds
+ * none, from another holding light: first one reached by steps off the surface alone, most toward the normal less the
+ * point's distance to it, else the nearest; so a cell across a solid one (a roof's step, a turned wall's staircase, a
+ * room's inner corner) is never read from the other side.
+ */
+function reach(held: N, f: N, ng: N, tag: string): N {
+  const b = vec3(select(f.x.greaterThanEqual(0.5), float(1), float(0)), select(f.y.greaterThanEqual(0.5), float(1), float(0)), select(f.z.greaterThanEqual(0.5), float(1), float(0)));
+  const k0 = uint(b.x).add(uint(b.y).mul(uint(2))).add(uint(b.z).mul(uint(4))).toVar(`${tag}K0`);
+  const has = (m: N, k: N): N => m.shiftRight(k).bitAnd(uint(1)).equal(uint(1));
+  const seed = uint(0).toVar(`${tag}Seed`);
+  If(has(held, k0), () => {
+    seed.assign(uint(1).shiftLeft(k0));
+  }).Else(() => {
+    const axes = ['x', 'y', 'z'] as const;
+    // Per axis: a step's move along the normal (a cell's middle, toward the box's other half), the point's distance to
+    // that half, and whether the normal has a part on the axis (a step off the surface).
+    const toward = axes.map((a) => ng[a].mul(b[a].mul(-2).add(1)));
+    const away = axes.map((a) => f[a].sub(0.5).abs());
+    const along = axes.map((a) => select(ng[a].abs().lessThan(VOLUME_READ_OFF_SURFACE), float(1), float(0)));
+    const best = float(-1e9).toVar(`${tag}Best`);
+    for (let k = 0; k < 8; k++) {
+      const j = uint(k).bitXor(k0);
+      const step = axes.map((_, a) => float(j.shiftRight(uint(a)).bitAnd(uint(1))));
+      const sum = (v: N[]): N => v[0]!.mul(step[0]!).add(v[1]!.mul(step[1]!)).add(v[2]!.mul(step[2]!));
+      const far = sum(away);
+      // Off the surface first (ranks above −4), then by nearness alone (below it).
+      const rank = select(sum(along).greaterThan(0), far.add(4).negate(), sum(toward).sub(far));
+      If(j.notEqual(uint(0)).and(has(held, uint(k))).and(rank.greaterThan(best)), () => {
+        best.assign(rank);
+        seed.assign(uint(1 << k));
+      });
+    }
+  });
+  const m = seed.toVar(`${tag}Reach`);
+  // A shortest way between two of the eight through some of them is at most four steps (the longest path of a cube's
+  // corners that never passes beside itself).
+  for (let step = 0; step < 4; step++) {
+    const spread = m.bitAnd(uint(0x55)).shiftLeft(uint(1)).bitOr(m.bitAnd(uint(0xaa)).shiftRight(uint(1)))
+      .bitOr(m.bitAnd(uint(0x33)).shiftLeft(uint(2))).bitOr(m.bitAnd(uint(0xcc)).shiftRight(uint(2)))
+      .bitOr(m.bitAnd(uint(0x0f)).shiftLeft(uint(4))).bitOr(m.bitAnd(uint(0xf0)).shiftRight(uint(4)));
+    m.assign(held.bitAnd(m.bitOr(spread)));
+  }
+  return m;
 }
 
 /**
  * The read over the levels (TSL; the CPU reference is `volumeReadLevels`): level 0, then each coarser level for what the
- * finer ones left (a level takes the smooth step of its weight to {@link VOLUME_FULL_WEIGHT} of what is left; a coarse
- * level is not read once less than {@link VOLUME_LEFT_MIN} is left, so a surface beside its 0.5 m cells reads only them).
+ * finer ones left (a level takes the smooth step to {@link VOLUME_FULL_WEIGHT} of what is left: a surface's of the
+ * weight of the cells the level knows where it reads some light, a particle's of its weight; a coarse level is not read
+ * once less than {@link VOLUME_LEFT_MIN} is left, so a surface beside its 0.5 m cells reads only them).
  * Returns the light and the weight it holds (0: no level holds light here; the flat term stays).
  */
 function volumeReadLevels(pool: N, index: N, origins: readonly N[], p: N, ng: N, n: N, nearest: boolean, flag: VolumeReadFlag): { light: N; weight: N } {
@@ -230,8 +299,10 @@ function volumeReadLevels(pool: N, index: N, origins: readonly N[], p: N, ng: N,
   const last = flag.levels === 'level0' ? 1 : VOLUME_LEVELS;
   for (let level = first; level < last; level++) {
     const read = (): void => {
-      const r = volumeRead({ level, pool, index, origin: origins[level]!, p, ng, n, nearest: nearest && level === 0, flag });
-      const a = smoothstep(float(0), float(VOLUME_FULL_WEIGHT), r.weight);
+      const r = volumeRead({ level, pool, index, origin: origins[level]!, p, ng, n, nearest: nearest && level === 0, surface: !nearest, flag });
+      // A surface's level takes its share by the cells it knows where it reads some light (the CPU twin's rule).
+      const by = nearest ? r.weight : select(r.weight.greaterThan(0), r.known, float(0));
+      const a = smoothstep(float(0), float(VOLUME_FULL_WEIGHT), by);
       acc.addAssign(r.light.mul(a.mul(left)));
       left.mulAssign(a.oneMinus());
     };

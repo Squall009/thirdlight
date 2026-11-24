@@ -12,7 +12,7 @@ import { applyWalkWires, OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView
 
 import { ClusterLights } from './cluster-build';
 import { volumeLampSet } from './voxel-light-volume-lamps';
-import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, volumeLampReaches, volumeLampFacesBrick, VOLUME_LAMP_NEGLIGIBLE, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadFlag, volumeReadLevels, VOLUME_READ_KINDS, volumeWeightShare, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, volumeLampReaches, volumeLampFacesBrick, VOLUME_LAMP_NEGLIGIBLE, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadFlag, volumeReadLevels, VOLUME_READ_KINDS, volumeWeightShare, VOLUME_FULL_WEIGHT, type VolumeBlockBricks } from './voxel-light-volume-layout';
 
 /** A cached brick lookup over a walk source's level-0 blocks (as the volume keeps them). */
 function brickLookup(tsrc: WalkSource): (bx: number, by: number, bz: number) => VolumeBlockBricks | null {
@@ -317,6 +317,62 @@ describe('the light volume layout', () => {
     }
   });
 
+  it("the read never takes a cell across a thin solid: a roof's steps, touching only by their edges", () => {
+    const cellM = 0.5;
+    // A roof one cell thick rising one cell a cell along x (cells (x, x)), the same along z: its steps touch by edges
+    // only, so the light walk does not pass it, but the eight cells round a point under a step hold cells of both
+    // sides. Under it 1, over it 100.
+    const solid = (x: number, y: number): boolean => y === x;
+    const faces = (x: number, y: number): number[][] | null => {
+      if (solid(x, y) || !(solid(x + 1, y) || solid(x - 1, y) || solid(x, y + 1) || solid(x, y - 1))) return null;
+      const v = y < x ? 1 : 100;
+      return Array.from({ length: 6 }, () => [v, v, v]);
+    };
+    let read = 0;
+    for (let k = 0; k < 400; k++) {
+      const s = 2 + (k % 16);
+      const t = ((k * 0.618) % 1) * 0.98 + 0.01;
+      const z = (k * 0.173) % 3;
+      // A step's underside (y = s, across x) and its side (x = s, up y), with the face's normal and the slope's.
+      const under = [(s + t) * cellM, s * cellM, z];
+      const side = [(s + 1) * cellM, (s + t) * cellM, z];
+      // A drawn roof's normal (its slope's) and the steps' own faces'.
+      const slope = [Math.SQRT1_2, -Math.SQRT1_2, 0];
+      for (const [p, along, n] of [
+        [under, slope, slope],
+        [side, slope, slope],
+        [under, [0, -1, 0], slope],
+        [side, [1, 0, 0], [1, 0, 0]],
+      ] as const) {
+        const r = volumeReadAt(p, n, cellM, (x, y) => faces(x, y), CPU_SCALAR_OPS, false, along);
+        if (r.weight === 0) continue;
+        read++;
+        expect(r.light[0], `at ${p.join(',')} facing ${n.join(',')}`).toBeCloseTo(1, 9);
+      }
+    }
+    expect(read).toBeGreaterThan(1000);
+  });
+
+  it('a surface beside a thin solid takes its level 0 whole where that reads some light: no coarse cell lights it from the other side', () => {
+    // Level 0: the eight cells round the point known, one of them holding light 1 with a small weight (the rest solid);
+    // the coarse levels' cells span the solid and hold the other side's 100.
+    const p = [0.05, 0.3, 0.3];
+    const n = [1, 0, 0];
+    const f = (level: number, x: number, y: number, z: number): number[][] | null => {
+      if (level > 0) return Array.from({ length: 6 }, () => [100, 100, 100]);
+      return x === 1 && y === 0 && z === 0 ? Array.from({ length: 6 }, () => [1, 1, 1]) : null;
+    };
+    const near = volumeReadAt(p, n, 0.5, (x, y, z) => f(0, x, y, z), CPU_SCALAR_OPS);
+    expect(near.weight).toBeGreaterThan(0);
+    expect(near.weight).toBeLessThan(VOLUME_FULL_WEIGHT);
+    const r = volumeReadLevels(p, n, f, CPU_SCALAR_OPS);
+    expect(r.weight).toBeCloseTo(1, 9);
+    expect(r.light[0]).toBeCloseTo(1, 9);
+    // A level that does not know the place (outside its window) leaves it to the coarser ones.
+    const away = volumeReadLevels(p, n, (level, x, y, z) => (level === 0 ? undefined : f(level, x, y, z)), CPU_SCALAR_OPS);
+    expect(away.light[0]).toBeCloseTo(100, 9);
+  });
+
   it('the read: a floor reads the cell over it, and a wall 0.5 m thick keeps each side to its own cells', () => {
     const cellM = 0.5;
     // A wall one cell thick at x = 10 (cells), from y 0 up; ground below y 0. Room side lit 1, street side 100.
@@ -354,20 +410,59 @@ describe("the surfaces' read on the town scrap", () => {
     return ((Math.imul(h, 3266489917) >>> 0) / 2 ** 32) * 4;
   };
   const faces = (x: number, y: number, z: number): number[][] | null => (holds(x, y, z) ? Array.from({ length: 6 }, (_, f) => [hash(x, y, z, f), hash(x, y, z, f + 6), hash(x, y, z, f + 12)]) : null);
-  /** The read written out on its own: the eight cells round the point half a cell off it, every face toward the normal by n². */
+  /**
+   * The read written out on its own: the eight cells round the point half a cell off it, every face toward the normal
+   * by n², of them only those reached from the point's own cell (or, where it holds no light, from its neighbour holding
+   * light farthest in front of the surface) by face steps through cells holding light.
+   */
   const fullRead = (p: readonly number[], n: readonly number[]): { light: number[]; weight: number; spread: number } => {
     const g = [0, 1, 2].map((a) => (p[a]! + n[a]! * 0.5 * 0.5) / 0.5 - 0.5);
     const i0 = g.map(Math.floor);
     const f = g.map((v, a) => v - i0[a]!);
+    const box = Array.from({ length: 8 }, (_, k) => {
+      const c = [0, 1, 2].map((a) => i0[a]! + ((k >> a) & 1));
+      const w = [0, 1, 2].reduce((acc, a) => acc * (((k >> a) & 1) === 1 ? f[a]! : 1 - f[a]!), 1);
+      return { c, w, fc: w > 1e-4 ? faces(c[0]!, c[1]!, c[2]!) : null };
+    });
+    const own = g.map((v) => Math.floor(v + 0.5));
+    const at = (c: readonly number[]): number => box.findIndex((b) => b.c.every((v, a) => v === c[a]));
+    let start = at(own);
+    if (box[start]!.fc === null) {
+      // Another of the eight holding light: first those reached by steps off the surface alone (the normal's part on
+      // each step's axis a tenth or more), the most toward the normal less the point's distance to it; else the nearest;
+      // the first of equals in the cells' order.
+      let best = -Infinity;
+      for (const [k, b] of box.entries()) {
+        if (b.fc === null || k === start) continue;
+        const steps = [0, 1, 2].filter((a) => b.c[a] !== own[a]);
+        const toward = steps.reduce((acc, a) => acc + (b.c[a]! - own[a]!) * n[a]!, 0);
+        const away = steps.reduce((acc, a) => acc + Math.abs(f[a]! - 0.5), 0);
+        const lean = steps.every((a) => Math.abs(n[a]!) >= 0.1) ? toward - away : -4 - away;
+        if (lean > best) {
+          best = lean;
+          start = k;
+        }
+      }
+      if (best === -Infinity) start = -1;
+    }
+    const reached = new Set<number>(start >= 0 ? [start] : []);
+    for (let grown = true; grown; ) {
+      grown = false;
+      for (const [k, b] of box.entries()) {
+        if (reached.has(k) || b.fc === null) continue;
+        if ([...reached].some((r) => box[r]!.c.reduce((acc, v, a) => acc + Math.abs(v - b.c[a]!), 0) === 1)) {
+          reached.add(k);
+          grown = true;
+        }
+      }
+    }
     const sum = [0, 0, 0];
     let ws = 0;
     let lo = Infinity;
     let hi = -Infinity;
     for (let k = 0; k < 8; k++) {
-      const c = [0, 1, 2].map((a) => i0[a]! + ((k >> a) & 1));
-      const w = [0, 1, 2].reduce((acc, a) => acc * (((k >> a) & 1) === 1 ? f[a]! : 1 - f[a]!), 1);
-      const fc = w > 0 ? faces(c[0]!, c[1]!, c[2]!) : null;
-      if (fc === null) continue;
+      const { w, fc } = box[k]!;
+      if (fc === null || !reached.has(k)) continue;
       for (let ch = 0; ch < 3; ch++) {
         sum[ch]! += w * ambientCubeSteps(CPU_SCALAR_OPS, n[0]!, n[1]!, n[2]!, [fc[0]![ch]!, fc[1]![ch]!, fc[2]![ch]!, fc[3]![ch]!, fc[4]![ch]!, fc[5]![ch]!]);
         for (const face of fc) {
@@ -424,7 +519,8 @@ describe("the surfaces' read on the town scrap", () => {
       const full = fullRead(p, n);
       if (full.weight === 0) continue;
       const r = volumeReadLevels(p, n, (level, x, y, z) => (level === 0 ? faces(x, y, z) : null), CPU_SCALAR_OPS);
-      const share = volumeWeightShare(full.weight);
+      // Every cell of the scrap is known: a surface takes level 0 whole where it reads some light.
+      const share = volumeWeightShare(full.weight > 0 ? 1 : 0);
       expect(r.weight).toBeCloseTo(share, 12);
       for (let ch = 0; ch < 3; ch++) expect(r.light[ch]).toBeCloseTo(full.light[ch]!, 9);
       const lone = volumeReadAt(p, n, 0.5, faces, CPU_SCALAR_OPS, true);

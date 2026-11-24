@@ -261,31 +261,109 @@ export const VOLUME_READ_OFFSET_CELLS = 0.5;
  * cell's light is the ambient cube's ({@link ambientCubeSteps}: every face toward `n`, by n²). `nearest`: the one cell
  * the point lies in, with all the weight where it holds light (a lit particle's read at its centre). `along`: the
  * direction the point is taken off along (absent: `n`; zero: the point itself, a particle's read).
- * Returns the light and the weight (0: none of the eight holds light; the reader keeps its flat term).
+ * Returns the light, the weight (0: none of the eight holds light; the reader keeps its flat term) and the weight of the
+ * cells the level knows (`faces` undefined: outside its window, or in no kept brick; null: known, holding no light).
  */
-export function volumeReadAt(p: readonly number[], n: readonly number[], cellM: number, faces: (x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, nearest = false, along: readonly number[] = n): { light: [number, number, number]; weight: number } {
+export function volumeReadAt(p: readonly number[], n: readonly number[], cellM: number, faces: (x: number, y: number, z: number) => readonly (readonly number[])[] | null | undefined, o: ScalarOps<number, boolean>, nearest = false, along: readonly number[] = n): { light: [number, number, number]; weight: number; known: number } {
   const g = [0, 1, 2].map((a) => (p[a]! + along[a]! * VOLUME_READ_OFFSET_CELLS * cellM) / cellM - 0.5);
   const cube = (fc: readonly (readonly number[])[], ch: number): number => ambientCubeSteps(o, n[0]!, n[1]!, n[2]!, [fc[0]![ch]!, fc[1]![ch]!, fc[2]![ch]!, fc[3]![ch]!, fc[4]![ch]!, fc[5]![ch]!]);
   if (nearest) {
     const c = g.map((v) => Math.floor(v + 0.5));
     const fc = faces(c[0]!, c[1]!, c[2]!);
-    if (fc === null) return { light: [0, 0, 0], weight: 0 };
-    return { light: [cube(fc, 0), cube(fc, 1), cube(fc, 2)], weight: 1 };
+    if (fc == null) return { light: [0, 0, 0], weight: 0, known: fc === null ? 1 : 0 };
+    return { light: [cube(fc, 0), cube(fc, 1), cube(fc, 2)], weight: 1, known: 1 };
   }
   const i0 = g.map(Math.floor);
   const f = g.map((v, a) => v - i0[a]!);
-  const sum: [number, number, number] = [0, 0, 0];
-  let wsum = 0;
+  const light: [number, number, number][] = [];
+  const weights: number[] = [];
+  let held = 0;
+  let known = 0;
   for (let k = 0; k < 8; k++) {
     const c = [0, 1, 2].map((a) => i0[a]! + ((k >> a) & 1));
     const w = [0, 1, 2].reduce((acc, a) => acc * (((k >> a) & 1) === 1 ? f[a]! : 1 - f[a]!), 1);
-    if (w <= 0) continue;
+    weights.push(w);
+    light.push([0, 0, 0]);
+    if (w <= VOLUME_READ_MIN_WEIGHT) continue;
     const fc = faces(c[0]!, c[1]!, c[2]!);
-    if (fc === null) continue;
-    for (let ch = 0; ch < 3; ch++) sum[ch as 0 | 1 | 2] += w * cube(fc, ch);
-    wsum += w;
+    if (fc !== undefined) known += w;
+    if (fc == null) continue;
+    light[k] = [cube(fc, 0), cube(fc, 1), cube(fc, 2)];
+    held |= 1 << k;
   }
-  return { light: wsum > 0 ? [sum[0] / wsum, sum[1] / wsum, sum[2] / wsum] : [0, 0, 0], weight: wsum };
+  // A surface reads the cells on its own side (a particle, read at its centre, has no side).
+  const surface = along[0] !== 0 || along[1] !== 0 || along[2] !== 0;
+  const counted = surface ? volumeReadReach(held, f, along) : held;
+  const sum: [number, number, number] = [0, 0, 0];
+  let wsum = 0;
+  for (let k = 0; k < 8; k++) {
+    if (((counted >> k) & 1) === 0) continue;
+    for (let ch = 0; ch < 3; ch++) sum[ch as 0 | 1 | 2] += weights[k]! * light[k]![ch]!;
+    wsum += weights[k]!;
+  }
+  return { light: wsum > 0 ? [sum[0] / wsum, sum[1] / wsum, sum[2] / wsum] : [0, 0, 0], weight: wsum, known };
+}
+
+/** A cell of the eight round a read's point weighs less than this: it is neither loaded nor counted, nor passed through. */
+export const VOLUME_READ_MIN_WEIGHT = 1e-4;
+
+/**
+ * The share of a surface's normal along an axis from which a step along that axis leaves the surface (the read's
+ * first cell where the point's own holds none): a wall turned up to 84° from the axis still steps off along it.
+ */
+export const VOLUME_READ_OFF_SURFACE = 0.1;
+
+/**
+ * Which of the eight cells round a surface's read point it counts (a bit a cell, `k` = x + 2y + 4z of the box): those
+ * a face step at a time from the cell the point lies in through cells holding light (`held`, the same bits), so a cell
+ * across a solid one from the surface is never read. A thin solid whose cells touch only by an edge (a roof's steps, a
+ * turned wall stamped as a staircase, a room's inner corner) stops the light walk, but the eight cells round a point
+ * beside it can hold cells of both sides: read whole, the outside's light showed on the inside as lines and glows.
+ * Where the point's own cell holds no light (it lies in a solid cell: a turned wall is stamped up to a cell off the
+ * drawn one) the walk starts from another of the eight that holds light: first one reached from the point's cell by
+ * steps off the surface alone (along axes the normal has a part on, at least {@link VOLUME_READ_OFF_SURFACE}), the one
+ * most toward the normal less the point's distance to it (cells, summed over its steps); else the one nearest the point
+ * (the first of equals in the cells' order). A cell along the surface from a solid one may lie on either side of it
+ * (above a turned wall's top, the eave's air), so it is the last choice. `f`: the point in the box (the eight cells'
+ * weights); `along`: the surface's normal (unit). The CPU twin of the read's `reach` (voxel-light-volume-read.ts).
+ */
+export function volumeReadReach(held: number, f: readonly number[], along: readonly number[]): number {
+  const k0 = (f[0]! >= 0.5 ? 1 : 0) | (f[1]! >= 0.5 ? 2 : 0) | (f[2]! >= 0.5 ? 4 : 0);
+  let seed = 0;
+  if (((held >> k0) & 1) === 1) seed = 1 << k0;
+  else {
+    let best = -Infinity;
+    for (let k = 0; k < 8; k++) {
+      const j = k ^ k0;
+      if (j === 0 || ((held >> k) & 1) === 0) continue;
+      let toward = 0;
+      let away = 0;
+      let off = true;
+      for (let a = 0; a < 3; a++) {
+        if (((j >> a) & 1) === 0) continue;
+        // A step along a moves the cell's middle a cell along the normal's part on a.
+        toward += ((k0 >> a) & 1) === 1 ? -along[a]! : along[a]!;
+        away += Math.abs(f[a]! - 0.5);
+        off &&= Math.abs(along[a]!) >= VOLUME_READ_OFF_SURFACE;
+      }
+      // Off the surface first (ranks above −4), then by nearness alone (below it).
+      const rank = off ? toward - away : -4 - away;
+      if (rank > best) {
+        best = rank;
+        seed = 1 << k;
+      }
+    }
+  }
+  let reach = seed;
+  // A shortest way between two of the eight through some of them is at most four steps (the longest path of a cube's
+  // corners that never passes beside itself).
+  for (let step = 0; step < 4; step++) reach = held & (reach | volumeReadSpread(reach));
+  return reach;
+}
+
+/** The cells a face step from any of `m`'s (bits of the eight cells, `k` = x + 2y + 4z). */
+export function volumeReadSpread(m: number): number {
+  return (((m & 0x55) << 1) | ((m & 0xaa) >> 1) | ((m & 0x33) << 2) | ((m & 0xcc) >> 2) | ((m & 0x0f) << 4) | ((m & 0xf0) >> 4)) & 0xff;
 }
 
 /** A level's read weight at which it takes all of what is left (a smooth step from 0 up to it). */
@@ -301,12 +379,15 @@ export function volumeWeightShare(w: number): number {
 
 /**
  * Which levels a point reads, and the light (the CPU reference of the surfaces' read): level 0 first, then each coarser
- * level for what the finer ones left: a level's read (`volumeReadAt` with its cell size) takes its weight's share
- * ({@link volumeWeightShare}) of what is left, so a point beside a surface reads its 0.5 m cells, a point in open air
- * (a character's head over a field, the middle of a room) the first coarse level holding light round it, and a point
- * no level holds keeps its flat term (weight 0). `faces(level, x, y, z)`: a cell of that level's six faces, or null.
+ * level for what the finer ones left: a level's read (`volumeReadAt` with its cell size) takes its share
+ * ({@link volumeWeightShare}) of what is left — a surface's by the weight of the cells the level knows round the point
+ * where it reads some light, a particle's (`nearest`, or no `along`) by its weight — so a point beside a surface reads
+ * its 0.5 m cells, a point in open air (a character's head over a field, the middle of a room) the first coarse level
+ * holding light round it, and a point no level holds keeps its flat term (weight 0). `faces(level, x, y, z)`: a cell
+ * of that level's six faces, null where it holds no light, undefined where the level does not know it.
  */
-export function volumeReadLevels(p: readonly number[], n: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>, nearest = false, along: readonly number[] = n): { light: [number, number, number]; weight: number; shares: number[] } {
+export function volumeReadLevels(p: readonly number[], n: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null | undefined, o: ScalarOps<number, boolean>, nearest = false, along: readonly number[] = n): { light: [number, number, number]; weight: number; shares: number[] } {
+  const surface = !nearest && (along[0] !== 0 || along[1] !== 0 || along[2] !== 0);
   let left = 1;
   const acc = [0, 0, 0];
   const shares: number[] = [];
@@ -316,7 +397,10 @@ export function volumeReadLevels(p: readonly number[], n: readonly number[], fac
       continue;
     }
     const r = volumeReadAt(p, n, volumeCellM(level), (x, y, z) => faces(level, x, y, z), o, nearest && level === 0, along);
-    const a = volumeWeightShare(r.weight);
+    // A surface's level takes its share by the cells it knows round the point (where it reads some light): beside a
+    // thin solid most of the eight are solid, and a share by those holding light let the coarse levels, whose cells span
+    // the solid, light it from the other side. Elsewhere (a particle) by the cells holding light.
+    const a = volumeWeightShare(surface ? (r.weight > 0 ? r.known : 0) : r.weight);
     for (let k = 0; k < 3; k++) acc[k]! += left * a * r.light[k]!;
     shares.push(left * a);
     left *= 1 - a;
@@ -331,7 +415,7 @@ export function volumeReadLevels(p: readonly number[], n: readonly number[], fac
  * itself (no surface to step off), facing the eye, level 0 from the one cell the centre lies in (where a particle
  * beside a surface finds its 0.5 m cell), the coarse levels from their eight cells round it (open air).
  */
-export function volumeParticleRead(centre: readonly number[], eye: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null, o: ScalarOps<number, boolean>): { light: [number, number, number]; weight: number; shares: number[] } {
+export function volumeParticleRead(centre: readonly number[], eye: readonly number[], faces: (level: number, x: number, y: number, z: number) => readonly (readonly number[])[] | null | undefined, o: ScalarOps<number, boolean>): { light: [number, number, number]; weight: number; shares: number[] } {
   const d = [0, 1, 2].map((a) => eye[a]! - centre[a]!);
   const len = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
   return volumeReadLevels(centre, d.map((v) => v / len), faces, o, true, [0, 0, 0]);

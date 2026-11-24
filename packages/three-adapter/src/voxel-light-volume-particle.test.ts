@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CPU_SCALAR_OPS, latticeHash4 } from '@thirdlight/shared';
-import { ambientCubeSteps, VOLUME_FULL_WEIGHT, VOLUME_LEVELS, VOLUME_READ_KINDS, volumeCellM, volumeParticleRead, volumeReadFlag } from './voxel-light-volume-layout';
+import { ambientCubeSteps, VOLUME_FULL_WEIGHT, VOLUME_LEVELS, VOLUME_READ_KINDS, VOLUME_READ_MIN_WEIGHT, volumeCellM, volumeParticleRead, volumeReadFlag } from './voxel-light-volume-layout';
 
 /** A fixed hash in [0, 1) of a cell of a level and a lane (the same faces every run). */
 const hash = (level: number, x: number, y: number, z: number, k: number): number => latticeHash4(x, y, z, (level + 1) * 1009 + k) / 4294967296;
@@ -41,7 +41,8 @@ function reference(p: number[], eye: number[]): { light: number[]; weight: numbe
         const c = [Math.floor(g[0]!) + dx, Math.floor(g[1]!) + dy, Math.floor(g[2]!) + dz];
         const t = [0, 1, 2].map((a) => g[a]! - Math.floor(g[a]!));
         const wk = (dx ? t[0]! : 1 - t[0]!) * (dy ? t[1]! : 1 - t[1]!) * (dz ? t[2]! : 1 - t[2]!);
-        const fc = wk > 0 ? faces(level, c[0]!, c[1]!, c[2]!) : null;
+        // A cell weighing less than the read's least is not read (the GPU's rule).
+        const fc = wk > VOLUME_READ_MIN_WEIGHT ? faces(level, c[0]!, c[1]!, c[2]!) : null;
         if (fc === null) continue;
         const l = cellLight(fc);
         for (let ch = 0; ch < 3; ch++) sum[ch]! += wk * l[ch]!;
