@@ -1470,7 +1470,13 @@ async function startPlay(page: Page, renderer: 'webgpu', query = ''): Promise<Pl
     const jobBars = async (): Promise<number> => Number(await page.getByTestId('profiler-timeline').getAttribute('data-jobs-bars'));
     const dig = await projectApi(`play/${psid}/control`, { command: 'debugCommand', name: 'dig' });
     expect(dig.status, JSON.stringify(dig.json)).toBe(200);
-    await expect.poll(jobBars, { timeout: 20_000, intervals: [50, 100, 250], message: 'the jobs lane has bars (the dig\'s derives)' }).toBeGreaterThan(0);
+    await expect.poll(jobBars, { timeout: 20_000, intervals: [50, 100, 250], message: 'the jobs lane has bars (the dig\'s derives)' }).toBeGreaterThan(0).catch(async (e: unknown) => {
+      // Whether the dig ran and the panel kept reading: a late dig, a panel whose reads stalled past its window, or neither.
+      const tl = page.getByTestId('profiler-timeline');
+      const c = (await observe()).counters ?? {};
+      console.log(`[voxel-play] jobs lane empty: dug ${c['dug'] ?? 0}, changes ${c['changes'] ?? 0}; panel page bars ${await tl.getAttribute('data-page-bars')}, sim bars ${await tl.getAttribute('data-sim-bars')}, status "${await page.locator('.tl-prof').innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120))}"`);
+      throw e;
+    });
     await expect.poll(async () => (await observe()).counters?.['dug'] ?? 0, { timeout: 30_000 }).toBe(1);
     expect((await observe()).counters?.['refused'] ?? 0).toBe(0);
     await expect.poll(async () => (await observe()).counters?.['changes'] ?? 0, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
