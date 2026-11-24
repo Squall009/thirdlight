@@ -61,12 +61,13 @@ page in the same commit.
   (`walk-graph-links.ts`); a path between graphs takes the cheapest of the best three doors' legs, each graph's own
   query, after waiting for the grids it reads and their links to be made (`walk-graph-linked.ts`, runtime
   `voxel-world-paths.ts`); a reach runs from its start's graph through the links into the grids and back
-  (`walk-graph-linked-reach.ts`, at most four passes).
+  (`walk-graph-linked-reach.ts`, at most four passes). Both caps are fixed constants, so a building of separate rooms
+  with more doors can answer `unreachable` wrongly (D795).
 - **Doors, windows and shutters: portal state** (F4, 47a.7): a prop with a `voxelPortal` (open; what it stops while
-  shut: light, sight, walkers) stands in a structure's opening as the structure's child; the opening's record names it
+  shut: light, sight, walkers; `sight` is stored and reported and read by nothing yet, D792) stands in a structure's opening as the structure's child; the opening's record names it
   in the editor (`openings[].prop`, kept by the backend's follow-ups: `workspace/structure-prop-follows.ts`). Where
   the world runs it is joined to its opening by its place (its middle in a grid's `opening` cell, the face-joined
-  opening cells round it; `runtime/voxel-portals.ts`), so an export needs no definition. Shut, the opening's cells
+  opening cells round it up to 4 m from the middle, though an opening has no size cap, D791; `runtime/voxel-portals.ts`), so an export needs no definition. Shut, the opening's cells
   are one more stamp in the prop channel (every world cell they reach stops light whole; no structure class, so rooms
   keep the portal) and shut cells of the grid's walk graph (`WalkGraph.setShut`; `findPath` option `doors`; a shut
   cell keeps its link to the world, taken only by a walker through shut doors); a flip recombines only those cells.
@@ -90,7 +91,7 @@ page in the same commit.
   in the backend, per project); a stroke's undo and redo write back the records its world's undo store keeps
   (redo exact, the same byte budget); a stroke whose world dropped it is skipped and named.
 - **Structure grids**: a world may hold structure grids beside the world grid (manifest format 3: `grids`, each
-  grid's region files in `grid-<id>/`), each the same 0.5 m cells in a frame of its own, placed by a position and a
+  grid's region files in `grid-<id>/`, ids 1 to `VOXEL_GRID_ID_MAX` = 2³² − 1, the region header's u32), each the same 0.5 m cells in a frame of its own, placed by a position and a
   yaw that are not stored with the voxels: its structure object's transform (a `voxelStructure` object, a turn about
   the vertical axis only). Play reads the places from the world's route (`grids[].place`, the objects' as stored when
   the world opens), an export from its catalog's world row (`grids`: each grid's files and place); a bench's
@@ -98,7 +99,10 @@ page in the same commit.
   its definition, whose numbers are the grid's own cells) plus its hand edits as overrides (`structures/`,
   foundation 5), written by the backend through the commands (workspace `structure-commands.ts`: a structure made,
   changed, copied or deleted writes its grid's region files, `grid-<id>/overrides.tlvo` and the manifest in one
-  staged write, one undo step with the scene edit; a hand edit is `editVoxels` with `command.grid`; misfits are
+  staged write, one undo step with the scene edit; a write that refuses takes the scene edit back by an undo, and the
+  editors' feeds hear of both steps; once a project holds a structure, body or voxel spline every project command
+  reads its scenes before and after on this path, about 8 ms a command with 131 houses, D797; a hand edit is
+  `editVoxels` with `command.grid`; misfits are
   answered and held in memory; exports never ship a definition or overrides). A road, path or river along a spline (its `voxels` section) is written into the world grid itself over the ground, and keeps what it replaced, `structures/<object id>.tlvo` beside the region files, so moving it gives the ground back (47a.11, foundation 5); exports ship its voxels only. In Play each is streamed by its own streamer in
   the world's pool under its job ids (one tracker: keys are (grid, chunk)), reading only round the chunks its files
   hold, the foci moved into its frame, its level choice, collision scan and section readiness cut to those chunks. A
@@ -107,7 +111,8 @@ page in the same commit.
   gap from its chunks and the nodes over them to a ring they are compared with, `stream-quiet.ts`
   `VoxelStreamer.quietReach`; at least the old share of the gap to the grid, 1/8); at speed every grid in reach is
   stepped every step; a grid out of reach that holds nothing is never stepped, and a grid is given only the bodies
-  whose collision reaches it (runtime `voxel-grid-host.ts`). The world grid and its grids share the world's one
+  whose collision reaches it (runtime `voxel-grid-host.ts`; the Scene view tells its grids' streamers of the focus by
+  its own copy of the 1/8 share, without the clamps, D796). The world grid and its grids share the world's one
   memory budget (grids first). Drawn under its place with its world's surface, its kit pieces in its world's piece
   batches turned and placed copy by copy (`voxel-world-draws.ts`, `VoxelPieceBatches`), so grids add chunk surfaces to
   a frame, not draws a kind; collided as one compound static body a grid. **Light, sun heights and rooms see a grid
@@ -299,9 +304,9 @@ Play and export.
 
 ## 7. What is planned on top (see the roadmap)
 
-Water is liquid-role voxels: drawn plain near the eye with narrowed feeds (47a.9), bodies that regenerate when
-the ground is edited in the editor (47a.10), a surface shader, far water, flow and falls, queries and buoyancy (49,
-extending the liquid part). Fog is a new non-solid role with the fill bits as density
+Water is liquid-role voxels: drawn plain near the eye with narrowed feeds (47a.9) and bodies that regenerate when
+the ground is edited in the editor (47a.10) exist (§2, §6 row 5); a surface shader, far water, flow and falls,
+queries and buoyancy come in 49, extending the liquid part. Fog is a new non-solid role with the fill bits as density
 and the material id as fog type, painted with the voxel brushes and one height-based fill shared with water
 (47b); lit fog and an interactive ground fog on the interaction field (51). Vegetation is rules hanging off the
 material record as a dressing; a hand-placed tree is an ordinary prop; density by material variations (47b),

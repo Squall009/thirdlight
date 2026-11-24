@@ -2216,6 +2216,79 @@ section from one field and the material had no default; fixed in e3d9caf3), e2e 
 of 3, at the head alone 0 of 3 and in the file 2 of 11), D789 (a spline's rewrite runs its writer over the whole course),
 D790 (stepped edges of roads and rivers).
 
+### 47a.13 — the end-of-phase reading
+
+At **6c1dec96** (rebuilt with `node tools/build.mjs` in the 10G scope first), 2026-11-24 02:23–03:17 UTC, uptime
+3.0 d, 1-minute load **1.0–4.0** at the runs' starts and ends (3.97 at the first start, 1.04–3.22 after; 47a.0:
+1.5–4.3); low, WebGPU, 1280 × 720, the 30 Hz cap, each run alone (gate inactive, no build or other run, `*.uptime`
+beside each raw file), `measureGpu` readings only, the second rounds read, with 47a.0's commands, order and
+`summ.py` (`baseline.sh`). Work folder `~/.cache/thirdlight-phase47a/work/47a.13/` (`lib.sh`, `summ.py`, `baseline.sh`,
+`progress.txt`, `m/` every raw run with its `.log` and `.uptime`; the export deleted after, `exports/` empty). Every
+run's log ends with its result file and no error; the off runs are proven off (their rounds hold no volume state, the
+default runs' do). **The world's files**: staging's far world (format 2, revision 1) had `r.0.0.-1`, `r.0.0.0` and
+`world.json` rewritten after 47a.0 and restored by 47a.9 from its backup, so byte equality with 47a.0's world is
+unverified. The baseline town holds **no structure grid, no water and no voxel spline**: this reading says what the
+phase cost a world that uses none of what it built (the second table below is where they are used).
+
+| | 47a end | 47a.0 | 46e.19 | raw |
+|---|---|---|---|---|
+| orbit room, town off (copies × ms a copy) | 176 × 0.130, 176 × 0.127 | 176 × 0.129, 176 × 0.126 | 176 × 0.127, 176 × 0.126 | `O-town-off-*` |
+| orbit room, town default | 128 × 0.139, 128 × 0.144 | 128 × 0.126, 120 × 0.113 | 128 × 0.129, 128 × 0.132 | `O-town-def-*` |
+| orbit room, 128 lamps default | **15 × 0.121, 14 × 0.111** | 88 × 0.050, 3 × 0.125 (not usable) | 68 × 0.143, 68 × 0.142 | `O-128-def-*` |
+| missed at no load (of 89): town off; default; 128 | 0, 0; 0, 0; 0, 0 | 0, 0; 0, 0; 0, 0 | 0, 1; 0, 1; 0, 0 | |
+| GPU `near`: town off; default; 128 | 2.24, 2.18; **4.45, 4.57; 9.83, 8.41** | 2.35, 2.05; 3.47, 3.63; 7.70, 6.55 | 2.10, 1.89; 5.07, 4.77; 8.42, 9.24 | |
+| GPU `far`: town default; 128 | 3.27, 3.59; 3.89, 3.25 | 3.15, 3.54; 2.81, 3.81 | 2.82, below; 3.46, 3.07 | |
+| GPU `lighting` (row 6.67): town default; 128 | **3.87, 4.28**; 5.12, 6.07 | 5.64, 5.68; 5.11, 4.19 | 4.98, 5.44; 5.25, 5.54 | |
+| resolution of the GPU reading: town default; 128 | 0.10, 1.38; 1.05, 0.59 | 2.20, 2.82; 1.07, 1.00 | — | |
+| page ms a frame; `render`; `lighting` (of 2.0): town off | 5.13, 5.39; 4.60, 4.78; 0.07, 0.11 | 5.39, 5.62; 4.83, 4.95; 0.06, 0.14 | 4.95, 5.22; 4.33, 4.52; 0.07, 0.07 | |
+| the same, town default | 5.77, 7.20; 4.17, 5.42; 1.08, 1.06 | 7.40, 6.71; 5.63, 5.17; 1.07, 1.00 | 5.83, 6.85; 4.48, 5.06; 0.88, 1.13 | |
+| the same, 128 | **7.56, 7.35; 4.99, 4.94; 2.08, 1.89** | 8.95, 8.73; 5.84, 5.84; 2.43, 2.34 | 6.90, 6.86; 4.40, 4.41; 2.01, 1.86 | |
+| simulation `voxelStream` ms: town default; 128 | 1.69, 2.30; **1.99, 2.05** | 2.42, 2.14; 2.24, 2.40 | 1.85, 2.13; 1.82, 1.69 | |
+| page heap / GPU process MiB (low's 1,536 / 2,560): off; default; 128 | 630, 591 / 914, 965; **724, 666 / 1,002, 984**; 662, 626 / 1,075, 1,038 | 596, 621 / 939, 927; 603, 563 / 966, 965; 696, 621 / 1,006, 1,091 | 612, 599 / 963, 961; 571, 607 / 1,013, 1,025; 608, 653 / 1,108, 1,061 | |
+| light volume MB (town; 128) | 36.45, 36.45; 36.57, 36.57 | 36.45; 36.51, 36.57 | 36.45; 36.57 | |
+| lamp lists over (bricks); lamps dropped (128) | 27, 31; 306, 356 | 31, 0; 356, 0 | 31; 356 | |
+| travel 150 m/s, export: longest ms; > 100; missed a minute | 59.1; 0; 13.7 | 60.4; 0; 18.3 | 48.6, 57.9; 0; 16.5, 11.0 | `G-def-r1` |
+| … ground s; full detail s; nothing pending s | 0.03; 4.87; 9.27 | 0.03; 4.77; 9.33 | 0.03, 0.03; 4.21, 4.37; 8.59, 8.45 | |
+| … falls (of 34 drops); holes | through 0, lower 0 (2 ended suspended, as in 47a.0); 0 / 1,970 | through 0, one `lower` (drop 14); 0 / 1,970 | through 0, one `lower` (r1); 0 | |
+
+**Different from 47a.0 by more than its spread:** (1) **the 128-lamp room 15 and 14 copies** (ballast 0.121 and
+0.111 ms a copy, both runs alike, 0 of 89 missed at no load), against 46e.19's 68 and 47a.0's unusable 88 / 3; the
+edge search's room varied 15–128 in 47a.8's runs too (not resolved). (2) **GPU `near` at 128 lamps +1.9–2.1 ms**
+(9.83, 8.41 against 7.70, 6.55; this hour's resolution 0.6–1.1), level with 46e.19's 8.42–9.24 and D740's head
+7.95–8.40; at the town default +0.8–1.1 (47a.0's runs 0.16 apart, but its resolution 2.2–2.8: not resolved), still
+under 46e.19's 4.77–5.07. (3) **GPU `lighting` at the town default −1.4 to −1.8 ms** (3.87, 4.28 against 5.64, 5.68),
+under 46e.19's too; at 128 lamps 6.07 in the second run is 0.96 over 47a.0's highest (its runs 0.92 apart): at the
+edge. (4) **Page ms a frame at 128 lamps −1.4 to −1.6** (`render` −0.9, `lighting` −0.35 to −0.45), still +0.5–0.7
+over 46e.19's. (5) `voxelStream` at 128 lamps −0.2 to −0.35 ms. (6) **Page heap at the town default +63 to +161 MiB**
+(724, 666 against 603, 563; the GPU process +18 to +36). (7) Both 128-lamp runs' lamp lists over (27 and 31 bricks,
+306 and 356 lamps dropped) where 47a.0's second run was never over: 46e.19's 31 / 356 again. Equal within the spread:
+the town off in every row, the town default's room, `far`, page ms and page `lighting`, the 128 runs' `far`, missed
+frames, the light volume, memory off and at 128, and the travel round (one run each: settles within 0.1 s, longest
+frame 1.3 ms apart, 13.7 missed a minute inside 46e.19's 11.0–16.5; no fall through or onto lower ground, where 47a.0
+had one `lower`). **The low tier's rows:** memory under 1,536 / 2,560 MiB in every run (highest 724 / 1,075); the GPU
+`render` row 18.33 met (5.4–13.7, the logs' budget lines); the GPU `lighting` row 6.67 met in every run but the second
+128-lamp run, whose budget line reads 8.19 (its `shadows` 2.12 resolved, below resolution in every other default run
+of this hour and of 47a.0's); the page `lighting` share of 2.0 met at the town (1.06–1.08), missed in the first
+128-lamp run (2.08) and met in the second (1.89) (47a.0 missed both, 2.34–2.43); no frame missed at no load.
+
+**What the phase's own features cost where they are used** (from the results above, no new run; the section or file
+named is the source):
+
+| | cost | source |
+|---|---|---|
+| structure grids on a moving camera (131 houses at 30°, each its own grid) against the same houses in the world grid (D743) | simulation 2.9–3.3 ms against 2.0–2.3 (1.38–1.53 ×, the aim of about 1.3 × missed; 4.2–4.4 before 47a.5b); 3.09–3.10 against 2.10–2.32 in 47a.8; page ms equal within the spread; fill 10.7–13.5 s against 8.2–8.6 | 47a.5b, 47a.8 |
+| the longest simulation frame crossing the town at 150 m/s (G30) | 223.9 ms (217 in 47a.1a2), its steps' `structure grids streamed` 16.7–20.8 ms each; the longest page frame 56.3 ms (W 76.1), none over 100 ms | 47a.5b |
+| the walk graph's memory in Play at the town, against the `walkGraph` row's 16 MiB (16.8 MB) at low (D778) | 9.23 MB + the searches' 8.81 MB = **18.0 MB: over** (16.4 MB before 47a.8, over already); `walk graph stitched` 2.51 ms a frame travelling (1.15 before) | 47a.8 |
+| a door flipped; 100 doors at once | flip → the room's light: shut 729–974 ms, open 971–1,655 ms (the command's round trip included); one door: a step of 8.2–11.9 ms at most; 100: one step of 14.0–16.2 ms and the page's lighting about 2× for a second; 100 open doors idle and a world with no portal: not resolved | 47a.7 |
+| a liquid-only dab's derives (Node) | 4 liquid-part derives where 4 full ones ran: worker 4.5–4.7 ms against 8.4, edit → swap 3.9–4.3 ms against 5.8–6.0; the part 10–16 % of a chunk's full derive, 43 µs a chunk without liquid | 47a.9 |
+| a water body (a lake 251 m across, 1,274,184 cells, backend over HTTP) | made whole: water 1,365 ms, command 1,459 ms; a bank dab: water 0.5–2.1 ms, HTTP 7–23 ms (the browser's small pond: answer 14–15 ms, swap 60–63 ms); **missed: the first dab after an undo 611 ms (D787), a dab behind a far rebuild 622–728 ms (D786)** | 47a.10 |
+| a spline point moved 2 m: 250 m / 1 km / 2 km road (D789) | command 410 / 961 / 1,745 ms, the cells written local (8,446–9,871 in 38–40 chunks), the work over the whole course | 47a.11 |
+| the structure path's cost a command (D797): a `setTransform` of a plain group over HTTP | median 4.22, 4.06 ms with no structure against 12.26, 11.41 ms with 131 houses (+7.2–8.2 ms; two rounds) | D797, `work/47a.13/a6-structure-path.json` |
+
+**Unverified or not read:** byte equality of staging's world with 47a.0's (above); why the 128-lamp room and the
+GPU readings moved (not traced); medium and high tiers, WebGL 2; the second table's rows are other hours' runs, not
+read again at this commit.
+
 ## 9. Decision log
 
 - 2026-11-20 (the lead, planning; default chosen, owner to confirm): **a structure is a scene object** with a
