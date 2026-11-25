@@ -64,6 +64,11 @@ export function walkCoverStep(cover: number): number {
   return Math.round((cover * WALK_COVER_STEPS) / 255);
 }
 
+/** The coverage byte a coverage step stands for (the inverse of {@link walkCoverStep} on its steps). */
+export function walkCoverOfStep(step: number): number {
+  return Math.round((step * 255) / WALK_COVER_STEPS);
+}
+
 /** The share of the light passing a partly covered cell that it lets on (from its coverage byte). */
 export function walkCoverPass(cover: number): number {
   return 1 - walkCoverStep(cover) / WALK_COVER_STEPS;

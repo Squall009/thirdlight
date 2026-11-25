@@ -288,7 +288,7 @@ seen through its windows are not lit as the street is; not a minimum (no light f
   `lamps-room`, `lamps-high`) and times the lamp-lit room's edits. `light-shots --day slow|fast` moves the sun as a
   game's script does (`ctx.environment.blend` over day looks, `day-cycle.ts`) and reads the light following it.
   `?surfaceRead=` names parts of the light volume's read for a comparison (`level0`, `coarse`, `index`, `nodecode`,
-  `allfaces` = the read as first built, the draw kinds `surface`, `kit`, `prop`; the volume's diagnostics carry it).
+  the draw kinds `surface`, `kit`, `prop`; the volume's diagnostics carry it; the read as first built is now the read).
 - The **frame profile** (`window.__tlProfiler.read()` on a game page) gives each thread's CPU a frame (page,
   simulation worker, job workers) by budget category against the tier's budget, and the last long frames. It is
   shown in the editor's **Profiler** tab while Play runs, in the stats overlay (Shift+F3, Play and exports), saved

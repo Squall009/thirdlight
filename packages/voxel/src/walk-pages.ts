@@ -30,7 +30,7 @@
  *   no longer knows is removed.
  */
 import { OCCUPANCY } from './derived-data';
-import { walkCoverStep, type WalkBlockView, type WalkPartial, type WalkSource, type WalkStop } from './occupancy-walk';
+import { WALK_COVER_STEPS, walkCoverOfStep, walkCoverStep, type WalkBlockView, type WalkPartial, type WalkSource, type WalkStop } from './occupancy-walk';
 
 /** log2 of a walk block's edge, in its level's cells. */
 export const WALK_BLOCK_SHIFT = 5;
@@ -117,7 +117,7 @@ function packCover(views: ReadonlyArray<readonly [WalkBlockView, WalkBlockView, 
 export function coverPartial(words: Uint32Array, base: number): WalkPartial {
   return {
     brick: (i) => ((words[base + (i >>> 5)]! >>> (i & 31)) & 1) === 1,
-    cell: (i) => Math.round((((words[base + WALK_BRICK_WORDS + (i >>> 3)]! >>> ((i & 7) * 4)) & 15) * 255) / 15),
+    cell: (i) => walkCoverOfStep((words[base + WALK_BRICK_WORDS + (i >>> 3)]! >>> ((i & 7) * 4)) & WALK_COVER_STEPS),
   };
 }
 
