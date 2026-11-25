@@ -119,11 +119,11 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             // And the rooms the page's see-through subjects stand in, as the regions answer them.
             const batcher = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: { source: streamerWalkSource(stream, null, { props: props ?? null }), blocks: () => streamerWalkBlocks(stream) }, walkFeed: walk, ...(regions !== undefined ? { sky: regions, rooms: regions } : {}) });
             if (focus !== null) batcher.setFocus(focus.n, focus.cells);
-            // A structure stamp's change is one at the mip levels too (its stopping cells stop light there).
+            // A structure stamp's change, or a shut door's, is one at the mip levels too (its stopping cells stop light there).
             const levels = stream.mips?.maxLevel ?? 0;
-            props?.listen((cx, cy, cz, classes) => {
+            props?.listen((cx, cy, cz, classes, mips) => {
               batcher.walkChanged(0, cx, cy, cz);
-              if (classes) for (let l = 1; l <= levels; l++) batcher.walkChanged(l, cx >> l, cy >> l, cz >> l);
+              if (classes || mips) for (let l = 1; l <= levels; l++) batcher.walkChanged(l, cx >> l, cy >> l, cz >> l);
             });
             mine = batcher;
             batchers.set(world, mine);

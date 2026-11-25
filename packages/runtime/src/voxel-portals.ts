@@ -7,7 +7,7 @@
  * light shape's box, else its position a quarter metre up) lies in a
  * structure grid's `opening` cell, read from the grid's resident voxels where
  * the grid stands; the opening is that cell and the `opening` cells joined to
- * it by faces. Two openings side by side on a wall are one run of `opening`
+ * it by faces, however far they run. Two openings side by side on a wall are one run of `opening`
  * cells: a prop whose middle lies in a run with another's takes the cells on
  * its side of the cell boundary nearest the midpoint between the two (along
  * the axis they lie apart on), so each governs its own opening. No definition is read (an export ships none): an opening's
@@ -16,7 +16,7 @@
  * **What a shut portal stops**, exactly at its opening and the same step:
  * - light: the opening's cells, stamped into the world's cells where the
  *   grid stands (every world cell any of them reaches), stop the light's
- *   rays whole: one more stamp in the world's prop channel, so a flip
+ *   rays whole, at level 0 and at the walk's mip levels: one more stamp in the world's prop channel, so a flip
  *   recombines only those cells and sends again only the walk blocks they
  *   touch, the volume taking it in as it takes an edit. The leaf's own shape
  *   is never stamped: its thickness does not matter.
@@ -62,14 +62,16 @@ interface Joined {
   walk: boolean;
 }
 
-/** How far an opening's cells may lie from the cell its prop's middle is in (cells): a 4 m opening either way. */
-const OPENING_REACH_CELLS = 8;
-
 /** The id a portal's stamp has in its world's prop channel (beside the props' object ids). */
 const portalStampId = (id: string): string => `portal\u0000${id}`;
 
-/** The grid cells of the opening holding a grid cell (6-connected `opening` cells within reach), or null. */
-function openingCellsAt(g: VoxelGridHost, start: readonly [number, number, number]): [number, number, number][] | null {
+/**
+ * The grid cells of the opening holding a grid cell: every `opening` cell joined to it by faces, however wide or tall
+ * the opening (null: the cell is no opening; `later`: the opening runs on into a chunk of the grid not resident yet, so
+ * it is joined once that chunk is). The flood is bounded by the opening's own cells and the grid's resident chunks,
+ * nothing else: a barn door shuts whole.
+ */
+function openingCellsAt(g: VoxelGridHost, start: readonly [number, number, number]): [number, number, number][] | null | 'later' {
   const s = g.streamer;
   const sh = s.grid.shift;
   const cell: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 } as VoxelRecord;
@@ -89,9 +91,11 @@ function openingCellsAt(g: VoxelGridHost, start: readonly [number, number, numbe
     for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const) {
       const n: [number, number, number] = [c[0] + dx, c[1] + dy, c[2] + dz];
       const k = n.join(',');
-      if (seen.has(k) || Math.max(Math.abs(n[0] - start[0]), Math.abs(n[1] - start[1]), Math.abs(n[2] - start[2])) > OPENING_REACH_CELLS) continue;
+      if (seen.has(k)) continue;
       seen.add(k);
-      if (isOpening(n[0], n[1], n[2]) === true) queue.push(n);
+      const o = isOpening(n[0], n[1], n[2]);
+      if (o === null) return 'later';
+      if (o) queue.push(n);
     }
   }
   return out;
@@ -113,6 +117,8 @@ function shutStamp(g: VoxelGridHost, cells: readonly (readonly [number, number, 
   const b = gridStampBounds(box, g.frame, cellM);
   const stamp: LitStamp = {
     stamp: true,
+    // The walk's mip levels (past the detail ring) meet the shut door too; no class, so the regions keep the portal.
+    mipStop: true,
     bounds: () => b,
     sample: (m: number) => {
       // The `any` rule: a world cell one sample of the opening reaches stops whole. No classes: the regions keep the portal.
@@ -229,8 +235,10 @@ export class WorldPortals {
       if (!s.isResident(k[0]!, k[1]!, k[2]!)) return 'later';
       s.voxelAt(c[0], c[1], c[2], record);
       if (record.material === MATERIAL_AIR && record.role !== VOXEL_ROLE.opening) continue;
-      let cells = openingCellsAt(g, c);
-      if (cells === null) continue;
+      const found = openingCellsAt(g, c);
+      if (found === 'later') return 'later';
+      if (found === null) continue;
+      let cells = found;
       cells = this.splitRun(id, g, c, q, cells);
       const { stamp, min, max } = shutStamp(g, cells);
       return { grid: g, cells, stamp, min, max, light: false, walk: false };

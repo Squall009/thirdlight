@@ -34,6 +34,7 @@
  */
 import { chunkInWorld, chunkKey, chunkKeyOrNone, chunkOfKey, type ChunkGrid } from './coords';
 import { combineCoverage, propBounds, propCoverageLocal, type PropLocalCoverage, type PropShape } from './prop-coverage';
+import { LIGHT_STOP_COVERAGE } from './occupancy-walk';
 import { STAMP_CLASS } from './structure-stamp';
 import { SampleRing } from './worker-pool';
 
@@ -54,12 +55,18 @@ export interface LitStamp {
    * caller's slice, so one large stamp spreads over steps as many props do.
    */
   sampler?(cellM: number): { step(more: () => boolean): (PropLocalCoverage & { readonly classes?: Uint8Array }) | null };
+  /**
+   * Its cells that stop light whole stop it at the walk's mip levels too, though it gives no class (a shut door: the
+   * regions keep their portal, the coarse walk past the detail ring meets the door as the fine walk does).
+   */
+  readonly mipStop?: true;
 }
 
 /** A prop's shape or a stamp, as the channel places it. */
 export type LitShape = PropShape | LitStamp;
 
 const isStamp = (s: LitShape): s is LitStamp => (s as LitStamp).stamp === true;
+const stopsMips = (s: LitShape | undefined): boolean => s !== undefined && isStamp(s) && s.mipStop === true;
 const boundsOf = (s: LitShape): { min: readonly number[]; max: readonly number[] } => (isStamp(s) ? s.bounds() : propBounds(s));
 const sampleOf = (s: LitShape, cellM: number): Sampled => (isStamp(s) ? s.sample(cellM) : propCoverageLocal(s, cellM));
 type Sampled = PropLocalCoverage & { readonly classes?: Uint8Array };
@@ -84,6 +91,8 @@ interface PlacedProp {
 interface Was {
   readonly cover: Sampled | null;
   readonly chunks: readonly number[];
+  /** It stopped light at the mips ({@link LitStamp.mipStop}). */
+  readonly mipStop?: boolean;
 }
 
 /** A box of world cells, inclusive low, exclusive high. */
@@ -106,7 +115,9 @@ export class PropLightChannel {
   private readonly stamps = new Map<string, Was>();
   /** Stamps being sampled in pieces: the shape the sampling is of, and its sampler. */
   private readonly sampling = new Map<string, { readonly shape: LitStamp; readonly run: ReturnType<NonNullable<LitStamp['sampler']>> }>();
-  private readonly listeners: ((cx: number, cy: number, cz: number, classes: boolean) => void)[] = [];
+  private readonly listeners: ((cx: number, cy: number, cz: number, classes: boolean, mips: boolean) => void)[] = [];
+  /** Stamps placed that stop light at the mip levels with no class ({@link LitStamp.mipStop}). */
+  private mipStamps = 0;
   private scratch = new Uint8Array(0);
   private sampledBytes = 0;
   private seq = 0;
@@ -144,8 +155,10 @@ export class PropLightChannel {
       // A sampling under way was of the shape before.
       this.sampling.delete(id);
       const old = this.props.get(id);
+      if (stopsMips(old?.shape)) this.mipStamps--;
+      if (shape !== null && stopsMips(shape)) this.mipStamps++;
       if (old !== undefined) {
-        if (!this.stamps.has(id)) this.stamps.set(id, { cover: old.cover, chunks: old.chunks });
+        if (!this.stamps.has(id)) this.stamps.set(id, { cover: old.cover, chunks: old.chunks, mipStop: stopsMips(old.shape) });
         this.dropCover(old);
         for (const k of old.chunks) {
           const set = this.over.get(k);
@@ -206,8 +219,11 @@ export class PropLightChannel {
     this.update();
   }
 
-  /** `fn` hears of every resident chunk whose bytes or structure classes changed (chunk coordinates; `classes`: those changed). */
-  listen(fn: (cx: number, cy: number, cz: number, classes: boolean) => void): void {
+  /**
+   * `fn` hears of every resident chunk whose bytes or structure classes changed (chunk coordinates; `classes`: those
+   * changed; `mips`: a stamp stopping light at the mip levels changed there, so the mips' stopping cells did).
+   */
+  listen(fn: (cx: number, cy: number, cz: number, classes: boolean, mips: boolean) => void): void {
     this.listeners.push(fn);
   }
 
@@ -314,7 +330,7 @@ export class PropLightChannel {
    * the rule the world grid's own mips keep a solid by.
    */
   mipStops(level: number, nx: number, ny: number, nz: number): Uint32Array | null {
-    if (this.classes.size === 0 || level < 1) return null;
+    if ((this.classes.size === 0 && this.mipStamps === 0) || level < 1) return null;
     const key = `${level},${nx},${ny},${nz}`;
     const had = this.mipCache.get(key);
     if (had !== undefined) return had;
@@ -323,20 +339,32 @@ export class PropLightChannel {
     const span = 1 << level;
     let out: Uint32Array | null = null;
     for (let cx = nx * span; cx < (nx + 1) * span; cx++) for (let cy = ny * span; cy < (ny + 1) * span; cy++) for (let cz = nz * span; cz < (nz + 1) * span; cz++) {
-      const c = this.classes.get(chunkKeyOrNone(g, cx, cy, cz));
-      if (c === undefined || c === null) continue;
+      const key = chunkKeyOrNone(g, cx, cy, cz);
+      const c = this.classes.get(key);
       // The chunk's cells in the node's cells of the level.
       const bx = (cx - nx * span) * E;
       const by = (cy - ny * span) * E;
       const bz = (cz - nz * span) * E;
-      for (let x = 0; x < E; x++) for (let z = 0; z < E; z++) {
-        const row = ((x << g.shift) | z) << g.shift;
-        const mx = (bx + x) >> level;
-        const mz = (bz + z) >> level;
-        for (let y = 0; y < E; y++) {
-          if (c[row | y] !== STAMP_CLASS.stop) continue;
-          const i = (mx * E + mz) * E + ((by + y) >> level);
-          (out ??= new Uint32Array((E * E * E) >>> 5))[i >>> 5]! |= 1 << (i & 31);
+      const mark = (x: number, y: number, z: number): void => {
+        const i = (((bx + x) >> level) * E + ((bz + z) >> level)) * E + ((by + y) >> level);
+        (out ??= new Uint32Array((E * E * E) >>> 5))[i >>> 5]! |= 1 << (i & 31);
+      };
+      if (c !== undefined && c !== null)
+        for (let x = 0; x < E; x++) for (let z = 0; z < E; z++) {
+          const row = ((x << g.shift) | z) << g.shift;
+          for (let y = 0; y < E; y++) if (c[row | y] === STAMP_CLASS.stop) mark(x, y, z);
+        }
+      if (this.mipStamps === 0) continue;
+      // Stamps stopping light at the mips with no class: their cells covered whole enough to stop light.
+      const x0 = cx << g.shift;
+      const y0 = cy << g.shift;
+      const z0 = cz << g.shift;
+      for (const p of this.over.get(key) ?? []) {
+        const cv = p.cover;
+        if (cv === null || !stopsMips(p.shape)) continue;
+        for (let x = Math.max(x0, cv.lo[0]); x < Math.min(x0 + E, cv.lo[0] + cv.size[0]); x++) for (let z = Math.max(z0, cv.lo[2]); z < Math.min(z0 + E, cv.lo[2] + cv.size[2]); z++) {
+          const src = ((x - cv.lo[0]) * cv.size[2] + (z - cv.lo[2])) * cv.size[1] - cv.lo[1];
+          for (let y = Math.max(y0, cv.lo[1]); y < Math.min(y0 + E, cv.lo[1] + cv.size[1]); y++) if (cv.bytes[src + y]! >= LIGHT_STOP_COVERAGE) mark(x - x0, y - y0, z - z0);
         }
       }
     }
@@ -398,6 +426,9 @@ export class PropLightChannel {
   private stamp(id: string, was: Was): void {
     const t0 = performance.now();
     const p = this.props.get(id);
+    // A stamp stopping light at the mips (placed, moved or gone): their stopping cells are made again when next asked.
+    const mips = stopsMips(p?.shape) || was.mipStop === true;
+    if (mips) this.dropMips();
     if (p !== undefined && p.cover === null && this.touchesBuilt(p.chunks)) {
       p.cover = sampleOf(p.shape, this.cellM);
       this.sampledBytes += p.cover.bytes.byteLength;
@@ -420,7 +451,7 @@ export class PropLightChannel {
           box[a + 3] = Math.max(box[a + 3]!, b.lo[a]! + b.size[a]!);
         }
         const clip: Box = [Math.max(box[0], x0), Math.max(box[1], y0), Math.max(box[2], z0), Math.min(box[3], x0 + e), Math.min(box[4], y0 + e), Math.min(box[5], z0 + e)];
-        if (clip[0] < clip[3] && clip[1] < clip[4] && clip[2] < clip[5]) this.recombine(key, c.cx, c.cy, c.cz, clip);
+        if (clip[0] < clip[3] && clip[1] < clip[4] && clip[2] < clip[5]) this.recombine(key, c.cx, c.cy, c.cz, clip, mips);
       }
     }
     this.changeUs.add((performance.now() - t0) * 1000);
@@ -430,7 +461,7 @@ export class PropLightChannel {
    * A box of a built chunk's cells (world cells) combined again from the sampled props over the chunk, in the order
    * they were placed: the fold every cell of a fresh sampling makes. Listeners hear of it when a byte changed.
    */
-  private recombine(key: number, cx: number, cy: number, cz: number, box: Box): void {
+  private recombine(key: number, cx: number, cy: number, cz: number, box: Box, mips = false): void {
     const g = this.host.grid;
     const sh = g.shift;
     const x0 = cx << sh;
@@ -499,7 +530,7 @@ export class PropLightChannel {
     if (classesChanged) this.dropMips();
     if (changed || classesChanged) {
       this.version++;
-      for (const fn of this.listeners) fn(cx, cy, cz, classesChanged);
+      for (const fn of this.listeners) fn(cx, cy, cz, classesChanged, mips && changed);
     }
   }
 
