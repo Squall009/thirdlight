@@ -1056,12 +1056,23 @@ medium and high (same code); WebGL 2.
   result is counted into their row; the blocking lane must be green; a red outside the list is never accepted on a rerun;
   a row leaves the list by a fix or a re-derived bound, D643's bound and D659 first.
 
-## 10. Open questions for the owner (each with the default that stands if unanswered)
+- **2026-11-25 — the owner's answers to `acc47l`** (register: `docs/decisions/owner-decisions.md`, quoted there). (1) WebGL 2
+  "doesn't matter": the voxel surfaces' front-face shadow casting is restored (34d21bca, re-applying a64913b2), D810 fixed
+  (W's `room-window` 438 → 10 line pixels at `taau=0`, 199 → 1 with TAAU; sunlit fronts 1.5–2.3 of 255 darker, no acne
+  seen; specks 0/0 at the five cameras twice), and the WebGL 2 smoke test is archived with every rule that kept it
+  (73ac8fc9); D429, D540, D709 won't fix. (2) Partial cells stay on at low; the phase's measured costs are on
+  `docs/perf-recommendations.md` for the pass after 49. (3) D692 and D808 accepted for now. (4) The sun follows a portal's
+  state (47L.4's default confirmed). (5) The test and defect lists to be cleaned up: the closed rows moved to
+  `docs/audit-closed.md`; a census of the open rows and the e2e suite with three options went to the lead
+  (`~/.cache/thirdlight-phase47l/work/followup/census.md`). The follow-up's gate: `gate-fast-20261125-183438` red on
+  D817 (439 px) and a new timing bound (D824), green in `gate-rerun-20261125-185746`.
+
+## 10. Open questions for the owner (each with the default that stands if unanswered) — answered 2026-11-25 (§9)
 
 1. **Is a tier setting an acceptable cure for patchy light on the low tier** (more rays or a wider filter above
-   low, the cheapest clean result at low)? Default: yes, with the pictures of each tier's result on the page.
+   low, the cheapest clean result at low)? Default: yes, with the pictures of each tier's result on the page. **Answered 2026-11-25**: the blotches (D692) are accepted for now; no tier cure is built (§9).
 2. **If partial cells (47L.6) do not fit the low tier's lighting row**, default: on from medium, off at low, as a
-   tier setting.
+   tier setting. **Answered 2026-11-25**: kept on at low; the cost is on `docs/perf-recommendations.md` (§9).
 3. **A quarantine lane in the gate** (the review's recommendation, §9 2026-11-25): tests listed by D-row run serially after
    the rest and are counted into their row, the blocking lane must be green, a red outside the list is never accepted on a
-   rerun; D643's bound and D659 first. Default: not built; gates are judged as now until the owner says.
+   rerun; D643's bound and D659 first. Default: not built; gates are judged as now until the owner says. **Answered 2026-11-25**: the test and defect lists are to be cleaned up; the closed rows are archived; the lead decides the cleanup from the census (§9).

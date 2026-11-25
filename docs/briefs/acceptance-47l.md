@@ -90,3 +90,13 @@ Smaller defaults are in the plan's §9 (`docs/plan-phase-47l.md`).
 
 47b (the world edit mode) has no plan. A fresh session writes it first and stops for your approval; questions 1,
 2 and 5 become its first small items if their defaults stand.
+
+## Answered 2026-11-25
+
+1. WebGL 2 no longer matters: the wall-foot fix is back (34d21bca; 438 → 10 line pixels at `taau=0`, 199 → 1 with the
+   upscale; sunlit fronts 1–2 of 255 darker) and the WebGL 2 smoke test is archived; WebGL 2 is not checked any more.
+2. Partial cells stay on at low; the phase's measured costs are on `docs/perf-recommendations.md` for the pass after 49.
+3. The blotches (D692) and the specks without the upscale (D808) are accepted for now.
+4. The sun follows a door's state: kept.
+5. The test and defect lists get a cleanup: the closed rows are archived to `docs/audit-closed.md`; the options are with
+   the lead. Register: `docs/decisions/owner-decisions.md`; detail: the plan's §9.

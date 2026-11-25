@@ -14,7 +14,7 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | 2026-11-01 | three.js is checked each phase; only the owner authorizes an update. | `AGENTS.md` |
 | 2026-11-04 | Detail pieces only at edges, corners, ground contact and roofs; walls and floors are plain voxel faces. | `plan-phase-46c.md` |
 | 2026-11-09 | The far field is ray-marched bricks; relief displacement off on every tier; height in the albedo's alpha. | `plan-phase-46d.md` §2, §6d |
-| 2026-11-10 | WebGPU is the renderer; WebGL 2 a fallback with one smoke test, no new features, no parity. | `AGENTS.md` |
+| 2026-11-10 | WebGPU is the renderer; WebGL 2 a fallback with one smoke test, no new features, no parity (the fallback's check dropped 2026-11-25). | `AGENTS.md` |
 | 2026-11-10 | Floor target: Intel Iris Xe, the low tier at 720p upscaled (render scale ~0.667, temporal upscale), capped at 30 Hz. Medium and high are unverified on this host. | `plan-phase-46d.md` §2 |
 | 2026-11-11 | Minimum spec 8 GB RAM; low's budget about 4 GB (page + GPU). Budgets come from the hardware target, never from "today's use plus a margin". | `plan-phase-46d.md` 46d.23 |
 | 2026-11-11 | Travel up to 150 m/s is judged by hitches (longest frame, frames over 100 ms) and the settle after a stop; nothing falls through. Full detail under a moving camera is not a criterion. | `briefs/streaming-rings-2026-11-11.md` |
@@ -35,6 +35,11 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | 2026-11-18 | The glow mask in the ORM map's alpha is approved as proposed on acc46e-11 (relayed by the owner's other session): it affects only the drawn pixel; the volume uses the mask's mean, computed by the engine. Dark rooms: no default minimum brightness and no per-scene minimum. | `briefs/proposal-46e.11-emissive.md`, `plan-phase-46e.md` §10 |
 | 2026-11-20 | 46e-b accepted; its five defaults stand: the relayed notes of 11-17 and 11-18 confirmed in person; the glow mask's volume rule as built (the mean of colour × mask); rooms under cut-away stay dark (no light let in, no minimum); the update's share stays 3.5 ms on low; the lower-rate read waits for the performance phase after 49. Every "default chosen, owner to confirm" of plan-46e §9 stands. | `briefs/acceptance-46e-b.md`, `plan-phase-46e.md` §10 |
 | 2026-11-20 | 47a's item list and order, its seven format entries F1–F7 and its five defaults are approved as proposed: D741 is 47a's last build item and the first cut; the lead chooses rotated buildings' light by the measurement; water is drawn near only until 49; a building leaves the ground alone; hand edits on a structure are dig, add and paint until 47b. | `plan-phase-47a.md` §6, §8, §10; `briefs/proposal-47a-formats.md` |
+| 2026-11-25 | 47L accepted; its five questions answered. (1) "I couldn't care less about webgl2 at this point. The engine really isn't going to work on that moving forward so fix webgpu and remove the webgl2 check since it doesn't matter.": the wall-foot sun fix is restored and WebGL 2 is no longer checked or kept working (its smoke test archived; its code paths stay, unchecked). | `briefs/acceptance-47l.md`, `plan-phase-47l.md` §9 |
+| 2026-11-25 | (2) "Since we are still under the current frame time add it to a performance recommendation list that we can revisit after 49.": light through partly covered cells stays on at every tier, low included; its cost and the phase's other measured costs go on the performance list for the pass after 49. | `perf-recommendations.md` |
+| 2026-11-25 | (3) "This does look better and I don't think it will be as obvious in a real scene with textures and detail geometry.": the blotchy indirect light (D692) and the specks without the temporal upscale (D808) are accepted for now. | `plan-phase-47l.md` §9 |
+| 2026-11-25 | (4) "Agreed.": a shut portal casts the sun's shadow over its opening whatever its model draws (the sun follows the portal's state, plan-47l §9's default). | `plan-phase-47l.md` §9 (47L.4) |
+| 2026-11-25 | (5) "We have such a huge list of tests and defect rows. I think this needs a cleanup so it isn't so massive. Have we archived any of them? seems like we have a lot of flaky rows and I think that says more about the testing and criteria than it does the engine changes.": the closed defect rows are archived to `audit-closed.md`; the test suite and the open rows get a cleanup, its options measured for the lead. | `plan-phase-47l.md` §9 |
 
 ## Dropped, superseded or deferred (do not rebuild without the owner's word)
 
@@ -43,6 +48,7 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | Voxel-mip meshes as the default far field | fallback behind a switch | 2026-11-09 |
 | Rasterised bricks and the other brick variants | retired (in git) | 2026-11-10 |
 | Both-renderer parity and two-renderer measurement rounds | dropped | 2026-11-10 |
+| WebGL 2 as a checked fallback (its smoke test, `tests/e2e/webgl2-smoke.e2e.ts`) | dropped: archived, WebGL 2 no longer checked | 2026-11-25 |
 | Relief displacement of the near mesh; GPU compute tessellation by distance | deferred to a later stage; code off behind a switch | 2026-11-09, 11-11 |
 | Detail-piece LODs | deferred on purpose | 2026-11-11 |
 | A memory ceiling set from that day's measurement | rejected | 2026-11-11 |
