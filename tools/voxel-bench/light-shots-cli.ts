@@ -5,7 +5,8 @@
  * own (dynamic resolution off, as the headroom meter pins it, so a picture is drawn the same every run). The
  * project's "Perf far camera" goes to each of the five fixed cameras (lighting-cameras.ts) in turn; at each,
  * once streaming has settled (the page's near and far counts still for `--hold` s, the simulation's job queue
- * and far work at zero), it saves `<name>.png`, then a second picture with the voxel draws hidden: a shot whose
+ * and far work at zero), it saves `<name>.png` and counts its white, green and black specks (`blotch.specks`, specks.ts),
+ * then a second picture with the voxel draws hidden: a shot whose
  * picture barely changes with them hidden, that drew no voxels, or that never settled is refused (listed in the
  * report's `problems`, exit code 1). With each shot: the frame profile's page and simulation ms a frame and its
  * budget rows (the `lighting` category among them), and its resident-bytes table. After the shots, `--edits`
@@ -99,6 +100,7 @@ import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MASK_FILE, 
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import type { Picture } from './lighting-cameras';
 import { openPlay, type PlayGame } from './travel-page';
+import { speckCounts } from './specks';
 import { settleAfter, type CountSample } from './travel';
 import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, MANY_LAMPS_COMMANDS, parseLampsOption, placeManyLamps } from './many-lamps';
 import { dayBehaviour, DAY_ARC_DEG, DAY_COMMANDS, DAY_SPEEDS } from './day-cycle';
@@ -701,7 +703,7 @@ async function main(): Promise<void> {
       const placed = store === 'volume' ? await game.frame.evaluate(volumeCellsPlaced, [...cam.eye]).catch(() => null) : null;
       const probe = O.glow && store === 'volume' ? GLOW_PROBES[cam.name] : undefined;
       const glowPlaced = probe === undefined ? null : await game.frame.evaluate(volumeCellsPlaced, [...probe]).catch(() => null);
-      const blotch = { picture: pictureBlotch(shown), cells: placed === null ? null : cellBlotch(placed), mean: meanBrightness(shown), ...(glowPlaced !== null ? { glow: cellBlotch(glowPlaced) } : {}) };
+      const blotch = { picture: pictureBlotch(shown), cells: placed === null ? null : cellBlotch(placed), mean: meanBrightness(shown), specks: speckCounts(shown), ...(glowPlaced !== null ? { glow: cellBlotch(glowPlaced) } : {}) };
       // With the glow at night: the light the cells over the lava strip and over the masked strip beside it hold (each
       // cell's faces summed, red: the lava's), and the masked strip's share of the whole strip's.
       const strips = O.glow && store === 'volume' && cam.name === 'night-lamps' ? await glowStripLight(game) : null;
