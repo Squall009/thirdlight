@@ -24,6 +24,9 @@ describe('the phase performance report', () => {
     const md = perfReport(perfNumbers(headroom(33.42, 9.14)), perfNumbers(headroom(40, 11)), { previous: 'last phase' });
     expect(md).toContain('| GPU frame | 9.14 ms | 11 ms |');
     expect(md).toContain('| GPU far | — | — |');
+    const post = perfNumbers(headroom(33.42, 9.14));
+    post.gpuMs.post = -6.15;
+    expect(perfReport(post, null)).toContain('| GPU post | not readable (-6.15 ms) | — |');
     expect(md).toContain('never a gate');
     expect(perfReport(perfNumbers({ error: 'world not settled' }), null)).toContain('The bench reported an error: world not settled');
   });

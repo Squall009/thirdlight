@@ -215,7 +215,7 @@ perf() {
   node tools/voxel-bench/run.mjs headroom --quality low --rounds 1 --copies none --scales none --tag phase --out "$L/perf-headroom.json" > "$L/perf.log" 2>&1
   [ -n "$started" ] && tools/staging.sh stop >> "$L/staging.log" 2>&1
   if [ -s "$L/perf-headroom.json" ] && node tools/perf-report.mjs "$L/perf-headroom.json" "$reports" "$(git rev-parse --short HEAD)" > "$L/perf-report.md" 2>> "$L/perf.log"; then
-    say "perf: $(grep -E '^\| (frame rate|GPU frame|page heap)' "$L/perf-report.md" | cut -d'|' -f2,3 | tr -s ' ' | tr '\n' ';') report $L/perf-report.md ($(secs "$t"); recorded, never gating)"
+    say "perf: $(grep -E '^\| (frame rate|GPU frame|page heap)' "$L/perf-report.md" | awk -F' *\\| *' '{printf "%s %s; ", $2, $3}')report $L/perf-report.md ($(secs "$t"); recorded, never gating)"
   else
     say "perf: not recorded (the bench wrote no result: perf.log) ($(secs "$t"))"
   fi

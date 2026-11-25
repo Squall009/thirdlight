@@ -46,6 +46,8 @@ export function perfNumbers(h) {
 }
 
 const show = (v, unit = '') => (v === null || v === undefined ? '—' : `${v}${unit}`);
+/** A pass's GPU ms: the measurement's difference can come out below zero for a pass it cannot isolate (post). */
+const showMs = (v) => (typeof v === 'number' && v < 0 ? `not readable (${v} ms)` : show(v, ' ms'));
 
 /** The report's Markdown: this run beside the previous one (or a dash where there is none). */
 export function perfReport(now, prev, meta = {}) {
@@ -54,7 +56,7 @@ export function perfReport(now, prev, meta = {}) {
     ['frames missed / drawn', `${show(now.missed)} / ${show(now.frames)}`, prev ? `${show(prev.missed)} / ${show(prev.frames)}` : '—'],
     ['frame time p50 / p95', `${show(now.frameP50Ms)} / ${show(now.frameP95Ms)} ms`, prev ? `${show(prev.frameP50Ms)} / ${show(prev.frameP95Ms)} ms` : '—'],
     ['GPU frame', show(now.gpuFrameMs, ' ms'), show(prev?.gpuFrameMs, ' ms')],
-    ...CATEGORIES.map((c) => [`GPU ${c}`, show(now.gpuMs[c], ' ms'), show(prev?.gpuMs?.[c], ' ms')]),
+    ...CATEGORIES.map((c) => [`GPU ${c}`, showMs(now.gpuMs[c]), showMs(prev?.gpuMs?.[c])]),
     ['page heap', show(now.pageHeapMiB, ' MiB'), show(prev?.pageHeapMiB, ' MiB')],
     ['GPU memory', show(now.gpuMiB, ' MiB'), show(prev?.gpuMiB, ' MiB')],
     ['world fill', show(now.fillS, ' s'), show(prev?.fillS, ' s')],
