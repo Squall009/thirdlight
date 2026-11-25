@@ -1,7 +1,7 @@
 /**
  * The voxel light volume's update in WGSL (voxel-light-volume.ts runs it):
  * one invocation a cell and face of each brick listed. A cell that does not
- * hold light (solid, or open with nothing solid across a face) writes 0. One
+ * hold light (solid, or open with nothing solid across a face or an edge) writes 0. One
  * that does casts `rays` rays over the face's hemisphere (cosine-weighted,
  * each update a new set) by the occupancy walk (`voxel_walk`, stop `light`):
  *
@@ -52,7 +52,7 @@
  * level-0 cells at their hits.
  */
 import { WALK_GPU_MAX_STEPS, voxelWalkWgsl } from './voxel-walk-wgsl';
-import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_GLOW_EMITTER, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_WIDTH, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_NEGLIGIBLE, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
+import { VOLUME_ALBEDO_WIDTH, VOLUME_BRICK_M, VOLUME_GLOW_EMITTER, VOLUME_BRICK_TEXELS, VOLUME_BRICK_VOLUME, VOLUME_FACES, VOLUME_HOLD_STEPS, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_WIDTH, VOLUME_LAMP_LIST_ENTRIES, VOLUME_LAMP_NEGLIGIBLE, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_LAMP_VEC4S, VOLUME_POOL_WIDTH, volumeWordsWgsl } from './voxel-light-volume-layout';
 import { SH_Y0, SH_Y1 } from './surface-probes';
 import { CLUSTER_POINT, CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED } from './cluster-build';
 import { volumeLampTermsWgsl, volumeSpotConeWgsl } from './voxel-light-volume-terms';
@@ -174,7 +174,7 @@ fn volume_solid(c: vec3<i32>) -> bool {
 
 fn volume_holds(c: vec3<i32>) -> bool {
   if (volume_solid(c)) { return false; }
-  return volume_solid(c + vec3<i32>(1, 0, 0)) || volume_solid(c - vec3<i32>(1, 0, 0)) || volume_solid(c + vec3<i32>(0, 1, 0)) || volume_solid(c - vec3<i32>(0, 1, 0)) || volume_solid(c + vec3<i32>(0, 0, 1)) || volume_solid(c - vec3<i32>(0, 0, 1));
+  return ${VOLUME_HOLD_STEPS.map(([x, y, z]) => `volume_solid(c + vec3<i32>(${x}, ${y}, ${z}))`).join(' || ')};
 }
 
 /** Whether cell cc of a coarse level stops light: some level-0 cell inside it does (the CPU twin is volumeCoarseSolid). */

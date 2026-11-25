@@ -431,10 +431,26 @@ export function volumeSolidAt(src: WalkSource, x: number, y: number, z: number):
   return v.flag === OCCUPANCY.solid || (v.flag === OCCUPANCY.mixed && v.cell(((x & 31) * BLOCK_CELLS + (z & 31)) * BLOCK_CELLS + (y & 31)));
 }
 
-/** Whether a level-0 cell holds light: open, with a solid cell across one of its faces (the update's rule, cell by cell). */
+/**
+ * The steps from a level-0 cell to the cells whose solidity makes it hold light: its six faces, then its twelve edges
+ * (the update's WGSL `volume_holds` walks the same list in the same order).
+ */
+export const VOLUME_HOLD_STEPS: readonly (readonly [number, number, number])[] = Object.freeze([
+  [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+  [1, 1, 0], [1, -1, 0], [-1, 1, 0], [-1, -1, 0], [1, 0, 1], [1, 0, -1], [-1, 0, 1], [-1, 0, -1], [0, 1, 1], [0, 1, -1], [0, -1, 1], [0, -1, -1],
+] as const);
+
+/**
+ * Whether a level-0 cell holds light: open, with a solid cell across one of its faces or edges (the update's rule,
+ * cell by cell). By a turned wall, stamped as a staircase, the open cells in the staircase's notches touch it only by
+ * an edge; holding light there, the cells on the room's side join one another by faces, so a surface's read reaches
+ * four to six of its eight cells instead of one column or another (the wall then showed in blocks a cell wide). Open
+ * cells only: a solid one never holds light, so the read still never passes a solid.
+ */
 export function volumeCellHolds(src: WalkSource, x: number, y: number, z: number): boolean {
   if (volumeSolidAt(src, x, y, z)) return false;
-  return volumeSolidAt(src, x + 1, y, z) || volumeSolidAt(src, x - 1, y, z) || volumeSolidAt(src, x, y + 1, z) || volumeSolidAt(src, x, y - 1, z) || volumeSolidAt(src, x, y, z + 1) || volumeSolidAt(src, x, y, z - 1);
+  for (const [dx, dy, dz] of VOLUME_HOLD_STEPS) if (volumeSolidAt(src, x + dx, y + dy, z + dz)) return true;
+  return false;
 }
 
 /** A level-0 block's bricks as the volume reads them: which hold a solid cell and which are solid through. */
@@ -487,8 +503,9 @@ function brickBit(blocks: VolumeBlockLookup, x: number, y: number, z: number, wh
 
 /**
  * Whether a world brick (bricks of 4 cells) is kept: it holds an open cell, and it or a brick across one of its faces
- * holds a solid one. Every cell that holds light lies in a kept brick (its solid neighbour is in its own brick or in
- * one across a face); a kept brick may hold none (its cells' rule is the update's).
+ * holds a solid one. A cell holding light by a face lies in a kept brick (its solid neighbour is in its own brick or in
+ * one across a face); one holding by an edge does unless its solid neighbour lies only in a brick across that edge (it
+ * then holds nothing: no slot). A kept brick may hold none (its cells' rule is the update's).
  */
 export function volumeBrickKept(blocks: VolumeBlockLookup, bx: number, by: number, bz: number): boolean {
   if (brickBit(blocks, bx, by, bz, 'all')) return false;

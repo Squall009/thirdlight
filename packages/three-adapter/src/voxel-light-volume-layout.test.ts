@@ -12,7 +12,8 @@ import { applyWalkWires, OCCUPANCY, packWalkBlock, WalkTable, type WalkBlockView
 
 import { ClusterLights } from './cluster-build';
 import { volumeLampSet } from './voxel-light-volume-lamps';
-import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, volumeLampReaches, volumeLampFacesBrick, VOLUME_LAMP_NEGLIGIBLE, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadFlag, volumeReadLevels, VOLUME_READ_KINDS, volumeWeightShare, VOLUME_FULL_WEIGHT, type VolumeBlockBricks } from './voxel-light-volume-layout';
+import { volumeUpdateWgsl } from './voxel-light-volume-wgsl';
+import { ambientCubeSteps, VOLUME_BLOCK_BRICKS, VOLUME_BRICK_M, VOLUME_LAMP_FLOATS, VOLUME_LAMP_LIST_ENTRIES, volumeBrickLamps, volumeLampBrickBox, volumeLampListBrick, volumeLampStrength, volumeLampReaches, volumeLampFacesBrick, VOLUME_LAMP_NEGLIGIBLE, VOLUME_INDEX_ROW_BASE, VOLUME_INDEX_ROWS, VOLUME_INDEX_WIDTH, VOLUME_LEVEL_WINDOWS, VOLUME_LEVELS, VOLUME_MARK_NEAR_BRICKS, VOLUME_WINDOW_BRICKS, volumeBlockBrick, volumeBlockBricks, volumeBrickKept, volumeBrickKey, volumeCellHolds, VOLUME_HOLD_STEPS, volumeCellM, volumeChangedBricks, volumeCoarseSolid, volumeDecode, volumeEncode, volumeIndexTexel, volumeLevelBrickKept, volumeLevelCellHolds, volumeLevelIndexTexel, volumeMarkBoxes, volumeMarkedUpdates, volumeReadAt, volumeReadFlag, volumeReadLevels, VOLUME_READ_KINDS, volumeWeightShare, VOLUME_FULL_WEIGHT, type VolumeBlockBricks } from './voxel-light-volume-layout';
 
 /** A cached brick lookup over a walk source's level-0 blocks (as the volume keeps them). */
 function brickLookup(tsrc: WalkSource): (bx: number, by: number, bz: number) => VolumeBlockBricks | null {
@@ -128,7 +129,17 @@ describe('the light volume layout', () => {
     expect(volumeIndexTexel(5, 1, 7)).toEqual(volumeIndexTexel(5 + W, 1 + H, 7 + D));
   });
 
-  it('which cells hold light, against a cell-by-cell reference; every one in a kept brick', () => {
+  it("the update's rule for a cell holding light is the CPU twin's: the same eighteen steps (faces, then edges) in the same order", () => {
+    const w = volumeUpdateWgsl(false);
+    const body = w.slice(w.indexOf('fn volume_holds('), w.indexOf('\n}', w.indexOf('fn volume_holds(')));
+    const steps = [...body.matchAll(/volume_solid\(c \+ vec3<i32>\((-?\d+), (-?\d+), (-?\d+)\)\)/g)].map((m) => [Number(m[1]), Number(m[2]), Number(m[3])]);
+    expect(steps).toEqual(VOLUME_HOLD_STEPS.map((s) => [...s]));
+    expect(steps).toHaveLength(18);
+    expect(new Set(steps.map((s) => s.join(','))).size).toBe(18);
+    for (const s of steps) expect(Math.abs(s[0]!) + Math.abs(s[1]!) + Math.abs(s[2]!)).toBeLessThanOrEqual(2);
+  });
+
+  it('which cells hold light, against a cell-by-cell reference (a solid across a face or an edge); each in a kept brick but where its solid lies only across a brick edge', () => {
     const src = predicateSource(townCell, LO, HI);
     const table = tableOf(src, LO, HI);
     const tsrc = table.source();
@@ -145,14 +156,20 @@ describe('the light volume layout', () => {
     let kept = 0;
     const keptBricks = new Set<string>();
     for (let x = -60; x < 60; x++) for (let y = -8; y < 24; y++) for (let z = -60; z < 60; z++) {
-      // The reference: open by the predicate, with a solid one across a face (unknown space is open).
+      // The reference: open by the predicate, with a solid one across a face or an edge (unknown space is open).
       const known = (cx: number, cy: number, cz: number): boolean => cx >= LO[0]! * 32 && cy >= LO[1]! * 32 && cz >= LO[2]! * 32 && cx < HI[0]! * 32 && cy < HI[1]! * 32 && cz < HI[2]! * 32;
       const solid = (cx: number, cy: number, cz: number): boolean => known(cx, cy, cz) && townCell(cx, cy, cz);
-      const ref = !solid(x, y, z) && [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => solid(x + dx!, y + dy!, z + dz!));
+      const across: number[][] = [];
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) <= 2 && (dx | dy | dz) !== 0 && solid(x + dx, y + dy, z + dz)) across.push([dx, dy, dz]);
+      const ref = !solid(x, y, z) && across.length > 0;
       expect(volumeCellHolds(tsrc, x, y, z), `cell ${x},${y},${z}`).toBe(ref);
       if (!ref) continue;
       holds++;
       const b = [x >> 2, y >> 2, z >> 2];
+      // Its solid neighbours all in bricks that share only an edge with its own: it may lie in a brick not kept.
+      const brickOf = (d: number[]): number[] => [(x + d[0]!) >> 2, (y + d[1]!) >> 2, (z + d[2]!) >> 2];
+      const edgeOnly = across.every((d) => brickOf(d).filter((v, a) => v !== b[a]).length === 2);
+      if (edgeOnly && !volumeBrickKept(lookup, b[0]!, b[1]!, b[2]!)) continue;
       if (!keptBricks.has(b.join(','))) {
         expect(volumeBrickKept(lookup, b[0]!, b[1]!, b[2]!), `brick ${b.join(',')} of cell ${x},${y},${z}`).toBe(true);
         keptBricks.add(b.join(','));
