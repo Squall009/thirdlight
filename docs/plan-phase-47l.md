@@ -658,6 +658,44 @@ with the volume off none, so the voxel surfaces' read at the wall's foot, `crops
 `W-wallfoot-on-off.png`; which cells it reads there was not traced); no room got leakier, darker or flatter in these
 pictures. **Unverified:** nothing in motion; medium and high (same code); the cells' spread on the GPU.
 
+### 47L.5b — the wall-foot line and the switch-off proof
+
+**D810, the wall-foot line (60-minute box; cause not found).** W's `room-window` at the head (built at 9dfbb292's code; low,
+WebGPU, settled in 11.2 s; `work/47L.5b/raw/W-*`). The line is the pixels right at the junction of the west wall and the
+floor where no level reads light, so the flat term shows: the dashes are about 95 of 255 grey, the floor and wall round
+them 10–30. It stays with `&surfaceRead=surface,level0` and with `surface,coarse` (each level alone has nothing there),
+and with `&taau=0` it is one unbroken aliased line a pixel high: the upscale breaks it into the dashes
+(`crops/W-wallfoot-variants.png`: default, level 0 only, coarse only, `taau=0`). **Ruled out:** (1) the read's rule over
+the GPU's own cells: the room's cells read back at four levels (`--cells-at`, `cells-W.json`: 1,851 cells; the solids and
+holds equal the Node derive's) fed to the CPU twin (`scripts/gpuread.ts`, `sweep*.ts`: `volumeReadLevels`) read the foot
+dark and smooth (0.007–0.2, level 0 whole) at floor points 0.01–0.5 m from the wall and wall points 0.01–0.5 m over the floor
+along the whole wall, and never give no weight within ±20 mm of the corner with up, +x, diagonal or tilted normals; the one
+odd place is a 0.4 m stretch where floor points 0.1–10 mm under the wall's plane read a window cell (1.1); (2) the
+geometry: the level-0 base surface there (`scripts/tris.ts`, Node derive of the bench town) is axis-aligned triangles
+sharing the edge's vertices, no T-junction, no slanted normal; (3) the update's model on a Node build of the same house
+(`scripts/wallfoot.ts`) reads the foot dark; (4) the sun and the kit pieces (47L.5). So the twin cannot make the line and
+the GPU's read differs from it at those fragments (D805's kind). **Next step** (not taken): a dump of the GPU fragment's
+point, normal and each level's weight at the line's pixels. No fix, no test; D810 left open with this table.
+
+**D817, the switch-off proof** (`voxel-world.e2e.ts:1652`, run alone in a 10 G scope, `work/47L.5b/d817/*.log`):
+
+| commit | runs | off before and after (px, bound 40) |
+|---|---|---|
+| 583ef62f (head) | 3 | 0, 0, 107 |
+| a42eff9d | 3 | 0, 0, 0 |
+| dbcb1a1e (before 47L.3) | 3 | 0, 0, 212 |
+| head with the wait | 4 (the last 2 with the fine bricks counted) | 0, 0, 0, 0 |
+
+47L.5's base failure at a42eff9d was its worktree (the packages' own `node_modules`, `@dimforge` among them, were not
+linked: `scripts/mkbase.sh` links them). The two failures, at the head and before 47L.3, lie along the left hill's skyline
+(`d817/pairs-top.png`: before, after at the head, then at dbcb1a1e): the far field drawn otherwise minutes later, nothing the
+volume lights, so not a defect of 47L.3–47L.5. **The test now waits** before both store-off stills until the far field has
+nothing pending (the simulation's nodes and jobs, the page's fine bricks) and what the page draws of it (nodes, bricks,
+triangles, draws, trims, covered, fine bricks) stays the same for 2 s (`farStill`, `tests/e2e/voxel-shadows.ts`); the bound
+is unchanged. With it alone at the head 4 of 4 at 0 px, every wait at its 2 s floor: the failure was not reproduced with
+the wait in place, so that it cures it is **unverified** (D817 stays a watch row; D785, the same test's earlier row, placed
+with it).
+
 ## 9. Decision log
 
 - **2026-11-24 — the pass is placed and started on the owner's word** ("Write the lighting pass and get it

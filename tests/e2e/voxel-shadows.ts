@@ -106,7 +106,29 @@ function driver(o: ShadowCheckSetup) {
     writeFileSync(test.info().outputPath(`${name}.png`), png!);
     return last!;
   };
-  return { frame, control, counter, rel, place, still };
+  /**
+   * Waits until the far field has nothing left to make (no node pending, no job, in the simulation; no fine brick
+   * pending on the page) and what the page draws of it (nodes, bricks, triangles, draws, trims, covered, fine bricks) stays the same over two seconds: a picture compared
+   * with one taken minutes later must not catch the hills' far nodes still refining, which two shots 150 ms apart can.
+   */
+  const farStill = async (name: string): Promise<number> => {
+    const t0 = Date.now();
+    const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+    let last = '';
+    let same = 0;
+    await expect.poll(async () => {
+      const sim = (((await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<{ far?: { selected?: number; drawn?: number; pending?: number; jobs?: number } }> } } | undefined)?.runtime?.voxelWorlds ?? []).map((w) => w.far ?? null);
+      const drawn = await canvas.evaluate(() => Object.values((window as unknown as { __tlVoxelPlay: { stats(): { worlds: Record<string, { far?: { nodes: number; bricks: number; triangles: number; draws: number; trims: number; covered: number; fine: { pending: number; held: number; drawn: readonly number[] } | null } }> } } }).__tlVoxelPlay.stats().worlds).map((w) => (w.far === undefined ? null : [w.far.nodes, w.far.bricks, w.far.triangles, w.far.draws, w.far.trims, w.far.covered, w.far.fine?.pending ?? 0, w.far.fine?.held ?? 0, w.far.fine?.drawn ?? []])));
+      // The page's fine bricks (built on its GPU) still to make count as work left too.
+      const busy = sim.some((f) => f !== null && ((f.pending ?? 0) > 0 || (f.jobs ?? 0) > 0)) || drawn.some((d) => d !== null && (d[6] as number) > 0);
+      const now = JSON.stringify([sim.map((f) => (f === null ? null : [f.selected, f.drawn])), drawn]);
+      same = !busy && now === last ? same + 1 : 0;
+      last = now;
+      return same;
+    }, { timeout: 60_000, intervals: [400], message: `${name}: the far field settles` }).toBeGreaterThanOrEqual(5);
+    return Date.now() - t0;
+  };
+  return { frame, control, counter, rel, place, still, farStill };
 }
 
 /**
@@ -396,7 +418,7 @@ function lampBounce(cells: readonly VolumeCell[]): { red: number; n: number } {
  */
 export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   const { ids, away } = o;
-  const { control, counter, rel, place, still } = driver(o);
+  const { control, counter, rel, place, still, farStill } = driver(o);
   const hook = async <T>(f: string, arg?: unknown): Promise<T> => (await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate((_, a) => {
     const l = (window as unknown as { __tlVoxelPlay: { light: Record<string, (x?: unknown) => unknown> } }).__tlVoxelPlay.light;
     return l[a.f]!(a.arg);
@@ -428,6 +450,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   await hook('setStore', 'off');
   await expect.poll(() => hook('volume'), { timeout: 10_000 }).toBeNull();
   await place(ids.lamp, away);
+  const farBeforeMs = await farStill('volume-off-before');
   const offBefore = await still('volume-off-before');
   const eye = rel(...HUT_EYE);
   // The box mid-room, 1.2–2 m up and 0.8 m or more from the walls, floor and ceiling: no 0.5 m cell beside its faces in
@@ -534,6 +557,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   await place(ids.blue, boxOut);
   const outOff = await still('volume-box-out-off');
   await place(ids.blue, away);
+  const farAfterMs = await farStill('volume-off-after');
   const offAfter = await still('volume-off-after');
   const same = changedPixels(offBefore, offAfter, () => true, 20);
   const walls = { off: meanLum(hutOff, WALL_ROWS), shut: meanLum(shut, WALL_ROWS), open: meanLum(open, WALL_ROWS) };
@@ -548,7 +572,7 @@ export async function voxelVolumeLightChecks(o: FarLightSetup): Promise<void> {
   const boxOpen = { off: meanOver(outOff, outMask), volume: meanOver(outVolume, outMask) };
   const chunkOf = (p: readonly number[]): string => p.map((v) => Math.floor(v / 16)).join(',');
   const across = chunkOf(rel(-1.75, 1, -1.5)) !== chunkOf(rel(-2.25, 1, -1.5));
-  console.log(`[voxel-play] light volume: settled ${litMs} ms after the switch (${JSON.stringify(stats).slice(0, 900)}); hut walls off ${walls.off.toFixed(1)}, shut ${walls.shut.toFixed(1)}, open ${walls.open.toFixed(1)} (roof opened → settled ${openMs} ms); grids grown to ${JSON.stringify(grown)} regions before the floor's repaint, green floor px ${floorGreen}; walls' green/red over the green floor ${tint.green.ratio.toFixed(4)} against ${tint.plain.ratio.toFixed(4)} over plaster (${tint.green.n} px); cells round the hut ${cells.length}, updated ${updated.length}, holding light on the GPU ${holdsGpu}, differing from the CPU's rule ${differ.length}; 1 m cells updated ${coarseUpdated.length}, holding ${coarseHolds}, differing ${coarseDiffer.length}; inside the shut hut ${JSON.stringify(inside?.faces)}, its 1 m cell mid-room ${JSON.stringify(midRoom?.faces)}; over its roof ${JSON.stringify(roof?.faces)} against the sky's ${JSON.stringify(sky)}; off before and after ${same} px apart`);
+  console.log(`[voxel-play] light volume: settled ${litMs} ms after the switch (${JSON.stringify(stats).slice(0, 900)}); hut walls off ${walls.off.toFixed(1)}, shut ${walls.shut.toFixed(1)}, open ${walls.open.toFixed(1)} (roof opened → settled ${openMs} ms); grids grown to ${JSON.stringify(grown)} regions before the floor's repaint, green floor px ${floorGreen}; walls' green/red over the green floor ${tint.green.ratio.toFixed(4)} against ${tint.plain.ratio.toFixed(4)} over plaster (${tint.green.n} px); cells round the hut ${cells.length}, updated ${updated.length}, holding light on the GPU ${holdsGpu}, differing from the CPU's rule ${differ.length}; 1 m cells updated ${coarseUpdated.length}, holding ${coarseHolds}, differing ${coarseDiffer.length}; inside the shut hut ${JSON.stringify(inside?.faces)}, its 1 m cell mid-room ${JSON.stringify(midRoom?.faces)}; over its roof ${JSON.stringify(roof?.faces)} against the sky's ${JSON.stringify(sky)}; off before and after ${same} px apart (the far field still for 2 s after ${farBeforeMs} and ${farAfterMs} ms)`);
   console.log(`[voxel-play] light volume readers: the blue box in the shut hut ${boxIn.volume.lum.toFixed(1)} against ${boxIn.off.lum.toFixed(1)} by the flat term (${boxIn.off.n} px); the kit pieces on the stub ${kit.volume.lum.toFixed(1)} against ${kit.off.lum.toFixed(1)} (${kit.off.n} px); the box 1.7 m over the pad ${boxOpen.volume.lum.toFixed(1)} against ${boxOpen.off.lum.toFixed(1)} (${boxOpen.off.n} px)`);
   console.log(`[voxel-play] light volume lamp lists: ${lists.length} bricks round the lamp, ${listsKept.length} kept, ${listsLit.length} listing a lamp, ${listsDiffer.length} differing from the CPU's rule (${JSON.stringify(listsDiffer.slice(0, 2))}); up the wall's face ${faceLists.length} bricks, ${faceLists.filter(listsLamp).length} listing the red lamp (${JSON.stringify(lampAt)}); 1 m level ${listsCoarse.length} kept, ${listsCoarse.filter(listsLamp).length} listing it, ${listsCoarseDiffer.length} differing (${JSON.stringify(listsCoarseDiffer.slice(0, 2))}; the first lists ${JSON.stringify(faceLists[0]?.at)}); most reaching one ${Math.max(0, ...lists.map((l) => l.cpu.total))}`);
   console.log(`[voxel-play] light volume light types: the spot's red bounce on the west wall's cells: faces looking at the wall it lights ${typed.front.toFixed(3)} (${typed.frontN} faces), at the wall behind it ${typed.behind.toFixed(3)} (ratio ${typed.ratio.toFixed(3)}; settled ${typed.litMs} ms); the panel's blue bounce on the faces looking down at the floor it lights ${typed.panel.toFixed(3)} (${typed.panelN} faces; before it was placed ${typed.panelBefore.toFixed(3)}), with both taken out ${typed.panelOff.toFixed(3)} (settled ${typed.offMs} ms), the spot's then ${typed.frontOff.toFixed(3)} (before it came ${typed.frontBefore.toFixed(3)}); the cells then against before the lights came ${(typed.residue * 100).toFixed(2)} % of what the lights moved them`);
