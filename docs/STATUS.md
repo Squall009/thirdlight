@@ -5,7 +5,7 @@ What the engine is now:
 `docs/architecture/voxel-engine.md`; owner decisions: `docs/decisions/owner-decisions.md`; order: `docs/roadmap.md`.
 
 Defects: open and watch rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
-On 2026-11-11: 175 open (M 42, L 133; no C or H), 33 watch; closed 392 (366 fixed, 21 superseded, 5 won't fix).
+On 2026-11-25: 290 open (M 62, L 228; no C or H), 57 watch; closed 477 (432 fixed, 34 superseded, 11 won't fix); next free D825.
 
 Done: an item works in a real browser and has an automated test at the boundary it fixes (Playwright for the editor).
 Visual and audible results no test observes in pixels are marked "owner look pending": that is the normal done state.
