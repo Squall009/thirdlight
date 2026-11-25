@@ -69,25 +69,29 @@ interface Hit {
   readonly face: number;
 }
 
-/** A walk from `p` along `d` (unit) up to `maxT` m: the face it stops at, or null (it reached the sky). */
-function walkHit(w: VolumeLightWorld, p: readonly number[], d: readonly number[], maxT: number): Hit | null | 'lost' {
+/**
+ * A walk from `p` along `d` (unit) up to `maxT` m: the face it stops at, or null (it reached the sky), and what the
+ * partly covered cells on the way let on (`trans`; 0 where the ray was spent).
+ */
+function walkHit(w: VolumeLightWorld, p: readonly number[], d: readonly number[], maxT: number): { readonly h: Hit | null | 'lost'; readonly trans: number } {
   const r = walkRay(p, d);
-  if (r === null) return null;
+  if (r === null) return { h: null, trans: 1 };
   const res = walkVoxels(w.src, r, maxT, { stop: 'light', far: w.far === true });
-  if (res.hit === null) return res.end === 'steps' ? 'lost' : null;
+  if (res.hit === null) return { h: res.end === 'steps' ? 'lost' : null, trans: res.trans };
   const h = res.hit;
-  // A ray that starts inside a stopping cell: no face (the update's `axis < 0`).
-  if (h.normal[0] === 0 && h.normal[1] === 0 && h.normal[2] === 0) return 'lost';
+  // A ray that starts inside a stopping cell, or spent in partly covered cells: no face (the update's `axis < 0`, `trans` 0).
+  if ((h.normal[0] === 0 && h.normal[1] === 0 && h.normal[2] === 0) || res.trans <= 0) return { h: 'lost', trans: 0 };
   const n: V3 = [h.normal[0], h.normal[1], h.normal[2]];
   const axis = n[0] !== 0 ? 0 : n[1] !== 0 ? 1 : 2;
-  return { t: h.t, air: [h.cell[0] + n[0], h.cell[1] + n[1], h.cell[2] + n[2]], n, face: axis * 2 + (n[axis]! < 0 ? 1 : 0) };
+  return { h: { t: h.t, air: [h.cell[0] + n[0], h.cell[1] + n[1], h.cell[2] + n[2]], n, face: axis * 2 + (n[axis]! < 0 ? 1 : 0) }, trans: res.trans };
 }
 
-/** Whether nothing stops light from `p` along `d` within `maxT` m. */
-function clear(w: VolumeLightWorld, p: readonly number[], d: readonly number[], maxT: number): boolean {
+/** What of the light from `maxT` m along `d` reaches `p`: 0 where something stops it, else what partly covered cells let on. */
+function pass(w: VolumeLightWorld, p: readonly number[], d: readonly number[], maxT: number): number {
   const r = walkRay(p, d);
-  if (r === null) return true;
-  return walkVoxels(w.src, r, maxT, { stop: 'light', far: w.far === true }).hit === null;
+  if (r === null) return 1;
+  const res = walkVoxels(w.src, r, maxT, { stop: 'light', far: w.far === true });
+  return res.hit === null ? res.trans : 0;
 }
 
 /**
@@ -100,7 +104,10 @@ export function volumeDirectLight(w: VolumeLightWorld, p: readonly number[], n: 
   const q = [p[0]! + n[0]! * HIT_LIFT_M, p[1]! + n[1]! * HIT_LIFT_M, p[2]! + n[2]! * HIT_LIFT_M];
   const s = w.sun;
   const ns = n[0]! * s[0]! + n[1]! * s[1]! + n[2]! * s[2]!;
-  if (s[3]! > 0.5 && ns > 0 && clear(w, q, [s[0]!, s[1]!, s[2]!], sunReach)) for (let k = 0; k < 3; k++) e[k] = e[k]! + s[4 + k]! * ns;
+  if (s[3]! > 0.5 && ns > 0) {
+    const tr = pass(w, q, [s[0]!, s[1]!, s[2]!], sunReach);
+    for (let k = 0; k < 3; k++) e[k] = e[k]! + s[4 + k]! * ns * tr;
+  }
   const L = w.lamps;
   for (let i = 0; i < w.lampCount; i++) {
     const o = i * VOLUME_LAMP_FLOATS;
@@ -140,8 +147,9 @@ export function volumeDirectLight(w: VolumeLightWorld, p: readonly number[], n: 
       len = Math.max(d - 0.3, 0);
       lit = fall * nl;
     }
-    if (!clear(w, q, way, len)) continue;
-    for (let k = 0; k < 3; k++) e[k] = e[k]! + L[o + 4 + k]! * lit;
+    const tr = pass(w, q, way, len);
+    if (tr <= 0) continue;
+    for (let k = 0; k < 3; k++) e[k] = e[k]! + L[o + 4 + k]! * lit * tr;
   }
   return e;
 }
@@ -163,8 +171,9 @@ export function volumeGlowDirect(w: VolumeLightWorld, p: readonly number[], n: r
     if (f <= 0) continue;
     const s = [0, 1, 2].map((a) => c[a]! + u[a]! * (2 * xi[0] - 1) + v[a]! * (2 * xi[1] - 1) - p[a]!);
     const ds = Math.hypot(s[0]!, s[1]!, s[2]!);
-    if (ds > 1e-3 && !clear(w, p, s.map((x) => x / ds), Math.max(ds - 0.3, 0))) continue;
-    for (let k = 0; k < 3; k++) e[k] = e[k]! + emitters[o + 4 + k]! * Math.PI * f;
+    const tr = ds > 1e-3 ? pass(w, p, s.map((x) => x / ds), Math.max(ds - 0.3, 0)) : 1;
+    if (tr <= 0) continue;
+    for (let k = 0; k < 3; k++) e[k] = e[k]! + emitters[o + 4 + k]! * Math.PI * f * tr;
   }
   return e;
 }
@@ -199,10 +208,10 @@ export type VolumeRayEnd = 'sky' | 'hit' | 'lost';
  * gives off and its bounce: its glow + its colour × (direct light + the volume's own light there) / π.
  */
 export function volumeRayRadiance(w: VolumeLightWorld, p: readonly number[], d: readonly number[], reach: number, held: VolumeHeldLight, xi: readonly [number, number], sunReach: number, ends?: Record<VolumeRayEnd, number>): V3 {
-  const h = walkHit(w, p, d, reach);
+  const { h, trans } = walkHit(w, p, d, reach);
   if (h === null) {
     if (ends !== undefined) ends.sky++;
-    return volumeSkyRadiance(w.sky, d);
+    return volumeSkyRadiance(w.sky, d).map((x) => x * trans) as V3;
   }
   if (h === 'lost') {
     if (ends !== undefined) ends.lost++;
@@ -214,7 +223,7 @@ export function volumeRayRadiance(w: VolumeLightWorld, p: readonly number[], d: 
   const v = held(h.air, h.face);
   const a = w.albedo(h.air, h.face);
   const g = w.glow?.(h.air, h.face) ?? null;
-  return [0, 1, 2].map((k) => (g?.[k] ?? 0) + (a[k]! * (e[k]! + (v?.[k] ?? 0))) / Math.PI) as V3;
+  return [0, 1, 2].map((k) => ((g?.[k] ?? 0) + (a[k]! * (e[k]! + (v?.[k] ?? 0))) / Math.PI) * trans) as V3;
 }
 
 /** What the reference counts as it traces (rays, where they ended, hits lit by the sun). */
@@ -245,10 +254,10 @@ export interface VolumeReferenceOptions {
  * while bounces are left) / π.
  */
 function tracePath(w: VolumeLightWorld, p: readonly number[], d: readonly number[], bounces: number, o: Required<VolumeReferenceOptions>, rnd: () => number, counts: VolumeReferenceCounts | null): V3 {
-  const h = walkHit(w, p, d, o.reach);
+  const { h, trans } = walkHit(w, p, d, o.reach);
   if (h === null) {
     if (counts !== null) counts.sky++;
-    return volumeSkyRadiance(w.sky, d);
+    return volumeSkyRadiance(w.sky, d).map((x) => x * trans) as V3;
   }
   if (h === 'lost') {
     if (counts !== null) counts.lost++;
@@ -263,7 +272,7 @@ function tracePath(w: VolumeLightWorld, p: readonly number[], d: readonly number
   if (counts !== null && w.sun[3]! > 0.5) {
     const ns = h.n[0] * w.sun[0]! + h.n[1] * w.sun[1]! + h.n[2] * w.sun[2]!;
     const q = hp.map((x, a) => x + h.n[a]! * HIT_LIFT_M);
-    if (ns > 0 && clear(w, q, [w.sun[0]!, w.sun[1]!, w.sun[2]!], o.sunReach)) counts.sunLit++;
+    if (ns > 0 && pass(w, q, [w.sun[0]!, w.sun[1]!, w.sun[2]!], o.sunReach) > 0) counts.sunLit++;
   }
   if (bounces > 0) {
     const q = hp.map((x, a) => x + h.n[a]! * HIT_LIFT_M);
@@ -272,7 +281,7 @@ function tracePath(w: VolumeLightWorld, p: readonly number[], d: readonly number
   }
   const a = w.albedo(h.air, h.face);
   const g = w.glow?.(h.air, h.face) ?? null;
-  return [0, 1, 2].map((k) => (g?.[k] ?? 0) + (a[k]! * e[k]!) / Math.PI) as V3;
+  return [0, 1, 2].map((k) => ((g?.[k] ?? 0) + (a[k]! * e[k]!) / Math.PI) * trans) as V3;
 }
 
 /**
@@ -445,7 +454,7 @@ export function volumeRoomCells(src: WalkSource, eye: readonly number[], within 
   const w: VolumeLightWorld = { src, sky: [], sun: [], lamps: [], lampCount: 0, albedo: () => [0, 0, 0] };
   const out: VolumeCheckCell[] = [];
   const at = (name: string, p: readonly number[], d: readonly number[]): void => {
-    const h = walkHit(w, p, d, within);
+    const { h } = walkHit(w, p, d, within);
     if (h !== null && h !== 'lost') out.push({ name, cell: h.air, face: h.face });
   };
   at('floor under the eye', eye, [0, -1, 0]);
@@ -455,9 +464,9 @@ export function volumeRoomCells(src: WalkSource, eye: readonly number[], within 
   for (let dx = -span; dx <= span + 1e-9; dx += step) for (let dz = -span; dz <= span + 1e-9; dz += step) {
     if (Math.abs(dx) < 1e-9 && Math.abs(dz) < 1e-9) continue;
     const p = [eye[0]! + dx, eye[1]!, eye[2]! + dz];
-    const up = walkHit(w, p, [0, 1, 0], within);
+    const { h: up } = walkHit(w, p, [0, 1, 0], within);
     if (up === null || up === 'lost' || up.t <= 0) continue;
-    const h = walkHit(w, p, [0, -1, 0], within);
+    const { h } = walkHit(w, p, [0, -1, 0], within);
     if (h === null || h === 'lost' || seen.has(h.air.join(','))) continue;
     seen.add(h.air.join(','));
     out.push({ name: `floor ${dx},${dz}`, cell: h.air, face: h.face });

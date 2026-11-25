@@ -102,8 +102,10 @@ fn glow_direct(p: vec3<f32>, n: vec3<f32>, own: u32, xi: vec2<f32>) -> vec3<f32>
     if (f <= 0.0) { continue; }
     let s = a.xyz + su * (2.0 * xi.x - 1.0) + sv * (2.0 * xi.y - 1.0) - p;
     let ds = length(s);
-    if (ds > 1e-3 && !volume_clear(p, s / ds, max(ds - 0.3, 0.0))) { continue; }
-    e = e + lamps[${VOLUME_LAMP_VEC4S}u * li + 1u].xyz * (PI * f);
+    var tr = 1.0;
+    if (ds > 1e-3) { tr = volume_pass(p, s / ds, max(ds - 0.3, 0.0)); }
+    if (tr <= 0.0) { continue; }
+    e = e + lamps[${VOLUME_LAMP_VEC4S}u * li + 1u].xyz * (PI * f * tr);
   }
   return e;
 }
@@ -257,14 +259,14 @@ fn sky_radiance(d: vec3<f32>) -> vec3<f32> {
   return max(s[0].xyz * ${SH_Y0} + (s[1].xyz * d.y + s[2].xyz * d.z + s[3].xyz * d.x) * ${SH_Y1}, vec3<f32>(0.0));
 }
 
-/** Whether a walk from p along d meets nothing that stops light within max_t metres. */
-fn volume_clear(p: vec3<f32>, d: vec3<f32>, max_t: f32) -> bool {
+/** What of the light along a walk from p along d reaches p from max_t metres: 0 where something stops it, else what the partly covered cells on the way let on. */
+fn volume_pass(p: vec3<f32>, d: vec3<f32>, max_t: f32) -> f32 {
   var cell: vec3<i32>;
   var frac: vec3<f32>;
   var inv: vec3<f32>;
   voxel_walk_ray(p, d, &cell, &frac, &inv);
   let h = voxel_walk(cell, frac, inv, max_t, 1u, params.levels.x);
-  return h.end != 1u;
+  return select(h.trans, 0.0, h.end == 1u);
 }
 
 /** The slot + 1 of the brick of \`level\` holding level-0 cell c in the lists' window index (0: none there). */
@@ -297,8 +299,8 @@ fn direct_light(p: vec3<f32>, n: vec3<f32>, air: vec3<i32>, xi: vec2<f32>) -> ve
   var e = vec3<f32>(0.0);
   let q = p + n * 0.01;
   let ns = dot(n, params.sun_dir.xyz);
-  if (params.sun_dir.w > 0.5 && ns > 0.0 && volume_clear(q, params.sun_dir.xyz, params.sun_rgb.w)) {
-    e = e + params.sun_rgb.xyz * ns;
+  if (params.sun_dir.w > 0.5 && ns > 0.0) {
+    e = e + params.sun_rgb.xyz * (ns * volume_pass(q, params.sun_dir.xyz, params.sun_rgb.w));
   }
   // A hit no kept brick of any level holds (past the windows, a brick not kept or waiting for a slot): the whole table.
   let at = lamp_list_at(air);
@@ -339,8 +341,9 @@ ${areas ? AREA_LIGHT_WGSL : '    {'}
       len = max(d - 0.3, 0.0);
       lit = b.xyz * (fall * nl);
     }
-    if (!volume_clear(q, way, len)) { continue; }
-    e = e + lit;
+    let tr = volume_pass(q, way, len);
+    if (tr <= 0.0) { continue; }
+    e = e + lit * tr;
   }
   return e;
 }
@@ -384,12 +387,13 @@ fn ray_radiance(p: vec3<f32>, d: vec3<f32>, xi: vec2<f32>, own: u32) -> vec3<f32
   var inv: vec3<f32>;
   voxel_walk_ray(p, d, &cell, &frac, &inv);
   let h = voxel_walk(cell, frac, inv, params.misc.x, 1u, params.levels.x);
+  // What the partly covered cells on the way let on of whatever the ray sees.
   if (h.end == 0u && params.coarse[0].w != 0) {
     let far = coarse_radiance(p + d * params.misc.x, d);
-    if (far.w >= 0.0) { return far.xyz; }
+    if (far.w >= 0.0) { return far.xyz * h.trans; }
   }
-  if (h.end == 0u || h.end == 2u) { return sky_radiance(d); }
-  if (h.end != 1u || h.axis < 0) { return vec3<f32>(0.0); }
+  if (h.end == 0u || h.end == 2u) { return sky_radiance(d) * h.trans; }
+  if (h.end != 1u || h.axis < 0 || h.trans <= 0.0) { return vec3<f32>(0.0); }
   let a = u32(h.axis);
   var n = vec3<f32>(0.0);
   n[a] = select(1.0, -1.0, d[a] > 0.0);
@@ -404,7 +408,7 @@ fn ray_radiance(p: vec3<f32>, d: vec3<f32>, xi: vec2<f32>, own: u32) -> vec3<f32
     glow = volume_glow(air);
 ${glow ? '    if (any(glow > vec3<f32>(0.0)) && glow_listed(own, air)) { glow = vec3<f32>(0.0); }' : ''}
   }
-  return glow + volume_albedo(air) * e / PI;
+  return (glow + volume_albedo(air) * e / PI) * h.trans;
 }
 
 fn hash3(c: vec3<i32>, f: u32) -> u32 {

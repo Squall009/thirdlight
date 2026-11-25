@@ -22,12 +22,15 @@
  * - it answers a `VoxelWalkHit`: `end` (0 past `max_t`, 1 hit, 2 left the
  *   world, 3 out of steps), `t` metres, `cell` the level-0 cell, `axis`
  *   the axis it entered by (−1: it started inside; the face's normal is
- *   −sign(inv) on that axis), `level` and `steps`.
+ *   −sign(inv) on that axis), `level`, `steps` and, for the light stop,
+ *   `trans`: what the partly covered cells it crossed let on (the CPU walk's
+ *   rule: a block's cover, 1 − step / 15 a cell entered by a face; spent
+ *   under 1/256: a hit with 0).
  * Where no level knows a place the walk passes as through air (the far
  * field's bricks are not walked on the GPU yet).
  */
 import { wgslScalarWriter } from '@thirdlight/shared';
-import { WALK_BRICK_WORDS, WALK_CELL_WORDS, WALK_EMPTY_KEY, WALK_INV_NONE, WALK_MAX_PROBES, WALK_PAGE_WORDS, walkBeforeSteps, walkCrossSteps, walkFirstSteps } from '@thirdlight/voxel';
+import { WALK_BRICK_WORDS, WALK_CELL_WORDS, WALK_COVER_STEPS, WALK_EMPTY_KEY, WALK_INV_NONE, WALK_MAX_PROBES, WALK_PAGE_WORDS, WALK_SPENT, walkBeforeSteps, walkCrossSteps, walkFirstSteps } from '@thirdlight/voxel';
 
 /** Steps a GPU walk takes at most (a block, a brick or a cell crossed is one). */
 export const WALK_GPU_MAX_STEPS = 4096;
@@ -71,6 +74,8 @@ const WALK_PAGE_WORDS: u32 = ${WALK_PAGE_WORDS}u;
 const WALK_BRICK_WORDS: u32 = ${WALK_BRICK_WORDS}u;
 const WALK_CELL_WORDS: u32 = ${WALK_CELL_WORDS}u;
 const WALK_MAX_STEPS: u32 = ${WALK_GPU_MAX_STEPS}u;
+const WALK_COVER_STEPS: f32 = ${WALK_COVER_STEPS}.0;
+const WALK_SPENT: f32 = ${WALK_SPENT};
 
 struct VoxelWalkHit {
   end: u32,
@@ -79,6 +84,7 @@ struct VoxelWalkHit {
   axis: i32,
   level: u32,
   steps: u32,
+  trans: f32,
 }
 
 ${walkStepsWgsl()}
@@ -89,19 +95,29 @@ fn walk_hash(k0: u32, k1: u32, mask: u32) -> u32 {
   return h & mask;
 }
 
-/** A block's value in the table (WALK_NONE: not held). */
-fn walk_value(level: u32, b: vec3<i32>) -> u32 {
+/** A block's value and cover (its first page slot + 1, 0: none) in the table (WALK_NONE: not held). */
+fn walk_entry(level: u32, b: vec3<i32>) -> vec2<u32> {
   let k0 = (u32(b.x + 32768) & 0xffffu) | ((u32(b.z + 32768) & 0xffffu) << 16u);
   let k1 = (u32(b.y + 32768) & 0xffffu) | (level << 16u);
   let mask = arrayLength(&walk_table) - 1u;
   var i = walk_hash(k0, k1, mask);
   for (var p = 0u; p < WALK_MAX_PROBES; p++) {
     let e = walk_table[i];
-    if (e.y == WALK_EMPTY_KEY) { return WALK_NONE; }
-    if (e.y == k1 && e.x == k0) { return e.z; }
+    if (e.y == WALK_EMPTY_KEY) { return vec2<u32>(WALK_NONE, 0u); }
+    if (e.y == k1 && e.x == k0) { return e.zw; }
     i = (i + 1u) & mask;
   }
-  return WALK_NONE;
+  return vec2<u32>(WALK_NONE, 0u);
+}
+
+/** A block's value in the table (WALK_NONE: not held). */
+fn walk_value(level: u32, b: vec3<i32>) -> u32 {
+  return walk_entry(level, b).x;
+}
+
+/** The coverage step (0 … 15) of cell ci of a block whose cover starts at word w. */
+fn walk_cover_step(w: u32, ci: u32) -> u32 {
+  return (walk_pages[w + WALK_BRICK_WORDS + (ci >> 3u)] >> ((ci & 7u) * 4u)) & 15u;
 }
 
 fn walk_bit(word: u32, i: u32) -> bool {
@@ -162,37 +178,59 @@ fn voxel_walk(o: vec3<i32>, frac: vec3<f32>, inv: vec3<f32>, max_t: f32, stop: u
   var c = o;
   var b = o >> vec3<u32>(5u);
   var value = WALK_NONE;
+  var cover = 0u;
   var t = 0.0;
   var axis = -1;
   var c0 = o;
+  var trans = 1.0;
   // The finest level that knows the block holding c0.
   for (var l = 0u; l <= max_level; l++) {
     let cl = c0 >> vec3<u32>(l);
-    let v = walk_value(l, cl >> vec3<u32>(5u));
-    if (v != WALK_NONE) { level = l; c = cl; b = cl >> vec3<u32>(5u); value = v; break; }
+    let v = walk_entry(l, cl >> vec3<u32>(5u));
+    if (v.x != WALK_NONE) { level = l; c = cl; b = cl >> vec3<u32>(5u); value = v.x; cover = v.y * stop; break; }
   }
   for (var steps = 1u; steps <= WALK_MAX_STEPS; steps++) {
-    if (t > max_t) { return VoxelWalkHit(0u, t, c0, axis, level, steps); }
-    if (!walk_in_world(c0)) { return VoxelWalkHit(2u, t, c0, axis, level, steps); }
+    if (t > max_t) { return VoxelWalkHit(0u, t, c0, axis, level, steps, trans); }
+    if (!walk_in_world(c0)) { return VoxelWalkHit(2u, t, c0, axis, level, steps, trans); }
     var box = 32;
     var shift = 5u;
     if (value != WALK_NONE) {
       let flag = (value >> (2u * stop)) & 3u;
       let local = c - b * 32;
+      let bi = u32(((local.x >> 2u) * 8 + (local.z >> 2u)) * 8 + (local.y >> 2u));
+      let ci = u32((local.x * 32 + local.z) * 32 + local.y);
+      let page = (value >> 4u) * WALK_PAGE_WORDS;
+      // A brick holding partly covered cells the light stop passes is walked cell by cell (the CPU walk's order).
+      let cw = (cover - 1u) * WALK_PAGE_WORDS;
+      let part = cover != 0u && flag != 1u && walk_bit(cw, bi);
       if (flag == 1u) { box = -1; }
+      else if (part) {
+        if (flag == 2u && walk_bit(page + 2u * WALK_BRICK_WORDS + stop * WALK_CELL_WORDS, ci)) { box = -1; }
+        else { box = 1; shift = 0u; }
+      }
+      else if (flag == 0u && cover != 0u) { box = 4; shift = 2u; }
       else if (flag == 2u) {
-        let page = (value >> 4u) * WALK_PAGE_WORDS;
-        let bi = u32(((local.x >> 2u) * 8 + (local.z >> 2u)) * 8 + (local.y >> 2u));
-        let ci = u32((local.x * 32 + local.z) * 32 + local.y);
         if (!walk_bit(page + stop * WALK_BRICK_WORDS, bi)) { box = 4; shift = 2u; }
         else if (walk_bit(page + 2u * WALK_BRICK_WORDS + stop * WALK_CELL_WORDS, ci)) { box = -1; }
         else { box = 1; shift = 0u; }
+      }
+      // A partly covered cell entered by a face takes its share of what the ray carries (the first cell is the ray's own).
+      if (part && box == 1 && axis >= 0) {
+        let q = walk_cover_step(cw, ci);
+        if (q != 0u) {
+          trans = trans * (1.0 - f32(q) / WALK_COVER_STEPS);
+          if (trans < WALK_SPENT) {
+            var spent = c;
+            if (level > 0u) { spent = walk_level_zero(o, frac, inv, s, c, level, t, axis); }
+            return VoxelWalkHit(1u, max(t, 0.0), spent, axis, level, steps, 0.0);
+          }
+        }
       }
     }
     if (box < 0) {
       var cell = c;
       if (level > 0u) { cell = select(walk_level_zero(o, frac, inv, s, c, level, t, axis), o, axis < 0); }
-      return VoxelWalkHit(1u, max(t, 0.0), cell, axis, level, steps);
+      return VoxelWalkHit(1u, max(t, 0.0), cell, axis, level, steps, trans);
     }
     // Leave the box: the crossing out of it first in ray order, and the cell after it on every axis.
     let lo = (c >> vec3<u32>(shift)) << vec3<u32>(shift);
@@ -214,13 +252,14 @@ fn voxel_walk(o: vec3<i32>, frac: vec3<f32>, inv: vec3<f32>, max_t: f32, stop: u
     c = c0;
     b = c0 >> vec3<u32>(5u);
     value = WALK_NONE;
+    cover = 0u;
     for (var l = 0u; l <= max_level; l++) {
       let cl = c0 >> vec3<u32>(l);
-      let v = walk_value(l, cl >> vec3<u32>(5u));
-      if (v != WALK_NONE) { level = l; c = cl; b = cl >> vec3<u32>(5u); value = v; break; }
+      let v = walk_entry(l, cl >> vec3<u32>(5u));
+      if (v.x != WALK_NONE) { level = l; c = cl; b = cl >> vec3<u32>(5u); value = v.x; cover = v.y * stop; break; }
     }
   }
-  return VoxelWalkHit(3u, t, c0, axis, level, WALK_MAX_STEPS);
+  return VoxelWalkHit(3u, t, c0, axis, level, WALK_MAX_STEPS, trans);
 }
 `;
 }

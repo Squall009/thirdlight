@@ -44,7 +44,7 @@ interface WalkDevice {
 const WALK_WORKGROUP = 64;
 /** u32 words a ray takes in the trace pass's input (cell, frac + max t, inv + stop) and a hit in its output. */
 const RAY_WORDS = 12;
-const HIT_WORDS = 8;
+const HIT_WORDS = 12;
 
 const TRACE_WGSL = /* wgsl */ `
 struct Params { count: u32, max_level: u32, pad0: u32, pad1: u32 }
@@ -60,8 +60,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   let b = bitcast<vec4<f32>>(rays[3u * i + 1u]);
   let c = rays[3u * i + 2u];
   let h = voxel_walk(bitcast<vec3<i32>>(a.xyz), b.xyz, bitcast<vec3<f32>>(c.xyz), b.w, c.w, params.max_level);
-  hits[2u * i] = vec4<u32>(h.end, bitcast<u32>(h.t), h.level, bitcast<u32>(h.axis));
-  hits[2u * i + 1u] = vec4<u32>(bitcast<vec3<u32>>(h.cell), h.steps);
+  hits[3u * i] = vec4<u32>(h.end, bitcast<u32>(h.t), h.level, bitcast<u32>(h.axis));
+  hits[3u * i + 1u] = vec4<u32>(bitcast<vec3<u32>>(h.cell), h.steps);
+  hits[3u * i + 2u] = vec4<u32>(bitcast<u32>(h.trans), 0u, 0u, 0u);
 }
 `;
 
@@ -79,6 +80,8 @@ export interface WalkGpuHit {
   readonly axis: number;
   readonly level: number;
   readonly steps: number;
+  /** A light walk's transmittance at its end (what partly covered cells let on). */
+  readonly trans: number;
 }
 
 /** The GPU's hits against the CPU walk's over the same table, ray by ray. */
@@ -86,8 +89,10 @@ export interface WalkGpuCheck {
   readonly rays: number;
   readonly hits: number;
   readonly misses: number;
-  /** Rays whose end, cell, axis, level or distance differ (each the first few listed). */
+  /** Rays whose end, cell, axis, level, distance or transmittance differ (each the first few listed). */
   readonly mismatches: number;
+  /** Rays the CPU walk found partly covered cells on (transmittance under 1). */
+  readonly partial: number;
   readonly examples: ReadonlyArray<{ readonly i: number; readonly gpu: WalkGpuHit; readonly cpu: WalkGpuHit }>;
   readonly blocks: number;
   readonly pages: number;
@@ -121,9 +126,9 @@ function packRays(rays: readonly WalkGpuRay[]): Uint32Array {
 function cpuHit(table: WalkTable, r: WalkGpuRay): WalkGpuHit {
   const w = walkVoxels(table.source(), r.ray, r.maxT, { stop: r.stop, far: false, maxSteps: WALK_GPU_MAX_STEPS });
   const end = w.end === 'distance' ? 0 : w.end === 'hit' ? 1 : w.end === 'world' ? 2 : 3;
-  if (w.hit === null) return { end, t: 0, cell: [0, 0, 0], axis: 0, level: 0, steps: w.steps };
+  if (w.hit === null) return { end, t: 0, cell: [0, 0, 0], axis: 0, level: 0, steps: w.steps, trans: w.trans };
   const axis = w.hit.normal.findIndex((n) => n !== 0);
-  return { end, t: w.hit.t, cell: w.hit.cell, axis, level: w.hit.level, steps: w.steps };
+  return { end, t: w.hit.t, cell: w.hit.cell, axis, level: w.hit.level, steps: w.steps, trans: w.trans };
 }
 
 export class VoxelWalkGpu {
@@ -252,7 +257,7 @@ export class VoxelWalkGpu {
       const i = new Int32Array(u.buffer);
       return rays.map((_, k) => {
         const at = k * HIT_WORDS;
-        return { end: u[at]!, t: f[at + 1]!, level: u[at + 2]!, axis: i[at + 3]!, cell: [i[at + 4]!, i[at + 5]!, i[at + 6]!], steps: u[at + 7]! };
+        return { end: u[at]!, t: f[at + 1]!, level: u[at + 2]!, axis: i[at + 3]!, cell: [i[at + 4]!, i[at + 5]!, i[at + 6]!], steps: u[at + 7]!, trans: f[at + 8]! };
       });
     } finally {
       rb.destroy();
@@ -268,18 +273,21 @@ export class VoxelWalkGpu {
     let hits = 0;
     let misses = 0;
     let mismatches = 0;
+    let partial = 0;
     const examples: Array<{ i: number; gpu: WalkGpuHit; cpu: WalkGpuHit }> = [];
     rays.forEach((r, i) => {
       const g = gpu[i]!;
       const c = cpuHit(this.table, r);
       if (c.end === 1) hits++;
       else misses++;
-      const same = g.end === c.end && (c.end !== 1 || (g.t === c.t && g.level === c.level && g.axis === c.axis && g.cell.every((v, a) => v === c.cell[a])));
+      if (c.trans < 1) partial++;
+      // The transmittance is a product of the same steps in f32 on the GPU, f64 here: equal within f32's rounding.
+      const same = g.end === c.end && Math.abs(g.trans - c.trans) <= 1e-5 && (c.end !== 1 || (g.t === c.t && g.level === c.level && g.axis === c.axis && g.cell.every((v, a) => v === c.cell[a])));
       if (same) return;
       mismatches++;
       if (examples.length < 8) examples.push({ i, gpu: g, cpu: c });
     });
-    return { rays: rays.length, hits, misses, mismatches, examples, blocks: this.table.size, pages: this.table.pagesUsed, ms: performance.now() - t0 };
+    return { rays: rays.length, hits, misses, mismatches, partial, examples, blocks: this.table.size, pages: this.table.pagesUsed, ms: performance.now() - t0 };
   }
 
   /** Walks `spec.rays` every frame from now on as a pass of the page's GPU measurement (null: stop). */

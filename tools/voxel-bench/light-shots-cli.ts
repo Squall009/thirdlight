@@ -72,6 +72,8 @@
  *                 lamp 2 m behind the night camera's panel, made before Play and deleted after; each shot keeps the
  *                 picture's middle colour (`panel`): the panel as it is lit
  *   --cells-at FILE  the light volume's cells read back at points at each camera (`{ <camera>: [{ level, points }] }`)
+ *   --walk-check  at each camera the page's GPU walk against the CPU walk over the same blocks, 1,200 rays from the eye
+ *                 (hit, distance and the transmittance partly covered cells leave), kept in its shot as `walkCheck`
  *   --reference FILE  at each camera the light volume's room cells read back beside the CPU path-traced reference's
  *                 variants in FILE (`{ variants: [{ name, rays, bounces, reach?, sunReach?, albedo, means? }] }`)
  *   --out DIR     (default ~/.cache/thirdlight-voxel-bench/light-shots/<quality>-<time>)
@@ -125,6 +127,8 @@ const ONLY: readonly string[] = SCENE !== null && !process.argv.includes('--only
  * world metres), kept in its shot as `cellsAt`: what a surface's read takes where a picture shows something odd.
  */
 const CELLS_AT = (() => { const i = process.argv.indexOf('--cells-at'); return i < 0 ? null : (JSON.parse(readFileSync(process.argv[i + 1]!, 'utf8')) as Record<string, Array<{ level: number; points: number[][] }>>); })();
+/** `--walk-check`: the GPU walk against the CPU walk at each camera (`__tlVoxelPlay.walk.check`), kept as `walkCheck`. */
+const WALK_CHECK = process.argv.includes('--walk-check');
 const TURN_ROOM = (() => { const i = process.argv.indexOf('--turn-room'); return i < 0 ? 0 : Number(process.argv[i + 1]); })();
 const turnedInRoom = (c: LightingCamera): LightingCamera => {
   const [lo, hi] = [ROOM_HOUSE.min, ROOM_HOUSE.max];
@@ -795,6 +799,7 @@ async function main(): Promise<void> {
         const cells = await game.frame.evaluate((a) => (window as unknown as { __tlVoxelPlay?: { light?: { volumeCells?(o: { points: number[][]; level: number }): Promise<unknown> } } }).__tlVoxelPlay?.light?.volumeCells?.(a) ?? null, ask).catch((e: unknown) => String(e));
         cellsAt.push({ level: ask.level, cells });
       }
+      const walkCheck = !WALK_CHECK ? null : await game.frame.evaluate((a) => (window as unknown as { __tlVoxelPlay?: { walk?: { check?(w: string, k: string[], n: number, e: number[]): Promise<unknown> } } }).__tlVoxelPlay?.walk?.check?.(a.world, ['short', 'medium', 'long'], 400, a.eye) ?? null, { world: O.world, eye: [...cam.eye] }).catch((e: unknown) => String(e));
       const c = s.counts ?? {};
       const shotProblemsFound = shotProblems({ settled: s.settledS !== null, chunks: c['chunks'] ?? 0, l0: c['l0'] ?? 0, farBricks: c['farBricks'] ?? 0, voxelShare, near: cam.near });
       for (const p of shotProblemsFound) problems.push(`${cam.name}: ${p}`);
@@ -803,6 +808,7 @@ async function main(): Promise<void> {
       const region = Object.fromEntries(['known', 'enclosed', 'volume', 'sky', 'portals', 'id'].map((k) => [k, counters[`region_${k}`] ?? 0]));
       (out['shots'] as unknown[]).push({
         ...(cellsAt.length > 0 ? { cellsAt } : {}),
+        ...(walkCheck !== null ? { walkCheck } : {}),
         region,
         spans: regionSpans(report),
         lightingSpans: lightingSpans(report),

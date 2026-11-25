@@ -87,8 +87,11 @@ page in the same commit.
   into its own cells where it stands (its collider, else its model's bounds; 4³ samples a cell), a chunk its props
   combined as 1 − (1 − a)(1 − b), a move recombining only the cells it left and entered, the stamps spread over
   steps in the derive slice on the simulation's thread. The walk's light stop reads one occupancy: a level-0 cell
-  stops light where the voxels' coverage joined with the props' is at least half (`coverageAt`'s rule), so the light
-  volume's rays and `ctx.voxels.raycast`'s light stop see lit props, moving ones too (a changed chunk's walk block
+  stops light where the voxels' coverage joined with the props' is at least half (`coverageAt`'s rule), and a light ray
+  keeps 1 − the coverage of each cell it passes that a body covers in part (props' and stamps' cells under half, construction
+  damaged under half its integrity; in fifteenths, the walk's `trans`; the ground's cells over its surface pass whole: their
+  fill places the surface), so the light volume's rays (sky, sun, lamps, glow, bounce) and `ctx.voxels.raycast`'s light stop
+  see lit props, moving ones too (a changed chunk's walk block
   is sent again and the volume restarts what it reaches, as for an edit). Structure grids are stamped into the same
   channel (above); the mips see their stopping cells, never props'; the far nodes are the voxels' alone; kit pieces
   stamp nothing (the voxels they dress do).
@@ -312,7 +315,7 @@ core (`scatter.ts`); the spline format and curve maths; the voxel `WorkerPool` a
 arrays reused by generation, bounded and resumable runs; the walk graph's searches; block layers' `block-walk.ts`
 keeps its own until it retires); one buffer grow (`@thirdlight/shared` `grownCapacity` / `grownArray`;
 `grownGpuBuffer` for raw GPU scratch buffers); one region-texture helper for a texture three owns (`region-texture.ts`:
-partial upload, grow by copy, the texture version rule; the private three hooks for it live there alone); one occupancy walk for rays (`@thirdlight/voxel` `occupancy-walk.ts`, 6-connected, level 0 then the mips and far nodes; on the GPU `voxelWalkWgsl` over the blocks the draw batches carry while something on the page reads that walk (the light volume, a bench's check; none, and nothing is packed), to the mips only: a second copy of the loop sharing three step helpers (`walk-steps.ts`), held equal by a 1,200-ray check, not one definition; `ctx.voxels.raycast` and the editor's picks; light rays stop at half coverage, the voxels', lit props' and structure stamps' joined at level 0; `walkWithGrids` walks a world and its structure grids each in its own frame, CPU only, the grids along a ray from a
+partial upload, grow by copy, the texture version rule; the private three hooks for it live there alone); one occupancy walk for rays (`@thirdlight/voxel` `occupancy-walk.ts`, 6-connected, level 0 then the mips and far nodes; on the GPU `voxelWalkWgsl` over the blocks the draw batches carry while something on the page reads that walk (the light volume, a bench's check; none, and nothing is packed), to the mips only: a second copy of the loop sharing three step helpers (`walk-steps.ts`), held equal by a 1,200-ray check, not one definition; `ctx.voxels.raycast` and the editor's picks; light rays stop at half coverage, the voxels', lit props' and structure stamps' joined at level 0, and carry a transmittance through the cells a body covers in part under that (a block's cover, 4 bits a cell in two page slots beside its page, found by the table entry's fourth word; the GPU walk reads the same words); `walkWithGrids` walks a world and its structure grids each in its own frame, CPU only, the grids along a ray from a
 tile index, `GridWalkIndex`: `ctx.voxels.raycast` and the Scene view's pick); one scene realizer for the editor and games; one content closure for
 Play and export.
 

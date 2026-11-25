@@ -27,8 +27,18 @@
  *   full). `light`, what blocks light: a solid cell whose light coverage is
  *   at least {@link LIGHT_STOP_COVERAGE} of 255 (half or more: ground by its
  *   fill, construction by its integrity once damaged); a coverage under it
- *   lets the ray on. Liquid, openings and air never stop either; props'
- *   coverage is not part of the walk.
+ *   lets the ray on. Liquid, openings and air never stop either.
+ * - **What a light ray keeps** (`trans`). A cell the light stop passes but
+ *   that a body covers in part (a block's `partial` cells: construction
+ *   damaged under half its integrity, props' and stamped structures' cells
+ *   under half) keeps 1 − its coverage of the light passing it
+ *   ({@link walkCoverPass}, in {@link WALK_COVER_STEPS} steps as the GPU
+ *   holds it); the ray's transmittance is the product along it, the cell it
+ *   starts in left out (its own light is what it carries), and a ray whose
+ *   transmittance falls under {@link WALK_SPENT} ends there as stopped
+ *   (transmittance 0; a ray that meets a stopping cell keeps what reached it). The
+ *   ground's cells over its surface pass whole: their fill places the
+ *   surface the walk already stops at, it is not a share of the cell.
  */
 import { F32_SCALAR_OPS } from '@thirdlight/shared';
 
@@ -45,6 +55,22 @@ export type WalkStop = (typeof WALK_STOPS)[number];
 
 /** Light coverage (of 255) from which a cell stops a light ray: half or more (the proxy threshold of R103). */
 export const LIGHT_STOP_COVERAGE = 128;
+
+/** Steps of a partly covered cell's coverage as the walk carries it (4 bits a cell on the GPU): a cell keeps 1 − step / this. */
+export const WALK_COVER_STEPS = 15;
+
+/** The coverage step (0 … {@link WALK_COVER_STEPS}) of a coverage byte. */
+export function walkCoverStep(cover: number): number {
+  return Math.round((cover * WALK_COVER_STEPS) / 255);
+}
+
+/** The share of the light passing a partly covered cell that it lets on (from its coverage byte). */
+export function walkCoverPass(cover: number): number {
+  return 1 - walkCoverStep(cover) / WALK_COVER_STEPS;
+}
+
+/** A light ray's transmittance under which it counts as stopped: less than the light volume's words can tell from none. */
+export const WALK_SPENT = 1 / 256;
 
 /** Steps one walk takes at most (a block, a brick or a cell crossed is one), past which it ends unfinished. */
 export const WALK_MAX_STEPS = 1 << 16;
@@ -68,6 +94,17 @@ export interface WalkBlockView {
    * is true. Absent: read cell by cell. A view over bit masks has it, so packing a block for the page reads words.
    */
   column?(c: number): number;
+  /**
+   * The cells the light stop passes but a body covers in part (absent: none): `brick(i)` whether a 4³ brick holds one,
+   * `cell(i)` a cell's coverage byte (0: none; a stopping cell's is never read).
+   */
+  readonly partial?: WalkPartial;
+}
+
+/** A block's partly covered cells, as {@link WalkBlockView.partial} reads them. */
+export interface WalkPartial {
+  brick(i: number): boolean;
+  cell(i: number): number;
 }
 
 /** A far node a walk marches where no level knows the place: its level, coordinates and bricks (node cells). */
@@ -120,6 +157,8 @@ export interface WalkResult {
   /** Blocks, bricks and cells crossed, and far nodes marched. */
   readonly steps: number;
   readonly farNodes: number;
+  /** A light walk's transmittance at its end: the product of what each partly covered cell let on (1: none met). */
+  readonly trans: number;
 }
 
 export interface WalkOptions {
@@ -265,9 +304,11 @@ export function walkVoxels(src: WalkSource, r: WalkRay, maxT: number, opts: Walk
   const hi = [0, 0, 0];
   let farNodes = 0;
   const most = opts.maxSteps ?? WALK_MAX_STEPS;
+  const light = stop === 'light';
+  let trans = 1;
   for (let steps = 1; steps <= most; steps++) {
-    if (st.t > maxT) return { hit: null, end: 'distance', steps, farNodes };
-    if (!cellInWorld(st.c0[0]!, st.c0[1]!, st.c0[2]!)) return { hit: null, end: 'world', steps, farNodes };
+    if (st.t > maxT) return { hit: null, end: 'distance', steps, farNodes, trans };
+    if (!cellInWorld(st.c0[0]!, st.c0[1]!, st.c0[2]!)) return { hit: null, end: 'world', steps, farNodes, trans };
     const sh = src.blockShift(st.level);
     const E = 1 << sh;
     const view = st.view;
@@ -277,8 +318,8 @@ export function walkVoxels(src: WalkSource, r: WalkRay, maxT: number, opts: Walk
       if (far !== null) {
         farNodes++;
         const out = farStep(src, r, st, far, maxT);
-        if (out !== null) return { hit: out, end: 'hit', steps, farNodes };
-        if (st.t > maxT) return { hit: null, end: 'distance', steps, farNodes };
+        if (out !== null) return { hit: out, end: 'hit', steps, farNodes, trans };
+        if (st.t > maxT) return { hit: null, end: 'distance', steps, farNodes, trans };
         enterBlock(src, st, st.c0, stop);
         continue;
       }
@@ -286,17 +327,27 @@ export function walkVoxels(src: WalkSource, r: WalkRay, maxT: number, opts: Walk
     } else {
       const local = [st.c[0]! - st.b[0]! * E, st.c[1]! - st.b[1]! * E, st.c[2]! - st.b[2]! * E];
       const ci = (local[0]! * E + local[2]!) * E + local[1]!;
+      const part = light ? (view.partial ?? null) : null;
+      const n = bricksPerEdge(E);
+      const bi = ((local[0]! >> 2) * n + (local[2]! >> 2)) * n + (local[1]! >> 2);
       if (!skip) box = view.cell(ci) ? -1 : 1;
-      else if (view.flag === OCCUPANCY.empty) box = E;
       else if (view.flag === OCCUPANCY.solid) box = -1;
+      else if (part !== null && part.brick(bi)) box = view.flag !== OCCUPANCY.empty && view.cell(ci) ? -1 : 1;
+      else if (view.flag === OCCUPANCY.empty) box = part !== null ? BRICK_EDGE : E;
       else {
-        const n = bricksPerEdge(E);
-        const bi = ((local[0]! >> 2) * n + (local[2]! >> 2)) * n + (local[1]! >> 2);
         const bf = view.brick(bi);
         box = bf === OCCUPANCY.empty ? BRICK_EDGE : bf === OCCUPANCY.solid ? -1 : view.cell(ci) ? -1 : 1;
       }
+      // A partly covered cell entered by a face takes its share of what the ray carries (the first cell is the ray's own).
+      if (box === 1 && part !== null && st.axis >= 0) {
+        const c = part.cell(ci);
+        if (c > 0) {
+          trans *= walkCoverPass(c);
+          if (trans < WALK_SPENT) return { hit: hitOf(src, r, st), end: 'hit', steps, farNodes, trans: 0 };
+        }
+      }
     }
-    if (box < 0) return { hit: hitOf(src, r, st), end: 'hit', steps, farNodes };
+    if (box < 0) return { hit: hitOf(src, r, st), end: 'hit', steps, farNodes, trans };
     for (let a = 0; a < 3; a++) {
       lo[a] = Math.floor(st.c[a]! / box) * box;
       hi[a] = lo[a]! + box - 1;
@@ -312,7 +363,7 @@ export function walkVoxels(src: WalkSource, r: WalkRay, maxT: number, opts: Walk
     st.t = t;
     st.axis = axis;
   }
-  return { hit: null, end: 'steps', steps: most, farNodes };
+  return { hit: null, end: 'steps', steps: most, farNodes, trans };
 }
 
 /**

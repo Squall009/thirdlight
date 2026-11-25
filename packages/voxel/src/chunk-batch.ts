@@ -310,7 +310,10 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
     add(a.fine?.words);
   }
   add(b.nearCover?.cells);
-  for (const w of b.walk ?? []) add(w.packed?.page ?? undefined);
+  for (const w of b.walk ?? []) {
+    add(w.packed?.page ?? undefined);
+    add(w.packed?.cover ?? undefined);
+  }
   for (const w of b.sky ?? []) add(w.heights);
   return [...out];
 }

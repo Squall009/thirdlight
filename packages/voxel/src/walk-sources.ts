@@ -27,8 +27,8 @@ import type { FarBricks } from './far-bricks';
 import type { FarEvent } from './far-field';
 import { mipNodeKey, type MipNode } from './voxel-mips';
 import type { DeriveOutput } from './stream-job';
-import { LIGHT_STOP_COVERAGE, type WalkBlockView, type WalkFarNode, type WalkSource, type WalkStop } from './occupancy-walk';
-import { lightCoverageAt } from './prop-coverage';
+import { LIGHT_STOP_COVERAGE, type WalkBlockView, type WalkFarNode, type WalkPartial, type WalkSource, type WalkStop } from './occupancy-walk';
+import { combineCoverage, lightCoverageAt } from './prop-coverage';
 import { valueOf } from './record';
 
 /** A block known to hold no stopping cell. */
@@ -58,6 +58,51 @@ function maskBits(m: Uint32Array | null, i0: number, e: number): number {
   return e === 32 ? w : (w >>> (i0 & 31)) & ((1 << e) - 1);
 }
 
+/** A block's partly covered cells from their coverage by cell index (`e` cells a side), as the walk reads them. */
+export function walkPartialOf(cells: ReadonlyMap<number, number>, e: number): WalkPartial {
+  const n = e >> 2;
+  const bricks = new Uint8Array(n * n * n);
+  for (const i of cells.keys()) {
+    const x = Math.floor(i / (e * e));
+    const z = Math.floor(i / e) % e;
+    const y = i % e;
+    bricks[((x >> 2) * n + (z >> 2)) * n + (y >> 2)] = 1;
+  }
+  return { brick: (i) => bricks[i] === 1, cell: (i) => cells.get(i) ?? 0 };
+}
+
+/**
+ * The cells of a derived result's grid the light stop passes that a body covers in part: drawn as a body (construction
+ * damaged under half its integrity) with a coverage under {@link LIGHT_STOP_COVERAGE} (null: none). The ground's cells
+ * over its surface are not among them (not bodies: their fill places the surface, not a share of the cell).
+ */
+function partialCellsOf(occ: OccupancyOut, light: LightOut, e: number): Map<number, number> | null {
+  let out: Map<number, number> | null = null;
+  if (light.uniform >= 0) {
+    if (light.uniform === 0 || light.uniform >= LIGHT_STOP_COVERAGE || occ.flag === OCCUPANCY.empty) return null;
+    for (let i = 0; i < e * e * e; i++) if (solidCell(occ, i)) (out ??= new Map()).set(i, light.uniform);
+    return out;
+  }
+  for (let k = 0; k < light.partialCells.length; k++) {
+    const c = light.partialCover[k]!;
+    const i = light.partialCells[k]!;
+    if (c < LIGHT_STOP_COVERAGE && solidCell(occ, i)) (out ??= new Map()).set(i, c);
+  }
+  return out;
+}
+
+/** A derived result's partly covered cells as the walk reads them, found once a result (a walk enters a block often). */
+const partialKept = new WeakMap<LightOut, WalkPartial | null>();
+function partialOf(occ: OccupancyOut, light: LightOut, e: number): WalkPartial | null {
+  let p = partialKept.get(light);
+  if (p === undefined) {
+    const cells = partialCellsOf(occ, light, e);
+    p = cells === null ? null : walkPartialOf(cells, e);
+    partialKept.set(light, p);
+  }
+  return p;
+}
+
 /** The cells of a derived result's grid that stop light by their partial coverage alone, one bit each (null: none). */
 function partialStopMask(light: LightOut, cells: number): Uint32Array | null {
   let m: Uint32Array | null = null;
@@ -81,7 +126,9 @@ export function derivedWalkView(d: DerivedData, stop: WalkStop): WalkBlockView {
     return { flag: OCCUPANCY.mixed, brick: (i) => brickFlag(occ, i), cell: (i) => cellBit(occ.mask, i), column: solidColumn };
   }
   const light = d.light;
-  if (light.uniform >= 0) return light.uniform >= LIGHT_STOP_COVERAGE && occ.flag === OCCUPANCY.solid ? WALK_SOLID_VIEW : light.uniform >= LIGHT_STOP_COVERAGE ? { flag: OCCUPANCY.mixed, brick: () => OCCUPANCY.mixed, cell: (i) => solidCell(occ, i), column: solidColumn } : WALK_EMPTY_VIEW;
+  const passed = partialOf(occ, light, e);
+  const withPassed = passed === null ? {} : { partial: passed };
+  if (light.uniform >= 0) return light.uniform >= LIGHT_STOP_COVERAGE && occ.flag === OCCUPANCY.solid ? WALK_SOLID_VIEW : light.uniform >= LIGHT_STOP_COVERAGE ? { flag: OCCUPANCY.mixed, brick: () => OCCUPANCY.mixed, cell: (i) => solidCell(occ, i), column: solidColumn } : passed === null ? WALK_EMPTY_VIEW : { ...WALK_EMPTY_VIEW, ...withPassed };
   // A cell stops light when it is a body and covers fully or, partly, by half or more (lightStops, a word at a time).
   let partial: Uint32Array | null | undefined;
   const column = (c: number): number => {
@@ -89,7 +136,7 @@ export function derivedWalkView(d: DerivedData, stop: WalkStop): WalkBlockView {
     return (solidColumn(c) & (maskBits(light.full, c * e, e) | maskBits(partial, c * e, e))) >>> 0;
   };
   // A brick with no body holds nothing that stops light; one with bodies is read cell by cell (a damaged one may not).
-  return { flag: OCCUPANCY.mixed, brick: (i) => (occ.flag === OCCUPANCY.solid || brickFlag(occ, i) !== OCCUPANCY.empty ? OCCUPANCY.mixed : OCCUPANCY.empty), cell: (i) => lightStops(occ, light, i), column };
+  return { flag: OCCUPANCY.mixed, brick: (i) => (occ.flag === OCCUPANCY.solid || brickFlag(occ, i) !== OCCUPANCY.empty ? OCCUPANCY.mixed : OCCUPANCY.empty), cell: (i) => lightStops(occ, light, i), column, ...withPassed };
 }
 
 /** What a walk source reads of a world's prop channel: a resident chunk's coverage bytes (null: no prop covers it; undefined: not built). */
@@ -115,17 +162,31 @@ const PROP_VIEWS_KEPT = 512;
  */
 export function propStopView(base: WalkBlockView, light: LightOut | null, props: Uint8Array, ox: number, oy: number, oz: number, e: number, csh: number): WalkBlockView {
   let mask: Uint32Array | null = null;
+  let parts: Map<number, number> | null = null;
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
     const row = (((ox + x) << csh) | (oz + z)) << csh;
     for (let y = 0; y < e; y++) {
       const p = props[row | (oy + y)]!;
       if (p === 0) continue;
       const i = (x * e + z) * e + y;
-      if ((light === null ? p : lightCoverageAt(light, i, p)) < LIGHT_STOP_COVERAGE) continue;
+      if ((light === null ? p : lightCoverageAt(light, i, p)) < LIGHT_STOP_COVERAGE) {
+        // Passed, in part: the props' share joined with the cell's own body's (a damaged one's), never the ground's fill.
+        if (!base.cell(i)) (parts ??= new Map()).set(i, combineCoverage(base.partial?.cell(i) ?? 0, p));
+        continue;
+      }
       (mask ??= new Uint32Array(Math.ceil((e * e * e) / 32)))[i >>> 5]! |= 1 << (i & 31);
     }
   }
-  return mask === null ? base : maskStopView(base, mask, e);
+  const view = parts === null ? base : withPartial(base, parts, e);
+  return mask === null ? view : maskStopView(view, mask, e);
+}
+
+/** A block's view with more partly covered cells (`cells`, coverage by index), its own kept where these say nothing. */
+function withPartial(base: WalkBlockView, cells: ReadonlyMap<number, number>, e: number): WalkBlockView {
+  const own = base.partial ?? null;
+  const add = walkPartialOf(cells, e);
+  const partial: WalkPartial = own === null ? add : { brick: (i) => add.brick(i) || own.brick(i), cell: (i) => cells.get(i) ?? own.cell(i) };
+  return { flag: base.flag, brick: (i) => base.brick(i), cell: (i) => base.cell(i), ...(base.column !== undefined ? { column: (c: number) => base.column!(c) } : {}), partial };
 }
 
 /**
@@ -145,6 +206,7 @@ export function maskStopView(base: WalkBlockView, mask: Uint32Array, e: number):
   }
   const maskBrick = (i: number): boolean => held[i] === 1;
   return {
+    ...(base.partial !== undefined ? { partial: base.partial } : {}),
     flag: base.flag === OCCUPANCY.solid ? OCCUPANCY.solid : OCCUPANCY.mixed,
     brick: (i) => {
       const f = base.brick(i);
