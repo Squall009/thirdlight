@@ -97,7 +97,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
 | 47L.3 | Done 2026-11-25 (52b31126): no ray passes a sealed wall or corner at any yaw (the stamp is tight); the leaks were the read: cells across thin solids, and the coarse levels at turned corners (D746). A surface reads only its own side, level 0 whole where it reads light: inside points reading outside light 5,725 → 0 of 95,552; G45's corner lines gone. Left: D809–D811 |
 | 47L.4 | Done for structure grids 2026-11-25 (e7c04aa6, 60c1e5f7): a shut door's cells over the whole opening (D791), stopping light at the walk's mips (D773), and the sun's shadow over a shut opening's cells (D812): the sun now follows portal state, not the model (a behaviour change, owner to confirm). Not built: world-grid openings, the Scene view; D727 open |
-| 47L.5 | Partial 2026-11-25 (9dfbb292): turned walls' blocks fixed (D809): the read reached one column of a wall's staircase; a cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Remain: the blotches (D692, stored ray noise, §10 question 1); the wall-foot line was the sun's shadow (D810, fixed in 47L.8) |
+| 47L.5 | Partial 2026-11-25 (9dfbb292): turned walls' blocks fixed (D809): the read reached one column of a wall's staircase; a cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Remain: blotches (D692, ray noise, §10 question 1); the wall-foot line is the sun's shadow (D810: found in 47L.8, fix reverted) |
 | 47L.6 | Partial 2026-11-25 (9492710d): a light ray keeps 1 − coverage of cells under half only (D818 above it: a jump to nothing at half), CPU walk and WGSL twin, every level; what stops light stops it whole (census 0). Shown on a damaged wall and props only: nothing partial in the bench town's view, no fence or shutter shown. GPU=CPU walk; cost not resolved |
 | 47L.7 | Done 2026-11-25 (measurement, no code): the 128-lamp room is back (second rounds 44, 44, 64 ballast copies with the copies search at the head, 56–76 without); 47a.13's 15 and 14 were the edge search stopping at 16 copies on 2–3 missed frames of 89 (single spikes), as 47a.0’s 3, 47L.3’s 7: D711’s kind in second rounds. No bisect. D740: level 0 alone still reads ~1 ms under the default |
 | 47L.8 | not started |
@@ -844,7 +844,7 @@ read costing about a millisecond on this scene), not resolved in size. No hunt b
 
 ### 47L.8 — the close: the wall-foot line found, the speck count in the bench, the history pair, the end reading
 
-**D810, the wall-foot line: the sun's shadow, not the read** (a64913b2). A dump probe (kept only as
+**D810, the wall-foot line: the sun's shadow, not the read** (fixed in a64913b2, reverted in 7c26e201: see the gate below). A dump probe (kept only as
 `work/47L.8/trace/dump-probe-47L8.patch`: `?surfaceRead=dump<N>x<K>` writes three bits of one quantity a shot in place of
 the pixel's light, with a palette of the eight codes across the frame's top and bottom bands, decoded by the nearest
 palette colour; `scripts/dec.py`, `dec2.py`) on W's `room-window` (low, `&taau=0`, each shot settled in 11–12 s; 444 line
@@ -866,7 +866,7 @@ away from the sun) is the wall's inner face, within the shadow's bias of the flo
 along every such wall inside a shut room, hidden while the room had its flat ambient and plain once the volume made it
 dark. Geometry classes at full scale with no AA (`renderScale=1`, high) put the lit pixels on wall and floor fragments
 within 6 cm of the corner. **Fix**: the voxel surface material casts with its faces toward the sun (`shadowSide`
-`FrontSide`, every path's program); `voxel-surface.test.ts` holds it on every path and shading (fails without). Pictures
+`FrontSide`, every path's program); `voxel-surface.test.ts` held it on every path and shading (failed without). Pictures
 (`work/47L.8/crops/`, opened): `d810-W-taau0-before-after.png` and `d810-W-taau-before-after.png` (before above after):
 the line is gone with and without the temporal upscale (line pixels 444 → 8 at `taau=0`); `sidefront-street-noon.png`,
 `sidefront-ref-30m-house.png` (default above front faces): no shadow acne seen on the sunlit gables and fronts, the
@@ -893,7 +893,7 @@ Honest reading: not a cure for the blotches the owner sees in rooms; a small gai
 
 ### 47L.8 — the end-of-phase reading
 
-41bbcf38 (A, the phase's start) and b12d815e (B, the head with the shadow fix and the bench's count) each built in its own
+41bbcf38 (A, the phase's start) and b12d815e (B, the head then: with the shadow-side change a64913b2, since reverted, and the bench's count) each built in its own
 side worktree (`~/.cache/thirdlight-phase47l/base-<sha>`, own `@thirdlight` links, typecheck and `node tools/build.mjs` in
 the 10G scope), staging served from each worktree's dist against the same world (its 3,074 voxel files byte-equal to
 47L.6's clean set before and after), the head's bench. 2026-11-25 15:05–16:40 UTC, low, WebGPU, 1280 × 720, the 30 Hz cap,
@@ -941,12 +941,21 @@ the harness's. Where it comes from was not split (the read's arithmetic of 47L.3
 | the town's L0\|L1 roof seam: unmatched edges; open edges | 218; 714 m | 56; 524 m |
 | a door flip → the sun follows it (a bare portal, shut; open) | the sun stayed (followed the model) | 406, 130, 392 ms; 137, 133, 137 ms |
 | a door flip → the room's light cell moves a fifth (shut; open) | 68, 42, 649 ms; 62, 67, 71 ms | 72, 41, 39 ms; 59, 93, 65 ms |
-| the wall-foot line (W room, `taau=0`) | 444 line pixels | 8 |
+| the wall-foot line (W room, `taau=0`) | 444 line pixels | 8 with a64913b2; back with its revert (D810 open) |
 | edit → light settled (the window dug, one run each) | 9.1 s (before partial cells) | 11.2 s (47L.6); 11.5 s at the head (47L.8) |
 
 **Design page** (`voxel-engine.md`) checked against what the phase built: the read at every level, the reach and level
 share, the hold rule's edge steps, partial transmittance under half and the portal casters were there; added the seam's
-same-side rule and the voxel surfaces' shadow side. **Unverified**: nothing in motion; the G45 room after the shadow fix;
+same-side rule and the voxel surfaces' shadow side (as it stands after the revert).
+
+**The closing gate** (at f706b1c5, the base set to the phase's start so every area runs, as `gate-fast-20261124-014122`):
+`npm run build`, `npm run lint`, the three generators' `--check` green. `gate-fast-20261125-163859` (build, lint, vitest 801
+files, 327 e2e over every area) RED, 7 failed: `frame-rate-cap` (D659, 72.6 fps), `structure-mode`'s redo to step 5
+(D774/D788), `terrain-cdlod` (D643, 0.595), the Play test's jobs lane (D799), the Scene view's top row (D798),
+`shadows.e2e.ts:270` (cached against one map of every caster: one pixel 40 apart; no voxel in that test) and
+`webgl2-smoke.e2e.ts:92` ("Play: the world drawn", 0.386 against > 0.5). Placed: the WebGL 2 smoke fails 3 of 3 alone at
+f706b1c5 and passes with the shadow-side line taken out (83 %): the change's, so **a64913b2 was reverted** (7c26e201), and
+D810 is open with its cause found. The rerun is below. **Unverified**: nothing in motion; the G45 room after the shadow fix;
 medium and high (same code); WebGL 2.
 
 ## 9. Decision log

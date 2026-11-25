@@ -205,8 +205,8 @@ page in the same commit.
   owner. The **mesh far field** is a fallback behind a switch.
 - **Lighting of voxels**: in Play and exports the near field's surfaces (level 0 and the level 1–2 mesh rings) and
   kit pieces cast and receive like any lit draw, as static casters of the key light's cached map and the shadow
-  atlas (voxel surfaces cast with their faces toward the sun, not three's default back faces: a wall's inner face
-  would shade the floor at its foot from within the shadow's bias, a lit line inside a shut room, D810): each chunk, node or seam shown, replaced or taken away is reported where it stands, and only the cached map
+  atlas (with three's default for a front-sided material, its back faces: a wall's inner face shades the floor at its
+  foot from within the shadow's bias, a lit line inside a shut room, D810, open): each chunk, node or seam shown, replaced or taken away is reported where it stands, and only the cached map
   and the lamp faces it reaches are drawn again; the sun's square is centred on the voxel ground under the camera
   (sky heights). Past the square, and in the far field, the **sun heights** shade: the top of what is solid in each
   column round the camera (the sky heights, 0.5 m columns over 512 m; the far field's drawn bricks, 4 m columns over
