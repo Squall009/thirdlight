@@ -46,12 +46,10 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
   an owner decision goes into the register in the same commit.
 - One writing session per worktree. A second session reads only, and hands work over as a brief the owning
   session applies. Briefs and acceptance notes live in the repo (`docs/briefs/`), not in `~/.cache`.
-- Test observable behavior at real boundaries (HTTP/WS, filesystem, browser). Editor/UI changes need a
-  Playwright test that drives the real page against a real backend. Mocks alone do not prove integration.
-- A unit test never asserts wall-clock time (it reads the host's load): assert counts or ratios, and report
-  timings from a bench.
-- "Done" means it works for a user in a real browser. Never mark visual, audio, or input behavior verified
-  without actually observing it; say "unverified" instead. Never invent results.
+- Tests and the gate: see "Tests and the gate" below.
+- "Done" means its unit tests prove the behaviour, `tools/gate.sh check` is green, and anything visual was looked
+  at in a picture you opened (else it is "unverified"). Never mark visual, audio, or input behavior verified
+  without actually observing it. Never invent results.
 - When an item is done, update its plan progress row and the phase's `docs/STATUS.md` row in one or two lines
   (at most 400 characters: `tools/check-docs.mjs`; `tools/docs-ratchet.json` lists today's longer rows and only
   shrinks). Details go in the plan's results or decision log. No handoff files, gate reviews, or evidence
@@ -60,26 +58,8 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
   block there (`Reserved: D<first>–D<last> for branch <name>`), and main skips it. Closed rows move to
   `docs/audit-closed.md` when a phase ends; the docs check fails an open or watch row there, and a D-number
   listed twice.
-- Commit to the working branch with a clear message when a coherent change is green, then push to `origin`.
-- Gates run what the change affects (`tools/gate.sh`, always detached: `start <mode> …`, then `wait`; one gate
-  at a time on this host):
-  - `fast [e2e files…]` per commit: build, lint, the unit tests related to the files changed since the
-    branch's last green gate, the core smoke (`core` in `tools/gate-areas.json`: authoring-loop,
-    play-export), the e2e areas the changed files map to and any files named; the village perf check
-    (WebGPU, at the cap) when rendering or frame code changed. `--all` forces every unit test.
-  - `rerun` while fixing: only what failed.
-  - `area <name>…` at the end of an item that changed an area broadly.
-  - `phase <start-commit>` once at the end of a phase: every unit test, the core smoke and the areas touched
-    since that commit, the leak test on.
-  - `full` (everything) only for the merge to main or on the owner's word.
-  - A test that fails under load and passes alone is fixed (a timeout, a wall-clock assertion) or gets a watch
-    D-row; never rerun a gate that passed.
-- A gate's time is recorded per area in its summary; each phase records its phase gate's time against the
-  previous phase's, and the phase review questions growth that new coverage doesn't explain. New coverage
-  extends or replaces existing tests (one backend per file, browser-free checks in vitest) rather than adding
-  files, and every e2e file belongs to an area (`tools/check-gate-areas.mjs`, in `npm run build`). Every
-  package source file reaches an area too, or `everyArea` (project-model, shared, the backend's plumbing:
-  a change there runs every area, as wide as `phase`); a new source in neither fails the build.
+- Commit to the working branch with a clear message when a coherent change is green (`tools/gate.sh check`),
+  then push to `origin`.
 - Comments say why the code is the way it is. No phase numbers, item ids, dates or `§` spec references in
   source comments; history lives in git and the phase plans (`docs/plan-phase-*.md`, older ones in
   `archive/plans/`).
@@ -111,6 +91,34 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
   new private hooks where a public API can do the job.
 - Preserve unrelated user changes. Never expose credentials in code, logs, bundles, fixtures, or docs.
 
+## Tests and the gate
+
+- **Unit tests prove behaviour.** New work gets unit tests at the code boundary it changes: real files on disk,
+  real workers where workers are claimed, commands over HTTP against a real backend in Node (these count as unit
+  tests: no browser). A test that only confirms its own mock does not count. A unit test never asserts
+  wall-clock time (it reads the host's load): assert counts or ratios, and report timings from a bench.
+- **The boot check is the only browser test** (`tests/e2e/boot.e2e.ts`, five tests, one backend): the editor
+  loads, a voxel world draws, Play starts and stops, an agent plays through MCP with no editor open, an export
+  runs served statically with the backend stopped. It passes on "it starts and nothing errors": no pixel bounds,
+  no timing bounds. No other browser test is written.
+- **Looks are judged from pictures**: at a phase's close an agent opens each picture of the picture set and
+  writes honestly what it sees and what is wrong; then the owner looks, and uses the editor by hand. No
+  pixel-percentage criteria anywhere.
+- **Performance is recorded, never gating**: the phase run writes frame rate, frame time, GPU time and memory
+  beside the previous phase's. This host is a shared dev box; its numbers are a baseline.
+- **Two commands** (`tools/gate.sh`; its usage text is the reference):
+  - `tools/gate.sh check` for every commit an agent calls green: the build (incremental), lint (cached), the
+    fast unit set (every unit file except `tests/slow-unit-files.json`'s) and the boot check, in one blocking
+    call under 5 minutes. After a real fix, `tools/gate.sh check --failed` runs the build, lint and only what
+    failed, in under a minute.
+  - `tools/gate.sh phase` once at a phase's close (the lead's): every unit test, the boot check, the picture
+    set, the performance report; detached, `tools/gate.sh start phase` then bounded `tools/gate.sh wait`.
+  - One gate at a time on this host; both run memory- and CPU-capped by themselves.
+- **A red is fixed or the test goes** (archived with `git mv`). No rerun to see whether it passes this time, no
+  "placing" runs at a base commit, no watch rows for tests.
+- **About one hour of test time per phase**: about eight checks and one phase run. A slow unit file goes on the
+  slow list only with its time; the list shrinks (cached worlds, split files), it does not grow by habit.
+
 ## Sessions and sub-agents
 
 Sessions run through the chat server (CloudCLI). After the lead's turn ends, it holds the session open for
@@ -126,7 +134,8 @@ in the foreground afterwards ran 1.5 to 6.7 hours each without a cut.
   the lead's turn stays open while it works. Background only what is short and independent.
 - A sub-agent never uses `run_in_background` and never lets a command pass its tool timeout (the harness then
   moves it to the background): every command is one blocking call bounded under 10 minutes (`timeout 540 …` with
-  the tool's timeout raised to match); a gate is `tools/gate.sh start …` then repeated bounded `tools/gate.sh wait`.
+  the tool's timeout raised to match): `tools/gate.sh check` is one such call; the phase run is `tools/gate.sh start
+  phase` then repeated bounded `tools/gate.sh wait`.
 - Do not resume a stopped agent by message and then end the turn: start a fresh foreground agent with the state
   found (git status, its `progress.txt`, the gate logs, running processes).
 - No keep-alive timers or crons (owner 2026-11-23): a tick that runs a turn makes the session too heavy.
@@ -136,13 +145,12 @@ in the foreground afterwards ran 1.5 to 6.7 hours each without a cut.
 ## Traps
 
 - Order inside an item: schema and commands, then runtime/adapter/host, then editor, exporter, tests, docs.
-  Pixels in e2e are read with `tests/e2e/png.ts`; an export is checked served statically with the backend
-  stopped.
+  An export is checked served statically with the backend stopped (the boot check does).
 - The shell exports `NODE_ENV=production`: installs need `NODE_ENV=development npm ci --include=dev`. New
   dependencies get exact versions and a pin in `tools/check-deps.mjs`.
 - `/tmp` is RAM on this host: never write there (`docs/environment.md`); set `TMPDIR` to a folder on disk.
   The host has 32 GiB and 16 threads (since 2026-11-11) shared by production, staging and the gate: heavy runs go in a memory-capped scope, one
-  at a time. An ad-hoc vitest run passes `--exclude '.claude/**'` (the gate does).
+  at a time. Vitest's config leaves out `.claude/**` (agents' worktrees) and `archive/**`.
 - A new `three/examples/jsm/...` module goes on the three-adapter allowlist in `tools/check-boundaries.mjs`,
   with a reason.
 - The export bundle is scanned for forbidden text (`exporter/src/scan.ts`: `fetch(`, `node:`, `process.`,

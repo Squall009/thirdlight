@@ -78,8 +78,8 @@ the defect list holds the rest.
 
 ## Notes
 
-- Tests: `npm test` (unit/integration), `npm run build && npm run test:e2e` (Playwright, real backend + Chromium);
-  gates: `tools/gate.sh` (AGENTS.md).
+- Tests: `npm test` (every unit test); `tools/gate.sh check` per green commit (build, lint, the fast unit set, the
+  five-test boot check), `tools/gate.sh phase` at a phase's close (AGENTS.md "Tests and the gate").
 - Run it: `npm start` (`docs/deployment.md`). One owner token (`~/thirdlight/owner-token`) for the browser, MCP and
   admin routes. The service runs process-level inside the Proxmox LXC (`docs/environment.md`); no containers.
 - Project data: game folders registered in the data root (`/home/dadmin/thirdlight/projects/`).

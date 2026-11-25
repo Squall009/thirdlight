@@ -131,8 +131,8 @@ These hooks are only proven by pixels:
 - Vertex paint: the painted reads in `tests/e2e/level-acceptance.e2e.ts`
   (a model alone, in a batch, merged, an instance copy, a generated wall, a
   spline; Play and the export, and the painted draws counted).
-- The village perf check (`tools/gate.sh fast` ends with it) against its
-  baseline, both renderers.
+- The village perf check (`node tools/perf/run.mjs village --gate --renderers webgpu --check
+  tests/perf/village-baseline.json`, run by hand; the gate no longer runs it) against its baseline.
 - WGSL digests: `packages/three-adapter/src/material-graph-specular.test.ts`
   (and `vertex-paint-draw.test.ts`, every shader type alone and through
   instance columns) compares the WGSL three builds for graphs without a feature against
@@ -140,8 +140,8 @@ These hooks are only proven by pixels:
   is only three's change (no feature's nodes leaking in), then re-record the
   digests from the failure message.
 
-Run them with `tools/gate.sh start fast <these files>` (memory-capped), then
-the phase's full gate as usual.
+Run them in a memory-capped scope (`docs/environment.md`), one file at a
+time, then `tools/gate.sh check` and the phase run as usual.
 
 ## 4. Record
 

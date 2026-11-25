@@ -9,8 +9,16 @@ branch code. Nothing is merged or deployed in phase 46 (the merge is 48c). tools
 folder with main, so one gate at a time still holds.
 Main at the freeze: d4053cab. Phase 46 base on the branch: aeb8114a (phase 45 done, format spec v1 APPROVED by the owner 2026-11-02).
 46a DONE at ac283f22 (2026-11-03); 46b DONE at 6ffc2031 (2026-11-04). Last D-row used: D499; NEW BLOCK D500–D599 (continue at D500).
-CURRENT PHASE: 47L, the lighting pass (see the "47L" section at the very end: it takes precedence; the "47a" section's HOW YOU WORK still holds). Before it: 47a, structures and water bodies (see the "47a" section at the end: it takes precedence over older
-sections where they differ; the lead's prompt names your item). 46e-b is DONE and accepted (6eab7d86). NEVER start 47b.
+CURRENT PHASE: 47T, the test suite reset (docs/plan-phase-47t.md; the lead's prompt names your item). Before it: 47L, the
+lighting pass (see the "47L" section at the very end), and 47a, structures and water bodies (the "47a" section: its HOW
+YOU WORK still holds where the TESTS AND GATES section below does not replace it). NEVER start 47b.
+TESTS AND GATES (from 47T on; AGENTS.md "Tests and the gate" is the rule, and it replaces every older gate, e2e and rerun
+line of this brief): unit tests prove behaviour (commands over HTTP in Node count); the boot check
+(tests/e2e/boot.e2e.ts, five tests) is the only browser test, and no other is written; looks are judged from pictures
+by an agent's written read and then the owner; performance is recorded, never gating. `tools/gate.sh check` (one
+blocking call, under 5 min) for every commit you call green; `tools/gate.sh check --failed` after a real fix; the
+lead runs `tools/gate.sh phase` once at the close. A red is fixed or the test goes (archived): no rerun to see whether
+it passes, no placing, no watch rows for tests. About one hour of test time a phase.
 Code agents run one at a time (they share the worktree's dist/); a docs-only agent may run beside you.
 
 Read AGENTS.md; then the current sub-phase plan (docs/plan-phase-46a.md, 46b, 46c) IN FULL; then from
@@ -85,9 +93,8 @@ docs/audit-2026-09-22.md and docs/audit-closed.md; D430–D440 were used in phas
 `| Dn | Sev | open | … |`; closing sets `fixed <commit>` (or superseded / won't fix / watch).
 
 Host rules (an OOM once forced a shutdown of this host (16 GiB then, 32 GiB since 2026-11-11); the owner was furious):
-- EVERY backend, browser, perf, benchmark or gate run is memory-capped, reruns included. Gates:
-  `TL_GATE_MEM=12G TL_VITEST_WORKERS=6 tools/gate.sh start fast <e2e files>` then `tools/gate.sh wait`, started only
-  with >= 14 GB available. Ad-hoc runs (benchmarks too):
+- EVERY backend, browser, perf, benchmark or gate run is memory-capped. `tools/gate.sh` caps itself. Ad-hoc runs
+  (benchmarks too):
   `sudo -n systemd-run --scope --quiet -p MemoryMax=10G -p MemorySwapMax=0 -- sudo -n -u dadmin -- env HOME=$HOME PATH=$PATH TMPDIR=$TMPDIR NODE_OPTIONS=--max-old-space-size=4096 …`
   The inner `sudo -u` keeps the GPU groups. One backend and one browser at a time. Synthetic worlds: generate
   per tile / stream to disk; never hold a 10 km world in memory; size the benchmark to fit the cap.
@@ -102,39 +109,10 @@ Host rules (an OOM once forced a shutdown of this host (16 GiB then, 32 GiB sinc
 - Run long browser runs detached with a timeout, poll in short calls.
 - The shell exports NODE_ENV=production; use `NODE_ENV=development` for npm installs (`npm ci --include=dev`).
 
-Gates (owner 2026-11-11: run only what a change affects; tools/gate.sh, AGENTS.md "Gates"):
-- tools/gate.sh REFUSES uncapped runs. Every mode runs detached and capped, started only with >= 14 GB available:
-  `TL_GATE_MEM=12G TL_VITEST_WORKERS=6 tools/gate.sh start <mode> …` then `tools/gate.sh wait` (NEVER run a mode
-  directly in your shell). TL_VITEST_WORKERS=6 always (an uncapped vitest OOM-killed a full gate at 8G). The unit
-  is also CPU-capped (TL_GATE_CPU, default 1100% = 11 of 16 threads); the summary's last line gives the 1-minute
-  load's mean and peak (load.log). Steps run in turn: lint + vitest beside e2e was measured and backed out
-  (docs/environment.md "Gate on this host"); keep e2e at 2 workers (fast) / 3 (wide).
-  - `fast [--all] [e2e files…]` per commit: build, lint, `vitest related` on the files changed since the branch's
-    last green gate (~/.cache/thirdlight-logs/last-green-phase-45; whole suite with --all, without a base, or when
-    package/config/gate/check files changed), the core smoke (authoring-loop, play-export), the e2e areas the
-    changed files map to (tools/gate-areas.json; voxel = voxel-world + structure-mode; project-model, shared and the
-    backend's plumbing = every area, `everyArea`) and any files named; the
-    village perf check (WebGPU only, at the cap) only when three-adapter/runtime/game-host/voxel/effects/perf
-    changed. Only a clean tree is recorded as green: commit before you gate.
-  - `area <name>…` at the end of an item that changed an area broadly (leak test on).
-  - `phase <start-commit>` once at a sub-phase's end (lead): every unit test + core + areas touched since then.
-  - `full` only for the merge to main or on the owner's word. There is no `--both-renderers` any more, and WebGL 2
-    is not checked at all (owner 2026-11-25: its smoke test is archived).
-  - Perf one-off miss → `tools/gate.sh rerun`; repeat miss → interleaved same-hour A/B against base d4053cab
-    (3 rounds, base worktree built with `node tools/build.mjs` under ~/.cache/thirdlight-phase46/work/, removed
-    after); equal = host state, note it.
-- Never edit tools/gate.sh (or scripts it runs, tools/gate-areas.json, tools/check-gate-areas.mjs) while
-  `systemctl is-active thirdlight-gate` is active, and no code while a phase or full gate runs. A new e2e file
-  must be put in an area (the build fails).
-- `tools/gate.sh rerun` rebuilds from the working tree: move uncommitted changes aside first.
-- Tests at real boundaries. Format/codec/store/streaming logic → vitest (real codec, real files on disk, real workers
-  where workers are claimed). Browser behaviour → Playwright against a real backend. A test that only confirms its own
-  mock does not count. Vitest: pass `--exclude '.claude/**'`.
-- E2E budget: NO new e2e files. Extend tests/e2e/voxel-world.e2e.ts (one backend) for browser behaviour; everything
-  else is vitest. Record voxel-world.e2e.ts time before → after (~58–65 s at the start of 46c, up from 22.5 s at the start of 46a: do NOT grow it further without need — extend existing tests, prefer vitest) and of any file you touch.
-- Flaky tests on watch: grep 'watch' in docs/audit-2026-09-22.md. A failure that passes on rerun gets a note.
-- HIDDEN REGRESSIONS: a fast-gate failure that ALSO fails at the base still gets a D-row and must be fixed before the
-  phase's full gate; say so in your final message.
+Gates and tests: the TESTS AND GATES section at the top (AGENTS.md "Tests and the gate").
+- Tests at real boundaries: format/codec/store/streaming logic → vitest (real codec, real files on disk, real workers
+  where workers are claimed); commands → vitest against a real backend over HTTP. A test that only confirms its own
+  mock does not count.
 - TESTS: never widen a test's bounds to make it pass, never change a test scene to hide a product difference. Fix the
   product, or write down exactly why the test was wrong.
 - Never call anything visual "verified" unless you saw it (screenshots you looked at count); otherwise "unverified".
@@ -181,7 +159,6 @@ triplanar 2 m; per-material height depth in metres; one texture set per kit; kit
 to the far-field work; the L0 detail-piece ring stays = level-0 ring (owner: unchanged until far-field numbers).
 Carried D-rows: D463, D485, D516, D479, D526, D496 (split format spec §3.7 BEFORE adding to it), D468 (perf phase).
 Never start 46e (lighting, connectivity culling, walk graph). D-rows continue at D528 (block D500–D599).
-GATES: always pass TL_VITEST_WORKERS=6 (an uncapped vitest OOM-killed a full gate at 8G).
 
 46d-b (owner 2026-11-09, plan-46d §9 entries of that date + §6d are REQUIREMENTS): height in the ALBEDO alpha (texture
 layout v1 amended, owner note); relief displacement OFF on every tier for now (switch kept, height lighting stays);
@@ -229,12 +206,10 @@ cap, with the headroom meter (`run.mjs headroom`: room and pass shares) and the 
 hitches, settle); never uncapped; GPU timestamps are not usable at the cap (D544). Medium and high: pass shares only,
 "unverified on target hardware". A measurement runs ALONE (no gate, build or other agent loading the machine: the GPU
 is integrated and shares the CPU's power budget); record `uptime` with it. ≤ 3 rounds.
-HOST: 32 GB and 16 threads shared with production and staging. Gates as above (TL_GATE_MEM=12G TL_VITEST_WORKERS=6,
-the default 1100 % CPU cap); a bench or ad-hoc run stays within about 10–12 threads and its memory cap; never /tmp.
-E2E: no new e2e files without the lead's word; extend the file of the area you change. Editor/UI changes need a
-Playwright test driving the real page against a real backend.
-DONE = it works in a real browser on WebGPU, has a test at the boundary it changes, the fast gate is green, and what
-you say you looked at is a file the lead can open (give the paths). The lead reads your diff and reruns your checks.
+HOST: 32 GB and 16 threads shared with production and staging. `tools/gate.sh` caps itself; a bench or ad-hoc run
+stays within about 10–12 threads and its memory cap; never /tmp.
+DONE = a unit test at the boundary it changes, `tools/gate.sh check` green, and what you say you looked at is a file
+the lead can open (give the paths). The lead reads your diff and reruns your checks.
 Commit trailer: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Scratch: ~/.cache/thirdlight-phase46f/work/<item>/.
 
 46e-a (owner 2026-11-14). CURRENT PHASE = 46e-a: docs/plan-phase-46e.md (scope §1, owner requirements §2, what exists
@@ -284,15 +259,13 @@ do not count triangles in indirect draws: use the profiler's own counters. The b
 working tree: measure from committed, built code (commit, `npm run build`, then measure).
 TESTS (lessons of 46f): a test that counts something waits for the reading to arrive and requires a NON-ZERO count. In
 your final message say, for each new test, what it would do with the feature broken or switched off (run it that way
-once if cheap). Do not run Playwright by hand between a red gate and its `tools/gate.sh rerun`; never hand-edit
-test-results/.last-run.json; start a fresh gate instead.
+once if cheap).
 NAMES: say what the code does, not what the item is called. If the plan says "walk", "cache", "volume", "regions" and
 you built less (a table, a stub, a debug view), write the plain description in the plan's results; the lead checks.
-HOST: as the 46f section. Gates: `TL_GATE_MEM=12G TL_VITEST_WORKERS=6 tools/gate.sh start fast …` then
-`tools/gate.sh wait`; one gate at a time; a measurement never beside a gate, build or another agent.
-DONE = works in a real browser on WebGPU, a test at the boundary it changes, the fast gate green, the plan's progress
-row and results written, pictures you looked at listed by path. You commit and push your own green slices; the lead
-reads the diff, the gate log and the pictures before the item counts.
+HOST: as the 46f section. One gate at a time; a measurement never beside a gate, build or another agent.
+DONE = a unit test at the boundary it changes, `tools/gate.sh check` green, the plan's progress row and results
+written, pictures you looked at listed by path. You commit and push your own green slices; the lead reads the diff,
+the gate log and the pictures before the item counts.
 Commit trailer: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Scratch: ~/.cache/thirdlight-phase46e/work/<item>/.
 
 46e-b (owner 2026-11-16). CURRENT PHASE = 46e-b: docs/plan-phase-46e.md §6's 46e-b table (items 46e.9–46e.19: the
@@ -334,19 +307,16 @@ from the ballast line is not used.
 LESSONS OF 46e-a (mandatory):
 - Prove a switch is off before you use it as a comparison: show a reading only the off state can give (D698).
 - Keep the evidence (pictures, logs) of any finding that changes a design in your work folder, named in the plan (D699).
-- A worker, buffer or texture that lives with the scene adapter needs a release with it; when you add one, name
-  the leak test with `tools/gate.sh start area play` (tests/e2e/memory.e2e.ts needs the area or phase mode; naming it
-  in a fast gate skips it).
+- A worker, buffer or texture that lives with the scene adapter needs a release with it, and a unit test that the
+  release frees it.
 - When a spec or register line changes, grep the constant: code must match the approved entry.
-- The Play test of tests/e2e/voxel-world.e2e.ts must stay under its 240 s timeout; record its time before and after.
-  Anything that grows it is split or moved to vitest; the timeout is never raised.
 - DISK: an export made by `run.mjs coverage --export` is 1.1 GB in ~/thirdlight-staging-p45/exports/: delete the
   ones you made when your runs are done. Delete Playwright output folders and trace files from your work folder when
   done; keep pictures, JSON and logs. Run `df -h ~` before a heavy run; under 10 GB free, clean first.
 - Any item that adds per-frame work on the default path runs one coverage round at 150 m/s against a same-hour base.
 - Finished agents leave nothing running: no waiter, no staging backend, no browser.
-DONE = works in a real browser on WebGPU, a test at the boundary it changes, the fast gate green, the plan's §7 row
-and results written (§6 untouched), pictures you looked at listed by path. You commit and push your own green slices;
+DONE = a unit test at the boundary it changes, `tools/gate.sh check` green, the plan's §7 row and results written
+(§6 untouched), pictures you looked at listed by path. You commit and push your own green slices;
 the lead reads the diff, the gate log and the pictures before the item counts.
 Commit trailer: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Scratch: ~/.cache/thirdlight-phase46e/work/<item>/.
 
@@ -383,13 +353,12 @@ HOW YOU WORK:
   (what you did, what is next, any commit). The lead reads it every ten minutes; if you die you are resumed from it.
 - Commit and push each green slice at once (never leave green work uncommitted). Commit trailer:
   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>.
-- Gates: `TL_GATE_MEM=12G TL_VITEST_WORKERS=6 tools/gate.sh start fast [e2e files]`, then `tools/gate.sh wait`; one
-  gate at a time; `rerun` while fixing; no hand-run Playwright between a red gate and its rerun. A change in
-  project-model or shared runs every area (about 40 minutes): put it in ONE commit. Anything that adds a worker, buffer
-  or texture living with the adapter or the simulation also runs `tools/gate.sh start area play` (the leak test), and
-  ends its workers before the page reports Play stopped (D729). Never run a `phase` or `full` gate: the lead's.
-- NEVER delete or clean `TMPDIR` (~/.cache/tmp) or anything under it while a gate runs (the e2e backends keep their
-  export roots there: a gate's Export test failed three times that way); clean only your own work folder, after the gate.
+- Gates: `tools/gate.sh check` (one blocking call) per green commit, `check --failed` after a real fix; one gate at a
+  time. Anything that adds a worker, buffer or texture living with the adapter or the simulation ends its workers
+  before the page reports Play stopped (D729), with a unit test of the release. Never run `tools/gate.sh phase`: the
+  lead's.
+- NEVER delete or clean `TMPDIR` (~/.cache/tmp) or anything under it while a gate runs; clean only your own work
+  folder, after the gate.
 - NEVER end your turn while a script or gate of yours runs in the background: wait for it in the foreground (a blocking
   wait with a timeout, repeated). A progress.txt line at least every 15 minutes.
 - NEVER pipe `node tools/check-docs.mjs` and never chain anything after it; run it alone and read its exit code.
@@ -398,15 +367,15 @@ HOW YOU WORK:
   JSON and logs. Leave nothing running when you finish: no staging backend, no browser, no waiter.
 - After an item that touches a lit program or the default path: the town orbit and `run.mjs headroom --quality low
   --lamps 128` against the reading before your item (same hour, A B A B), reported with the spread.
-- Editor work needs a Playwright test that drives the real page against a real backend. Nothing visual is "verified"
+- Editor work gets unit tests of its commands and state (no new browser test). Nothing visual is "verified"
   without a picture you opened and looked at; say "unverified" for anything you did not observe; nobody has seen
   anything in motion. A defect found and not fixed gets a D-row.
 - A base worktree for an A/B needs its own @thirdlight links (a symlinked node_modules builds the head's packages).
   Prove a switch is off before you use it as a comparison.
-REPORT to the lead at the end: commits, the gate's log name and result, numbers with how to reproduce them, pictures
+REPORT to the lead at the end: commits, the check's log name and result, numbers with how to reproduce them, pictures
 by path, D-rows opened or closed, what is unverified, what you left out and why.
-DONE = works in a real browser on WebGPU, a test at the boundary it changes, the gate green, §7's row and §8a's results
-written (§6 untouched), pushed.
+DONE = a unit test at the boundary it changes, `tools/gate.sh check` green, §7's row and §8a's results written (§6
+untouched), pushed.
 
 47L (owner 2026-11-24). CURRENT PHASE = 47L, the lighting pass: docs/plan-phase-47l.md §6 is the item table (the
 CONTRACT: never edit it; status in §7's row, at most 400 characters; results in §8a; decisions in §9). Start commit
@@ -417,7 +386,7 @@ measured); then only what your brief points at.
 WHAT IS DIFFERENT IN 47L:
 - You run in the FOREGROUND of the lead's turn. NEVER use `run_in_background`, never start a detached helper and
   poll it with sleep loops in separate calls: every command is one blocking call under 10 minutes (`timeout 560 …`;
-  for a gate: `tools/gate.sh start …` then repeated `timeout 560 tools/gate.sh wait`). A command that hits a tool
+  `timeout 560 tools/gate.sh check` is one such call). A command that hits a tool
   timeout is moved to the background by the harness: avoid it by the 560 s bound.
 - Work folder ~/.cache/thirdlight-phase47l/work/<item>/ with `progress.txt` (a dated line a step).
 - No stored thing is expected in this phase: a fix that needs one is an OWNER STOP (report to the lead).
@@ -426,4 +395,4 @@ WHAT IS DIFFERENT IN 47L:
   every picture you report you have opened and looked at, and you say what is still wrong in it.
 - Reference cameras live in tools/voxel-bench/lighting-cameras.ts (one list); bench worlds are changed only through
   the commands and restored after; staging on 127.0.0.1 only while you test; leave nothing running.
-- Gates by affected area (never `phase` or `full`): the lead runs the close's gates.
+- Gates: as the TESTS AND GATES section at the top; the lead runs the close's phase run.

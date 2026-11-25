@@ -248,18 +248,16 @@ action, `ctx.shell`); a game loads its levels with `ctx.scenes.load` /
 ## Verification
 
 ```sh
-tools/gate.sh start fast [e2e files…]       # per change: build, lint, the unit tests and e2e areas the change reaches, the core smoke
-tools/gate.sh start area <name>…            # every e2e file of those areas (tools/gate-areas.json)
-tools/gate.sh start phase <start-commit>    # a phase's end: every unit test, the areas touched since that commit
-tools/gate.sh start full                    # everything incl. the leak test: the merge to main or on the owner's word
-tools/gate.sh start rerun                   # from the step the last red gate stopped at (lint, failed vitest files, failed e2e, perf)
-tools/gate.sh wait                          # (every mode runs detached under a memory cap; wait prints its summary)
-npm test                                    # unit + integration (vitest)
-npm run build && npm run test:e2e           # Playwright: real backend + Chromium
-npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
-npx playwright test --project=webgpu        # the renderer-sensitive specs with headless WebGPU
+tools/gate.sh check                         # every green commit: build, lint (cached), the fast unit set, the boot check; under 5 min
+tools/gate.sh check --failed                # after a real fix: build, lint and only what failed in the last check
+tools/gate.sh start phase; tools/gate.sh wait   # a phase's close: everything, the picture set, the performance report
+npm test                                    # every unit test (vitest; TL_UNIT_SET=fast leaves out tests/slow-unit-files.json's)
+npm run build && npx playwright test tests/e2e/boot.e2e.ts   # the boot check alone: real backend + Chromium
 node tools/perf/run.mjs                     # the performance harness (long; see manual/features/performance.md)
 ```
+
+The boot check (`tests/e2e/boot.e2e.ts`) is the browser test the gate runs; the
+other files in `tests/e2e` are being moved to unit tests or the archive.
 
 `npm run test:e2e` runs the Playwright specs. On a host with a usable GPU
 every spec runs once, in `default`, on the product's renderer (`auto` →
@@ -268,7 +266,7 @@ the smoke test are in `archive/webgl2-parity/`).
 Without a GPU everything runs on SwiftShader: `default` has no WebGPU
 adapter (`auto` takes WebGL 2), and `webgpu` runs the renderer-sensitive
 specs again with headless WebGPU (Dawn's SwiftShader adapter).
-`TL_E2E_WORKERS=<n>` runs spec files in parallel (`tools/gate.sh` uses 2).
+`TL_E2E_WORKERS=<n>` runs spec files in parallel (`tools/gate.sh` runs the boot check on 1).
 
 The browser tests need Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in

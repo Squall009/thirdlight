@@ -30,15 +30,16 @@ The server the engine is built, tested and served on (checked 2026-10-30). The 2
   `node tools/voxel-bench/run.mjs slice-world --project-dir ~/thirdlight-staging-p45/projects/voxel-slice` (in a
   capped scope, before the backend opens it); the page is
   `http://127.0.0.1:4180/voxel-world.html?project=voxel-slice&world=slice&at=0,103,-32` (token from the editor).
-- `thirdlight-gate`: the detached unit `tools/gate.sh start` runs a gate in, capped at 12 GB (`TL_GATE_MEM`) and
-  1100 % CPU, 11 of the 16 threads (`TL_GATE_CPU`). Gates and e2e tests run Chromium on the Iris Xe.
+- `thirdlight-gate`: the detached unit `tools/gate.sh start phase` runs the phase run in, capped at 12 GB
+  (`TL_GATE_MEM`) and 1100 % CPU, 11 of the 16 threads (`TL_GATE_CPU`); `tools/gate.sh check` takes the same caps in a
+  scope of its own and blocks. The boot check runs Chromium on the Iris Xe.
 
 ## Rules for runs on this host
 
 - **Never write to `/tmp`.** It is RAM, does not show as memory in Proxmox, and filled it caused the OOM kills of
   2026-10-17 and 2026-10-23. Set `TMPDIR=$HOME/.cache/tmp/<task>` for builds, tests, browsers and scripts; an hourly
   cron job deletes files older than 6 h there.
-- **Cap every heavy run.** Gates via `tools/gate.sh start …` and `tools/gate.sh wait`. Ad-hoc backends, browsers and
+- **Cap every heavy run.** `tools/gate.sh` caps itself. Ad-hoc backends, browsers and
   perf runs inside `sudo -n systemd-run --scope -p MemoryMax=7G -p MemorySwapMax=0 -- sudo -n -u dadmin -- env
   HOME=$HOME PATH=$PATH …` (the inner `sudo -u` keeps the GPU groups). Start one only with the cap + 2 GB available
   (`free -g`); one backend and one browser at a time.
@@ -47,7 +48,9 @@ The server the engine is built, tested and served on (checked 2026-10-30). The 2
 
 ## Gate on this host
 
-Measured 2026-11-11 (16 threads, 32 GiB). Every gate's `load.log` has the 1-minute load every 30 s; its last line
+The gate is two commands since the test suite reset (`tools/gate.sh check` and `phase`; AGENTS.md "Tests and the
+gate"); their times are recorded in `docs/plan-phase-47t.md` §7. The table below is the old gate's, measured
+2026-11-11 (16 threads, 32 GiB), kept for its load and memory findings. A gate's `load.log` has the 1-minute load every 15 s; its last line
 gives the mean and peak. The load is lxcfs's, the container's own: it counts a thread the CPU cap throttles as
 runnable, so the cap bounds the CPU a gate takes, not the load it shows; worker counts set the load.
 

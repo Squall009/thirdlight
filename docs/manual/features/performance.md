@@ -131,9 +131,10 @@ page's line also gives the frame max and a histogram (share of frames below
 of game projects the same way (default: the game folders the script names; the copy is what
 gets registered, never the game's folder).
 
-**The frame-time gate.** On a host with a usable GPU (`gpuAvailable()` in
-`tests/e2e/browser-env.mjs`), `tools/gate.sh fast` (and `phase`) ends, when rendering or frame code changed
-(three-adapter, runtime, game-host, voxel, effects, the perf tools), with
+**The village frame-time check** (run by hand; the gate records performance
+but never gates on it: `tools/gate.sh phase` writes the headroom bench's frame
+rate, frame time, GPU time and memory beside the previous phase's). On a host
+with a usable GPU (`gpuAvailable()` in `tests/e2e/browser-env.mjs`):
 `node tools/perf/run.mjs village --gate --renderers webgpu --check tests/perf/village-baseline.json`
 (about 30 s; WebGPU only, the product's renderer). `--gate` measures the export at the display's 60 Hz cap (vsync),
 never uncapped: uncapped frame times read how hard this host's shared CPU/GPU
@@ -145,8 +146,7 @@ most refreshes, a busy host a few percent), when the main thread's CPU time per
 frame (CDP `ThreadTime`; not task wall time, which grows with the time the
 thread waited for a core) is more than 60 % above the baseline's
 (`CAP_MAIN_REGRESSION`: generous, as a busy neighbour still slows the thread by
-up to half), or when a renderer was not measured. `tools/gate.sh rerun` repeats
-a failed check alone. Without a GPU it is skipped. The baseline holds this
+up to half), or when a renderer was not measured. Without a GPU it is skipped. The baseline holds this
 host's main-thread times, so it is re-recorded (on an idle host) when the class
 changes (`VILLAGE_VERSION`), on another machine, or when a change makes the
 village faster on purpose:

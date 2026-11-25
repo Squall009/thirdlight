@@ -300,7 +300,8 @@ seen through its windows are not lit as the street is; not a minimum (no light f
   simulation worker, job workers) by budget category against the tier's budget, and the last long frames. It is
   shown in the editor's **Profiler** tab while Play runs, in the stats overlay (Shift+F3, Play and exports), saved
   as a capture file (`version: 1`) and read by agents as a digest (`tl_diagnostics` sections ['profile']).
-- Gates run by affected area (`tools/gate.sh`, `tools/gate-areas.json`).
+- Tests: unit tests prove behaviour; `tools/gate.sh check` per commit (build, lint, the fast unit set, the five-test
+  boot check), `tools/gate.sh phase` at a phase's close (AGENTS.md "Tests and the gate").
 
 ## 6. Shared foundations
 
