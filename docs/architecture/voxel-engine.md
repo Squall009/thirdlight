@@ -181,6 +181,12 @@ page in the same commit.
 | Finer than the bake, where a world asks for it (`fineBuild: compute`) | fine bricks built on the GPU | compute, from the chunks' voxel grids |
 | To the horizon | bricks at 2 m and coarser, chosen by screen error (8 px low, 4 medium, 3 high) | the far cache |
 
+- **Seams between levels** (`lod-seam.ts`): where a level-0 chunk meets a level-1 node (and level 1 meets level 2) a
+  seam joins the two levels' boundary edges; a coarse boundary vertex goes to the nearest fine edge, except that one
+  whose nearest fine edge faces the other way (a thin slab's far side, cosine under −½) goes to the nearest fine edge
+  facing its way (cosine over ½) when that lies at most a coarse cell farther, so a roof slab a fine cell thick that
+  the two levels place a cell apart is closed side to side, never by a flap through it (plan-47l §8a 47L.2).
+
 - **Liquid** (47a.9, the plain look; 49 replaces it): inside the detail ring each chunk's liquid part (its
   derive sections' liquid faces against open space, exact to the fill level, merged into quads with their
   material; `derived-liquid.ts`) is one more mesh of the chunk's draw (`voxel-liquid-draw.ts`): the material's
@@ -199,7 +205,8 @@ page in the same commit.
   owner. The **mesh far field** is a fallback behind a switch.
 - **Lighting of voxels**: in Play and exports the near field's surfaces (level 0 and the level 1–2 mesh rings) and
   kit pieces cast and receive like any lit draw, as static casters of the key light's cached map and the shadow
-  atlas: each chunk, node or seam shown, replaced or taken away is reported where it stands, and only the cached map
+  atlas (voxel surfaces cast with their faces toward the sun, not three's default back faces: a wall's inner face
+  would shade the floor at its foot from within the shadow's bias, a lit line inside a shut room, D810): each chunk, node or seam shown, replaced or taken away is reported where it stands, and only the cached map
   and the lamp faces it reaches are drawn again; the sun's square is centred on the voxel ground under the camera
   (sky heights). Past the square, and in the far field, the **sun heights** shade: the top of what is solid in each
   column round the camera (the sky heights, 0.5 m columns over 512 m; the far field's drawn bricks, 4 m columns over

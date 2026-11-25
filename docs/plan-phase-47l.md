@@ -97,7 +97,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
 | 47L.3 | Done 2026-11-25 (52b31126): no ray passes a sealed wall or corner at any yaw (the stamp is tight); the leaks were the read: cells across thin solids, and the coarse levels at turned corners (D746). A surface reads only its own side, level 0 whole where it reads light: inside points reading outside light 5,725 → 0 of 95,552; G45's corner lines gone. Left: D809–D811 |
 | 47L.4 | Done for structure grids 2026-11-25 (e7c04aa6, 60c1e5f7): a shut door's cells over the whole opening (D791), stopping light at the walk's mips (D773), and the sun's shadow over a shut opening's cells (D812): the sun now follows portal state, not the model (a behaviour change, owner to confirm). Not built: world-grid openings, the Scene view; D727 open |
-| 47L.5 | Partial 2026-11-25 (9dfbb292): turned walls' blocks fixed (D809): the read reached one column of a wall's staircase; a cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Remain: the blotches (D692, stored ray noise, §10 question 1) and the wall-foot line (D810) |
+| 47L.5 | Partial 2026-11-25 (9dfbb292): turned walls' blocks fixed (D809): the read reached one column of a wall's staircase; a cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Remain: the blotches (D692, stored ray noise, §10 question 1); the wall-foot line was the sun's shadow (D810, fixed in 47L.8) |
 | 47L.6 | Partial 2026-11-25 (9492710d): a light ray keeps 1 − coverage of cells under half only (D818 above it: a jump to nothing at half), CPU walk and WGSL twin, every level; what stops light stops it whole (census 0). Shown on a damaged wall and props only: nothing partial in the bench town's view, no fence or shutter shown. GPU=CPU walk; cost not resolved |
 | 47L.7 | Done 2026-11-25 (measurement, no code): the 128-lamp room is back (second rounds 44, 44, 64 ballast copies with the copies search at the head, 56–76 without); 47a.13's 15 and 14 were the edge search stopping at 16 copies on 2–3 missed frames of 89 (single spikes), as 47a.0’s 3, 47L.3’s 7: D711’s kind in second rounds. No bisect. D740: level 0 alone still reads ~1 ms under the default |
 | 47L.8 | not started |
@@ -841,6 +841,113 @@ spreads here), and `index` now reads with `level0` rather than with the default;
 read costing about a millisecond on this scene), not resolved in size. No hunt beyond that (clause j). Not proven: that the
 `level0` and `index` switches took effect in these runs (the near readings moved, the runs record no off-state reading).
 **Unverified:** nothing in motion.
+
+### 47L.8 — the close: the wall-foot line found, the speck count in the bench, the history pair, the end reading
+
+**D810, the wall-foot line: the sun's shadow, not the read** (a64913b2). A dump probe (kept only as
+`work/47L.8/trace/dump-probe-47L8.patch`: `?surfaceRead=dump<N>x<K>` writes three bits of one quantity a shot in place of
+the pixel's light, with a palette of the eight codes across the frame's top and bottom bands, decoded by the nearest
+palette colour; `scripts/dec.py`, `dec2.py`) on W's `room-window` (low, `&taau=0`, each shot settled in 11–12 s; 444 line
+pixels found as bright with dark 3 px above and below; the wall 3 px above and the floor 3 px below as controls):
+
+| quantity at the line's pixels | line | wall above | floor below |
+|---|---|---|---|
+| total weight > 0.001; level 0's counted weight > 0; level 0 holds a cell (`dump1`) | 444 of 444 | 444 | 444 |
+| total weight > 0.99 (`dump27`) | 444 of 444 | 444 | 444 |
+| the read's light, luminance (`dump29`, `dump31`) | 0.02–0.1 at 248, over 0.1 at 52, 0.01–0.02 at 117 | 0.01–0.02 at 281, under 0.01 at 71 | 0.02–0.1 at 268, over 0.1 at 86 |
+| direct diffuse (the lights' term before the volume's), luminance (`dump32`) | over 0.02 at 362 (0.02–0.1) | none | none |
+| the same with the voxel surfaces casting front faces (`sidefront`, a scratch flag; `sidedouble` alike) | 5 pixels | none | none |
+
+So the volume's read gives level 0 its whole weight there and reads the floor's light, as the CPU twin did over the GPU's
+own cells (47L.5b: 0.007–0.2, level 0 whole): **it is none of (i)–(iii)**; 47L.5b's "no level reads light, the flat term
+shows" was an inference from the grey, and wrong. The bright pixels are direct light: three's shadow pass draws a
+front-sided material's **back** faces, so the occluder the sun's map stores over the floor at a wall's foot (a wall facing
+away from the sun) is the wall's inner face, within the shadow's bias of the floor there: a sliver of sun one pixel high
+along every such wall inside a shut room, hidden while the room had its flat ambient and plain once the volume made it
+dark. Geometry classes at full scale with no AA (`renderScale=1`, high) put the lit pixels on wall and floor fragments
+within 6 cm of the corner. **Fix**: the voxel surface material casts with its faces toward the sun (`shadowSide`
+`FrontSide`, every path's program); `voxel-surface.test.ts` holds it on every path and shading (fails without). Pictures
+(`work/47L.8/crops/`, opened): `d810-W-taau0-before-after.png` and `d810-W-taau-before-after.png` (before above after):
+the line is gone with and without the temporal upscale (line pixels 444 → 8 at `taau=0`); `sidefront-street-noon.png`,
+`sidefront-ref-30m-house.png` (default above front faces): no shadow acne seen on the sunlit gables and fronts, the
+gable's mean 172 → 170 of 255. **D808** (`d808-ref-100m-taau0-before-after.png`, head before above after, `&taau=0`): the
+black clusters on the recessed shaded wall stay (41 → 37 near-black pixels in its box), and a blue patch on a roof is in
+both: not this fault. Reference cameras with the fix, two runs (`raw/A-ref-r{1,2}`, every shot settled): white/green 0/0
+at `street-noon`, `ref-30m` … `ref-150m` in both; black 0–7 (47L.6's head 0–14). G45's room was not shot (the grid town
+costs a world rewrite; not in the time). 47L.3's census and 47L.5's smoothness tests are untouched (the read did not
+change). Nothing in motion was watched.
+
+**The speck count in the bench** (b12d815e): `light-shots` records each shot's `blotch.specks` (white, green, black, 8-connected
+clusters; `tools/voxel-bench/specks.ts`, the white and green rules of 47L.0's `specks.py`, which it reproduces at 47L.0's
+pictures: 243/138 and 380/114; black: a near-black pixel three quarters of whose 5 × 5 ring is lit, so a shadow's or a
+window's edge is not one), `specks.test.ts` on made pictures. Automated now: the count (D805's condition is one run). Not:
+a GPU value test of the read (D819 stays open for it).
+
+**Low's history 64 → 128** (D692, the owner's question 1; changed locally, not committed, restored and rebuilt; one run
+each, `raw/C-h{64,128}{,-ref}`): `crops/history-64-vs-128-room-window.png`, `-street-noon-gable.png` (5 minutes after Play,
+`--refine-wait 300`; no brick reported fully refined in either), `-room-window-at-settle.png` (64 above 128). Looked at: the
+room's floor blotches are not visibly softer; the gable's smudges are a little fainter. The cells' same-face spread
+(`blotch.cells.mean`): street 0.134 → 0.113, room 0.348 → 0.348 at 5 minutes; 0.180 → 0.182 and 0.404 → 0.404 at the
+settle. Edit → light (the window dug, `--cache-edits`): settled 11.5 s (64) and 11.3 s (128), first light 104 and 96 ms.
+Honest reading: not a cure for the blotches the owner sees in rooms; a small gain on sunlit walls after minutes.
+
+### 47L.8 — the end-of-phase reading
+
+41bbcf38 (A, the phase's start) and b12d815e (B, the head with the shadow fix and the bench's count) each built in its own
+side worktree (`~/.cache/thirdlight-phase47l/base-<sha>`, own `@thirdlight` links, typecheck and `node tools/build.mjs` in
+the 10G scope), staging served from each worktree's dist against the same world (its 3,074 voxel files byte-equal to
+47L.6's clean set before and after), the head's bench. 2026-11-25 15:05–16:40 UTC, low, WebGPU, 1280 × 720, the 30 Hz cap,
+each run alone, A B A B A B, `--copies none --scales none`, second rounds; 1-minute load 1.9–3.8 at starts and ends (6.7 at
+the first start, after the builds); `work/47L.8/m/` (`.json`, `.log`, `.uptime`; `scripts/summ3.py`). Worktrees removed
+after.
+
+| | A (41bbcf38) | B (head) | B over A | budget | 47a.13 (6c1dec96) |
+|---|---|---|---|---|---|
+| town: GPU `near` | 4.37, 4.58, 3.48 | 5.27, 6.03, 5.07 | 3 of 3, +0.90–1.59 | — | 4.45, 4.57 |
+| town: GPU lighting | 5.53, 5.31, 5.72 | 5.68, 5.47, 6.58 | 3 of 3, +0.15–0.86 | 6.67: both under | 3.87, 4.28 |
+| town: page ms a frame | 5.73, 7.48, 5.41 | 5.81, 7.58, 26.4 (a stalled round) | 3 of 3, +0.09–0.11 (+21 stall) | — | 5.77, 7.20 |
+| town: page `render` | 4.79, 6.36, 4.36 | 4.74, 6.52, 23.2 | 2 of 3 | — | 4.17, 5.42 |
+| town: page lighting | 0.91, 1.25, 0.86 | 1.33, 1.45, 1.33 | 3 of 3, +0.20–0.47 | 2.0: both under | 1.08, 1.06 |
+| town: `voxelStream` | 2.17, 1.91, 1.84 | 2.09, 2.75, 2.95 | 2 of 3 | — | 1.69, 2.30 |
+| town: missed (of 89); room (copies) | 0, 0, 0; 128, 128, 128 | 0, 0, 0; 128, 120, 88 | — | — | 0, 0; 128, 128 |
+| town: page heap / GPU MiB | 634, 661, 650 / 1,001, 995, 972 | 645, 632, 622 / 1,024, 986, 1,047 | 1 of 3 / 2 of 3 | 1,536 / 2,560 | 724, 666 / 1,002, 984 |
+| 128 lamps: GPU `near` | —, 7.94, 8.17 | 9.36, 8.81, 8.85 | 2 of 2, +0.68–0.87 | — | 9.83, 8.41 |
+| 128 lamps: GPU lighting | —, 5.66, 5.86 | 7.05, 8.72, 7.86 | 2 of 2, +2.00–3.06 | 6.67: A under, B over in all | 5.12, 6.07 |
+| 128 lamps: page ms; `render` | 8.00, 7.81, 7.16; 6.44, 6.23, 5.74 | 6.87, 7.48, 7.79; 5.27, 5.95, 6.07 | 1 of 3; 1 of 3 | — | 7.56, 7.35; 4.99, 4.94 |
+| 128 lamps: page lighting | 2.08, 2.27, 2.26 | 2.46, 2.45, 2.54 | 3 of 3, +0.18–0.38 | 2.0: both over | 2.08, 1.89 |
+| 128 lamps: `voxelStream` | 1.90, 2.07, 1.76 | 2.03, 2.46, 1.92 | 3 of 3, +0.13–0.39 | — | 1.99, 2.05 |
+| 128 lamps: missed; room (copies) | 0, 0, 1; 88, −1, 3 | 2, 1, 1; 44, 68, 7 | — | — | 0, 0; 15, 14 |
+| 128 lamps: page heap / GPU MiB | 656, 663, 668 / 1,057, 1,029, 1,057 | 625, 585, 646 / 1,059, 1,064, 1,078 | 0 of 3 / 3 of 3, +2–35 | 1,536 / 2,560 | 662, 626 / 1,075, 1,038 |
+| light volume MB (town; 128) | 36.45; 36.57 | 36.45; 36.57 | equal | low's row | 36.45; 36.57 |
+| 128 lamps with the copies search, one round each | room 3 (near 0, far 1 copies), missed 0 | room −1 (near 0, far 14), missed 7, page 14.3 ms | first rounds (D711): not compared | — | — |
+
+—: A's first 128-lamp run's second round read nothing on the GPU (every category below resolution; as in 47L.6). The rooms
+of the 128-lamp runs (−1 to 88 at both commits) are the edge search's late frames (47L.7), not compared. **The cost of the
+phase, on the 128-lamp scene**: GPU lighting from 5.7–5.9 ms under the 6.67 row to 7.1–8.7 ms over it in every run, +2.0–3.1
+ms in both readable pairs, `near` +0.7–0.9 ms and page lighting +0.2–0.4 ms (2.45–2.54 against 2.08–2.27, both over 2.0).
+**On the town**: higher in all three pairs, GPU lighting +0.15–0.86 ms (still under 6.67), `near` +0.9–1.6 ms, page lighting
++0.20–0.47 ms (under 2.0); built the same way on both sides, the page lighting offset seen at every item is the code's, not
+the harness's. Where it comes from was not split (the read's arithmetic of 47L.3, the hold rule's 39–48 % more cells of
+47L.5, the walk's cover of 47L.6 are the candidates; §10 question 2 stands).
+
+**What the phase changed that a user sees** (from the items' results; no new runs but 47L.8's):
+
+| | before | after |
+|---|---|---|
+| specks white/green at five cameras, with TAAU (47L.0 head → 47L.1 … 47L.8) | street 7/0, 30 m 7/2, 60 m 107/0, 100 m 243/138, 150 m 380/114 | 0/0 at all five, in every run since 07eee3c8 |
+| without TAAU (`taau=0`, `ref-100m`) | black clusters on a shaded wall (47L.3: 549 / 406 px) | still there (D808: 41 → 37 px in its box at 47L.8) |
+| inside faces reading outside light, town (of 95,552) at 0° / 30° / 45° | 373 / 5,022 / 5,725 | 0 / 0 / 0 (generator houses: 12 of 22,312 at 7°) |
+| a turned wall's largest step between points 5 cm apart (of its mean) at 17° / 30° / 45° | 0.30 / 0.40 / 0.44 | 0.04 / 0.04 / 0.04 |
+| the town's L0\|L1 roof seam: unmatched edges; open edges | 218; 714 m | 56; 524 m |
+| a door flip → the sun follows it (a bare portal, shut; open) | the sun stayed (followed the model) | 406, 130, 392 ms; 137, 133, 137 ms |
+| a door flip → the room's light cell moves a fifth (shut; open) | 68, 42, 649 ms; 62, 67, 71 ms | 72, 41, 39 ms; 59, 93, 65 ms |
+| the wall-foot line (W room, `taau=0`) | 444 line pixels | 8 |
+| edit → light settled (the window dug, one run each) | 9.1 s (before partial cells) | 11.2 s (47L.6); 11.5 s at the head (47L.8) |
+
+**Design page** (`voxel-engine.md`) checked against what the phase built: the read at every level, the reach and level
+share, the hold rule's edge steps, partial transmittance under half and the portal casters were there; added the seam's
+same-side rule and the voxel surfaces' shadow side. **Unverified**: nothing in motion; the G45 room after the shadow fix;
+medium and high (same code); WebGL 2.
 
 ## 9. Decision log
 
