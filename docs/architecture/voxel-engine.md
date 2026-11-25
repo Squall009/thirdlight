@@ -67,9 +67,10 @@ page in the same commit.
   shut: light, sight, walkers; `sight` is stored and reported and read by nothing yet, D792) stands in a structure's opening as the structure's child; the opening's record names it
   in the editor (`openings[].prop`, kept by the backend's follow-ups: `workspace/structure-prop-follows.ts`). Where
   the world runs it is joined to its opening by its place (its middle in a grid's `opening` cell, the face-joined
-  opening cells round it up to 4 m from the middle, though an opening has no size cap, D791; `runtime/voxel-portals.ts`), so an export needs no definition. Shut, the opening's cells
-  are one more stamp in the prop channel (every world cell they reach stops light whole; no structure class, so rooms
-  keep the portal) and shut cells of the grid's walk graph (`WalkGraph.setShut`; `findPath` option `doors`; a shut
+  opening cells joined to it, however far they run: the flood is bounded by the opening's own cells and the grid's
+  resident chunks, waiting while the run goes on into one not resident; `runtime/voxel-portals.ts`), so an export needs no definition. Shut, the opening's cells
+  are one more stamp in the prop channel (every world cell they reach stops light whole, at level 0 and at the walk's mip
+  levels, `LitStamp.mipStop`; no structure class, so rooms keep the portal) and shut cells of the grid's walk graph (`WalkGraph.setShut`; `findPath` option `doors`; a shut
   cell keeps its link to the world, taken only by a walker through shut doors); a flip recombines only those cells.
   Two props whose middles lie in one run of opening cells (two openings side by side) each take the cells on their side
   of the cell boundary nearest the midpoint between them.

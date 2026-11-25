@@ -96,7 +96,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | 47L.1 | Done 2026-11-24 (07eee3c8): the shipped read's form (one loop, shared index load, faces by weight, one cell past readFullM) drew the specks; no expression found (GPU dumps: every value finite, in range). Every level now read as first built, early-out kept; readFullM, readFaceFloor gone. Specks 0 at all cameras twice, grid houses 781 to 0; cost within spread |
 | 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
 | 47L.3 | Done 2026-11-25 (52b31126): no ray passes a sealed wall or corner at any yaw (the stamp is tight); the leaks were the read: cells across thin solids, and the coarse levels at turned corners (D746). A surface reads only its own side, level 0 whole where it reads light: inside points reading outside light 5,725 → 0 of 95,552; G45's corner lines gone. Left: D809–D811 |
-| 47L.4 | not started |
+| 47L.4 | In progress 2026-11-25 (e7c04aa6): a shut door's cells over the whole opening (D791, no reach bound) and stopping light at the walk's mip levels (D773, structure grids) built with Node tests. Not built: the strip of sun inside a shut door (the shadow map; the page never learns the shut state, D812), world-grid openings, the Play pixel check, the 60/150 m pictures |
 | 47L.5 | not started |
 | 47L.6 | not started |
 | 47L.7 | not started |
@@ -457,6 +457,45 @@ the Iris Xe, D805) that the upscale's blend hides; not a seam. D808, not fixed.
 
 **Unverified:** nothing in motion; medium and high (same code); WebGL 2 (its smoke in the gate); the turned rooms'
 pictures were taken refused by D750's settle (the volume settled in each).
+
+### 47L.4 — shut doors: the whole opening and the coarse levels (partial; the sun strip not built)
+
+**Built** (e7c04aa6, `voxel-portals.ts`, `prop-channel.ts`, game-host `voxel-play.ts`; nothing stored):
+- **A portal's cells over the whole opening (D791).** The join floods the face-joined `opening` cells from the prop's
+  cell with no reach bound: the flood is bounded only by the opening's own cells and the grid's resident chunks; when the
+  run goes on into a chunk of the grid that is not resident the join waits (`later`) and joins once it is. Not a
+  per-project cap: the bound is the opening itself. A 6 m barn door shuts whole.
+- **Coarse levels see a shut door (D773, structure grids).** A shut portal's stamp is marked `mipStop`: the prop
+  channel's `mipStops` (what the walk's mip levels stop at) takes its cells that stop light whole, with no structure class
+  (the regions keep their portal); a flip tells the chunk's listeners `mips`, and the page's batcher sends the chunk's
+  mip blocks again as for a structure stamp. **World-grid openings** still take no prop (the join reads structure grids
+  only): not done.
+- **Thin props (D727)**: not covered (these changes stamp an opening's cells, not a prop's shape); the row stays open.
+
+**Tests** (`runtime/voxel-portals.test.ts`, the real prop channel, a wall turned 30°): a barn door 13 cells (6.5 m) wide
+and a slot 9 cells (4.5 m) tall shut whole: the walk graph is given every cell, every world cell whose middle lies in the
+opening stops light at level 0 and its level-1 cell at the mips, the listeners hear `mips` and never `classes`, a light
+ray walked at the mip levels only (no level 0 known) from 3 m before the opening to 3 m behind it stops shut and passes
+open, and opened every byte and mip stop goes. Without the changes: 54 of 78 cells joined (the 4 m reach); without the
+`mipStop` flag the coarse ray passes the shut door. `prop-channel.test.ts`, `world-host-grids.test.ts`,
+`occupancy-walk.test.ts` green.
+
+**Not built in this session:** (g) the strip of sun inside a shut door: it is the sun's shadow map (the room's volume cell
+is 0.04–0.07 shut against 0.34 open; the strip and the fan of light over the floor are unchanged by the volume's fixes,
+`work/47L.4/crops/07b-door-shut-before-after.png`): the leaf (0.1 m) is thinner than a low-tier shadow texel and its
+bias, and the shut state a script writes stays in the simulation, so the page cannot cast the opening's shadow (D812:
+the shut portals' boxes would have to reach the page, and a shadow-only caster stand over each). The Play e2e's floor
+pixel check (it would fail on the strip), the pictures from 60 m and 150 m with a lit window beside the door, the wide
+door's picture, and the A B A B (no lit program changed in Part 2) were not done.
+
+**Measured** (the 47a.7 scratch `zz-door-look.e2e.ts` copied into `tests/e2e` for the run and removed, low, WebGPU, the
+editor's Play at the 30 Hz cap; before at 52b31126's code, after with these changes; `work/47L.4/m-{before,after}/`):
+flip → the room's light cell moving a fifth: shut 36 (a cell already moving), 713, 722 ms before, 710, 1,120, 1,015 ms
+after; open 1,937, 1,866, 1,613 before, 1,502, 1,495, 979 after. A hundred doors shut in one step: the simulation's
+longest step 13.8 / 13.2 ms before, 13.2 / 11.6 after; the peak step and ten after 69.1 / 35.1 against 59.1 / 60.1 ms;
+page lighting's longest 5.5 / 5.1 against 5.7 / 5.8 ms: within the runs' spread. Room cell: open 0.347 / 0.338, shut
+0.041 / 0.065 (before / after). Pictures `work/47L.4/shots/{before,after}/06*–08*.png`, opened: the same in both; the
+strip of sun and its fan stay (D812).
 
 ## 9. Decision log
 
