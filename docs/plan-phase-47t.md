@@ -1,0 +1,117 @@
+# Plan — phase 47T: the test suite reset (after 47L, before 47b)
+
+Owner, 2026-11-26 (quoted): "gates should be fucking fast… an hour total of test, e2e, and gate time per phase is
+what I would want." "A rerun should be a minute, full gate 5." "The browser tests probably majorly don't need to be
+done. This dev box should be doing nearly everything through unit tests. In browser acceptance usage in the editor
+should be done manually by me." "I want an ai agent to look at them [the end-of-phase pictures], not compare the
+goddamn black level percentages." "This container is a dev box… one of 10s that run on a single host… a throttle
+here means throttles across many services." "We use the frame performance to gather the stats… as a baseline to
+compare to but not the gods source of truth." "we need to be using a cached world." On GPU-side defects that only
+a browser shows: "a risk I am willing to take. I'd rather progress go fast and have me tell you something isn't
+rendering right and fix it then."
+
+Approved in substance by the owner in that conversation; he starts it in a fresh session. Start commit: the commit
+of this plan. Branch `phase-45`. Next free D-number: D825.
+
+## 1. Why (measured 2026-11-25/26)
+
+- Gates took 15–25 % of the last three phases' wall clock (46e-b 15.0 h, 47a 16.4 h, 47L 8.7 h): 7–10 every-area
+  gates a phase where the rule says one; most first attempts red on old flaky rows; all ten of the last
+  every-area gates red before reruns.
+- One wide gate is 39 min: build 48 s, lint 100 s, unit tests 9.5 min, browser tests 27 min.
+- Unit: 796 files, 6,257 tests. 585 files take under 1 s each (87 s together). 42 files take 1,711 s (72 %),
+  1,346 s of it in `tools/voxel-bench`, because they generate real-scale worlds on every run.
+- Browser: 327 tests in 179 files, each file its own backend and page; ten acceptance stories take 26 % of the
+  time; 197 fixed sleeps; four bounds sit inside their own noise (D659, D643, D817, D824).
+- The defects that mattered were found by a person or an agent looking at pictures or reading code, not by a
+  pixel bound.
+
+## 2. What the suite is after this phase
+
+| | Runs | Contains | Budget on this host |
+|---|---|---|---|
+| **check** | every commit an agent calls green | build and lint (incremental), the fast unit tests, the boot check | under 5 min; a rerun of what failed under 1 min |
+| **phase** | once, at a phase's close | every unit test (on cached worlds), the boot check, the picture set | about 15 min, capped workers |
+| **pictures** | at a phase's close | a fixed list of cameras and editor screens, each opened and described by an agent, published for the owner | part of the phase run |
+
+- **Unit tests prove behaviour.** New work gets unit tests at the code boundary it changes (commands over HTTP in
+  Node count as unit tests here: no browser).
+- **The boot check** is the only browser test: about five tests, about a minute, pass or fail on "it starts and
+  nothing errors" — the editor loads with no console error, a voxel world draws a frame, Play starts and stops,
+  an export runs served statically with the backend stopped. No pixel bounds, no timing bounds.
+- **Looks are judged from pictures** by an agent's honest written read and then by the owner; the owner uses the
+  editor by hand between phases. No pixel-percentage criteria.
+- **Performance is recorded, never gating**: frame rate, frame time, GPU time and memory are written to a report
+  with the previous phase's numbers beside them. This host is a shared dev box; the numbers are a baseline.
+- **A red is fixed or the test goes.** No rerun to see whether it passes this time, no "placing" at a base commit.
+  The watch-row category for tests ends.
+- **Total per phase: about one hour** (about eight checks and one phase run).
+
+Accepted by the owner: a GPU-side or user-experience defect that only a browser shows is found at the phase's
+pictures or by him in the editor, later than a browser test might have found it.
+
+## 3. Scope
+
+**In:** `tools/gate.sh` and its area file, the Playwright suite (`tests/e2e`), the slow unit files, the bench's
+picture command, `AGENTS.md` and the agents' brief (the rules that demand browser tests, wide gates, reruns and
+placing), the audit list's test rows, `docs/perf-recommendations.md` for demoted bounds.
+
+**Out:** engine behaviour (a real defect found on the way gets a D-row, not a fix, unless it is one line);
+`/home/dadmin/projects/thirdlight` (main) and game repos; removing engine code of retiring systems (48 does
+that); 47b.
+
+## 4. Items (the contract; status goes in §5)
+
+| Item | Builds |
+|---|---|
+| 47T.0 | **The inventory.** One table, a row a browser test file (179): what it proves, and its fate — *retire* (block layers, heightfield terrain, generated architecture, terrain-splines, old probe lighting, WebGL 2: archived with their rows), *logic* (what it checks can be a unit test: name the unit test it becomes or the existing one that already covers it), *looks* (dropped; a camera or screen joins the picture set if nothing shows it yet), *boot* (the five kept). And a row a slow unit file (42): what world it builds and whether a cached world serves it. No test is changed in this item. The table is the plan for 47T.2–47T.4 and goes to the owner page; work goes on without waiting. |
+| 47T.1 | **The two commands and the rules.** `tools/gate.sh check` (incremental build, cached lint, the fast unit set, the boot check; prints its time; under 5 min) and `tools/gate.sh phase` (everything, capped workers and memory, prints its time, writes the performance report). The old `fast`, `area`, `rerun`, `full` modes and the "changed since last green" widening go. `AGENTS.md` and `docs/briefs/voxel-agent-brief.md` rewritten to §2 (the Playwright-per-editor-change rule, wide gates, reruns, placing, watch rows for tests: gone). The check's time is recorded in the plan each time it runs in this phase. |
+| 47T.2 | **Cached worlds.** The bench worlds the slow unit files build (the hilly world, the town, the caves, lakes) are generated once into a cache on disk outside the repo, keyed by the generator's version and parameters, and read by the tests; a changed generator rebuilds its cache once. Files that still take over 10 s after that are split: the part that proves a rule on a small made case stays in the check; the real-scale part runs in the phase run only. Target: the check's unit set under 2 min at six workers; the phase run's unit part under 8 min. |
+| 47T.3 | **Browser tests to unit tests, then archived.** By the inventory: each *logic* check gets its unit test (or is shown covered) BEFORE its browser test is archived with `git mv`; *looks* and *retire* files are archived; their helper modules with them when nothing else imports them. The boot check is written fresh (five tests, one file, one backend), not carved from an old story. Bench tools that drive a browser to take pictures or measure stay as tools, not tests. |
+| 47T.4 | **The picture set.** One command produces a phase's pictures from a fixed list (the lighting reference cameras and rooms that exist, plus the editor screens the archived *looks* tests covered: the structure mode, water body, spline, voxel world page), on a cached world, settled, with the bench's speck count and the performance report beside them. An agent opens every picture and writes what it sees and what is wrong, in a fixed short form; the pack is published with `add-phase.py`. The first run of it is this phase's own acceptance. |
+| 47T.5 | **The defect list.** Closed: rows of retiring systems (about 59), rows whose only subject is an archived test (the watch rows of tests; duplicates merged), bounds demoted to stats (D659, D643, D817, D824 and the like). Moved to `docs/perf-recommendations.md`: rows that are a measured cost. Left open: real defects of the voxel path. The status key loses "watch" for tests. Counts before and after on the owner page. |
+| 47T.6 | **Close.** The check run three times in a row, green, with its times; the phase run once, with its time; a short independent review (did any *logic* check get archived without a unit test; do the rules and the commands agree; is anything still gating on a pixel or a time); the acceptance page `acc47t`: the times against §2's budgets, what was archived, the picture set's first run, what is no longer checked by anything. **Stop. 47b is not begun.** |
+
+Order: 47T.0, 47T.1, 47T.2, 47T.3, 47T.4, 47T.5, 47T.6. 47T.1 comes early so the rest of the phase already runs
+on the new check.
+
+## 5. Progress
+
+| Item | Status |
+|---|---|
+| 47T.0 | not started |
+| 47T.1 | not started |
+| 47T.2 | not started |
+| 47T.3 | not started |
+| 47T.4 | not started |
+| 47T.5 | not started |
+| 47T.6 | not started |
+
+## 6. How this phase is run
+
+- It obeys its own budget: until 47T.1 lands, an item's green is build + lint + the unit tests related to the
+  change; no every-area gate, no rerun of an old flaky row, no placing. After 47T.1: `gate.sh check`.
+- One Opus agent at a time, in the foreground (`AGENTS.md`, "Sessions and sub-agents"); no timers. Work folders
+  `~/.cache/thirdlight-phase47t/work/<item>/` with a `progress.txt`; each green part committed and pushed at once.
+- Light on the host: capped workers and memory for anything heavy; nothing left running.
+- Archive with `git mv` into `archive/`, never `git rm`. Nothing stored by the engine changes.
+- Estimate: 8–14 hours of agent time; the uncertain part is how many browser tests hold logic worth a unit test.
+
+## 7. Results
+
+(one section an item)
+
+## 8. Decision log
+
+- **2026-11-26 — the reset is the owner's direction** (quoted in the header): unit tests first, a five-test boot
+  check, looks from pictures read by an agent and by the owner, performance as recorded stats, cached worlds, one
+  hour of test time a phase, later discovery of browser-only defects accepted.
+- **2026-11-26 — the workstation is not part of the routine** (lead): it is not always on; the check must fit
+  this host. Real performance numbers are taken there by hand when wanted.
+
+## 9. Open questions for the owner (each with the default that stands if unanswered)
+
+1. **The picture set's size.** Default: about 30 pictures a phase (the reference cameras and rooms, four editor
+   screens), so an agent's read and yours stay short.
+2. **Old systems' tests go now, before 48 removes the systems.** Default: yes (you do not expect to use block
+   layers after the merge); their engine code is untested until 48 deletes it.
