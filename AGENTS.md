@@ -32,11 +32,8 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
 - Packages talk through their public exports only. `npm run build` enforces boundaries, dependency pins, and
   strict TypeScript; keep it green.
 - Use the lockfile and pinned versions. Check official docs for version-sensitive APIs.
-- WebGPU first (owner 2026-11-10): new rendering work is designed, built, tested and measured on WebGPU.
-  WebGL 2 is a fallback for drivers where WebGPU fails: it keeps what it draws today and has one smoke test
-  (`tests/e2e/webgl2-smoke.e2e.ts`: loads, draws, no console error); no new features, no parity. Specs that
-  still force a WebGL 2 pass by hand, and two-renderer measurement rounds, are cut as each area is next
-  touched.
+- WebGPU is the engine's renderer: rendering work is designed, built, tested and measured on it. WebGL 2 is
+  no longer checked or kept working (owner 2026-11-25); no effort is spent on it.
 
 ## How to work
 

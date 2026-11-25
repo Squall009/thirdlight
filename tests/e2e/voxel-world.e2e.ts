@@ -1,6 +1,6 @@
 /**
  * A project's voxel world in the real page against the real backend, on
- * WebGPU (WebGL 2's voxel page is webgl2-smoke.e2e.ts's): the voxel world page streams the world's region
+ * WebGPU (WebGL 2 is not checked): the voxel world page streams the world's region
  * files by range, derives and draws them (ground, walls, and the kit pieces
  * on the stone's edges), sends a brush dab as a
  * command, and shows the change once the backend has written it (pixels
@@ -433,7 +433,7 @@ async function assemblyProof(page: Page, errors: string[]): Promise<void> {
 }
 
 {
-  // WebGPU only: WebGL 2's voxel page is webgl2-smoke.e2e.ts's. The assembly proof runs first on the same page load.
+  // WebGPU only: WebGL 2 is not checked. The assembly proof runs first on the same page load.
   const renderer = 'webgpu';
   test('assembly proof (runtime set/dig turn a banister into a wall and a beam into a stub across chunk faces; every consumer, collision included, follows; round trips), then streams, draws and edits the voxel world through commands; the edit is in the files after a backend restart and a reload; fine far bricks', async ({ page }) => {
     // Fine far bricks build over frames on the GPU after the rest (~30 s of the page's own frames under the gate's load).

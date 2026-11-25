@@ -37,11 +37,10 @@ and moves on; unanswered defaults count as approved (owner, 2026-10-26; `docs/de
 4. **The runtime never imports editor code**, exports run without the
    editor, determinism and replays hold (a data default equal to the old
    constant keeps every recorded replay valid).
-5. **Renderer target: WebGPU first, WebGL 2 a fallback** (owner decision;
-   WebGPU first, 2026-11-10). Shading is authored once (three.js TSL/node
-   materials). New rendering work is designed, built, tested and measured on
-   WebGPU; WebGL 2 keeps what it draws today, with one smoke test, no new
-   features and no parity.
+5. **Renderer target: WebGPU** (owner decisions 2026-11-10, 2026-11-25).
+   Shading is authored once (three.js TSL/node materials). Rendering work is
+   designed, built, tested and measured on WebGPU; WebGL 2 is no longer
+   checked or kept working.
 6. **Observed, not claimed.** Visual/audio results are "owner look pending"
    unless observed in pixels by a test.
 7. **Performance first, with soft targets** (owner, 2026-10-03; targets

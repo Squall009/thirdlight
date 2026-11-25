@@ -9,8 +9,7 @@
  * GPU: where the render node is usable (see `gpuAvailable` in
  * tests/e2e/browser-env.mjs) the browser runs on the host's GPU and every
  * spec runs once, in `default`, on the product's own renderer (`auto` →
- * WebGPU). WebGL 2 is a fallback: `webgl2-smoke.e2e.ts` forces it and is its
- * whole coverage.
+ * WebGPU). WebGL 2 is not checked: no spec is written for it.
  *
  * Without a GPU (or with TL_E2E_SOFTWARE=1) everything falls back to
  * SwiftShader: `default` has no WebGPU adapter (`auto` takes WebGL 2), and

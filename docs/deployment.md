@@ -263,8 +263,8 @@ node tools/perf/run.mjs                     # the performance harness (long; see
 
 `npm run test:e2e` runs the Playwright specs. On a host with a usable GPU
 every spec runs once, in `default`, on the product's renderer (`auto` →
-WebGPU); WebGL 2, the fallback, is covered by `webgl2-smoke.e2e.ts` alone
-(the old WebGL 2 / WebGPU parity specs are in `archive/webgl2-parity/`).
+WebGPU); WebGL 2 is not checked (owner, 2026-11-25; the old parity specs and
+the smoke test are in `archive/webgl2-parity/`).
 Without a GPU everything runs on SwiftShader: `default` has no WebGPU
 adapter (`auto` takes WebGL 2), and `webgpu` runs the renderer-sensitive
 specs again with headless WebGPU (Dawn's SwiftShader adapter).

@@ -66,8 +66,7 @@
       ],
       "e2e": [
         "voxel-world",
-        "structure-mode",
-        "webgl2-smoke"
+        "structure-mode"
       ]
     },
     "rendering": {
@@ -100,8 +99,7 @@
         "editor-workers",
         "ktx2-rgba-thumbnails",
         "look-override",
-        "placeholders",
-        "webgl2-smoke"
+        "placeholders"
       ]
     },
     "materials": {

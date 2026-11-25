@@ -29,7 +29,8 @@ Scene view against Play), archived when WebGPU became the one renderer tested
 only. Their harnesses and reference images went back to
 `tests/e2e/webgpu-reference/` the same day, where WebGPU alone is compared with
 the references (`tests/e2e/webgpu-reference.e2e.ts`); the specs here still name
-their old paths.
+their old paths. The smoke test itself joined them on 2026-11-25, when the owner
+dropped WebGL 2 from what is checked.
 
 `spike-22-render-worker/` holds the phase 22.2 spike, which was not adopted:
 the exported game drawn by a render worker on an OffscreenCanvas, fed

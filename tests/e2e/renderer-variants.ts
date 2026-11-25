@@ -3,8 +3,8 @@
  * declared once per variant; a variant runs in one Playwright project.
  *
  * On a GPU host the product's renderer is the one tested: `auto` (no flag),
- * which takes WebGPU there. WebGL 2 is a fallback whose whole coverage is
- * `webgl2-smoke.e2e.ts`, so no spec repeats itself on it.
+ * which takes WebGPU there. WebGL 2 is not checked, so no spec repeats
+ * itself on it.
  *
  * Without a GPU (SwiftShader, no WebGPU adapter in `default`):
  *  - `default`: `auto` (it takes the WebGL 2 backend here) and `webgl2`
@@ -44,8 +44,8 @@ export function onlyInItsProject(variant: RendererVariant, variants: readonly Re
   test.skip(webgpuProject ? variant !== 'webgpu' : variant === 'webgpu', `the ${variant} variant runs in the ${variant === 'webgpu' ? 'webgpu' : 'default'} project`);
   if (GPU) {
     // One renderer on a GPU: the product's (`auto` → WebGPU). A test that names the forced WebGL 2 variant
-    // itself is skipped; webgl2-smoke.e2e.ts is the fallback's coverage.
-    test.skip(variant === 'webgl2', 'WebGL 2 is covered by webgl2-smoke.e2e.ts only');
+    // itself is skipped: WebGL 2 is not checked.
+    test.skip(variant === 'webgl2', 'WebGL 2 is not checked');
   } else {
     // Gate speed: on a host without a WebGPU adapter `auto` takes the same WebGL 2
     // path as the `webgl2` variant, so it would repeat it step for step (~6 min per full run).

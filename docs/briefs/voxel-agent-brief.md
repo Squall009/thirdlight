@@ -112,14 +112,14 @@ Gates (owner 2026-11-11: run only what a change affects; tools/gate.sh, AGENTS.m
   - `fast [--all] [e2e files…]` per commit: build, lint, `vitest related` on the files changed since the branch's
     last green gate (~/.cache/thirdlight-logs/last-green-phase-45; whole suite with --all, without a base, or when
     package/config/gate/check files changed), the core smoke (authoring-loop, play-export), the e2e areas the
-    changed files map to (tools/gate-areas.json; voxel = voxel-world + webgl2-smoke; project-model, shared and the
+    changed files map to (tools/gate-areas.json; voxel = voxel-world + structure-mode; project-model, shared and the
     backend's plumbing = every area, `everyArea`) and any files named; the
     village perf check (WebGPU only, at the cap) only when three-adapter/runtime/game-host/voxel/effects/perf
     changed. Only a clean tree is recorded as green: commit before you gate.
   - `area <name>…` at the end of an item that changed an area broadly (leak test on).
   - `phase <start-commit>` once at a sub-phase's end (lead): every unit test + core + areas touched since then.
-  - `full` only for the merge to main or on the owner's word. There is no `--both-renderers` any more: WebGL 2
-    is covered by tests/e2e/webgl2-smoke.e2e.ts alone.
+  - `full` only for the merge to main or on the owner's word. There is no `--both-renderers` any more, and WebGL 2
+    is not checked at all (owner 2026-11-25: its smoke test is archived).
   - Perf one-off miss → `tools/gate.sh rerun`; repeat miss → interleaved same-hour A/B against base d4053cab
     (3 rounds, base worktree built with `node tools/build.mjs` under ~/.cache/thirdlight-phase46/work/, removed
     after); equal = host state, note it.
@@ -191,8 +191,8 @@ you are not the go/no-go validator; flag only obvious regressions (the owner's "
 D-rows continue at D568.
 
 WEBGPU FIRST (owner 2026-11-10; AGENTS.md; plan-46d §2/§9): WebGPU is the renderer voxel work is designed, built,
-tested and measured for. WebGL 2 is a fallback: it keeps what it draws today and gets ONE smoke check per area
-(loads, draws, no console error), no new features, no parity. New items measure and take pictures on WebGPU only;
+tested and measured for. WebGL 2 is no longer checked or kept working (owner 2026-11-25; its smoke test is archived);
+no effort is spent on it. New items measure and take pictures on WebGPU only;
 cut existing both-renderer e2e passes / two-renderer rounds in the area you touch (not a sweep). Vista steps
 46d.17–46d.20 go on compute, reusing three-adapter occlusion-pyramid.ts and occlusion-instances.ts (no second
 culling path). Vista note: docs/research/voxel-vista-performance.md (§6 supersedes §4 where they differ).
@@ -222,8 +222,8 @@ SCOPE FENCE (owner; do not cross, do not re-litigate):
 - Reuse before building: your brief names the existing module each thing extends (plan §5). If you need something the
   plan did not foresee, make the smallest change and log it in the plan's decision log ("default chosen, owner to
   confirm"); do not widen the phase. Never copy a helper: import it (tools/check-redefinitions.mjs).
-RENDERER: WebGPU only for new work, tests, pictures and measurements. WebGL 2 only has to keep passing
-tests/e2e/webgl2-smoke.e2e.ts.
+RENDERER: WebGPU only for new work, tests, pictures and measurements. WebGL 2 is not checked (owner 2026-11-25:
+its smoke test is gone).
 MEASURING (replaces the PERFORMANCE section above where they differ): the low tier, WebGPU, 1280 × 720, at its 30 Hz
 cap, with the headroom meter (`run.mjs headroom`: room and pass shares) and the coverage bench (`run.mjs coverage`:
 hitches, settle); never uncapped; GPU timestamps are not usable at the cap (D544). Medium and high: pass shares only,
@@ -262,8 +262,7 @@ SCOPE FENCE (owner; do not cross):
   that are never stored (region labels, chunk face connectivity, sky columns; owner 2026-11-14). Anything else that
   seems to need a spec change: STOP and report to the lead.
 - three.js stays at 0.187.0. No new private three hook where a public API does the job (tools/three-hooks.test.mjs).
-- WebGL 2 keeps what it draws today and must keep passing tests/e2e/webgl2-smoke.e2e.ts. "WebGL 2 loses X" is never a
-  default you may log: a written rule is not a default.
+- WebGL 2 is not checked (owner 2026-11-25: the smoke test is archived); spend no effort on it.
 - Reuse before building (plan §5): name the module you extend and the shared foundation (voxel-engine.md §6) you sit
   on. Time slices come from the frame arbiter's table (`frameSliceMs`), budgets from FRAME_BUDGET_BY_TIER /
   MEMORY_BUDGET_BY_TIER; no new constant for a slice or a budget. Smallest change for anything unforeseen, logged in
@@ -319,8 +318,7 @@ SCOPE FENCE (owner; do not cross):
   stop), no world edit mode, no relief, no detail-piece LODs, no compute build of the clustered light lists.
 - Approved formats and specs do not change. Anything that seems to need a spec change: STOP and report to the lead.
 - three.js stays at 0.187.0 (checked 2026-11-16). No new private three hook where a public API does the job.
-- WebGPU only for new work; WebGL 2 keeps what it draws and tests/e2e/webgl2-smoke.e2e.ts stays green. "WebGL 2 loses
-  X" is never a default you may log.
+- WebGPU only; WebGL 2 is not checked (owner 2026-11-25: the smoke test is archived).
 - Reuse before building (plan §5; voxel-engine.md §6): name the module you extend and the foundation you sit on. Time
   slices from `frameSliceMs`, budgets from FRAME_BUDGET_BY_TIER / MEMORY_BUDGET_BY_TIER; a tuned constant becomes a
   tier setting or a table entry, never a new bare constant.
@@ -375,7 +373,7 @@ SCOPE FENCE (owner; do not cross):
   value, chunk codec, region file bytes, edit command, undo record, save file, far cache, kit, role or render spec:
   STOP and report to the lead. An approved entry's text goes into its spec in the commit that builds it.
 - three.js stays at 0.187.0 (checked 2026-11-20). No new private three hook where a public API does the job.
-- WebGPU only for new work; WebGL 2 keeps what it draws and tests/e2e/webgl2-smoke.e2e.ts stays green.
+- WebGPU only; WebGL 2 is not checked (owner 2026-11-25: the smoke test is archived).
 - One mutation path: the commands. The editor and MCP send the same ops; one undo line (workspace undo-timeline.ts).
 - Generic capability only; no per-project count caps; no game behaviour (how a door swings is a game's).
 - Reuse before building (plan §5; voxel-engine.md §6): name the module you extend. Time slices from `frameSliceMs`,

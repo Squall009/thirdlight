@@ -1,8 +1,8 @@
 /**
  * WebGPU against frozen reference images: the environment and post stack and the shader families drawn in
  * neutral test scenes (`webgpu-reference/env/harness.ts`, `webgpu-reference/shader/harness.ts`) through the real
- * three-adapter code, compared pixel by pixel with the references in their `refs/` folders. WebGL 2 is a
- * fallback with its own smoke test (`webgl2-smoke.e2e.ts`); this file draws WebGPU only, so a change to a sky
+ * three-adapter code, compared pixel by pixel with the references in their `refs/` folders. WebGL 2 is not
+ * checked; this file draws WebGPU only, so a change to a sky
  * mode, fog, shadows, tone mapping, a post effect or a shader family's nodes shows here as a picture that moved.
  *
  * The references are the WebGL pictures the archived WebGLRenderer path drew before the port to WebGPURenderer

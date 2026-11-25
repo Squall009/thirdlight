@@ -15,7 +15,7 @@
 #   tools/gate.sh full                        only for the merge to main or on the owner's word: build +
 #                                             lint + vitest + every e2e spec, the leak test included
 #                                             (TL_MEMORY=1), once on the product's renderer (WebGPU on a
-#                                             GPU; WebGL 2's coverage is webgl2-smoke.e2e.ts)
+#                                             GPU; WebGL 2 is not checked)
 #   tools/gate.sh rerun                       the fix loop: the build, then the step the last RED gate
 #                                             stopped at (lint, the vitest files that failed, the e2e
 #                                             tests that failed, the perf check) and the steps after it

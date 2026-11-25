@@ -399,7 +399,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
 });
 
 test('ground cover on a model\'s upward faces draws as rows of the culled-instance table: thinned with distance across the ground, hidden points left out on the pyramid\'s path (export served with the backend stopped; WebGPU)', async ({ page }) => {
-  test.skip(backendOf('auto') !== 'webgpu', 'the culled-instance table is WebGPU\'s; WebGL 2 keeps its rings (webgl2-smoke)');
+  test.skip(backendOf('auto') !== 'webgpu', 'the culled-instance table is WebGPU\'s; WebGL 2 keeps its rings (not checked)');
   test.setTimeout(180_000);
   be = await startBackend('inst-cover-e2e');
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' }, post: { antialias: 'smaa' }, wind: { direction: [1, 0], strength: 0, gust: 0, gustFrequency: 0.3, turbulence: 0 } } });
