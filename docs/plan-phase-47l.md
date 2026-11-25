@@ -100,7 +100,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | 47L.5 | Partial 2026-11-25 (9dfbb292): turned walls' blocks fixed (D809): the read reached one column of a wall's staircase; a cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Remain: blotches (D692, ray noise, §10 question 1); the wall-foot line is the sun's shadow (D810: found in 47L.8, fix reverted) |
 | 47L.6 | Partial 2026-11-25 (9492710d): a light ray keeps 1 − coverage of cells under half only (D818 above it: a jump to nothing at half), CPU walk and WGSL twin, every level; what stops light stops it whole (census 0). Shown on a damaged wall and props only: nothing partial in the bench town's view, no fence or shutter shown. GPU=CPU walk; cost not resolved |
 | 47L.7 | Done 2026-11-25 (measurement, no code): the 128-lamp room is back (second rounds 44, 44, 64 ballast copies with the copies search at the head, 56–76 without); 47a.13's 15 and 14 were the edge search stopping at 16 copies on 2–3 missed frames of 89 (single spikes), as 47a.0’s 3, 47L.3’s 7: D711’s kind in second rounds. No bisect. D740: level 0 alone still reads ~1 ms under the default |
-| 47L.8 | not started |
+| 47L.8 | Done 2026-11-25: review in §9 (10 findings; rows D819–D823); D810 = the sun's back-face shadow, fixed a64913b2 and reverted 7c26e201 (WebGL 2 smoke); end reading in §8a: 128-lamp GPU lighting 5.7–5.9 → 7.1–8.7 ms (over 6.67), town higher in 3 of 3, under its rows; closing gate red on old rows (D659, D643, D799, D817, D823); `acc47l`, five questions. 47b not begun |
 
 ## 8. Format and spec steps
 
