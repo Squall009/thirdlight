@@ -11,7 +11,7 @@ page in the same commit.
 - **Voxels are the single source of truth.** Terrain, buildings, water, fog, materials and physics are voxels;
   vegetation rules derive from the voxel and its material id. A system that needs world data derives it from
   voxels; it does not keep a second authored copy.
-- **WebGPU is the renderer.** WebGL 2 is a fallback that keeps what it draws and has one smoke test.
+- **WebGPU is the renderer.** WebGL 2 is no longer checked or kept working (owner, 2026-11-25).
 - **Targets.** The floor GPU (Intel Iris Xe) runs the low tier at 720p with a temporal upscale (render scale
   about 0.667), capped at 30 Hz, in about 4 GB (page 1,536 MiB + GPU 2,560 MiB) of an 8 GB machine. Medium and
   high are unverified on target hardware. Travel up to 150 m/s is judged by hitches and by the settle after a
@@ -205,8 +205,8 @@ page in the same commit.
   owner. The **mesh far field** is a fallback behind a switch.
 - **Lighting of voxels**: in Play and exports the near field's surfaces (level 0 and the level 1–2 mesh rings) and
   kit pieces cast and receive like any lit draw, as static casters of the key light's cached map and the shadow
-  atlas (with three's default for a front-sided material, its back faces: a wall's inner face shades the floor at its
-  foot from within the shadow's bias, a lit line inside a shut room, D810, open): each chunk, node or seam shown, replaced or taken away is reported where it stands, and only the cached map
+  atlas, casting with their faces toward the sun (`shadowSide` front: with three's default, back faces, a wall's
+  inner face shades the floor at its foot from within the shadow's bias, a lit line inside a shut room): each chunk, node or seam shown, replaced or taken away is reported where it stands, and only the cached map
   and the lamp faces it reaches are drawn again; the sun's square is centred on the voxel ground under the camera
   (sky heights). Past the square, and in the far field, the **sun heights** shade: the top of what is solid in each
   column round the camera (the sky heights, 0.5 m columns over 512 m; the far field's drawn bricks, 4 m columns over
