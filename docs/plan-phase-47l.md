@@ -98,7 +98,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | 47L.3 | Done 2026-11-25 (52b31126): no ray passes a sealed wall or corner at any yaw (the stamp is tight); the leaks were the read: cells across thin solids, and the coarse levels at turned corners (D746). A surface reads only its own side, level 0 whole where it reads light: inside points reading outside light 5,725 → 0 of 95,552; G45's corner lines gone. Left: D809–D811 |
 | 47L.4 | Done 2026-11-25 (e7c04aa6, 60c1e5f7): a shut door's cells over the whole opening (D791), stopping light at the walk's mips (D773, grids), and the sun's shadow over a shut opening's cells (D812: shadow-only casters sent with the grid's draws). No strip with a placed leaf even before; a prop with no model let sun in. Not built: world-grid openings, the Scene view, thin props (D727) |
 | 47L.5 | Done 2026-11-25 (9dfbb292): turned walls' blocks (D809) were the read reaching one column of a wall's staircase (its notch cells held no light). A cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Blotches (D692) are stored ray noise, left for the owner; wall-foot line (D810) narrowed |
-| 47L.6 | not started |
+| 47L.6 | Done 2026-11-25 (9492710d): a light ray keeps 1 − coverage of each cell the stop passes in part (damaged construction, props and stamps under half), CPU walk and WGSL twin, every level; what stops light still stops it whole (census 0, no solid leakier); ground passes as its surface. GPU=CPU walk with partial cells; cost not resolved. Smooth damage past half needs a derived step (D818) |
 | 47L.7 | not started |
 | 47L.8 | not started |
 
@@ -695,6 +695,97 @@ triangles, draws, trims, covered, fine bricks) stays the same for 2 s (`farStill
 is unchanged. With it alone at the head 4 of 4 at 0 px, every wait at its 2 s floor: the failure was not reproduced with
 the wait in place, so that it cures it is **unverified** (D817 stays a watch row; D785, the same test's earlier row, placed
 with it).
+**Gate** (74f674e2): `gate-fast-20261125-093310` (build, lint, vitest 802 files, 327 e2e) RED on `start.e2e.ts:62` (D815) and
+`frame-rate-cap` (D659) only, the proof passing in it at 0 px (the far wait 2.15 s, load mean 6.5); `gate-rerun-20261125-101407`
+GREEN. No expectation changed.
+
+### 47L.6 — light through partly covered cells (9492710d)
+
+**What the data holds.** Ground: its density, every cell (`coverage()` in `derived-data.ts`; shape × 17; drawn and stopping
+from 128). Construction: its form's share (`LIGHT_COVERAGE`: box 255, panel 64, bar 100, post 16 — but no class takes a thin
+form since derived 22: `classForm` makes walls, beams and rails boxes) and, damaged, the least of that and its integrity's
+share (`integrityCoverage`, 17 × integrity, 1–14; a stage-2/3 hole is `FORM_HOLE`, a box for every consumer but the base
+surface, so drawn as a body for the walk). Props marked to light: the sampled share (4³ points a cell) in the prop channel,
+joined 1 − (1 − a)(1 − b); structure grids' stamps write their share of samples in stopping grid cells into the same channel.
+Kit pieces: nothing (they stamp nothing). The bench town's fences are timber walls (whole cells) and it has no shutter: in
+the default town only the ground's fill and the turned grids' stamps are partial. Before this item nothing used partial
+coverage: the walk stopped a cell at half or more and passed the rest whole. `light-shots --walk-check` at the six default
+cameras: 0 rays crossing a partly covered cell (`raw/B-ref-r{1,2}`).
+
+**The rule** (default chosen, §9). What stops light today stops it whole: drawn bodies at half or more, props and stamps
+joined at half or more, shut portals, the mips' stopping cells. So 47L.3's census stays 0, no solid gets leakier, and a
+turned wall's stamp stays tight (its cells at half or more are what keep a 6-connected ray out of the staircase). Every other
+cell a body covers in part keeps 1 − its coverage of the light crossing it: construction damaged under half (integrity
+1–7), props' and stamps' cells under half (a prop's joined with a damaged cell's own share). The ground's cells over its
+surface pass whole: their fill places the surface the walk already stops at (counted, every grazing ray over terrain would
+darken). Coverage goes in fifteenths (`walkCoverStep`: 4 bits a cell on the GPU), the product along the ray, the cell it
+starts in left out, spent under 1/256 (`WALK_SPENT`, under what the volume's words tell from none). Coarse levels: a mip
+cell's coverage is its downsampled voxel's by the same rule; a parent of construction is intact (`downsampleMip`), so a coarse
+cell half full of a damaged wall stops whole (tested); a ground parent takes the mean fill (passes as ground does). The hold
+rule and the read use the stop bit only, so they are unchanged.
+
+**Built** (9492710d; nothing stored, no derived step): the CPU walk (`occupancy-walk.ts`: `trans`, `WalkBlockView.partial`),
+the views (`walk-sources.ts`), the page form (`walk-pages.ts`: a block holding such cells carries a cover in two page slots
+beside its page, 16 brick words then 4 bits a cell, found by the table entry's fourth word; other blocks carry none), the WGSL
+walk (`voxel-walk-wgsl.ts`), the volume's update (`volume_pass` for the sun, lamps and glows; `ray_radiance`'s sky, coarse
+light and hit scaled by what the walk let on), its CPU reference, the GPU walk check comparing transmittance, and
+`light-shots --walk-check`.
+
+**Tests** (`voxel/occupancy-walk-partial.test.ts`, `three-adapter/voxel-walk-wgsl.test.ts`): a row at 20 % lets on 0.8,
+three rows 0.512, a 70 % cell 0.333 (within a step of 0.3), a wall behind keeps what reached it; the start cell is the ray's
+own, a spent ray ends with 0, the solid stop reads none; the packed table (the GPU's words) walks the views' transmittance on
+400 rays (over 100 partial); props' cells under half keep the rest, at half they stop; a wall damaged at integrity 1…15 (real
+derive): 1 − i/15 for 1–7 in equal steps of 1/15, stopped from 8 on; a coarse cell half full of a damaged wall stops whole.
+Without the walk's multiply 5 of the 6 fail (the coarse guard passes, as it should). The WGSL test holds the twin's constants,
+the cover's words and the update's products. 47L.3's census and 47L.5's smoothness test green; every light-volume and walk
+test file green (19 files). **GPU = CPU** (`--walk-check`, 1,200 rays from each eye): 0 mismatches everywhere; rays with
+transmittance under 1: 3 at `props-cart` (props), 5 and 1 at `room-window` and `room-window-2m` with the damaged patch.
+
+**The clause that does not hold** (clause e, "no jump at one half" for a damaged wall): above, a damaged wall lets on
+1 − i/15 up to integrity 7 and nothing from 8 (a jump of 0.53 at half). The derived light output cannot tell a damaged body
+from ground at or past its surface (both drawn, coverage 128–254, both shape × 17), so passing damaged construction above half
+while keeping the ground whole needs one more derived output (a bit a cell for bodies whose coverage is their integrity: a
+derived version step in §3.7's light output) and a choice of what the hold rule does with such a cell (open, it holds light
+and the read reaches through it). Options: (a) that step as its own item (a version step, the hold rule's choice, pictures);
+(b) leave it: the owner's F4 ("light by integrity") then holds under half only. Not taken here (D818).
+
+**Pictures** (low, WebGPU, 1280 × 720; `work/47L.6/shots/{before,after}/`, raw in `raw/`; A = 74f674e2 in its own worktree,
+B = 9492710d; every shot settled in 3.5–13.4 s with nothing waiting). Opened and looked at:
+- the default town (nothing partial): `street-noon`, `room-window`, `ref-30m`…`ref-150m` at B, two runs: white/green 0/0 at
+  every camera in both (`raw/B-ref-r{1,2}`); `room-window` as before (D810's line as in 47L.5b).
+- props (`--props 2`, `crops/props-table-full.png`, before above after): alike by eye; the floor under the table against its
+  control (`propShade`) 1.47 (looking up 1.45) before, 0.95 (0.81) after, one run each, inside D727's earlier spread.
+- a damaged wall: the room camera's west wall, cells x −10, y 1–5, z 2–4, set to integrity 5 through `editVoxels` and
+  restored after (`crops/room-window-damaged5.png`: intact, before, after): drawn as a stage-3 hole; after, the room behind it
+  a little darker (the volume takes two thirds of the outside's light there). **Still wrong**: the hole is drawn open and the
+  sun's map lets the sun through it whole while the volume takes its integrity (F4 by design); above half a drawn-open hole
+  passes nothing (D818).
+- fences and shutters: none in the town gives partial coverage (fences are whole timber walls); not shown beyond the props
+  and the damaged wall.
+- turned grids (G45): not taken (the base run timed out at the grid settle); the stamps' notch cells under half now take their
+  share: **unverified** in a picture (the rooms test holds a turned wall's read smooth, its mean over 0.6 of the unturned).
+The world restored after each change: its 3,074 voxel files byte-equal (`world-before.sha1`, `world-after*.sha1`).
+
+**Cost** (2026-11-25 10:50–11:20 UTC, low, WebGPU, 1280 × 720, 30 Hz cap, each run alone, A = 74f674e2, B = 9492710d, A B A
+B, `--copies none --scales none`, second rounds; load 0.7–3.1; `work/47L.6/m/`, `scripts/summ2.py`):
+
+| | GPU near (ms) | GPU lighting (6.67) | page ms a frame | page lighting (2.0) | room | missed |
+|---|---|---|---|---|---|---|
+| town A | 4.65 ±1.6, — | 5.36 ±2.1, — | 5.10, 5.80 | 0.87, 0.73 | 120, 120 | 0, 0 |
+| town B | 5.53 ±1.4, 5.52 ±2.0 | 5.14 ±0.9, 5.93 ±3.2 | 5.28, 5.50 | 1.05, 0.95 | 120, 120 | 0, 0 |
+| 128 lamps A | 9.62 ±0.4, 9.55 ±1.1 | 6.02 ±1.3, 6.68 ±3.1 | 5.89, 5.82 | 1.92, 2.06 | 56, 76 | 0, 1 |
+| 128 lamps B | 8.33 ±2.5, 9.31 ±0.6 | 6.87 ±0.9, 7.50 ±3.2 | 5.83, 6.05 | 1.97, 2.17 | 56, 72 | 0, 1 |
+
+—: A's second run's second round read nothing on the GPU (its first: near 4.90 ±3.1, lighting 4.59 ±0.6). The town's GPU
+lighting within the spreads; the 128-lamp scene's 0.8 ms higher at B in both rounds (spreads 0.9–3.2), one B round over the
+row (7.50): not resolved. The default scenes have no partly covered cell, so what a walk adds there is a branch a step and
+the entry's fourth word. The town's page lighting 0.15–0.2 ms higher at B in both rounds (inside 2.0; as in 47L.5, not
+explained). Edit → light (`--cache-edits`, the room's window dug, one run each): first light 88 ms A, 84 ms B; settled 9.1 s
+A, 11.2 s B (the night wall step was refused at both: the camera list lacked the night camera). No tier setting (§9).
+**Gates**: `npm run build`, lint green; `gate-fast-20261125-113718` (build, lint, vitest 800 files, 26 e2e over core, voxel and
+lighting) GREEN; its Play test's GPU walk = CPU walk check met 6 rays with transmittance under 1 and 0 mismatches; the Play
+test 2.4 min (2.4 min at 74f674e2's gate). No expectation changed.
+**Unverified:** nothing in motion; medium and high (same code); the turned grids' pictures; WebGL 2 (never runs the volume).
 
 ## 9. Decision log
 
@@ -738,6 +829,13 @@ with it).
   noise (low's settled history of 4 rays × 64 updates); the cheapest cure is a longer history on low (`historyUpdates` 64 →
   128, high's value: no cost a frame, twice the time to refine; stored spread 0.38 → 0.33 in the Node model), or more rays a
   face (a cost a frame): not changed here, under §10's question 1.
+
+- **2026-11-25 — 47L.6: a light ray keeps what partly covered cells let on, and what stops light still stops it whole**
+  (default chosen, owner to confirm): cells under half (construction damaged under half, props' and stamps' cells under
+  half) keep 1 − their coverage in fifteenths; cells at half or more stop as before, so no solid gets leakier and the turned
+  stamp stays tight; the ground's cells over its surface pass whole (its fill places a surface, not a share of the cell).
+  Damaged construction above half still stops whole: passing it needs a derived step (D818). No tier setting: the cost was
+  not resolved (the 128-lamp scene's GPU lighting read 0.8 ms higher at B in both rounds within spreads of 0.9–3.2 ms).
 
 ## 10. Open questions for the owner (each with the default that stands if unanswered)
 
