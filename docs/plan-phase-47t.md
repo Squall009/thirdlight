@@ -82,7 +82,7 @@ on the new check.
 
 | Item | Status |
 |---|---|
-| 47T.0 | not started |
+| 47T.0 | done 2026-11-26: `docs/inventory-47t.md`. 180 browser files (326 tests run): logic 149, retire 15, dropped browser-only 8, looks 5, boot 3; 131 logic files covered today, 19 new unit tests to write; 43 slow unit files (1,743 s), most partly served by a cached world; boot check and a 32-picture set drafted. |
 | 47T.1 | not started |
 | 47T.2 | not started |
 | 47T.3 | not started |
@@ -105,6 +105,15 @@ on the new check.
 ## 7. Results
 
 (one section an item)
+
+### 47T.0
+
+- `docs/inventory-47t.md`, built from the last every-area gate's e2e log (gate-fast-20261125-163859) and the last whole-suite vitest log (gate-fast-20261125-183438); nothing was run. Its generator and raw tables: `~/.cache/thirdlight-phase47t/work/47T.0/`.
+- Browser: 180 files, 326 tests run + 11 skipped, 2,861 s summed. Lead fates: logic 149 files (2,295 s), retire 15 (409 s), dropped browser-only 8 (76 s), looks 5 (47 s), boot 3 (34 s); 27 files mixed. Of 150 files with logic, 131 are covered by unit tests that exist (titles read, bodies to be read in 47T.3), 19 need one new unit test each.
+- Unit: 43 files at 10 s or more, 1,743 s (19 voxel-bench files 1,242 s). Most are "partly" served by a cache: the world comes from it, the derive they prove still runs; the real-scale tests inside them go to the phase run.
+- Boot check: editor loads, a voxel world draws, Play starts and stops, an export runs with the backend stopped, and an MCP play with no editor open (the agents' path).
+- Pictures: 22 existing bench cameras plus 10 new editor screens.
+- For the lead: blocks.e2e.ts is gameplay entities, not block layers (census said retiring; here logic); ktx2-rgba-thumbnails (WebGL 2) retire; webgpu-reference and memory dropped or kept as bench tools; the retiring systems' slow unit files (surface-probes, surface-bake, block-mesh-worker, m42 bake-lighting) archive now or at 48.
 
 ## 8. Decision log
 
