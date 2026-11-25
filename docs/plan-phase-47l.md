@@ -97,7 +97,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
 | 47L.3 | Done 2026-11-25 (52b31126): no ray passes a sealed wall or corner at any yaw (the stamp is tight); the leaks were the read: cells across thin solids, and the coarse levels at turned corners (D746). A surface reads only its own side, level 0 whole where it reads light: inside points reading outside light 5,725 → 0 of 95,552; G45's corner lines gone. Left: D809–D811 |
 | 47L.4 | Done 2026-11-25 (e7c04aa6, 60c1e5f7): a shut door's cells over the whole opening (D791), stopping light at the walk's mips (D773, grids), and the sun's shadow over a shut opening's cells (D812: shadow-only casters sent with the grid's draws). No strip with a placed leaf even before; a prop with no model let sun in. Not built: world-grid openings, the Scene view, thin props (D727) |
-| 47L.5 | not started |
+| 47L.5 | Done 2026-11-25 (9dfbb292): turned walls' blocks (D809) were the read reaching one column of a wall's staircase (its notch cells held no light). A cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Blotches (D692) are stored ray noise, left for the owner; wall-foot line (D810) narrowed |
 | 47L.6 | not started |
 | 47L.7 | not started |
 | 47L.8 | not started |
@@ -563,6 +563,101 @@ kind: these are Play pictures). **Still wrong:** a faint glow of the light volum
 (`07b`, both commits: the read of the cells at the stamp's edge, D810's kind, 47L.5). **Unverified:** nothing in motion;
 medium and high (same code); WebGL 2 (casters are built the same way; not looked at).
 
+### 47L.5 — patchy indirect light: a turned wall's read reached one column of its cells (9dfbb292)
+
+**Where the patchiness comes from** (Node, `work/47L.5/scripts/wallread.ts`: a one-storey generator house with a 2 × 1.5 m
+window, stamped by the default rule off the cell lattice, lit by the update's model (sky and the noon sun); its back
+wall's inside face read every 5 cm along a row 1.2 m over the floor, 151 points; the cells' light at 32 rays a face (one
+update's worth), 256 (the low tier's settled history: 4 rays × 64 updates), 1,024 and 2,048 (near converged)):
+
+| yaw | read's largest step between points 5 cm apart, over the mean (2,048 rays) | cells a point reads: mean, least | read's CV (the light's own fall) | stored cells' CV by the wall, 32 / 256 / 2,048 rays |
+|---|---|---|---|---|
+| 0° (W, G0) | 0.048 | 4, 4 | 0.225 | 2.04 / 0.38 / 0.25 |
+| 17° | 0.299 | 3.3, 2 | 0.214 | 0.86 / — / 0.22 |
+| 30° | 0.402 | 2.79, 2 | 0.229 | 0.73 / 0.45 / 0.21 |
+| 45° | 0.442 | 2.0, 2 | 0.208 | 0.97 / — / 0.23 |
+
+So there are two things, and they are not one. **D809 is the read's** (with the cells converged the turned walls still
+step by 0.30–0.44 of their mean, the straight one by 0.05): the eight cells round a point beside a turned wall, which is
+stamped as a staircase, hold light only where a solid lies across one of their faces; the open cells in the
+staircase's notches touch it only by an edge, hold none, and so the cells on the room's side touch one another only
+through them. The reach rule of 47L.3 (a face step at a time through cells holding light) then counted one column of
+the staircase's cells or the other (two cells of eight at every point at 45°), and a point's light jumped where the
+column changed: the blocks a cell wide. Before 47L.3 the coarse levels' 1–4 m cells blurred it (and lit it from outside).
+**D692 is the stored cells'**: one update's 32 rays leave neighbouring cells of one evenly lit wall 0.7–2.0 apart (CV),
+the low tier's settled history of 256 rays 0.38–0.45, converged 0.21–0.25 (the light's own fall over the wall); the
+update's same-face filter (not in this model) softens it further; 46e.6b had ruled out the accumulation weight and the
+sequence. Not measured on the GPU: the cells' CV per variant (`--cells-at` along a wall) was not taken in this session's
+time; the Node numbers stand for it.
+
+**Rejected on the way:** letting the reach pass the cell of the eight farthest along the normal where it holds nothing
+(open air off the surface, by geometry): the rooms census found 1–88 inside points reading outside light at 0°–45° (the
+far corner can be solid: an inner corner's wall), so that cell's emptiness cannot be told from solidity in the read.
+
+**The fix** (9dfbb292; `voxel-light-volume-layout.ts` `volumeCellHolds`, `VOLUME_HOLD_STEPS`, and the update's WGSL
+`volume_holds` from the same list, one commit with the tests): a level-0 cell holds light where it is open with a solid
+across one of its faces **or edges**. The notch cells now hold light; the read is unchanged (its program, its reach, its
+loads): it walks through them to both columns and reads four to six of its eight cells. The read still never passes a
+solid (a solid cell never holds light). A cell holding only by an edge across a brick's edge may lie in a brick not kept
+(no slot; it then holds nothing, rare). Nothing stored; no new constant (the eighteen steps are the rule).
+
+**After** (the same model): largest step 0.040 / 0.040 / 0.036 at 17° / 30° / 45° (0.048 unturned); cells read 5.25 / 5.7 /
+6.0 on average, at least 4 / 4 / 6; the read's CV 0.20 / 0.21 / 0.16. Held cells round the house +39 % (0°) to +48 % (turned):
+the update's rays go to more cells of the bricks it already updates.
+
+**Tests.** `voxel-light-volume-rooms.test.ts`: new, "a turned wall reads its light as smoothly as a straight one" (the house
+above at 0°, 17°, 30°, 45°, 1,024 rays a face): the largest step between points 5 cm apart under 0.2 of the mean (with
+the face rule 0.61, 0.68, 0.92 at 17°, 30°, 45°: fails; 0.05–0.09 now), every point reading at least 4 cells (2 with the
+face rule), the wall's CV within 1.25× the unturned wall's and its mean over 0.6 of it; the census of 47L.3 now uses the
+update's own rule (`volumeCellHolds`) and stays 0 (no room cell lit, no inside face reading outside light at six yaws).
+`voxel-light-volume-layout.test.ts`: the update's `volume_holds` walks exactly the CPU twin's eighteen steps in order; the
+cell-by-cell reference holds by a face or an edge (fails with the face rule). Every light-volume test file green (12, 87
+tests).
+
+**Speck counts** (the read's program did not change; its cells did): `street-noon`, `ref-30m` … `ref-150m` at 9dfbb292, two
+runs, all settled: white / green 0 / 0 at every camera in both (`raw/B-ref-r{1,2}/`); `lroom-above` 0 / 0 at G0, G30, G45 at
+both commits.
+
+**Cost** (2026-11-25 06:50–07:20 UTC, low, WebGPU, 1280 × 720, 30 Hz cap, each run alone, A = a42eff9d in its own worktree, B
+= 9dfbb292, A B A B, `--copies none --scales none` on all (two rounds with them do not fit the 9-minute call);
+`work/47L.5/m/`, 1-minute load 0.9–2.0):
+
+| | GPU near (ms) | GPU lighting (6.67) | page ms a frame | page lighting (2.0) | room (copies) | missed |
+|---|---|---|---|---|---|---|
+| town A | below ±0.6, 5.42 ±2.5 | 6.21 ±1.2, 5.21 ±0.4 | 5.32, 5.56 | 0.77, 0.78 | 128, 120 | 0, 0 |
+| town B | 4.91 ±0.5, 5.01 ±1.2 | 4.85 ±0.2, 5.65 ±1.6 | 6.07, 6.33 | 0.95, 1.04 | 120, 120 | 0, 0 |
+| 128 lamps A | 9.66 ±3.0, 9.03 ±1.9 | 6.03 ±1.9, 6.77 ±1.6 | 6.95, 6.91 | 2.08, 1.82 | 68, 68 | 0, 0 |
+| 128 lamps B | 9.77 ±0.5, 8.81 ±0.2 | 7.22 ±0.8, 5.12 ±4.1 | 6.37, 6.94 | 1.86, 2.21 | 80, 76 | 1, 1 |
+
+GPU lighting not resolved within the spreads (town B no higher; lamps one reading each side of 6.67); the town's page
+lighting read 0.17–0.26 ms higher at B in both rounds (inside its 2.0 row; not explained: the change is on the GPU).
+Where the town's GPU lighting row stands: 4.9–6.2 ms against 6.67 at both commits (47L.3's 5.3–6.0). No tier setting
+was needed.
+
+**Gates**: `npm run build`, lint (the changed files; the gate's whole lint) green. `gate-fast-20261125-072018` (build, lint,
+vitest 802 files, 327 e2e) RED on `frame-rate-cap` (D659), `project-items.e2e.ts:183` (alone 3 of 3 at the head, 2 of 3 at
+a42eff9d: an old flake, D410's kind), `resource-manager.e2e.ts:97` (3 of 3 alone at both), `rendering.e2e.ts:878`
+(D320: 1 of 3 alone failed at the head, 0 of 3 at a42eff9d; no voxel world in it) and `voxel-world.e2e.ts:1652`'s switch-off proof
+("switched off, the picture is the store-off one": 1,056 px apart against < 40). That test alone at the head passed 3 of 3 (0 px);
+at a42eff9d in its worktree it failed 3 of 3 before reaching the proof (the character on the pad, the roof's stale bricks: that
+worktree's run, not comparable). `gate-rerun-20261125-081722`: every other file green, the proof again 49 px apart: the pixels lie
+along the far hills' skyline against the sky (`work/47L.5/gate-1652/pair.png`: the far field's edge drawn a pixel differently with the
+store off before and after), not in what the volume lights; D817. No expectation changed; the bound was not widened.
+
+**Pictures** (low, WebGPU, 1280 × 720; `work/47L.5/raw/{A,B}-{W,G0,G30,G45}/`, before = a42eff9d, after = 9dfbb292; W settled
+in 3.6–11.6 s with nothing pending; the G variants refused by the settle check, D750 "simulation state not read", every
+level's stale count 0 in each; the staging world set by `town-grids` and restored after, its 3,074 voxel files
+byte-equal; crops before above after in `work/47L.5/crops/`). Opened: `G45-room-window-wall.png` and
+`G30-room-window-wall.png`: the dark and light rectangles beside the windows are gone, the wall's light falls off smoothly
+from each window (faint broad patches remain); `G0-*`, `W-*` alike before and after (axis walls: nothing changed there);
+`G45-props-table-full.png` the same light, the floor-edge line still there; `W-cave-full.png` alike; `W-street-noon-gable.png`
+the white gable's soft blotches as before (D692); `G45-lroom-above-full.png` no speck, no change outside. **Still wrong:**
+the floor's and the gable's soft blotches (D692: stored ray noise); the dashed bright line at the walls' feet in W and every
+G and the floor-edge line in G45's `props-table` (D810: with `&surfaceRead=surface` the dashes stay, so not the kit pieces;
+with the volume off none, so the voxel surfaces' read at the wall's foot, `crops/W-wallfoot-surfaceonly.png`,
+`W-wallfoot-on-off.png`; which cells it reads there was not traced); no room got leakier, darker or flatter in these
+pictures. **Unverified:** nothing in motion; medium and high (same code); the cells' spread on the GPU.
+
 ## 9. Decision log
 
 - **2026-11-24 — the pass is placed and started on the owner's word** ("Write the lighting pass and get it
@@ -597,6 +692,14 @@ medium and high (same code); WebGL 2 (casters are built the same way; not looked
   authored), so what this changes is a shut prop with no model, holes or a thinner model: the sun now stops there as
   the light volume does. The alternative, leaving the sun to the model, keeps a door's look the model's alone but
   lets a bare or lattice prop shut the room's light and not its sun. The Scene view (no portal state) is left as is.
+
+- **2026-11-25 — 47L.5: a cell holds light with a solid across a face or an edge** (default chosen, owner to confirm): the
+  blocks on turned walls (D809) were the read reaching one column of a staircase's cells; holding light in the notch
+  cells lets it reach all of them with the read unchanged. The update's rays go to 39–48 % more cells round a house; the
+  GPU lighting reading did not resolve a cost. **D692 left for the owner**: the remaining blotches are the cells' own ray
+  noise (low's settled history of 4 rays × 64 updates); the cheapest cure is a longer history on low (`historyUpdates` 64 →
+  128, high's value: no cost a frame, twice the time to refine; stored spread 0.38 → 0.33 in the Node model), or more rays a
+  face (a cost a frame): not changed here, under §10's question 1.
 
 ## 10. Open questions for the owner (each with the default that stands if unanswered)
 
