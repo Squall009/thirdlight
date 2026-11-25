@@ -83,7 +83,7 @@ on the new check.
 | Item | Status |
 |---|---|
 | 47T.0 | done 2026-11-26: `docs/inventory-47t.md`. 180 browser files (326 tests run): logic 149, retire 15, dropped browser-only 8, looks 5, boot 3; 131 logic files covered today, 19 new unit tests to write; 43 slow unit files (1,743 s), most partly served by a cached world; boot check and a 32-picture set drafted. |
-| 47T.1 | not started |
+| 47T.1 | done 2026-11-25: `tools/gate.sh check` (build in lanes, cached lint, fast unit set, `tests/e2e/boot.e2e.ts`) and `phase` (all units, boot, picture step skipped, perf report recorded); old modes and gate areas archived; AGENTS.md and the brief rewritten. Check GREEN in 367 s (unit 308 s: over 5 min until 47T.2); `--failed` 31–60 s. |
 | 47T.2 | not started |
 | 47T.3 | not started |
 | 47T.4 | not started |
@@ -105,6 +105,51 @@ on the new check.
 ## 7. Results
 
 (one section an item)
+
+### 47T.1
+
+- `tools/gate.sh` 425 → 238 lines: `check`, `check --failed`, `phase`, `start check|phase`, `wait`. Each caps itself
+  (a scope when run from a shell, the `thirdlight-gate` unit when started); one at a time (the shared lock). A red
+  step no longer stops the run (a red build does), so one run lists every failure and `--failed` reruns the build,
+  lint and only the failed unit files and boot tests.
+- Build: `npm run build` is `tools/build-all.mjs`, the same steps in lanes (typecheck, history comments, the other
+  checks in two lanes, the bundles). Warm 50 s one after another → 26–28 s in lanes; cold (no tsc build info) 128 s.
+  Lint in the check: `--cache --cache-strategy content` under `node_modules/.cache/eslint`: cold 108 s, warm 1–2 s;
+  a changed file is always linted again; a type-aware rule's answer in an unchanged file whose import changed is
+  seen only by the phase run's full lint (111 s).
+- The slow list: `tests/slow-unit-files.json` (the inventory's 43 files, with their seconds), read by
+  `vitest.config.mts` (`TL_UNIT_SET=fast|slow`, unset = all: 941 / 43 / 984 files) and checked by
+  `tools/check-slow-units.mjs` in the build. Vitest's config now leaves out `.claude/**` itself.
+- The boot check, `tests/e2e/boot.e2e.ts`, one backend, a made 48 m flat-ground world with the wall-beam-banister
+  scene: the editor loads (token, picker, Scene view frames); the world draws in the Scene view (chunks > 0, no
+  problems); Play draws it and stops; an MCP play with no editor open (headless editor: observe running, a PNG
+  screenshot); the export served with the backend stopped draws it, no request outside the folder. "Nothing errors":
+  no console or page error, no failed or 4xx/5xx request. 19–30 s. The export test runs last (it stops the backend).
+  One fix while writing it: the MCP observe answers `not_presented` until the first frame, so the poll reads the
+  state instead of failing on that answer. None of the five needed a timing bound.
+- `phase`'s performance step: on a GPU host, staging (started at 6G if not running, stopped after), then
+  `run.mjs headroom --quality low --rounds 1 --copies none --scales none` on the 8 km world, then
+  `tools/perf-report.mjs` (frame rate, frame p50/p95, GPU frame and per-pass ms, page heap and GPU memory) beside
+  the newest earlier report in `~/.cache/thirdlight-logs/perf-reports/`; it never turns a run red. The picture step
+  prints that it is skipped; 47T.4 replaces `pictures()` in `tools/gate.sh` with its command (and may add the
+  bench's speck count to the report).
+- Gone: `fast`, `area`, `rerun`, `full`, the changed-since-last-green widening, the rerun-alone of failed tests, the
+  village perf check as a gate, `tools/gate-areas.json` and `tools/check-gate-areas.mjs`
+  (`archive/removed-gate-modes/`). Docs that taught them: AGENTS.md (new section "Tests and the gate"), the agents'
+  brief, `docs/deployment.md`, `docs/environment.md`, `docs/three-upgrade-checklist.md`,
+  `docs/architecture/voxel-engine.md`, `docs/manual/features/performance.md`, STATUS's notes.
+- Over budget: the fast unit set is 306–308 s at 6 workers (its files' own time 774 s; module imports 711 s more,
+  vitest's report). That is 47T.2's target (under 2 min); moving more files to the slow list would hide coverage,
+  so it was not done.
+
+Check runs in this phase:
+
+| When, commit | Total | Build | Lint | Unit | Boot | Result |
+|---|---|---|---|---|---|---|
+| 2026-11-25 23:07, 7a5f76cc + this item (uncommitted) | 366 s | 28 s | 2 s | 306 s (929 files passed, 13 skipped) | 30 s | GREEN |
+| 2026-11-25 23:15, `--failed` (one boot test failed on purpose, one unit file) | 60 s | 27 s | 2 s | 17 s (1 file) | 14 s (1 test) | GREEN |
+| 2026-11-25 23:17, `--failed` (one unit file) | 31 s | 28 s | 2 s | 1 s | — | GREEN |
+| 2026-11-25 23:22, ea2d3363 | 367 s | 27 s | 2 s | 308 s | 30 s | GREEN |
 
 ### 47T.0
 
