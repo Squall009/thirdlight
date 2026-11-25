@@ -996,6 +996,10 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
 
   /** Builds the surface's program for a draw's path into `material` (every path reads the same grids, table and arrays). */
   const program = (material: THREE.MeshStandardNodeMaterial, path: VoxelSurfacePath): void => {
+    // A voxel solid casts the sun's shadow with its faces toward the sun: with three's default (back faces cast) a
+    // wall's inner face shades the floor at its foot from within the shadow's bias, a sliver of sun along the foot of
+    // every wall facing away from the sun, inside a shut room (the normal bias keeps lit faces clear of themselves).
+    material.shadowSide = THREE.FrontSide;
     if (opts.shading === 'flat') {
       material.colorNode = vec4(0.55, 0.52, 0.47, 1);
       material.roughnessNode = float(0.85);
