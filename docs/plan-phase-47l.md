@@ -99,7 +99,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | 47L.4 | Done 2026-11-25 (e7c04aa6, 60c1e5f7): a shut door's cells over the whole opening (D791), stopping light at the walk's mips (D773, grids), and the sun's shadow over a shut opening's cells (D812: shadow-only casters sent with the grid's draws). No strip with a placed leaf even before; a prop with no model let sun in. Not built: world-grid openings, the Scene view, thin props (D727) |
 | 47L.5 | Done 2026-11-25 (9dfbb292): turned walls' blocks (D809) were the read reaching one column of a wall's staircase (its notch cells held no light). A cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Blotches (D692) are stored ray noise, left for the owner; wall-foot line (D810) narrowed |
 | 47L.6 | Done 2026-11-25 (9492710d): a light ray keeps 1 − coverage of each cell the stop passes in part (damaged construction, props and stamps under half), CPU walk and WGSL twin, every level; what stops light still stops it whole (census 0, no solid leakier); ground passes as its surface. GPU=CPU walk with partial cells; cost not resolved. Smooth damage past half needs a derived step (D818) |
-| 47L.7 | not started |
+| 47L.7 | Done 2026-11-25 (measurement, no code): the 128-lamp room is back (second rounds 44, 44, 64 ballast copies with the copies search at the head, 56–76 without); 47a.13's 15 and 14 were the edge search stopping at 16 copies on 2–3 missed frames of 89 (single spikes), as 47a.0’s 3, 47L.3’s 7: D711’s kind in second rounds. No bisect. D740: level 0 alone still reads ~1 ms under the default |
 | 47L.8 | not started |
 
 ## 8. Format and spec steps
@@ -776,9 +776,12 @@ B, `--copies none --scales none`, second rounds; load 0.7–3.1; `work/47L.6/m/`
 | 128 lamps A | 9.62 ±0.4, 9.55 ±1.1 | 6.02 ±1.3, 6.68 ±3.1 | 5.89, 5.82 | 1.92, 2.06 | 56, 76 | 0, 1 |
 | 128 lamps B | 8.33 ±2.5, 9.31 ±0.6 | 6.87 ±0.9, 7.50 ±3.2 | 5.83, 6.05 | 1.97, 2.17 | 56, 72 | 0, 1 |
 
-—: A's second run's second round read nothing on the GPU (its first: near 4.90 ±3.1, lighting 4.59 ±0.6). The town's GPU
-lighting within the spreads; the 128-lamp scene's 0.8 ms higher at B in both rounds (spreads 0.9–3.2), one B round over the
-row (7.50): not resolved. The default scenes have no partly covered cell, so what a walk adds there is a branch a step and
+—: A's second run's second round read nothing on the GPU (its first: near 4.90 ±3.1, lighting 4.59 ±0.6). A third 128-lamp
+pair (12:52–13:05 UTC, load 1.1–1.4): A 6.92 ±1.6, B 8.17 ±2.7 (near 10.71, 9.86). The town's GPU lighting within the
+spreads. The 128-lamp scene's read higher at B in all three pairs (+0.8, +0.8, +1.3 ms; spreads 0.9–3.2) and 7.3–8.9 in 47L.7's
+three runs at B: not resolved by the rule, but every B reading sits over the 6.67 row and every A reading at or under 6.92.
+**Open for the lead**: if that is taken as the walk's cost, the remedy is the tier setting of §10's question 2 (partly
+covered cells off at low: the walk built without the cover branch, the CPU twin and the GPU check told the tier); not built. The default scenes have no partly covered cell, so what a walk adds there is a branch a step and
 the entry's fourth word. The town's page lighting 0.15–0.2 ms higher at B in both rounds (inside 2.0; as in 47L.5, not
 explained). Edit → light (`--cache-edits`, the room's window dug, one run each): first light 88 ms A, 84 ms B; settled 9.1 s
 A, 11.2 s B (the night wall step was refused at both: the camera list lacked the night camera). No tier setting (§9).
@@ -786,6 +789,44 @@ A, 11.2 s B (the night wall step was refused at both: the camera list lacked the
 lighting) GREEN; its Play test's GPU walk = CPU walk check met 6 rays with transmittance under 1 and 0 mismatches; the Play
 test 2.4 min (2.4 min at 74f674e2's gate). No expectation changed.
 **Unverified:** nothing in motion; medium and high (same code); the turned grids' pictures; WebGL 2 (never runs the volume).
+
+### 47L.7 — the 128-lamp scene: the room was a reading, not a regression
+
+**What each reading was.** The "room" is `headroom`'s edge: the ballast copies the frame holds at the 30 Hz cap before a
+window of 89 frames misses 2 % (a doubling, then halving search), times the ballast's measured ms a copy. Every second-round
+reading of the 128-lamp orbit on disk (`work/*/m/{O-128-*,lamps-*}.json`, both phases): 46e.14c 96, 88, 104, 76; 46e.19 68,
+68; 47a.0 88, **3**; 47a.9 88, 76, 96, 88; 47a.13 (6c1dec96) **15, 14**; 47L.1 80, 96, 76, 76; 47L.3 88, **7**, 68, 88; 47L.5
+68, 68, 80, 76; 47L.6 56, 76, 56, 72, 60, 72. 46e–47a.13 ran with the copies search (`copies` and `scales` on), 47L.1–47L.6
+with `--copies none --scales none`; the edge is searched before the copies in each round, so both measure the same thing.
+So 47L.1's 76–96 were the same edge, and the room never went: three readings in nine runs fell to 3–15.
+**Why 15 and 14** (`~/.cache/thirdlight-phase47a/work/47a.13/m/O-128-def-r{1,2}.json`, second rounds): the search held 4 and 8
+copies, then missed at 16 — 2 of 89 frames in r1 (one 82.7 ms frame, a page spike with draw submit 12.8 ms), 2 of 89 in r2
+(p95 37.9 ms) — and halved down to 15 (r1) and to 14 (r2, its 15 missing 3 with a 74.6 ms frame, draw submit 31.8 ms). 47a.0's
+3 (4 copies: 3 missed, max 50.9 ms, p95 38.8) and 47L.3's 7 (8 copies: 2 missed, p95 38.2) are the same: a window's two or three
+late frames, not the frame running out. D711 described it for first rounds; it reaches second rounds too.
+
+**Now** (the head, built at 9492710d, `--lamps 128 --scales none` with the copies search, two rounds, each run alone, 12:00–12:24
+UTC, load 1.1–2.5; `work/47L.7/m/copies-r{1,2,3}`): second rounds 64 × 0.129, 44 × 0.100, 44 × 0.126 (8.2, 4.4, 5.5 ms of
+room); first rounds −1, 6, 4 (D711). Near copies 0–1, far copies 3–32. No GPU measurement failed (D806 not seen). The
+second rounds' misses come from the doubling's next step (64 or 128 copies: 11–41 missed frames, max 58–99 ms): an edge, not a
+spike. So the room is back near the 56–96 of 47L.1–47L.6 at about 44–64 copies: **no bisect** (clause i). Whether 46e.19's
+68 and these 44–64 differ is inside the run-to-run spread seen here (44–76 at one commit in one hour).
+
+**D740's near** (clause j; the same orbit, `--copies none --scales none`, second rounds, 12:25–12:52 UTC, head):
+
+| read | near (ms) | GPU lighting |
+|---|---|---|
+| default (47L.6 B, 11:00–11:20; the copies runs 12:00–12:24) | 8.33 ±2.5, 9.31 ±0.6; 9.91 ±1.4, 9.54 ±3.8, 9.37 ±1.1 | 6.87, 7.50; 7.43, 8.88, 7.28 |
+| `surfaceRead=level0` | 7.00 ±3.7, 8.18 ±2.6 | 6.88, 5.97 |
+| `surfaceRead=index` | 6.75 ±2.3, 8.19 ±3.2 | 8.16, 6.07 |
+
+D740's row has 481e0491 at 5.0–6.5 (default) and 5.5 (`level0`), 47a.0's head 7.95, 8.40 (default), 6.0 (`level0`), 7.8, 8.2
+(`index`). So: level 0 alone still reads about 1 ms under the default (the coarse levels' read, as 47a.0 found; within the
+spreads here), and `index` now reads with `level0` rather than with the default; the default itself reads 8.3–9.9 against
+47a.0's 7.95–8.40 (different days; not an interleaved comparison). **Where it stands: the same in kind** (the coarse levels'
+read costing about a millisecond on this scene), not resolved in size. No hunt beyond that (clause j). Not proven: that the
+`level0` and `index` switches took effect in these runs (the near readings moved, the runs record no off-state reading).
+**Unverified:** nothing in motion.
 
 ## 9. Decision log
 
@@ -835,7 +876,8 @@ test 2.4 min (2.4 min at 74f674e2's gate). No expectation changed.
   half) keep 1 − their coverage in fifteenths; cells at half or more stop as before, so no solid gets leakier and the turned
   stamp stays tight; the ground's cells over its surface pass whole (its fill places a surface, not a share of the cell).
   Damaged construction above half still stops whole: passing it needs a derived step (D818). No tier setting: the cost was
-  not resolved (the 128-lamp scene's GPU lighting read 0.8 ms higher at B in both rounds within spreads of 0.9–3.2 ms).
+  not resolved (the 128-lamp scene's GPU lighting read 0.8–1.3 ms higher at B in three pairs within spreads of 0.9–3.2 ms,
+  every B reading over the 6.67 row): §10's question 2 stands, open for the lead.
 
 ## 10. Open questions for the owner (each with the default that stands if unanswered)
 
