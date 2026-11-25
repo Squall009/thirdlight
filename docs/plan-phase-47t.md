@@ -122,6 +122,12 @@ on the new check.
   hour of test time a phase, later discovery of browser-only defects accepted.
 - **2026-11-26 — the workstation is not part of the routine** (lead): it is not always on; the check must fit
   this host. Real performance numbers are taken there by hand when wanted.
+- **2026-11-26 — the inventory's unsure fates** (lead; default chosen, owner to confirm): `blocks.e2e.ts` is
+  *logic* (gameplay entities, not block layers); `ktx2-rgba-thumbnails.e2e.ts` retires as WebGL 2-only;
+  `webgpu-reference.e2e.ts` and `memory.e2e.ts` are archived and not kept as bench tools (the picture set shows
+  post effects and skies; leak checks were already skipped in every gate); the retiring systems' slow unit files
+  are archived in 47T.3 with their browser tests (§9 question 2's default); the repository test in
+  `tools/check-size.test.mjs` runs in the phase run only. The fifth boot test is an MCP play with no editor open.
 
 ## 9. Open questions for the owner (each with the default that stands if unanswered)
 
