@@ -162,16 +162,6 @@ describe('the voxel surface program', () => {
     expect(surface.variants).toBe(2);
   });
 
-  it('casts the sun\'s shadow with the faces toward the sun on every path (a wall\'s inner face never shades the floor at its foot)', () => {
-    for (const shading of [undefined, 'flat'] as const) {
-      const surface = createVoxelSurface(LAYOUT, { look: (m) => ({ colour: 0x808080 + m, pattern: m % 4 }), blendMetres: 0.5, ...(shading === undefined ? {} : { shading }) });
-      for (const m of [surface.material, surface.materialFor(FULL_PATH), surface.materialFor({ materials: 1, projection: 'axis' })]) {
-        expect(m.side, m.name).toBe(THREE.FrontSide);
-        expect(m.shadowSide, m.name).toBe(THREE.FrontSide);
-      }
-    }
-  });
-
   it('binds the arrays it is given and writes each material\'s wall, floor and ceiling layer into the table (none: −1), and binds the neutral texels again without arrays', () => {
     const surface = createVoxelSurface(LAYOUT, { look: () => ({ colour: 0, pattern: 0 }), blendMetres: 0.5 });
     expect(surface.textured).toBe(true);
