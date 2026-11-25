@@ -93,12 +93,12 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | Item | Status |
 |---|---|
 | 47L.0 | Done 2026-11-24 (no fix, no gate): reference cameras `ref-30m`…`ref-150m` (4230f8e7); clean world proven by regeneration; 30 shots settled. Specks and roof-ridge gaps are old: the same at 760c2aa0, b5093d11 and the head; specks gone with the volume off (a light read), gaps not (level 1 geometry, D802). Not 47a, no bisect. water/02's missing front is the lake dig (§8a) |
-| 47L.1 | Done 2026-11-24 (07eee3c8): the shipped read's form (one loop, shared index load, faces by weight, one cell past readFullM) drew the specks; no expression found (GPU dumps: every value finite, in range). Every level now read as first built, early-out kept; readFullM, readFaceFloor gone. Specks 0 at all cameras twice, grid houses 781 to 0; cost within spread |
+| 47L.1 | Done with the temporal upscale 2026-11-24 (07eee3c8): the shipped read's form (one loop, shared index load, faces by weight, one cell past readFullM) drew the specks; every level now read as first built. Specks 0 at five cameras twice and grid houses 781 to 0, in stills WITH the temporal upscale; without it black clusters remain (D808), cause unknown (D805). Cost within spread |
 | 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
 | 47L.3 | Done 2026-11-25 (52b31126): no ray passes a sealed wall or corner at any yaw (the stamp is tight); the leaks were the read: cells across thin solids, and the coarse levels at turned corners (D746). A surface reads only its own side, level 0 whole where it reads light: inside points reading outside light 5,725 → 0 of 95,552; G45's corner lines gone. Left: D809–D811 |
-| 47L.4 | Done 2026-11-25 (e7c04aa6, 60c1e5f7): a shut door's cells over the whole opening (D791), stopping light at the walk's mips (D773, grids), and the sun's shadow over a shut opening's cells (D812: shadow-only casters sent with the grid's draws). No strip with a placed leaf even before; a prop with no model let sun in. Not built: world-grid openings, the Scene view, thin props (D727) |
-| 47L.5 | Done 2026-11-25 (9dfbb292): turned walls' blocks (D809) were the read reaching one column of a wall's staircase (its notch cells held no light). A cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Blotches (D692) are stored ray noise, left for the owner; wall-foot line (D810) narrowed |
-| 47L.6 | Done 2026-11-25 (9492710d): a light ray keeps 1 − coverage of each cell the stop passes in part (damaged construction, props and stamps under half), CPU walk and WGSL twin, every level; what stops light still stops it whole (census 0, no solid leakier); ground passes as its surface. GPU=CPU walk with partial cells; cost not resolved. Smooth damage past half needs a derived step (D818) |
+| 47L.4 | Done for structure grids 2026-11-25 (e7c04aa6, 60c1e5f7): a shut door's cells over the whole opening (D791), stopping light at the walk's mips (D773), and the sun's shadow over a shut opening's cells (D812): the sun now follows portal state, not the model (a behaviour change, owner to confirm). Not built: world-grid openings, the Scene view; D727 open |
+| 47L.5 | Partial 2026-11-25 (9dfbb292): turned walls' blocks fixed (D809): the read reached one column of a wall's staircase; a cell now holds light with a solid across a face or an edge (CPU twin and WGSL): steps along a turned wall 0.30–0.44 → 0.04 of its mean. Remain: the blotches (D692, stored ray noise, §10 question 1) and the wall-foot line (D810) |
+| 47L.6 | Partial 2026-11-25 (9492710d): a light ray keeps 1 − coverage of cells under half only (D818 above it: a jump to nothing at half), CPU walk and WGSL twin, every level; what stops light stops it whole (census 0). Shown on a damaged wall and props only: nothing partial in the bench town's view, no fence or shutter shown. GPU=CPU walk; cost not resolved |
 | 47L.7 | Done 2026-11-25 (measurement, no code): the 128-lamp room is back (second rounds 44, 44, 64 ballast copies with the copies search at the head, 56–76 without); 47a.13's 15 and 14 were the edge search stopping at 16 copies on 2–3 missed frames of 89 (single spikes), as 47a.0’s 3, 47L.3’s 7: D711’s kind in second rounds. No bisect. D740: level 0 alone still reads ~1 ms under the default |
 | 47L.8 | not started |
 
@@ -218,6 +218,13 @@ the 60 m and 100 m houses are gone and the roofs are whole at 150 m. **Still wro
 pixels long remain where the seam meets a verge (D804); with the light on the specks stay (47L.1), some of them now
 along the line where the seam joins the two levels' roofs.
 
+**Gates** (written at the close; 9d9a88da): `gate-fast-20261124-160508` (build, lint, vitest 799 files, 327 e2e over every
+area) RED, 7 failed: `frame-rate-cap` (D659, 82.8 fps against > 90), `play-start-cache.e2e.ts:180` (the second Play's bundle
+transferred 13 MB, not from the cache), `sim-worker.e2e.ts:138` (5.41 against < 5), `terrain-cdlod` (D643, 0.588),
+`timeline.e2e.ts:305` (the hero's mode `place`, not `walk`), the Play test's jobs lane (D799) and the Scene view's top row
+(D798); `gate-rerun-20261124-164516` RED on D799 and D643 (0.598) only. Not placed at the time; the three unlisted reds are
+in D820. No expectation changed.
+
 **D750 and D784** (the box, 30 minutes). D750: at 47a.1cd's refused shots of the 131-grid town the job queue, jobs in
 flight and the far field's pending work and jobs were all 0 (`work/47a.1cd/d/S-g30-*/light-shots.json`), so the settle
 check waited either for the simulation's state (read as null when the diagnostics call fails, which the record cannot
@@ -324,7 +331,8 @@ written into D740, not looked into (47L.7).
 
 **Pictures** (2026-11-24, low, WebGPU, 1280 × 720, built at 07eee3c8, light on, two runs, every shot settled in 3.8–12.2 s
 with nothing waiting and the volume settled; `work/47L.1/shots/after/<camera>-on-r{1,2}.png`, `light-shots-r{1,2}.json`):
-white/green 0/0 at every camera in both runs (before, 47L.2's pictures: street 4/0, `ref-60m` 99/6, `ref-100m` 268/116,
+white/green 0/0 at every camera in both runs, stills with the temporal upscale on as shipped (with `&taau=0` black clusters
+remain on shaded walls: 47L.3's box, D808; nothing in motion was watched) (before, 47L.2's pictures: street 4/0, `ref-60m` 99/6, `ref-100m` 268/116,
 `ref-150m` 399/115). Crops before above after (`work/47L.1/crops/after-*.png`: `ref-100m-ridges`, `ref-100m-wallfoot`,
 `ref-60m-gables`, `ref-150m-mid`, `ref-150m-eave`, `street-noon-far`, `ref-30m-house`): opened; the specks are gone from
 gables, ridges, eaves and the grass by walls. Nothing lit became darker or flatter: the sunlit gable and the shaded walls
@@ -488,6 +496,12 @@ longest step 13.8 / 13.2 ms before, 13.2 / 11.6 after; the peak step and ten aft
 page lighting's longest 5.5 / 5.1 against 5.7 / 5.8 ms: within the runs' spread. Room cell: open 0.347 / 0.338, shut
 0.041 / 0.065 (before / after). Pictures `work/47L.4/shots/{before,after}/06*–08*.png`, opened: the same in both; the
 strip of sun and its fan stay (D812).
+
+**First session's gates** (written at the close; e7c04aa6): `gate-fast-20261125-021610` (build, lint, vitest 801 files, 327
+e2e over every area) RED, 6 failed: `block-editor.e2e.ts:142` (a layer pick read `null, false` against `ground-layers, true`
+in 15 s), `frame-rate-cap` (D659), `structure-mode`'s redo to step 5 (D774/D788), `terrain-cdlod` (D643, 0.589), the Play
+test's jobs lane (D799) and the Scene view's top row (D798); `gate-rerun-20261125-025425` RED on D659 and `rendering.e2e.ts:491`
+(D813, its 240 s timeout). Not placed at the time (block-editor: D820). No expectation changed.
 
 **The sun's shadow over a shut opening (D812; second session).** The shut state lived in
 the simulation and never reached the page, so only the prop's own model cast the sun's shadow. Now
@@ -879,9 +893,53 @@ read costing about a millisecond on this scene), not resolved in size. No hunt b
   not resolved (the 128-lamp scene's GPU lighting read 0.8–1.3 ms higher at B in three pairs within spreads of 0.9–3.2 ms,
   every B reading over the 6.67 row): §10's question 2 stands, open for the lead.
 
+- **2026-11-25 — Independent review** (a fresh agent that built nothing of the phase; range 41bbcf38..c6bb8efe; page
+  `~/.cache/thirdlight-phase47l/work/review/review.md`). **Verdict**: real fixes with tests that fail without them (roof
+  gaps in the seam, leaks in the read's rule, shut doors at the coarse levels, turned walls' blocks), but three "Done" rows
+  overstated (47L.1, 47L.5, 47L.6), the specks are clean only through the temporal upscale, the GPU read has no value test,
+  and the gate was red at five of eight code commits. Close once findings 1–6 are written; none needs new engine code.
+  **Findings and what was done** (47L.8):
+  1. Specks hidden, not gone, without the temporal upscale (D808): §7 47L.1 and §8a reworded; owner question (accept as
+     TAAU-only); the close's GPU dump at the wall-foot line (§8a "47L.8").
+  2. The GPU read paired with its CPU twin by text shape only: D819 (M); the speck count moved into the bench (§8a "47L.8").
+  3. 47L.5 does not answer "patchy gi": §7 → partial (D692, D810 remain); owner question 1 with a before/after pair of low's
+     `historyUpdates` 64 → 128 (§8a "47L.8").
+  4. 47L.6 not done for two clauses: §7 → partial (under half only; a damaged wall and props only); D818 stays; owner question.
+  5. Cost confounded (A from a side worktree, B from the main tree) and the sum over the phase not small: the end reading
+     builds 41bbcf38 and the head each in its own worktree (§8a "47L.8"); the page states the cumulative number.
+  6. Gates red at five code commits, reds with no row: D820 (six reds seen once); D643, D659, D798, D799 rates and which rows
+     were placed at a base (D643, D816, D410) or only assumed written into the rows; 47L.2's and 47L.4's first gate
+     paragraphs added; the quarantine recommendation below and §10 question 3 (not built).
+  7. The portal caster outside its clause: §7 47L.4 → "done for structure grids"; keep or revert is the owner's (47L.4's
+     entry above).
+  8. D817's wait a no-op by its own evidence: D817 says so; watch kept.
+  9. `ctx.voxels.raycast` with `stop: 'light'` reports a spent ray's partial cell as a hit, no transmittance: D821 (L).
+  10. Small: the design page's `allfaces` flag and `coverPartial`'s literal 15 and 255 fixed in 781211d8;
+      `openingCellsAt`'s flood D822 (L); the untuned constants (`SEAM_SAME_SIDE`, `VOLUME_READ_OFF_SURFACE`, the walk
+      check's 1e-5, each defined once): none.
+  **Requirements** (the review's): R-L1 partly (sealed rooms 0 leaking points in Node at six yaws, G45's corner lines gone,
+  shut doors stop the coarse rays; left the wall-foot line D810, a threshold glow at shut doors, world-grid openings, turned
+  openings 1.04–1.42× D811, 12 points at 7°); R-L2 partly (turned walls smooth; blotches D692 unchanged); R-L3 partly (0/0 at
+  five cameras twice, with TAAU, stills; D805, D808); R-L4 met in stills (two slivers D804; grid houses and a moving level
+  boundary not seen); R-L5 met. **Checked and clean**: nothing stored (no format, save, region or manifest change;
+  `ChunkDrawBatch.shut` and the 4-bit cover are wire and memory only); removed names have no user; generated constants
+  from one definition; ratchets unchanged; no file over 2,000 lines; no history comment; no `.skip`, raised bound or
+  timeout; no private three hook; runtime imports clean. **Not checked** by the review: build, lint, gates, benches;
+  WebGL 2; medium and high; the seam's 120 s bench test and the walk's partial tests run; on-disk seam caches; the rest of
+  `walk-pages.ts`'s table; raw bench JSON. **Needs the owner's eyes**: everything in motion (specks or sparkle while
+  moving, the L0|L1 boundary crossing a roof, a door flip, light settling after an edit); the wall-foot line and floor
+  blotches; a barred or lattice door shut (slab shadow); a damaged wall above and below half; the 128-lamp scene at the cap.
+  **Gate recommendation, recorded, not built** (it changes how every phase is judged: the owner's call, §10 question 3):
+  a quarantine list in `tools/gate.sh` keyed by D-row; the listed tests run in a serial lane after the rest and their
+  result is counted into their row; the blocking lane must be green; a red outside the list is never accepted on a rerun;
+  a row leaves the list by a fix or a re-derived bound, D643's bound and D659 first.
+
 ## 10. Open questions for the owner (each with the default that stands if unanswered)
 
 1. **Is a tier setting an acceptable cure for patchy light on the low tier** (more rays or a wider filter above
    low, the cheapest clean result at low)? Default: yes, with the pictures of each tier's result on the page.
 2. **If partial cells (47L.6) do not fit the low tier's lighting row**, default: on from medium, off at low, as a
    tier setting.
+3. **A quarantine lane in the gate** (the review's recommendation, §9 2026-11-25): tests listed by D-row run serially after
+   the rest and are counted into their row, the blocking lane must be green, a red outside the list is never accepted on a
+   rerun; D643's bound and D659 first. Default: not built; gates are judged as now until the owner says.
