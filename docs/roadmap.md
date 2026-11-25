@@ -117,7 +117,8 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 9. **51 Fog**: lit fog in the fog node, the slab march, the interactive ground fog on the interaction field;
    froxels last.
 10. **Post-stack performance**, then the performance pass over the whole voxel world from the numbers every
-    phase recorded (it also revisits occlusion culling on WebGPU: D282, D286).
+    phase recorded (it also revisits occlusion culling on WebGPU: D282, D286), starting from the measured
+    list in `docs/perf-recommendations.md`.
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
