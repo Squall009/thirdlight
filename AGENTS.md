@@ -114,6 +114,28 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
   new private hooks where a public API can do the job.
 - Preserve unrelated user changes. Never expose credentials in code, logs, bundles, fixtures, or docs.
 
+## Sessions and sub-agents
+
+Sessions run through the chat server (CloudCLI). After the lead's turn ends, it holds the session open for
+background work behind a 30-minute ceiling (`BG_WAIT_CEILING_MS` in
+`~/claudecodeui/server/modules/providers/list/claude/claude-runtime.provider.ts`, also handed to the CLI). Traced
+2026-11-24: a background agent was cut twice by an interrupt at exactly 30 and 60 minutes after the lead's turn
+ended ("[Request interrupted by user for tool use]"); no out-of-memory kill, reboot or restart was involved. The
+cut agent had started background shells of its own, and the second cut followed a resume by message; background
+agents that did neither ran over two hours uncut. Which of the two trips the ceiling was not proven. Agents run
+in the foreground afterwards ran 1.5 to 6.7 hours each without a cut.
+
+- Run a code-writing or measuring sub-agent in the **foreground** (`run_in_background: false`), one at a time, so
+  the lead's turn stays open while it works. Background only what is short and independent.
+- A sub-agent never uses `run_in_background` and never lets a command pass its tool timeout (the harness then
+  moves it to the background): every command is one blocking call bounded under 10 minutes (`timeout 540 …` with
+  the tool's timeout raised to match); a gate is `tools/gate.sh start …` then repeated bounded `tools/gate.sh wait`.
+- Do not resume a stopped agent by message and then end the turn: start a fresh foreground agent with the state
+  found (git status, its `progress.txt`, the gate logs, running processes).
+- No keep-alive timers or crons (owner 2026-11-23): a tick that runs a turn makes the session too heavy.
+- Every agent keeps a `progress.txt` in its work folder and commits and pushes each green part at once, so a cut
+  loses nothing. If an agent is found stopped, check that state first; detached scripts may have finished.
+
 ## Traps
 
 - Order inside an item: schema and commands, then runtime/adapter/host, then editor, exporter, tests, docs.
