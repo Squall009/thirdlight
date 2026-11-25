@@ -123,8 +123,10 @@ page in the same commit.
   the sky heights, and by the walk's mip levels as stopping cells), made again when a chunk of the grid arrives or
   leaves, sampled a row of world cells at a time in the derive slice (`GridStampSampler`; the cells are read in one
   piece); nothing is stored, and with no grid nothing is made. It is off by up to a cell:
-  a turned door or window is narrowed (12–18 % of rays through a 1 m one stop at 30°–45°), closed turned walls let
-  almost nothing through, rooms are found whole. Exact stepping of each grid in its own frame exists on the CPU only
+  a turned door or window is moved by up to a cell at each edge (12–18 % of rays through a 1 m one stop at 30°–45°,
+  and as many pass beside it: a room turned 30° takes about 1.2× the sky exact stepping gives it, 45° about the same),
+  closed turned walls let nothing through (no ray of 19 million from inside sealed houses at 0°–45°), rooms are found
+  whole. Exact stepping of each grid in its own frame exists on the CPU only
   (`grid-walk.ts` `walkWithGrids`: the reference). Paths walk each grid in its own graph, linked to the world's (the walk
   graph above). The far build reads a world's placed grids resampled into its cells (`grid-resample.ts`, workspace
   `FarWorldSource(dir, grids)`: the majority of 2 × 2 points a cell; the backend passes its objects' places to every
@@ -223,7 +225,12 @@ page in the same commit.
   vertex instead, below) in place of the flat ambient term (`voxel-light-volume-read.ts`): level 0, then each coarse level for what it left, a level read only
   where its window holds the point's bricks; the eight cells round the point half a cell off the surface at every
   distance (the far four of an axis face weigh 0: never across a wall), each written out with its own index load and
-  its three faces toward the normal by n². A shorter form (one loop, a shared index load, only the faces with a weight,
+  its three faces toward the normal by n²; a surface counts only those of the eight reached from its point's cell a face
+  step at a time through cells holding light (where that cell holds none, from the one beside it off the surface most
+  toward the normal), so a thin solid whose cells touch by an edge (a roof's steps, a turned wall's staircase, a room's
+  inner corner) is never read across, and a surface's level takes its share by the cells the level knows round the point
+  where it reads some light (so the coarse levels, whose cells span a thin solid, do not light it from the other side;
+  a particle's by its weight) (`volumeReadReach`; plan-47l §8a 47L.3). A shorter form (one loop, a shared index load, only the faces with a weight,
   one cell past a distance) drew white, green, magenta and black pixels at gables, ridges and wall feet on the Iris Xe
   with every value it computed sane; its cause was not found (plan-47l §8a 47L.1). Where no level holds light for a pixel (past the windows, or before its bricks are lit) the flat ambient, sky
 and environment term stands in; under a roof (the sun field's near tops over the point taken two columns off its

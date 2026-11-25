@@ -95,7 +95,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | 47L.0 | Done 2026-11-24 (no fix, no gate): reference cameras `ref-30m`…`ref-150m` (4230f8e7); clean world proven by regeneration; 30 shots settled. Specks and roof-ridge gaps are old: the same at 760c2aa0, b5093d11 and the head; specks gone with the volume off (a light read), gaps not (level 1 geometry, D802). Not 47a, no bisect. water/02's missing front is the lake dig (§8a) |
 | 47L.1 | Done 2026-11-24 (07eee3c8): the shipped read's form (one loop, shared index load, faces by weight, one cell past readFullM) drew the specks; no expression found (GPU dumps: every value finite, in range). Every level now read as first built, early-out kept; readFullM, readFaceFloor gone. Specks 0 at all cameras twice, grid houses 781 to 0; cost within spread |
 | 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
-| 47L.3 | not started |
+| 47L.3 | Done 2026-11-25 (52b31126): no ray passes a sealed wall or corner at any yaw (the stamp is tight); the leaks were the read: cells across thin solids, and the coarse levels at turned corners (D746). A surface reads only its own side, level 0 whole where it reads light: inside points reading outside light 5,725 → 0 of 95,552; G45's corner lines gone. Left: D809–D811 |
 | 47L.4 | not started |
 | 47L.5 | not started |
 | 47L.6 | not started |
@@ -345,6 +345,119 @@ load-sensitive check: 64 fps uncapped against > 90, load mean 6.0), green on `ga
 (`gate-rerun-20261124-204644`, with the perf check). No expectation changed. **Unverified:** nothing in motion; the 45°
 grids; medium and high (same code); the cause on the GPU.
 
+### 47L.3 — light through walls and corners: the read, not the stamp (52b31126)
+
+**The census, before any fix** (Node, `work/47L.3/scripts/`: `census.ts`, `exact.ts`, `wall.ts`; the real light walk with
+the stamps in a real prop channel by the default rule, the volume update's model `volumeRayRadiance` for the cells, its
+CPU read for the surfaces; sky and sun at noon and at 11°). The volume's **cells**: no cell inside a sealed house holds
+light. Generator houses (four shapes, one-cell walls, gable and hip roofs, no opening) at 0°, 7°, 15°, 30°, 38°, 45°,
+noon and low: 0 lit of 3,658–3,947 room cells a yaw. The bench town's houses with their openings filled (8 houses, 0°,
+30°, 45°, noon and low): 0 of 15,784–17,759. The same houses at every 3° from 0° to 45°, 16 rays a face: none of 19
+million rays escapes. One wall a cell thick, and an L of two, in an empty world at every degree 0°–90° and four sub-cell
+places, 2,000 rays each across it: none passes. Cells straddling a wall (middle in a wall cell, held): 0–6, none lit. So
+**the stamp is tight; no yaw fails there** and it was left as it is. The **surfaces' read** on the inside faces (four
+points a face, 95,552 a variant for the town): it took light from outside at 373 / 5,022 / 5,725 points at 0° / 30° /
+45° (gable tops, under roofs, eaves, inner corners, floor edges; brightest 0.12–0.57 against 0.7–0.8 on outside walls),
+the generator houses at 64 / 1,188 / 1,230 / 1,561 of 22,312 at 0° / 15° / 30° / 45°. Two causes, both in the read:
+
+1. **Across a thin solid.** The eight cells round a point beside a solid one cell thick whose cells touch by an edge (a
+   roof's steps even at 0°, a turned wall's staircase, a room's inner corner) hold cells of both sides; read whole, the
+   outside's light showed inside. The light walk never passes such a solid (6-connected); the read did.
+2. **The coarse levels at a corner (D746).** At a room's inner corner turned 45°, level 0's weight is 0.14–0.41 (GPU
+   cells read back with `--cells-at` at 104 points, `raw/probe-G45-corner/`: level-0 light 0.007–0.05 there): level 0
+   took its share by that weight and the coarse levels, whose 1–4 m cells span the walls, lit the rest from outside
+   (`surfaceRead=coarse` lights the walls by the corners brightly, `raw/diag-G45-coarse/`; `surfaceRead=level0` keeps the
+   line, the flat term filling the rest). The line is a voxel surface's (`surfaceRead=surface` keeps it).
+
+**The fix** (52b31126, `voxel-light-volume-read.ts` and its CPU twin in `voxel-light-volume-layout.ts`, one commit with
+the tests that pair them): a surface counts only the cells of the eight reached from its point's cell a face step at a
+time through cells holding light (`volumeReadReach`; where the point's cell holds none, from the cell off the surface most
+toward the normal less the point's distance to it, else the nearest; four steps cross any such way); and a surface's
+level takes its share by the weight of the cells the level knows (in its window, in a kept brick) where it reads some
+light, a particle's by its weight as before. No load was added (eight index loads, five pool loads a cell, as 47L.1's form
+test holds); the cells' light is untouched (the update, the walk and the stamp did not change). A conservative stamp or
+exact stepping was not needed: nothing passes the stamp.
+
+**After** (same census): the town's inside faces read light from outside at 0 / 0 / 0 points (noon and low); the
+generator houses at 0 at 0°, 15°, 30°, 38°, 45° and **12 of 22,312 at 7°** (one shape: points whose eight cells are all
+solid but one past the eave). With the coarse level 1 in the read (edge points, 0.01–0.06 of a cell from an edge): 299
+/ 389 points at 30° / 45° with the share by held weight, 2 / 41 with the share by known cells (points where level 0
+holds nothing reachable and the coarse levels answer). Points left with no weight (the flat term): inside 0 / 6 / 29,
+outside 2 / 2–8 / 8–12 of 73,920–77,128, the same as before.
+
+**The controls** (the town's houses with their openings as they are). The light cells are the same before and after (the
+read changed). The read on the inside faces, mean, noon: 0° 0.01294 → 0.01262 (−2.5 %), 30° 0.01682 → 0.01548 (−8 %),
+45° 0.0156 → 0.01369 (−12 %): what was read from outside. Outside walls 0.785 → 0.785 at 0°, 0.709 → 0.714 at 30°. **The
+turned openings' loss**: with exact stepping as the truth (`exact.ts`, the same rays), the stamp lets the light cells of
+rooms turned 30° see 1.18× the sky they should (2,644 rays pass beside openings where the wall stands, 1,470 stop inside
+them), 45° 0.99× (1,702 / 1,770); a room with one window turned 15°–45° reads 1.04–1.42× the unturned one: the opening is
+moved more than narrowed, so "12–18 % loss" is half of it. **Kept** by this item (the stamp is unchanged): D811.
+
+**Tests.** `voxel-light-volume-rooms.test.ts` (new, Node, 7 s): a generator house with no opening at 0°, 7°, 15°, 30°,
+38°, 45°, placed off the cell lattice, noon and low sun: more than 1,000 room cells, none lit; more than 5,000 inside face
+points, none reading light; a house with one window turned 15°–45° within 0.75–1.5 of its room's mean unturned (sky
+alone; measured 1.04–1.42). `voxel-light-volume-layout.test.ts`: the read never takes a cell across a roof's steps
+(1,600 points, the slope's normal and the steps' own), a surface beside a thin solid takes level 0 whole where it reads
+some light (and leaves a place level 0 does not know to the coarse levels); the twin's written-out read now walks the
+eight cells itself. **Without the fix** (the layout at dbcb1a1e, `base-check/fail-at-base.txt`): every yaw of the room
+test fails (359–615 inside points reading light), the roof-step and level-share tests fail, and the town-scrap twin
+tests fail; the "no room cell lit" half passes at the base (the stamp was always tight). The particle test's written-out
+rule now skips cells under the read's least weight (1e-4), as the GPU always did.
+
+**Cost** (2026-11-24 23:00–23:45 UTC, low, WebGPU, 1280 × 720, 30 Hz cap, each run alone, A = dbcb1a1e in its own
+worktree, B = 52b31126, `--copies none --scales none` on all (two rounds did not fit the 9-minute call with them);
+`work/47L.3/m/`, 1-minute load 1.3–4.9 at starts):
+
+| | GPU near (ms) | GPU lighting (6.67) | page ms a frame | page lighting (2.0) | room (copies) | missed |
+|---|---|---|---|---|---|---|
+| town A | 4.40 ±1.3, 4.65 ±2.2 | 5.26 ±0.9, 5.28 ±0.4 | 7.97, 30.0 | 1.03, 1.40 | 128, 120 | 0, 1 |
+| town B | 4.43 ±0.4, 5.00 ±1.0 | 6.00 ±1.8, 5.62 ±0.8 | 39.0, 6.36 | 1.40, 0.90 | 128, 128 | 2, 0 |
+| 128 lamps A | 8.63 ±2.3, 7.58 ±0.7 | 6.23 ±0.6, 4.87 ±1.0 | 8.99, 9.26 | 2.15, 2.61 | 88, 7 | 1, 2 |
+| 128 lamps B | 10.32 ±2.6, 8.89 ±0.1 | 6.19 ±0.6, 5.63 ±0.2 | 8.16, 8.41 | 2.03, 2.50 | 68, 88 | 0, 1 |
+
+Not resolved within the spreads; the town's GPU lighting read 0.3–0.7 ms higher at B in both rounds (the read's added
+arithmetic, no added load), and the lamps' `near` 1.3–1.7 ms higher (spread 0.1–2.6): reported, not claimed. Two page
+readings of 30 and 39 ms (one A, one B) are rounds whose frames stalled (sim 6 ms in both), not the read. Retries: B's
+first town run was served from a dist built before the commit (dirty at dbcb1a1e, `m/town-B-r1-failed.*`), B's first
+128-lamp run ended "no GPU frame times arrived" (17 missed frames at no load, D806, `m/lamps-B-r1-failed.*`). The stamp's
+simulation time was not measured: no stamp changed.
+
+**Pictures** (2026-11-24 21:24–22:52 UTC, low, WebGPU, 1280 × 720; `work/47L.3/raw/{before,after}-{W,G0,G30,G45}/`,
+`room-window`, `room-window-2m`, `props-table`, `house-above` (+ `lroom-above` after, W); W settled in 3.2–16.6 s with
+nothing pending; the grid towns' shots refused by the settle check (D750: "simulation state not read") with the volume
+settled, every level's stale count 0; before at dbcb1a1e's code, after at 52b31126's; crops before above after in
+`work/47L.3/crops/`). Opened and looked at. **Before**: G45's two bright vertical lines at the room's inner corners and a
+bright line along the floor's edge at the right corner (`G45-room-window-full.png`); a dashed bright line at the walls'
+feet in W and every G; no leak line seen in W's or G0's rooms beyond it. **After**: G45's corner lines and its floor-edge
+line at the corner are gone; W and G0 look as before (the floor's blotches, D692, vary run to run); the dashed line at the
+walls' feet is fainter in W, the same in the turned rooms. **Still wrong:** the dashed wall-foot line and a bright line
+along the floor's edge in G45's `props-table` (D810, system not determined); turned walls show light in blocks a cell or
+two wide (D809: level 0's own structure, no longer smoothed by the coarse levels); open turned rooms take more sky than
+they should (D811). **Did a room get wrongly darker?** No room went dark: the windows light W, G0, G30, G45 as before; the
+turned walls' blocks are darker and lighter both. The sun's direct light: no strip of sun on a floor inside a closed room
+in these pictures (the town's rooms have windows; their patches of sun are through them); the strip inside a shut door is
+47L.4's. Reference cameras after (`raw/after-ref/`, settled, light on): speck counts 0/0 at `street-noon`, `ref-30m` …
+`ref-150m`, as 47L.1 left them (D805's condition for a change of the read's program).
+
+**Gates**: `npm run build`, `npm run lint` green. `gate-fast-20261124-235705` (build, lint, vitest 801 files, 327 e2e
+over every area the read reaches) RED on `frame-rate-cap` (D659), `sockets` (D639), `structure-mode`'s redo (D774/D788),
+`terrain-cdlod` (D643), the Scene view's top row (D798) and the Play test's door (its "open" reading 0.746 taken before the
+room's cell settled, against 0.58–0.60 in every earlier gate; reopened 0.584 as always; the cells are not touched by this
+item); `gate-rerun-20261125-003914` RED on D659, D768 (`memory`), D320 (`rendering`'s dynamic resolution), D643, the door
+0.586 / 0.581; `gate-rerun-20261125-011703` RED on D659, D639, D643 only. D643 placed: alone at the head 0.615, 0.605, 0.592
+(post pixels of the impostors against the meshes', > 0.6), alone at dbcb1a1e 0.587, 0.597 (`work/47L.3/tcdlod-*.log`):
+the same at the base. No expectation changed in an e2e file.
+
+**`taau=0` box** (30 minutes, `raw/taau0-*`, `crops/taau0-ref-100m-*.png`): `ref-100m` at 52b31126 without the upscale:
+white/green 4/183 on, 0/85 off (grass aliasing makes green "specks" with the light off: the counts mean nothing without
+the upscale); 0/133 at dbcb1a1e on. Looked at: clusters of black pixels on a recessed, shaded wall under an eave about
+100 m out, 549 black pixels in the house's box at the head, 406 at dbcb1a1e (with a magenta patch on a roof there), none
+with the light off, none with the upscale on. The kind 47L.1 traced (pixels whose read differs from their neighbours' on
+the Iris Xe, D805) that the upscale's blend hides; not a seam. D808, not fixed.
+
+**Unverified:** nothing in motion; medium and high (same code); WebGL 2 (its smoke in the gate); the turned rooms'
+pictures were taken refused by D750's settle (the volume settled in each).
+
 ## 9. Decision log
 
 - **2026-11-24 — the pass is placed and started on the owner's word** ("Write the lighting pass and get it
@@ -365,6 +478,13 @@ grids; medium and high (same code); the cause on the GPU.
   chosen, owner to confirm): the shipped read's form drew the specks while every value it computed tested sane; the
   written-out form draws none at the same cost on the orbit. `readFullM` and `readFaceFloor` had no reader left and were
   removed with their tier entries rather than left as dead knobs; the `allfaces` bench flag went with them.
+
+- **2026-11-24 — 47L.3: the leak through walls fixed in the read, the stamp left as it is** (default chosen, owner to
+  confirm): the census found no ray through a sealed turned wall or corner at any yaw, and every leak in what a surface
+  reads: across a thin solid's edge-touching cells, and the coarse levels where level 0's weight is low (D746). A surface
+  now reads only the cells on its own side and takes level 0 whole where it reads some light. Cost: turned walls show
+  level 0's cells in blocks (D809), the GPU lighting row perhaps 0.3–0.7 ms higher on the town (not resolved). The
+  turned openings' moved edges (D811) are the stamp's and stay.
 
 ## 10. Open questions for the owner (each with the default that stands if unanswered)
 
