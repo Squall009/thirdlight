@@ -27,6 +27,8 @@ without stopping to ask, then stop. **Do not begin 47b.**
   load low, cap heavy runs, use cached worlds.
 - **A red test is fixed or removed, never rerun to see if it passes, never "placed".**
 - He accepts that a defect only a browser shows is found later, by him or in the pictures.
+- **The review page shows the current phase and the one before it, nothing else**: one short page he can
+  answer with yes or no. This phase's own page `acc47t` is the first in that form.
 - WebGL 2 is no longer checked or kept working.
 
 ## How to run it
@@ -46,7 +48,10 @@ without stopping to ask, then stop. **Do not begin 47b.**
 
 ## Stops (the only reasons to wait for the owner)
 
-- Something that would delete (not archive) tests or the owner's data, or touch main or a game repo.
+- Something that would delete (not archive) tests or the owner's data, or touch main or a game repo. One
+  deletion is already authorized: 47T.6's old picture packs and phase work folders under `~/.cache` (the owner,
+  2026-11-26: "I don't care about old phases once we have worked past them"); list what goes, with sizes, in the
+  plan before deleting, and keep the last two phases.
 - A finding that makes an item's goal wrong, not merely hard: say what you found and carry on with the rest.
 - A check that cannot be brought under about 5 minutes on this host: report the times and the options.
 

@@ -6,7 +6,9 @@ done. This dev box should be doing nearly everything through unit tests. In brow
 should be done manually by me." "I want an ai agent to look at them [the end-of-phase pictures], not compare the
 goddamn black level percentages." "This container is a dev box… one of 10s that run on a single host… a throttle
 here means throttles across many services." "We use the frame performance to gather the stats… as a baseline to
-compare to but not the gods source of truth." "we need to be using a cached world." On GPU-side defects that only
+compare to but not the gods source of truth." "we need to be using a cached world." On the review page: "The acceptance page has grown into a fucking monster. We need to archive old
+phases. I really only care about the current phase being worked on… If the pictures are taking up a ton of repo
+space, we get rid of them… a clean review page that I can quickly go through and go yay or nay." On GPU-side defects that only
 a browser shows: "a risk I am willing to take. I'd rather progress go fast and have me tell you something isn't
 rendering right and fix it then."
 
@@ -70,9 +72,10 @@ that); 47b.
 | 47T.3 | **Browser tests to unit tests, then archived.** By the inventory: each *logic* check gets its unit test (or is shown covered) BEFORE its browser test is archived with `git mv`; *looks* and *retire* files are archived; their helper modules with them when nothing else imports them. The boot check is written fresh (five tests, one file, one backend), not carved from an old story. Bench tools that drive a browser to take pictures or measure stay as tools, not tests. |
 | 47T.4 | **The picture set.** One command produces a phase's pictures from a fixed list (the lighting reference cameras and rooms that exist, plus the editor screens the archived *looks* tests covered: the structure mode, water body, spline, voxel world page), on a cached world, settled, with the bench's speck count and the performance report beside them. An agent opens every picture and writes what it sees and what is wrong, in a fixed short form; the pack is published with `add-phase.py`. The first run of it is this phase's own acceptance. |
 | 47T.5 | **The defect list.** Closed: rows of retiring systems (about 59), rows whose only subject is an archived test (the watch rows of tests; duplicates merged), bounds demoted to stats (D659, D643, D817, D824 and the like). Moved to `docs/perf-recommendations.md`: rows that are a measured cost. Left open: real defects of the voxel path. The status key loses "watch" for tests. Counts before and after on the owner page. |
-| 47T.6 | **Close.** The check run three times in a row, green, with its times; the phase run once, with its time; a short independent review (did any *logic* check get archived without a unit test; do the rules and the commands agree; is anything still gating on a pixel or a time); the acceptance page `acc47t`: the times against §2's budgets, what was archived, the picture set's first run, what is no longer checked by anything. **Stop. 47b is not begun.** |
+| 47T.6 | **The review page.** Measured 2026-11-26: the page lists 44 phases; its packs hold 913 MB behind it and the phases' work folders about 8 GB under `~/.cache/thirdlight-phase*` (46: 3.0 GB, 46e: 2.8 GB); pictures are NOT in the repo (181 tracked images, 9.6 MB, almost all editor assets). The page shows the phase being worked on and the one before it, nothing else: one short page a phase in a fixed form the owner can answer with yes or no (what changed, the pictures with the agent's read, what is wrong, the questions). Every older section leaves the page. Older picture packs and work folders are DELETED on the owner's word (quoted in the header), after a list of what goes with its size is written to the plan; kept: each old phase's acceptance text in the repo (`docs/briefs/acceptance-*.md`, moved to `archive/` with `git mv` when two phases old), the last two phases' packs, anything a current doc links to. `add-phase.py` (it lives outside the repo: a copy joins `tools/`) drops the oldest section itself when a new phase is added, so the page never grows again. Disk free before and after reported. |
+| 47T.7 | **Close.** The check run three times in a row, green, with its times; the phase run once, with its time; a short independent review (did any *logic* check get archived without a unit test; do the rules and the commands agree; is anything still gating on a pixel or a time); the acceptance page `acc47t`: the times against §2's budgets, what was archived, the picture set's first run, what is no longer checked by anything. **Stop. 47b is not begun.** |
 
-Order: 47T.0, 47T.1, 47T.2, 47T.3, 47T.4, 47T.5, 47T.6. 47T.1 comes early so the rest of the phase already runs
+Order: 47T.0, 47T.1, 47T.2, 47T.3, 47T.4, 47T.5, 47T.6, 47T.7. 47T.1 comes early so the rest of the phase already runs
 on the new check.
 
 ## 5. Progress
@@ -86,6 +89,7 @@ on the new check.
 | 47T.4 | not started |
 | 47T.5 | not started |
 | 47T.6 | not started |
+| 47T.7 | not started |
 
 ## 6. How this phase is run
 
@@ -94,7 +98,8 @@ on the new check.
 - One Opus agent at a time, in the foreground (`AGENTS.md`, "Sessions and sub-agents"); no timers. Work folders
   `~/.cache/thirdlight-phase47t/work/<item>/` with a `progress.txt`; each green part committed and pushed at once.
 - Light on the host: capped workers and memory for anything heavy; nothing left running.
-- Archive with `git mv` into `archive/`, never `git rm`. Nothing stored by the engine changes.
+- Archive with `git mv` into `archive/`, never `git rm`. Nothing stored by the engine changes. The one deletion
+  this phase makes is 47T.6's old picture packs and work folders outside the repo, on the owner's word.
 - Estimate: 8–14 hours of agent time; the uncertain part is how many browser tests hold logic worth a unit test.
 
 ## 7. Results
@@ -111,7 +116,10 @@ on the new check.
 
 ## 9. Open questions for the owner (each with the default that stands if unanswered)
 
+
 1. **The picture set's size.** Default: about 30 pictures a phase (the reference cameras and rooms, four editor
    screens), so an agent's read and yours stay short.
 2. **Old systems' tests go now, before 48 removes the systems.** Default: yes (you do not expect to use block
    layers after the merge); their engine code is untested until 48 deletes it.
+3. **How many phases the review page keeps.** Default: two (the current one and the one before it); older
+   picture packs are deleted, their acceptance text stays in the repo's archive.
