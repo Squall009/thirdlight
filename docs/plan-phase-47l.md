@@ -955,7 +955,13 @@ files, 327 e2e over every area) RED, 7 failed: `frame-rate-cap` (D659, 72.6 fps)
 `shadows.e2e.ts:270` (cached against one map of every caster: one pixel 40 apart; no voxel in that test) and
 `webgl2-smoke.e2e.ts:92` ("Play: the world drawn", 0.386 against > 0.5). Placed: the WebGL 2 smoke fails 3 of 3 alone at
 f706b1c5 and passes with the shadow-side line taken out (83 %): the change's, so **a64913b2 was reverted** (7c26e201), and
-D810 is open with its cause found. The rerun is below. **Unverified**: nothing in motion; the G45 room after the shadow fix;
+D810 is open with its cause found. `gate-rerun-20261125-172129` ran only the WebGL 2 smoke (GREEN: the alone runs had
+replaced Playwright's list of failed tests), so the six other red files were run again in a fast gate naming them
+(`gate-fast-20261125-172412`, the base back at the last green 74f674e2: build, lint, vitest 801 files, core, voxel and
+lighting and the named files, 28 e2e) RED on D659 (67.2 fps), D643 (0.599), D799, D817 (the switch-off proof 79 px apart,
+bound 40) and `structure-mode.e2e.ts:1001` (the splines test: "the old cut gone", 0 px), green on `shadows.e2e.ts:270`
+(no voxel in it; seen once), the WebGL 2 smoke and `structure-mode`'s first test. The splines test placed: alone 2 of 3
+failed at 35a59164 and 2 of 3 at c6bb8efe: old, D823. No expectation changed, no bound widened. **Unverified**: nothing in motion; the G45 room after the shadow fix;
 medium and high (same code); WebGL 2.
 
 ## 9. Decision log
