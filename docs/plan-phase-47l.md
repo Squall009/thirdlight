@@ -96,7 +96,7 @@ finds a regression from 47a, fixing it comes first, whichever item it falls in.
 | 47L.1 | Done 2026-11-24 (07eee3c8): the shipped read's form (one loop, shared index load, faces by weight, one cell past readFullM) drew the specks; no expression found (GPU dumps: every value finite, in range). Every level now read as first built, early-out kept; readFullM, readFaceFloor gone. Specks 0 at all cameras twice, grid houses 781 to 0; cost within spread |
 | 47L.2 | Done 2026-11-24 (9d9a88da): not the 1 m level (its meshes and grids equal Node's) but the L0\|L1 seam where a level-0 chunk meets a level-1 node along a ridge: a flap stood out through the roof slab. Fixed in lod-seam.ts (a coarse vertex lands on a fine edge facing its way); test in derived.test.ts; roofs whole at 60–150 m, light off. D802 fixed; D750, D784 traced |
 | 47L.3 | Done 2026-11-25 (52b31126): no ray passes a sealed wall or corner at any yaw (the stamp is tight); the leaks were the read: cells across thin solids, and the coarse levels at turned corners (D746). A surface reads only its own side, level 0 whole where it reads light: inside points reading outside light 5,725 → 0 of 95,552; G45's corner lines gone. Left: D809–D811 |
-| 47L.4 | In progress 2026-11-25 (e7c04aa6): a shut door's cells over the whole opening (D791, no reach bound) and stopping light at the walk's mip levels (D773, structure grids) built with Node tests. Not built: the strip of sun inside a shut door (the shadow map; the page never learns the shut state, D812), world-grid openings, the Play pixel check, the 60/150 m pictures |
+| 47L.4 | Done 2026-11-25 (e7c04aa6, this commit): a shut door's cells over the whole opening (D791), stopping light at the walk's mips (D773, grids), and the sun's shadow over a shut opening's cells (D812: shadow-only casters sent with the grid's draws). No strip with a placed leaf even before; a prop with no model let sun in. Not built: world-grid openings, the Scene view, thin props (D727) |
 | 47L.5 | not started |
 | 47L.6 | not started |
 | 47L.7 | not started |
@@ -458,7 +458,7 @@ the Iris Xe, D805) that the upscale's blend hides; not a seam. D808, not fixed.
 **Unverified:** nothing in motion; medium and high (same code); WebGL 2 (its smoke in the gate); the turned rooms'
 pictures were taken refused by D750's settle (the volume settled in each).
 
-### 47L.4 — shut doors: the whole opening and the coarse levels (partial; the sun strip not built)
+### 47L.4 — shut doors: the whole opening, the coarse levels and the sun's shadow
 
 **Built** (e7c04aa6, `voxel-portals.ts`, `prop-channel.ts`, game-host `voxel-play.ts`; nothing stored):
 - **A portal's cells over the whole opening (D791).** The join floods the face-joined `opening` cells from the prop's
@@ -480,15 +480,7 @@ open, and opened every byte and mip stop goes. Without the changes: 54 of 78 cel
 `mipStop` flag the coarse ray passes the shut door. `prop-channel.test.ts`, `world-host-grids.test.ts`,
 `occupancy-walk.test.ts` green.
 
-**Not built in this session:** (g) the strip of sun inside a shut door: it is the sun's shadow map (the room's volume cell
-is 0.04–0.07 shut against 0.34 open; the strip and the fan of light over the floor are unchanged by the volume's fixes,
-`work/47L.4/crops/07b-door-shut-before-after.png`): the leaf (0.1 m) is thinner than a low-tier shadow texel and its
-bias, and the shut state a script writes stays in the simulation, so the page cannot cast the opening's shadow (D812:
-the shut portals' boxes would have to reach the page, and a shadow-only caster stand over each). The Play e2e's floor
-pixel check (it would fail on the strip), the pictures from 60 m and 150 m with a lit window beside the door, the wide
-door's picture, and the A B A B (no lit program changed in Part 2) were not done.
-
-**Measured** (the 47a.7 scratch `zz-door-look.e2e.ts` copied into `tests/e2e` for the run and removed, low, WebGPU, the
+**Measured in the first session** (the 47a.7 scratch `zz-door-look.e2e.ts` copied into `tests/e2e` for the run and removed, low, WebGPU, the
 editor's Play at the 30 Hz cap; before at 52b31126's code, after with these changes; `work/47L.4/m-{before,after}/`):
 flip → the room's light cell moving a fifth: shut 36 (a cell already moving), 713, 722 ms before, 710, 1,120, 1,015 ms
 after; open 1,937, 1,866, 1,613 before, 1,502, 1,495, 979 after. A hundred doors shut in one step: the simulation's
@@ -496,6 +488,80 @@ longest step 13.8 / 13.2 ms before, 13.2 / 11.6 after; the peak step and ten aft
 page lighting's longest 5.5 / 5.1 against 5.7 / 5.8 ms: within the runs' spread. Room cell: open 0.347 / 0.338, shut
 0.041 / 0.065 (before / after). Pictures `work/47L.4/shots/{before,after}/06*–08*.png`, opened: the same in both; the
 strip of sun and its fan stay (D812).
+
+**The sun's shadow over a shut opening (D812; second session).** The shut state lived in
+the simulation and never reached the page, so only the prop's own model cast the sun's shadow. Now
+`WorldPortals` gives each grid's set of shut openings that stop light (their cells, the grid's frame) whenever it
+changes (`shutChanged`, the host's connection `shutOpenings`); game-host `voxel-play.ts` hands it to the grid's own
+`ChunkDrawBatcher.setShut`, which sends the whole set with the next batch when it differs (`ChunkDrawBatch.shut`: the
+channel the grid's draws already travel on, in Play's worker or page and in an export; nothing stored); the page's
+draws of the grid (`VoxelWorldDraws`, its view's root; new `three-adapter/voxel-portal-casters.ts`) make one mesh of the cells'
+outer faces a shut opening, on the off-view layer the shadow cameras see (as the relief chunks' plain casters), a
+static caster whose coming and going is reported where it stands, so the cached map is drawn again only there; glass
+(`stops.light` false) sends nothing. No private three hook, no `jsm` module. The Scene view runs no portal state and
+casts none (its leaf model casts as drawn): not built. **World-grid openings** still take no prop (47b's world edit
+mode or a later item). **Thin props (D727)**: not covered: the casters follow an opening's cells, not a prop's shape.
+
+**What the pictures found: no strip with a placed leaf, before or after.** The scratch spec
+(`work/47L.4/scratch/zz-door-look.e2e.ts`, copied into `tests/e2e` for each run and removed; low, WebGPU, the editor's
+Play maximized, the preview 1280 × 668; base = fffd12ca in its own worktree, head = this change; `shots/{base,head}/`,
+`door-*.log`, `m-{base,head}/`) shows the strip of 47a.7 was not the sun's shadow map: (1) `07b` of 47a.7 and 47L.4's first session
+was taken after the scratch's script put the leaf back with `transform: { position }` alone; in this session's first
+run that left a lit jamb and a fan of light at the threshold that the same room shut without the round trip did not
+show (`crops/dbg-07-07b.png`, D814); with the leaf's rotation written too, `07b` equals `07` (`crops/cmp-07b.png`: base
+above head, alike); (2) the look house's door does not face the scene's sun (light along (0.4, −1, −0.3)): with the door open and
+the leaf away no sun lies on its floor (`06b`), and the glow left at the threshold shut is the light volume's (gone
+with the store off: `07c`). A door turned 135° faces the sun: open, a sun patch lies on the floor inside (`15`); shut
+with its 0.1 m leaf in place, none at the base already (`crops/sun-shut-base-head.png`, `15c` with the store off): the
+low tier's map does shade a placed 0.1 m leaf. What the casters cure is a shut prop whose model does not fill the
+opening: a portal prop with no model, shut, left the sun's patch on the floor of an otherwise dark room at the base and
+leaves none now (`16b`, `crops/bare-shut-base-head.png`: base above, head below; the floor patch's mean luminance 155
+of 165 open at the base, 0 at the head); the same holds for a leaf thinner than a texel and its bias, a model with
+holes, or one drawn out of place while the portal is shut. So clause (f)'s "no strip" holds at both commits; the
+change makes the sun follow portal state rather than the model (decided in §9, owner to confirm).
+
+**Tests.** `runtime/voxel-portals.test.ts`: the grid's set given once shut (the 15 cells, the grid's frame), empty
+once opened, nothing for a shut pane. `voxel/chunk-batch.test.ts`: the set sent whole when it changes, never the same
+twice, the empty set when every door opens. `three-adapter/voxel-portal-casters.test.ts`: a closed surface over
+exactly the cells (46 faces for a 3 × 5 × 1 opening, every edge shared once each way), not in the view's layer and in
+the off-view layer, a static caster reported at its place under the grid's root, gone when opened. Play e2e
+(`voxel-shadows.ts` door checks, in `voxel-world.e2e.ts`'s Play test): no caster open, one in the grid's draws shut
+with the static map drawn again, none reopened, none for the shut pane; Export: one caster once the console shuts
+the door (served statically, backend stopped). The e2e house's door does not face the sun, so the e2e checks the
+caster, not a floor pixel (the pixels are the scratch's, above). Without the change the casters count is 0 and every
+one of these fails.
+
+**Cost** (the scratch, one Play each at the 30 Hz cap, base then head, 2026-11-25 03:57–04:28 UTC, load 0.6–1.5):
+flip → sun (the bare door facing the sun, the floor patch crossing halfway, screenshots polled 60–130 ms apart):
+shut 406, 130, 392 ms, open 137, 133, 137 ms. Flip → the room's light cell moving a fifth: shut 72, 41, 39 ms, open
+59, 93, 65 ms (base 68, 42, 649 and 62, 67, 71; faster than 47a.7's 0.7–1.7 s at both commits with this scene: whether
+the cell was still moving from the flip before was not determined). A hundred doors shut in one step: the simulation's
+longest step 20.0 / 14.8 ms (base 13.2 / 15.0), the peak and ten after 80.3 / 69.0 (65.8 / 63.4), page lighting's longest
+3.8 / 3.4 (2.8 / 2.6): within the runs' spread, not resolved. The page's `shadows` GPU reading (`measureGpu`, only
+shadows, 3 repeats, the yard of 100 doors in view from 30 m, A B A B in one Play): head open 0.49 ±0.18, 0.81 ±0.10,
+100 shut 0.75 ±0.16, 0.62 ±0.35; base open 0.44 ±0.32, 0.34 ±0.15, shut 0.70 ±0.20, 0.45 ±0.13: not resolved (the casters
+draw into the cached map only when it is drawn again).
+
+**Gates**: `npm run build`, `npm run lint` green. `gate-fast-20261125-042553` (build, lint, vitest 802 files, 327 e2e over
+every area) RED on `rendering.e2e.ts:491` (D813: its 240 s timeout), `start.e2e.ts:62` (D815: the backend's close timed
+out), `ui-editor.e2e.ts:114` (D816), the Play test at its profile's jobs lane (D799, before the door) and the Scene view's
+top row (D798); the Export test with its door and caster check passed. Placed alone before the rerun: start 1 of 9 failed
+at the head, 0 of 9 at fffd12ca; ui-editor 0 of 3 at the head, 1 of 3 at fffd12ca; rendering:491 passed alone at both (42 s,
+41 s). `gate-rerun-20261125-050942` RED on D813 alone; the Play test (door: open 0.591, shut 0.028, reopened 0.636, pane
+0.592; the casters as checked) and the Scene view green. The Play test 4.3 min in the rerun's five files (its own time not
+split out). The leak test: `gate-area-20261125-051709` (area play, 24 e2e with `memory.e2e.ts`) GREEN. No expectation
+changed.
+
+**Pictures** (`work/47L.4/shots/{base,head}/`, opened): `06`/`07` the look room open and shut with the leaf in;
+`06b`/`07b` the honest pair (leaf away open, leaf in shut): no strip; `09`/`09b`/`09c` the 6 m door open with its leaf in,
+shut, and from outside: whole, no strip at either commit (its door does not face the sun); `10` a shut pane: the room
+lit as open (no caster); `11`/`12` the 45° pair from 60 m and 150 m (left: open doorway, the control; right: shut
+leaf): **still wrong**: the scratch's world has no far field, so past the ground's edge the pair floats in the sky and
+the pictures say little about the coarse levels (D773's mips are proven in Node); `15`–`15e` and `16`/`16b` the sun-facing
+doors. Settle: each picture taken 3–8 s after its change with the cells read updated (no settle record of the bench's
+kind: these are Play pictures). **Still wrong:** a faint glow of the light volume at the threshold of a shut door
+(`07b`, both commits: the read of the cells at the stamp's edge, D810's kind, 47L.5). **Unverified:** nothing in motion;
+medium and high (same code); WebGL 2 (casters are built the same way; not looked at).
 
 ## 9. Decision log
 
@@ -524,6 +590,13 @@ strip of sun and its fan stay (D812).
   now reads only the cells on its own side and takes level 0 whole where it reads some light. Cost: turned walls show
   level 0's cells in blocks (D809), the GPU lighting row perhaps 0.3–0.7 ms higher on the town (not resolved). The
   turned openings' moved edges (D811) are the stamp's and stay.
+
+- **2026-11-25 — 47L.4: the sun's direct light follows portal state, not the prop's model** (default chosen, owner to
+  confirm): a shut opening that stops light casts the sun's shadow over its cells on the page, whatever its prop draws.
+  A placed 0.1 m leaf already shaded the sun at the low tier (no strip was found once the scratch's leaf stood as
+  authored), so what this changes is a shut prop with no model, holes or a thinner model: the sun now stops there as
+  the light volume does. The alternative, leaving the sun to the model, keeps a door's look the model's alone but
+  lets a bare or lattice prop shut the room's light and not its sun. The Scene view (no portal state) is left as is.
 
 ## 10. Open questions for the owner (each with the default that stands if unanswered)
 

@@ -144,4 +144,24 @@ describe('ChunkDrawBatcher', () => {
     flush();
     expect(summaries).toBe(read);
   });
+  it("sends a grid's shut openings that stop light as a whole set when it changes, and never the same set twice", () => {
+    const f = feed();
+    const sent: ChunkDrawBatch[] = [];
+    let flush: () => void = () => undefined;
+    const b = new ChunkDrawBatcher('w#1', f.feed, 16, (x) => sent.push(x), { schedule: (fn) => (flush = fn) });
+    b.setShut([{ id: 'b', cells: [1, 1, 0] }, { id: 'a', cells: [5, 1, 0, 5, 2, 0] }]);
+    flush();
+    expect(sent.map((x) => x.shut)).toEqual([[{ id: 'a', cells: [5, 1, 0, 5, 2, 0] }, { id: 'b', cells: [1, 1, 0] }]]);
+    // The same set (in another order): nothing sent.
+    b.setShut([{ id: 'a', cells: [5, 1, 0, 5, 2, 0] }, { id: 'b', cells: [1, 1, 0] }]);
+    flush();
+    expect(sent.length).toBe(1);
+    // Every door opened: the empty set goes, and a later batch carries none.
+    b.setShut([]);
+    flush();
+    expect(sent.at(-1)!.shut).toEqual([]);
+    b.setShut([]);
+    flush();
+    expect(sent.length).toBe(2);
+  });
 });

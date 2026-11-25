@@ -111,6 +111,8 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             gridBatchers.push([name, b]);
             batchers.set(name, b);
           },
+          // A grid's shut openings that stop light go with its own draws: the page casts the sun's shadow over them there.
+          shutOpenings: (gridId, openings) => batchers.get(gridDrawName(world, gridId))?.setShut(openings),
           present: (stream, sectionEdge, regions, props) => {
             conn.present?.(stream, sectionEdge, regions, props);
             // The batches carry the walk's blocks for the page's GPU walk while it has a reader (levels 0 and up; the far

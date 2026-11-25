@@ -72,6 +72,11 @@ page in the same commit.
   are one more stamp in the prop channel (every world cell they reach stops light whole, at level 0 and at the walk's mip
   levels, `LitStamp.mipStop`; no structure class, so rooms keep the portal) and shut cells of the grid's walk graph (`WalkGraph.setShut`; `findPath` option `doors`; a shut
   cell keeps its link to the world, taken only by a walker through shut doors); a flip recombines only those cells.
+  The sun's direct light follows too: a grid's shut openings that stop light (their cells) travel with the grid's
+  draw batches (`ChunkDrawBatch.shut`, the whole set when it changes) and the page casts the key light's shadow over
+  exactly those cells, a shadow-only static caster under the grid's view (`three-adapter/voxel-portal-casters.ts`;
+  never in the colour pass, the cached map drawn again where it stands), so a prop with no model or one thinner than
+  the map's texel and bias lets no sun in. The editor's Scene view runs no portal state and casts none.
   Two props whose middles lie in one run of opening cells (two openings side by side) each take the cells on their side
   of the cell boundary nearest the midpoint between them.
   The leaf itself is never stamped. Open or shut is state, never voxels; `portalsOf` names the prop and its state; a

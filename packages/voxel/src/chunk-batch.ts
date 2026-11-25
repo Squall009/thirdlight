@@ -183,6 +183,8 @@ export interface ChunkDrawBatch {
   readonly nearCover?: NearCoverWire;
   /** The rooms the page's focus points stand in, when they changed ({@link ChunkDrawBatcher.setFocus}). */
   readonly rooms?: FocusRoomsWire;
+  /** A structure grid's shut openings that stop light, the whole set, when it changed ({@link ChunkDrawBatcher.setShut}). */
+  readonly shut?: readonly ShutOpeningWire[];
   /** Wall-clock ms (`performance.timeOrigin + performance.now()`) when the batch left. */
   readonly sentAt: number;
   /** ms the batch's joins took where the world runs. */
@@ -193,6 +195,17 @@ export interface ChunkDrawBatch {
 export interface FocusRoomWire {
   readonly id: number;
   readonly boxes: readonly number[];
+}
+
+/**
+ * An opening of a structure grid whose prop is shut and stops light (a door leaf, a shutter; never glass): its cells
+ * (the grid's own, x y z each). The page casts the sun's shadow over exactly these cells, whatever the prop's
+ * thickness: a leaf thinner than a shadow texel and its bias would let a strip of sun through.
+ */
+export interface ShutOpeningWire {
+  /** The prop's object id. */
+  readonly id: string;
+  readonly cells: readonly number[];
 }
 
 /** The rooms of the page's focus points ({@link ChunkDrawBatcher.setFocus}): one a point, in its order (null: in no room). */
@@ -349,6 +362,9 @@ export class ChunkDrawBatcher {
   private roomsSent = '';
   private roomsAt = -1;
   private roomsDue: FocusRoomsWire | null = null;
+  /** The shut openings last sent, and the set due with the next batch (null: none due). */
+  private shutSent = '[]';
+  private shutDue: ShutOpeningWire[] | null = null;
 
   constructor(
     private readonly world: string,
@@ -605,6 +621,20 @@ export class ChunkDrawBatcher {
     return this.roomsDue !== null;
   }
 
+  /**
+   * A structure grid's shut openings that stop light, the whole set (by prop id): sent with the next batch when it
+   * differs from what was sent last.
+   */
+  setShut(openings: readonly ShutOpeningWire[]): void {
+    if (this.closed) return;
+    const list = [...openings].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map((o) => ({ id: o.id, cells: [...o.cells] }));
+    const key = JSON.stringify(list);
+    if (key === this.shutSent) return;
+    this.shutSent = key;
+    this.shutDue = list;
+    this.queue();
+  }
+
   /** Walk blocks packed (or found gone) for the page so far, and sent and not removed since. */
   get walkCounts(): { readonly packed: number; readonly held: number } {
     return { packed: this.walkFeed?.packed ?? 0, held: this.walkFeed?.held ?? 0 };
@@ -628,8 +658,10 @@ export class ChunkDrawBatcher {
     const sky = this.closed ? [] : (this.opts.sky?.takeSky() ?? []);
     const rooms = !this.closed && this.readRooms() ? this.roomsDue : null;
     this.roomsDue = null;
-    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null && walk.length === 0 && sky.length === 0 && rooms === null)) return;
-    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, ...(this.opts.place !== undefined ? { place: this.opts.place } : {}), chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk, walkFeed: this.walkOn } : {}), ...(sky.length > 0 ? { sky } : {}), ...(rooms !== null ? { rooms } : {}), sentAt: wallClock(), joinMs: this.joinMs };
+    const shut = this.closed ? null : this.shutDue;
+    this.shutDue = null;
+    if (this.closed || (this.chunks.length === 0 && this.seams.length === 0 && this.swaps.length === 0 && this.relief === null && far === null && cover === null && walk.length === 0 && sky.length === 0 && rooms === null && shut === null)) return;
+    const b: ChunkDrawBatch = { world: this.world, edge: this.grid.edge, ...(this.opts.place !== undefined ? { place: this.opts.place } : {}), chunks: this.chunks, ...(this.seams.length > 0 ? { seams: this.seams } : {}), swaps: this.swaps, ...(this.relief !== null ? { relief: this.relief } : {}), ...(far !== null ? { far } : {}), ...(cover !== null ? { nearCover: cover } : {}), ...(walk.length > 0 ? { walk, walkFeed: this.walkOn } : {}), ...(sky.length > 0 ? { sky } : {}), ...(rooms !== null ? { rooms } : {}), ...(shut !== null ? { shut } : {}), sentAt: wallClock(), joinMs: this.joinMs };
     this.farAdded = [];
     this.farRemoved = [];
     this.relief = null;

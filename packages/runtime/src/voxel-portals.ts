@@ -26,10 +26,14 @@
  * - sight: `portalsOf` says so; the rooms are already parted at every portal,
  *   open or shut, so nothing else reads it.
  *
+ * - the sun's direct light: the grid's shut openings that stop light (their cells) go to what draws the grid
+ *   (`shutChanged`), which casts the sun's shadow over exactly them: a leaf thinner than a shadow texel and its bias
+ *   would leave a strip of sun inside the door.
+ *
  * Open, the stamp and the shut cells go. A prop whose opening is not resident
  * yet is joined once it is; one standing in no opening stops nothing.
  */
-import { gridStampBounds, MATERIAL_AIR, stampGrid, STAMP_CLASS, VOXEL_ROLE, VOXEL_SIZE_M, type GridStampCells, type LitStamp, type PropLightChannel, type VoxelRecord } from '@thirdlight/voxel';
+import { gridStampBounds, MATERIAL_AIR, stampGrid, STAMP_CLASS, VOXEL_ROLE, VOXEL_SIZE_M, type GridStampCells, type LitStamp, type PropLightChannel, type ShutOpeningWire, type VoxelRecord } from '@thirdlight/voxel';
 import type { VoxelGridHost } from './voxel-grid-host';
 
 /** What a portal stops while shut. */
@@ -138,11 +142,30 @@ export class WorldPortals {
   private readonly waiting = new Set<string>();
   /** Flips applied since the world opened (diagnostics, the measurements). */
   flips = 0;
+  /** Grids whose set of shut openings that stop light changed since it was last given. */
+  private readonly shutDirty = new Set<VoxelGridHost>();
 
+  /** `shutChanged`: a grid's shut openings that stop light, the whole set, each time it changes (for the sun's shadow). */
   constructor(
     private readonly grids: () => readonly VoxelGridHost[],
     private readonly channel: () => PropLightChannel | null,
+    private readonly shutChanged: ((grid: VoxelGridHost, openings: ShutOpeningWire[]) => void) | null = null,
   ) {}
+
+  /** A grid's shut openings that stop light now (cells in the grid's frame). */
+  shutOf(grid: VoxelGridHost): ShutOpeningWire[] {
+    const out: ShutOpeningWire[] = [];
+    for (const [id, j] of this.joined) if (j.grid === grid && j.light) out.push({ id, cells: j.cells.flat() });
+    return out;
+  }
+
+  /** Gives each grid whose shut set changed its set now. */
+  private giveShut(): void {
+    if (this.shutDirty.size === 0) return;
+    const grids = [...this.shutDirty];
+    this.shutDirty.clear();
+    if (this.shutChanged !== null) for (const g of grids) this.shutChanged(g, this.shutOf(g));
+  }
 
   /** Props with a portal placed, changed (state or place) or gone (null). */
   set(changes: readonly (readonly [string, PortalProp | null])[]): void {
@@ -160,11 +183,17 @@ export class WorldPortals {
         this.waiting.add(id);
       } else this.apply(id);
     }
+    this.giveShut();
   }
 
   /** Joins the props waiting whose opening is now resident, then applies each joined prop's state. */
   step(): void {
     if (this.waiting.size === 0) return;
+    this.stepWaiting();
+    this.giveShut();
+  }
+
+  private stepWaiting(): void {
     for (const id of [...this.waiting]) {
       const p = this.props.get(id);
       if (p === undefined) {
@@ -216,6 +245,7 @@ export class WorldPortals {
     for (const id of [...this.joined.keys()]) this.unjoin(id);
     this.props.clear();
     this.waiting.clear();
+    this.giveShut();
   }
 
   private join(id: string, p: PortalProp): Joined | null | 'later' {
@@ -278,6 +308,7 @@ export class WorldPortals {
       this.channel()?.apply([[portalStampId(id), light ? j.stamp : null]]);
       j.light = light;
       this.flips++;
+      this.shutDirty.add(j.grid);
     }
     if (walk !== j.walk) {
       j.grid.walk.setShut(id, walk ? j.cells : null);
@@ -288,7 +319,10 @@ export class WorldPortals {
   private unjoin(id: string): void {
     const j = this.joined.get(id);
     if (j === undefined) return;
-    if (j.light) this.channel()?.apply([[portalStampId(id), null]]);
+    if (j.light) {
+      this.channel()?.apply([[portalStampId(id), null]]);
+      this.shutDirty.add(j.grid);
+    }
     if (j.walk) j.grid.walk.setShut(id, null);
     this.joined.delete(id);
   }

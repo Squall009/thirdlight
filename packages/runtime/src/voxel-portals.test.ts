@@ -48,12 +48,21 @@ describe('portal state on a structure opening', () => {
     it(`a shut door stops light in every world cell whose middle lies in its opening, and opened passes it again (${yaw}°)`, () => {
       const { host, shut } = gridHost(yaw);
       const { ch, built } = channel();
-      const portals = new WorldPortals(() => [host], () => ch);
+      // What the grid's draws are given for the sun's shadow: its shut openings that stop light, each time they change.
+      const given: Array<{ grid: unknown; openings: { id: string; cells: readonly number[] }[] }> = [];
+      const portals = new WorldPortals(() => [host], () => ch, (g, openings) => given.push({ grid: g, openings }));
       const middle = host.frame.toWorld(((DOOR.x[0] + DOOR.x[1] + 1) / 2) * M, 1.5, (DOOR.z + 0.5) * M);
       portals.set([['door', { open: false, stops: { light: true, sight: true, walk: true }, at: [middle[0], middle[1], middle[2]] }]]);
       portals.step();
       ch.flush();
       expect(portals.stats()).toMatchObject({ joined: 1, shutLight: 1, shutWalk: 1 });
+      // The sun's shadow is given the opening's 15 cells, in the grid's own frame, once.
+      expect(given).toHaveLength(1);
+      expect(given[0]!.grid).toBe(host);
+      expect(given[0]!.openings.map((o) => o.id)).toEqual(['door']);
+      const cells = given[0]!.openings[0]!.cells;
+      expect(cells.length).toBe(15 * 3);
+      for (let i = 0; i < cells.length; i += 3) expect([cells[i]! >= DOOR.x[0] && cells[i]! <= DOOR.x[1], cells[i + 1]! >= DOOR.y[0] && cells[i + 1]! <= DOOR.y[1], cells[i + 2]]).toEqual([true, true, DOOR.z]);
       // The walk graph got the opening's 15 cells.
       expect(shut).toHaveLength(1);
       expect((shut[0]![1] as unknown[]).length).toBe(15);
@@ -79,6 +88,9 @@ describe('portal state on a structure opening', () => {
       ch.flush();
       expect(portals.stats()).toMatchObject({ shutLight: 0, shutWalk: 0, flips: 2 });
       expect(shut[1]).toEqual(['door', null]);
+      // Opened, the grid's set is empty (its caster goes).
+      expect(given).toHaveLength(2);
+      expect(given[1]!.openings).toEqual([]);
       for (const k of built) expect(reached.has(k)).toBe(true);
       for (let x = 0; x < 60; x++) for (let y = 0; y < 8; y++) for (let z = -30; z < 10; z++) expect(ch.at(x, y, z)).toBe(0);
       // A pane (light passes) never stamps; a prop standing in no opening joins nothing.
@@ -86,6 +98,8 @@ describe('portal state on a structure opening', () => {
       portals.step();
       ch.flush();
       expect(portals.stats()).toMatchObject({ joined: 2, shutLight: 0 });
+      // A shut pane casts no shadow of the sun: nothing more is given.
+      expect(given).toHaveLength(2);
       expect(portals.propOf([-1000, -1000, -1000], [1000, 1000, 1000])?.id).toBeDefined();
     });
   }

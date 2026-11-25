@@ -1115,7 +1115,7 @@ export interface GridCheckSetup extends ShadowCheckSetup {
   /** The grid's draws on the page (`gridDrawName`). */
   readonly drawName: string;
   /** The page's draw stats (`__tlVoxelPlay.stats().worlds`). */
-  drawn(): Promise<Record<string, { chunks: number; kitInstances: number; pieceDraws?: number } | undefined>>;
+  drawn(): Promise<Record<string, { chunks: number; kitInstances: number; pieceDraws?: number; shutCasters?: number } | undefined>>;
   readonly player: () => Promise<{ x: number; y: number; z: number } | null>;
 }
 
@@ -1136,9 +1136,11 @@ export interface DoorReadings { open: number; shut: number; reopened: number; pa
  * camera live): a script shuts the leaf by the generic component access → `portalsOf` names it shut, the room's light
  * falls, no path from the porch into the room by default and one through shut doors (`doors: 'shut-too'`); opened,
  * the light and the default path come back. Then the pane (shut, its `stops.light` false) is put in the door in the
- * leaf's place: `portalsOf` names it shut and the room's light stays as with the door open. With the portal's light
- * stamp left out the light does not fall; with its shut cells left out the default path is found; with the links onto
- * shut cells left out the path through shut doors is not.
+ * leaf's place: `portalsOf` names it shut and the room's light stays as with the door open. Shut, the opening also
+ * casts the sun's shadow over its cells on the page (one shadow-only caster in the grid's draws, the static shadow map
+ * drawn again for it); open, or a pane shut, none. With the portal's light stamp left out the light does not fall;
+ * with its shut cells left out the default path is found; with the links onto shut cells left out the path through
+ * shut doors is not; with the shut openings not sent to the page no caster stands.
  */
 async function doorChecks(d: {
   control(cmd: string, args?: Record<string, unknown>): Promise<void>;
@@ -1147,6 +1149,9 @@ async function doorChecks(d: {
   lightOf(c: VolumeCell | undefined): number;
   settled(what: string): Promise<number>;
   still(name: string): Promise<Png>;
+  /** The grid's shut openings casting the sun's shadow on the page, and how often its static shadow map was drawn. */
+  casters(): Promise<number>;
+  shadowDraws(): Promise<number>;
 }): Promise<DoorReadings> {
   const doorCode = async (): Promise<number> => Math.floor((await d.counter('gridRoomPortals')) / 10);
   const set = async (what: string, code: number): Promise<void> => {
@@ -1174,9 +1179,13 @@ async function doorChecks(d: {
   };
   expect(await doorCode(), 'the leaf open').toBe(1);
   const open = await d.settled("the room's light, its door open");
+  expect(await d.casters(), 'an open door casts nothing of its opening').toBe(0);
   await d.still('grid-door-open');
+  const drawsOpen = await d.shadowDraws();
   const shutMs = await flip('shut', 2);
   const shut = await d.settled("the room's light, its door shut");
+  await expect.poll(d.casters, { timeout: 10_000, message: "the shut door's opening casts the sun's shadow on the page" }).toBe(1);
+  await expect.poll(d.shadowDraws, { timeout: 10_000, message: 'the static shadow map is drawn again with it' }).toBeGreaterThan(drawsOpen);
   await d.still('grid-door-shut');
   const p0 = Date.now();
   await expect.poll(() => path('path'), { timeout: 20_000, intervals: [200], message: 'no path into the room by default while its door is shut' }).toBe(3);
@@ -1184,10 +1193,12 @@ async function doorChecks(d: {
   const pathMs = Date.now() - p0;
   const openMs = await flip('open', 1);
   const reopened = await d.settled("the room's light, its door open again");
+  await expect.poll(d.casters, { timeout: 10_000, message: 'opened, its caster goes' }).toBe(0);
   await expect.poll(() => path('path'), { timeout: 20_000, intervals: [200], message: 'a path into the room by default once its door is open' }).toBe(1);
   // The pane in the door (shut, light passes), the leaf in the room: no flip of the light.
   await set('pane', 4);
   const pane = await d.settled("the room's light, the pane shut in its door");
+  expect(await d.casters(), 'a shut pane (light passes) casts nothing').toBe(0);
   const r = { open, shut, reopened, pane, shutMs, openMs, pathMs };
   console.log(`[voxel-play] door: ${JSON.stringify(r)}`);
   expect(shut, "the room's light falls with its door shut").toBeLessThan(0.5 * open);
@@ -1216,7 +1227,10 @@ export async function exportDoorCheck(game: Page, run: (line: string, done: RegE
   await expect.poll(doorCode, { timeout: 10_000, message: 'portalsOf names the exported leaf shut' }).toBe(2);
   let shut = open;
   await expect.poll(async () => (shut = light(await room())) < 0.5 * open, { timeout: 30_000, intervals: [250], message: "the exported room's light falls with its door shut" }).toBe(true);
-  console.log(`[voxel-export] door: room light open ${open.toFixed(3)} → shut ${shut.toFixed(3)}`);
+  // Its opening casts the sun's shadow on the exported page too (the shut set travels with the grid's draws).
+  const casters = async (): Promise<number> => Object.values((await game.evaluate(() => (window as unknown as { __tlVoxelPlay: { stats(): { worlds: Record<string, { shutCasters?: number }> } } }).__tlVoxelPlay.stats().worlds)) as Record<string, { shutCasters?: number }>).reduce((n, w) => n + (w.shutCasters ?? 0), 0);
+  await expect.poll(casters, { timeout: 10_000, message: "the exported shut door's opening casts the sun's shadow" }).toBe(1);
+  console.log(`[voxel-export] door: room light open ${open.toFixed(3)} → shut ${shut.toFixed(3)}, casting its opening's shadow`);
   return { open, shut };
 }
 
@@ -1335,7 +1349,8 @@ export async function voxelGridChecks(o: GridCheckSetup): Promise<{ magenta: num
     await expect.poll(async () => { c = (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? []; return c.length === 2 && c.every((x) => x.updates >= LIGHT_UPDATES); }, { timeout: 60_000, intervals: [250], message: what }).toBe(true);
     return lightOf(c[0]);
   };
-  const door = await doorChecks({ control, counter, cells: async () => (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? [], lightOf, settled, still });
+  const shadowDraws = async (): Promise<number> => Number(await o.page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate(() => (window as unknown as { __tlVoxelPlay: { shadowDraws(): number | null } }).__tlVoxelPlay.shadowDraws() ?? -1));
+  const door = await doorChecks({ control, counter, cells: async () => (await hook<VolumeCell[] | null>('volumeCells', pts)) ?? [], lightOf, settled, still, casters: async () => (await o.drawn())[o.drawName]?.shutCasters ?? 0, shadowDraws });
   const shut = await settled("the room's light before the dig");
   const changes = await counter('changes');
   const dugAt = Date.now();

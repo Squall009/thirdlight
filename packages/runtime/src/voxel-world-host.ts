@@ -73,6 +73,7 @@ import {
   type LitShape,
   type LitStamp,
   type StructureStampRule,
+  type ShutOpeningWire,
   SaveFileError,
   setFineBricks,
   FarWalkNodes,
@@ -222,6 +223,11 @@ export interface VoxelWorldConnection {
   openGrid?(gridId: number): Promise<{ readonly source: ChunkSource; readonly extent: ChunkBox | null } | null>;
   /** A structure grid's streamer once it is made, for what draws it (its draws stand where `place` says). */
   presentGrid?(place: GridPlacement, stream: VoxelStreamer, sectionEdge: number): void;
+  /**
+   * A structure grid's shut openings that stop light changed (the whole set; cells in the grid's frame): what draws
+   * the grid casts the sun's shadow over exactly them (voxel-portals.ts).
+   */
+  shutOpenings?(gridId: number, openings: readonly ShutOpeningWire[]): void;
   /**
    * How the structure grids are stamped into the world grid's light occupancy, sun heights and regions
    * (structure-stamp.ts; absent: `STRUCTURE_STAMP_DEFAULT`; null: not stamped, a bench's comparison).
@@ -385,7 +391,7 @@ export class VoxelWorldHost {
   /** The structure grids opened with the world (empty: the world grid alone). */
   private grids: VoxelGridHost[] = [];
   /** The props with a portal and the openings they stand in (their shut state applied to light and walkers). */
-  private readonly portals = new WorldPortals(() => this.grids, () => this.channel);
+  private readonly portals = new WorldPortals(() => this.grids, () => this.channel, (g, list) => this.conn?.shutOpenings?.(g.frame.gridId, list));
   /** How the grids are stamped into the world grid (null: not stamped, or no grids). */
   private stampRule: StructureStampRule | null = null;
   /** µs each step of a grid's stamp sampling took (a row of world cells at least, more while the derive slice lasts). */

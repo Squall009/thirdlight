@@ -87,6 +87,7 @@ import { createVoxelSurface, type VoxelGridRenderer, type VoxelMaterialLook, typ
 import { LightStoreChoice, voxelLightStoreFromUrl, voxelLiquidFromUrl, voxelPathsFromUrl, voxelShadowsFromUrl, voxelSunFromUrl, type VoxelLightStore } from './voxel-surface-path';
 import { SunFieldHost, type SunFieldRenderer } from './voxel-sun-field';
 import { sceneShadowsOf, type SceneShadowLink } from './shadow-casters';
+import { VoxelPortalCasters } from './voxel-portal-casters';
 import { farFeedbackFromUrl } from './voxel-far-feedback';
 import type { VoxelFarView } from './voxel-far-mesh';
 import { farVisibilityFromUrl } from './voxel-far-visibility';
@@ -209,6 +210,8 @@ export interface VoxelWorldDrawStats {
   readonly instances: number;
   /** Of them kit pieces, and the piece draws (one a piece kind across the chunks, a draw call each a pass). */
   readonly kitInstances: number;
+  /** Shut openings casting the sun's shadow (voxel-portal-casters.ts). */
+  readonly shutCasters: number;
   readonly pieceDraws: number;
   /** Of them, as the view last drew: the draws it drew some of and the instances it drew. */
   readonly pieceDrawsInView: number;
@@ -234,6 +237,18 @@ export interface VoxelWorldDrawStats {
   readonly far: { readonly nodes: number; readonly bricks: number; readonly triangles: number; readonly draws: number; readonly gpuBytes: number; readonly trims: number; readonly covered: number; readonly cover: { readonly hidden: number; readonly edge: number }; readonly pass: 'visibility' | 'half' | 'direct'; readonly visibilityBytes: number; readonly feedback: VoxelFarView['feedbackStats']; readonly fine: VoxelFarView['fineState']; readonly fineBaked: { readonly drawn: readonly number[]; readonly read: number } };
 }
 
+/**
+ * A view's casters of the sun's shadow over its shut openings (voxel-portal-casters.ts), under its root and placed by
+ * its origin (never moved: these views draw relative to a fixed origin), reporting to the scene's static shadow map;
+ * none without shadows.
+ */
+function portalCastersOf(view: VoxelChunkView, origin: FloatingOrigin, shadows: boolean, link: SceneShadowLink | null): VoxelPortalCasters | null {
+  if (!shadows) return null;
+  const c = new VoxelPortalCasters(origin, link?.revision ?? null);
+  view.root.add(c.root);
+  return c;
+}
+
 interface WorldDraw {
   readonly view: VoxelChunkView;
   readonly surface: VoxelSurface;
@@ -246,6 +261,8 @@ interface WorldDraw {
   relief: ChunkReliefWire | null;
   /** Stops following the world's decal layers. */
   unlink: () => void;
+  /** The sun's shadow over the grid's shut openings that stop light (null: no shadows drawn). */
+  readonly casters: VoxelPortalCasters | null;
 }
 
 /** A batch received and not shown yet: its stage once its draws are being made. */
@@ -671,7 +688,8 @@ export class VoxelWorldDraws {
       const shadows = this.opts.shadows === true && voxelShadowsFromUrl(pageSearch());
       const link = shadows ? sceneShadowsOf(scene) : null;
       const grid = chunkGrid(edge as ChunkEdge);
-      const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface: base.surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), liquid: voxelLiquidFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), sharedPieces: base.view.pieces });
+      const origin = new FloatingOrigin({ grid });
+      const view = new VoxelChunkView({ grid, origin, surface: base.surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), liquid: voxelLiquidFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), sharedPieces: base.view.pieces });
       view.rebuilt = () => this.rebuilt(name);
       view.root.name = `voxel-world ${name}`;
       const at = this.places.get(name) ?? place;
@@ -688,7 +706,7 @@ export class VoxelWorldDraws {
         view.setDecalLayers(decals.layersOf(place.world));
         this.opts.applied?.();
       }) ?? ((): void => undefined);
-      this.worlds.set(name, (w = { view, surface: base.surface, shared: true, coarse: 0, kits: 0, relief: null, unlink }));
+      this.worlds.set(name, (w = { view, surface: base.surface, shared: true, coarse: 0, kits: 0, relief: null, unlink, casters: portalCastersOf(view, origin, shadows, link) }));
       return w;
     }
     const grid = chunkGrid(edge as ChunkEdge);
@@ -704,7 +722,8 @@ export class VoxelWorldDraws {
       link.ground = this.ground;
       this.groundLink = link;
     }
-    const view = new VoxelChunkView({ grid, origin: new FloatingOrigin({ grid }), surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), ...(this.opts.farSeen !== undefined && farFeedbackFromUrl(pageSearch()) ? { onFarSeen: (seen: FarSeenWire) => this.opts.farSeen!(name, seen) } : {}), ...(this.opts.fineUnavailable !== undefined ? { onFineUnavailable: () => this.opts.fineUnavailable!(name) } : {}), ...((t) => (t !== null ? { fineTexture: t } : {}))(fineTextureFromUrl(pageSearch())) });
+    const origin = new FloatingOrigin({ grid });
+    const view = new VoxelChunkView({ grid, origin, surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), ...(this.opts.farSeen !== undefined && farFeedbackFromUrl(pageSearch()) ? { onFarSeen: (seen: FarSeenWire) => this.opts.farSeen!(name, seen) } : {}), ...(this.opts.fineUnavailable !== undefined ? { onFineUnavailable: () => this.opts.fineUnavailable!(name) } : {}), ...((t) => (t !== null ? { fineTexture: t } : {}))(fineTextureFromUrl(pageSearch())) });
     view.rebuilt = () => this.rebuilt(name);
     // `?voxelSun=off` makes none (a comparison draws as before the field).
     if (webgpu && link !== null && edge === SUN_TILE_TEXELS && voxelSunFromUrl(pageSearch())) {
@@ -735,7 +754,7 @@ export class VoxelWorldDraws {
       surface.setBlendMetres(decals.blendOf(name));
       this.opts.applied?.();
     }) ?? ((): void => undefined);
-    this.worlds.set(name, (w = { view, surface, shared: false, coarse: 0, kits: 0, relief: null, unlink }));
+    this.worlds.set(name, (w = { view, surface, shared: false, coarse: 0, kits: 0, relief: null, unlink, casters: portalCastersOf(view, origin, shadows, link) }));
     return w;
   }
 
@@ -854,6 +873,7 @@ export class VoxelWorldDraws {
     for (const q of this.waiting) if (q.stage?.view === w.view) q.stage.discard();
     this.worlds.delete(name);
     w.unlink();
+    w.casters?.dispose();
     w.view.root.removeFromParent();
     w.view.dispose();
     if (!w.shared) w.surface.dispose();
@@ -882,6 +902,7 @@ export class VoxelWorldDraws {
     if (!ready) return false;
     const w = this.worlds.get(b.world)!;
     if (b.relief !== undefined) this.giveRelief(w, b.relief);
+    if (b.shut !== undefined) w.casters?.set(b.shut);
     if (b.world === this.volumeWorld && this.volume !== null) for (const c of b.chunks) if ((c.level ?? 0) === 0) this.volume.chunkGrid(c.cx, c.cy, c.cz, c.kind === 'remove' ? null : (c.cells ?? null), c.kind === 'remove' ? -1 : (c.solid ?? (c.cells !== undefined ? -1 : 0)));
     this.applyWalk(b.world, b.walk, b.walkFeed);
     if (b.sky !== undefined) {
@@ -913,7 +934,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number; staging: VoxelWorldDraws['staging'] } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieceDraws === 0 ? 0 : view.pieces.drawsInView, piecesInView: view.pieceDraws === 0 ? 0 : view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes, cover: { hidden: view.far.coverState.covered, edge: view.far.coverState.edge }, pass: view.far.brickPass, visibilityBytes: view.far.visibilityBytes, feedback: view.far.feedbackStats, fine: view.far.fineState, fineBaked: { drawn: [...view.far.fineDrawn], read: view.far.fineBakedIn } } };
+    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, shutCasters: this.worlds.get(name)?.casters?.count ?? 0, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieceDraws === 0 ? 0 : view.pieces.drawsInView, piecesInView: view.pieceDraws === 0 ? 0 : view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes, cover: { hidden: view.far.coverState.covered, edge: view.far.coverState.edge }, pass: view.far.brickPass, visibilityBytes: view.far.visibilityBytes, feedback: view.far.feedbackStats, fine: view.far.fineState, fineBaked: { drawn: [...view.far.fineDrawn], read: view.far.fineBakedIn } } };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length, staging: { ...this.staging } };
   }
 
