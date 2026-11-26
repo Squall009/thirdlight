@@ -55,18 +55,13 @@ const ISOLATED_FILES: string[] = [
   // Failed only when sharing a worker (their spans lost their order and times); cause not traced further.
   'packages/shared/src/profiler.test.ts',
   'packages/game-host/src/profile-view.test.ts',
-  // Failed only when sharing a worker (no unit marked, no bounce, a room's probes dark); old probe lighting, cause
-  // not traced.
+  // Failed only when sharing a worker (no unit marked, no bounce); old probe lighting, cause not traced.
   'packages/three-adapter/src/surface-relight.test.ts',
-  'packages/three-adapter/src/surface-probes.test.ts',
   // Compare shader programs with stored digests: three numbers its nodes from a counter the whole process shares, so
   // the files run before them change the programs' text.
   'packages/three-adapter/src/mesh-decals.test.ts',
   'packages/three-adapter/src/projected-decals.test.ts',
   'packages/three-adapter/src/see-through.test.ts',
-  // Its stale-result test needs the pool's derive replies to come after the second edit's; in a shared worker they
-  // came first once (no stale result). The order is not fixed by the test.
-  'tools/voxel-bench/stream.test.ts',
 ];
 const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const EXCLUDE = ['**/node_modules/**', '**/dist/**', 'archive/**', '.claude/**', ...(UNIT_SET === 'fast' ? slow : [])];

@@ -31,7 +31,6 @@
     {"file":"tests/e2e/edit-copy.e2e.ts","name":"largeDelete"},
     {"file":"tests/e2e/edit-copy.e2e.ts","name":"largeSelection"},
     {"file":"tests/e2e/import-extensions.e2e.ts","name":"command"},
-    {"file":"tests/e2e/lights.e2e.ts","name":"pointLight"},
     {"file":"tests/integration/m15-handles/handles.test.ts","name":"run"},
     {"file":"tests/integration/m15-inspector/inspector-fields.test.ts","name":"run"},
     {"file":"tests/integration/m2-builds/publication.test.ts","name":"createDeclaration"},

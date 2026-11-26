@@ -21,14 +21,10 @@
     {"path": "tools/voxel-bench/world-host.test.ts", "s": 23},
     {"path": "tools/voxel-bench/relief.test.ts", "s": 22},
     {"path": "tools/voxel-bench/walk.test.ts", "s": 22},
-    {"path": "packages/three-adapter/src/surface-probes.test.ts", "s": 18},
-    {"path": "packages/three-adapter/src/surface-bake.test.ts", "s": 18},
     {"path": "packages/three-adapter/src/voxel-light-volume-reference.test.ts", "s": 17},
     {"path": "tools/voxel-bench/relief-ring.test.ts", "s": 16},
     {"path": "tools/voxel-bench/kit-cases.test.ts", "s": 14},
-    {"path": "packages/three-adapter/src/block-mesh-worker.test.ts", "s": 13},
     {"path": "tools/voxel-bench/case-forms.test.ts", "s": 13},
-    {"path": "tests/integration/m42-bake/bake-lighting.test.ts", "s": 12},
     {"path": "packages/backend/src/fbx.test.ts", "s": 10}
   ]
 }

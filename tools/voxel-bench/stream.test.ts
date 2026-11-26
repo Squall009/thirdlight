@@ -307,10 +307,12 @@ describe('streamer (workers, region files on disk)', () => {
     s.on((e) => {
       if (e.type === 'derived') rebuilt.add(`${e.cx},${e.cy},${e.cz}`);
     });
-    // Start the rebuilds, then edit again next to the corner before they finish: their results come back stale.
+    // Start the rebuilds, then edit the same corner again before they answer: every section in flight is one the
+    // second edit reaches, so each answer comes back stale whichever ones the pool sent first. (An edit beside the
+    // corner reached only some of them, and the ones sent first were not always among those.)
     s.update();
     expect(s.metrics().deriving).toBeGreaterThan(0);
-    const again = fill([2, -3, 2], [3, -2, 3], 41);
+    const again = fill([-1, -1, -1], [0, 0, 0], 41);
     s.edit(again);
     applyEdit({ store: () => truth }, again);
     for (let i = 0; i < 500 && s.metrics().deriving > 0; i++) await sleep(10);

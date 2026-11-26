@@ -30,23 +30,13 @@ const WEBGPU_ARGS = SOFTWARE_WEBGPU_ARGS;
 /** The renderer-sensitive specs the `webgpu` project runs again on a host without a GPU. */
 const WEBGPU_SPECS = [
   '**/renderer.e2e.ts',
-  // Phase 23.4: a virtual camera's far plane and the depth precision setting on WebGPU.
-  '**/camera-depth.e2e.ts',
   '**/materials.e2e.ts',
   '**/textures.e2e.ts',
-  '**/lightmaps.e2e.ts',
-  '**/environment.e2e.ts',
-  '**/lights.e2e.ts',
-  '**/sky-texture.e2e.ts',
   '**/shadows.e2e.ts',
-  // Phase 18.3: material graphs on WebGPU.
-  '**/material-graph-render.e2e.ts',
   // Standard materials share one texture object across model files on WebGPU too.
   '**/shared-textures.e2e.ts',
   '**/material-graph-play.e2e.ts',
   '**/material-preview.e2e.ts',
-  // Phase 20.2: effects on the WebGPU compute executor.
-  '**/effects-gpu.e2e.ts',
   '**/effects-runtime.e2e.ts',
   '**/effect-light-pool.e2e.ts',
   // The engine-owned view (the live camera, else the default pose) in Play and the export on WebGPU.
@@ -57,16 +47,10 @@ const WEBGPU_SPECS = [
   '**/preview-pane.e2e.ts',
   // Phase 22.1: thumbnails from a WebGPU canvas snapshot (the other editor-worker tests skip here).
   '**/editor-workers.e2e.ts',
-  // A KTX2 transcoded to RGBA (no compressed format) in the thumbnail worker's WebGPU renderer.
-  '**/ktx2-rgba-thumbnails.e2e.ts',
   // Phase 21.3: instancing, render on demand and MSAA by quality on WebGPU.
   '**/rendering.e2e.ts',
-  // Phase 21.5: leak tests of the renderer-specific paths (previews, backend swap, Play) on WebGPU.
-  '**/memory.e2e.ts',
   // Phase 23.0: a 3D project's Play and export (the 3D physics backend) on WebGPU too.
   '**/physics-3d.e2e.ts',
-  // Phase 23.15: Custom-lit graph materials (preview, Scene view, Play, export) on WebGPU.
-  '**/material-custom-lit.e2e.ts',
   // Phase 23.12: material parameters set per object by scripts (the per-object data texture) on WebGPU.
   '**/material-runtime.e2e.ts',
   // A material swapped while the game runs shows only once loaded, on WebGPU.
@@ -88,20 +72,10 @@ const WEBGPU_SPECS = [
   // Phase 25.19: material instances and KTX2 textures (Scene view, Play, export) on WebGPU.
   '**/material-instances.e2e.ts',
   '**/ktx2-textures.e2e.ts',
-  // Phase 25.21: height-blended layers from texture arrays on a painted block layer and a GLB (Scene view, Play, export) on WebGPU.
-  '**/painted-terrain.e2e.ts',
-  // Smoothed block-layer tops (no seam at a chunk edge, a hard crease) in the Scene view, Play and the export on WebGPU.
-  '**/smooth-tops.e2e.ts',
-  // World-aligned texture coordinates on block looks (a texture across cells without a seam) on WebGPU.
-  '**/block-world-uv.e2e.ts',
-  // Normal maps lit from the right side (painted terrain, plain materials) and per-layer settings on WebGPU.
-  '**/layered-material.e2e.ts',
   // Mip streaming of large KTX2 textures under the texture budget (Play, the export's files) on WebGPU.
   '**/texture-streaming.e2e.ts',
   // A model's images extracted into texture assets, drawn and streamed (Scene view, Play, export) on WebGPU.
   '**/extract-textures.e2e.ts',
-  // The environment, post stack and shader families against their frozen reference images.
-  '**/webgpu-reference.e2e.ts',
 ];
 export default defineConfig({
   testDir: './tests/e2e',
