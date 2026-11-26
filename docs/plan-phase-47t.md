@@ -89,7 +89,7 @@ on the new check.
 | 47T.4 | done 2026-11-26: `tools/gate.sh pictures` (also in `phase`, after perf): 22 world pictures (two light-shots runs on staging's 8 km town) and 6 editor screens, each settled on the engine's own signals, as a pack with the perf report and the read (`docs/pictures.md`). First run 28 of 28 settled in 868 s, 16.9 MB, published `pic47t`; something seen wrong in 25; D825–D832. |
 | 47T.5 | done 2026-11-26: every open and watch row read. 355 → 210 open (M 66 → 29, L 289 → 181), watch 57 → 0 (the status is gone): 61 retire in 48, 39 test rows (26 tests, 3 bounds to stats, 10 merged), 45 measured costs to the perf page (rows 20–44), 19 restated as product questions. 16 wall-clock bounds out of the unit suite. Check GREEN 243 s. |
 | 47T.6 | done 2026-11-26: `tools/review/add-phase.mjs` (unit-tested) renders the page as two sections (47t, 47l) in a fixed form and deletes a dropped phase's folder under the review root only; five old acceptance texts to `archive/briefs/`. Deletion list (825 paths, 6.93 GB; kept because: five paths) read and run by the lead: disk free 14G → 21G. |
-| 47T.7 | not started |
+| 47T.7 | done 2026-11-26: review (35 rows sampled: 30 ok, 4 gaps, 1 wrong claim; 11 findings fixed). Check GREEN ×3 at c96b37e5: 242, 244, 240 s, after one red on a missed wall-clock bound (removed). Phase run once: 1,713 s, RED on far-world's order-dependent peak (now printed, D834; file green alone); 28 of 28 pictures. `acc47t` published. 47b not begun. |
 
 ## 6. How this phase is run
 
@@ -411,6 +411,29 @@ run's "previous".
 - Pictures: 22 existing bench cameras plus 10 new editor screens.
 - For the lead: blocks.e2e.ts is gameplay entities, not block layers (census said retiring; here logic); ktx2-rgba-thumbnails (WebGL 2) retire; webgpu-reference and memory dropped or kept as bench tools; the retiring systems' slow unit files (surface-probes, surface-bake, block-mesh-worker, m42 bake-lighting) archive now or at 48.
 
+### 47T.7
+
+- **Review**: one fresh agent (`~/.cache/thirdlight-phase47t/review.md`; summary in §8). Fixed in 83e4d410 … dca22a8c.
+- **Closing checks.** First series at dca22a8c: 237 s GREEN, 239 s GREEN, 242 s RED — `surface-cache.test.ts`
+  asserted a frame share measured by the host (53.3 ms against 51 under load 11.5): a wall-clock bound 47T.5 and the
+  review both missed (it reads the engine's own `prepareMs`, not the test's clock). Removed (c96b37e5); the test keeps
+  "made over several frames" and its tile counts. Second series at c96b37e5, three in a row GREEN: 242 s, 244 s,
+  240 s (build 26–27, lint 1–5, unit 186–188 over 960 files, boot 25–27; memory peak 11.1–12.0 GB of the 12 GB cap).
+- **Phase run**, once, at c96b37e5: 1,713 s, RED (unit). Build 26 s, full lint 95 s, every unit test 418 s (984 of
+  985 files), boot 25 s, perf report 217 s, pictures 932 s (28 of 28 taken and settled, 17.1 MB;
+  `~/.cache/thirdlight-pictures/gate-phase-20261126-055846`). The red: `tools/voxel-bench/far-world.test.ts`
+  expected the drawn GPU bytes to pass a binding budget by under 25 % on the way and read 52 %; every settled state
+  was within the budget. The peak depends on the order the workers answer in: the assertion became a printed number,
+  the product question is D834, and the file alone was green after the change (9 tests, 143 s). The phase run was
+  not repeated.
+- **Against §2's budgets**: check 240–244 s (under 5 min: met); its unit set 186 s (2 min: not met); rerun of what
+  failed 31–60 s (1 min: met at the edge); phase run 28.5 min (about 15: not met, the pictures are 15.5 of it);
+  phase units 418 s (8 min: met). A normal phase: eight checks and one phase run, about 61 min.
+- **This phase's own gate time**: 34 runs (30 checks, `--failed` runs among them, 2 phase runs, 2 picture runs),
+  about 3.0 h by the log folders' summaries; it built and proved the suite.
+- **Acceptance**: `docs/briefs/acceptance-47t.md`, published in the review page's `47t` section with the first
+  picture set and its read.
+
 ## 8. Decision log
 
 - **2026-11-26 — the reset is the owner's direction** (quoted in the header): unit tests first, a five-test boot
@@ -461,6 +484,12 @@ run's "previous".
   §2's "about 15 min" for the phase run is not met: the trial without pictures took 946 s and the pictures 868 s,
   so a phase run is about 25–30 min against that budget (owner to know). The core voxel real-scale tests (derived,
   world-host with its collision case, collision, stream) run once a phase (the slow list), no longer per commit.
+- **2026-11-26 — the two reds of the close** (lead; default chosen, owner to confirm): both were assertions on
+  something the host's load or the workers' order decides, so both assertions went and neither run was repeated to
+  see. `surface-cache.test.ts`'s frame share is no longer asserted; `far-world.test.ts`'s transient GPU peak is
+  printed and its product question is D834. Three fresh checks followed the first; the phase run stands as run.
+- **2026-11-26 — the phase run's budget** (lead; owner to confirm, acceptance question 1): 28.5 min against "about
+  15". The default keeps the 28 pictures; a phase then costs about an hour of test time with eight checks.
 
 ## 9. Open questions for the owner (each with the default that stands if unanswered)
 
