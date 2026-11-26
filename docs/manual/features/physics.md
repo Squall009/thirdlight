@@ -104,7 +104,7 @@ the newest finished worker frame, sends the next tick (with this frame's
 input) and draws at once, every object blended between its last two finished
 steps, so the picture is one frame behind the simulation and a key press
 reaches the screen one frame later than in single-thread mode (Play's
-`inputToDrawMs`, about 17 ms at 60 fps; an e2e test measures it).
+`inputToDrawMs`, about 17 ms at 60 fps, measured in a real page; no test checks it).
 
 **Measuring.** `node tools/perf/run.mjs --surfaces play,export --threads
 worker,off` measures Play and the export in both modes; the report adds the

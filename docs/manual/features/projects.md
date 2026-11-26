@@ -190,10 +190,9 @@ project scripts (in its own repository when it has one).
   event sounds, and `ctx.lifecycle` (respawn) with `ctx.scenes` (load,
   unload, reload). What a collected item, a hit or 0 health *means* is
   decided by the project's scripts (see [Gameplay](gameplay.md)). A tested
-  example: `tests/e2e/starter-game.e2e.ts` builds a small game in the
-  editor (a collectible counted in a HUD, a patroller whose hit a script
-  turns into a respawn, a door to a second scene, a title screen) and plays
-  it.
+  example: `tests/integration/m24-primitives` plays a small game made of them
+  (a collectible counted in a HUD, a hitbox, a door to a second scene, a
+  title screen) through the game host.
 - **Menus and HUD** are the game shell's UI documents (title, pause,
   settings, controls, save and load screens, HUDs, the scene list).
 - **Saves**: project save slots, save format version 2 (a save can carry

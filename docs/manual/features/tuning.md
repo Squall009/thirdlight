@@ -40,7 +40,7 @@ prefabs, scripts, scenes, materials, animators, timelines, UI documents and
 themes, dialogues and speakers, effects, graphs, script libraries,
 environment presets, event sounds, block types and stamps): each is its own
 file, and only one file's size and the runtime's memory are bounded
-(`tests/count-caps.test.ts` and `tests/e2e/count-caps.e2e.ts` guard it). Each
+(`tests/count-caps.test.ts` and `tests/integration/count-caps` guard it). Each
 limit below is a per-file size, a per-object size or a runtime budget, with
 its reason (the same line is next to its constant in the code):
 

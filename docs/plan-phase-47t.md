@@ -85,7 +85,7 @@ on the new check.
 | 47T.0 | done 2026-11-26: `docs/inventory-47t.md`. 180 browser files (326 tests run): logic 149, retire 15, dropped browser-only 8, looks 5, boot 3; 131 logic files covered today, 19 new unit tests to write; 43 slow unit files (1,743 s), most partly served by a cached world; boot check and a 32-picture set drafted. |
 | 47T.1 | done 2026-11-25: `tools/gate.sh check` (build in lanes, cached lint, fast unit set, `tests/e2e/boot.e2e.ts`) and `phase` (all units, boot, picture step skipped, perf report recorded); old modes and gate areas archived; AGENTS.md and the brief rewritten. Check GREEN 342–367 s (unit 287–308 s: over 5 min until 47T.2); `--failed` 31–60 s; phase trial GREEN 946 s. |
 | 47T.2 | done 2026-11-26: shared vitest workers (isolate off where no state leaks; 10 files and the bench keep isolation, with why), bench worlds cached in `~/.cache/thirdlight-voxel-bench/worlds` (code-digest key), two oracles made fast, slow list 43 → 29 (real scale only). Check GREEN 204–225 s (unit 146–171 s: over the 2 min target); phase units 418 s. |
-| 47T.3 | not started |
+| 47T.3 | done 2026-11-26: 180 browser files archived (logic 148, retire 17, dropped 8, looks 5, boot 2), 4 retiring unit files, 23 helpers; 42 new unit tests where the inventory's "covered" was wrong (one logic file in four); `tests/e2e` = the boot check; unit files isolated by kind (stored WGSL digests, process-wide memory, vi.mock). Ledger: `docs/inventory-47t-ledger.md`. Check GREEN 244 s. |
 | 47T.4 | not started |
 | 47T.5 | not started |
 | 47T.6 | not started |
@@ -105,6 +105,38 @@ on the new check.
 ## 7. Results
 
 (one section an item)
+
+### 47T.3
+
+- Three batches (agents 47T.3a, b, c), the procedure of the item's brief: each browser file's body read, each logic check
+  named with the unit test whose body covers it, a new unit test, or what is left unchecked; then `git mv` to
+  `archive/tests-e2e/` (README there: historical, not run). The ledger, `docs/inventory-47t-ledger.md`, has a row a
+  file, the totals and the list of what nothing checks any more (owner page).
+- 180 browser files archived; 42 new unit tests (A 8, B 19 and one assertion, C 15). Where the inventory's "covered"
+  (titles only) was wrong, about one logic file in four: Node-only halves nobody tested (the backend's refusal of a
+  library change a script no longer compiles against, the export's cut of a streamed texture into its parts, the
+  facing a save keeps as a runtime run), a refusal path, an export rule. Batch C also reached two parts the inventory
+  had as browser-only: the structure tool's pointer-to-command (create, edge, storey, dig, a door on a wall) driven in
+  Node with a camera and a stand-in canvas, and the screenshot request's `ui: false` (the choice moved into
+  `screenshot-answer.ts`).
+- The voxel world's assembly proof: its derive side is `tools/voxel-bench/derived.test.ts`'s chunk-corner banister case
+  (the same case: a set across a chunk face turns the neighbouring chunk's banister into a wall, exactly the
+  dependents derived again, every chunk equal to a fresh derive); its collision side after a runtime set had no unit
+  test (world-host's own case was a dig) and is written in `world-host.test.ts` (phase run: that file is on the slow
+  list). The light volume test became pictures only.
+- `start.e2e.ts` became `tools/start.test.mjs` (three tests, about 2 s, data roots under `~/.cache/tmp`).
+- Helpers: seven stay for the boot check (`backend`, `browser-env` and its types, `global-setup`, `png`, `pw`,
+  `package.json`); `png-make`, `multi-piece-glb`, `socket-glb` moved to `tests/support/` (unit tests and benches import
+  them); `webp-make`, `trim-strips` to `tools/perf/`; `keepThreeScenes` into its one bench user; 23 archived.
+  `playwright.config.mts` is one project (the GPU, else SwiftShader with WebGPU; the no-GPU path unverified here).
+  No fixture folder is used only by archived tests.
+- Shared-worker order dependence, by rule (`vitest.config.mts`, `ISOLATED_KINDS`, read from each file's text): stored
+  WGSL digests, measures of process-wide memory, `vi.mock`. 21 files isolated outside the bench folder (10 more than
+  before); cost about 2 s on the unit step (184 → 186 s, inside the host's noise). The shared setup also restores spies
+  after each file, and `voxel-far-page` stubs its `Worker` instead of assigning the global (it leaked to later files).
+- Reds on the way: `tracer-terrain-rings` asserted wall-clock milliseconds (22 against 15 at load 13.7): the bound went,
+  its rule (spread over many calls) stays as a count. `decal-projectors.test.ts` still asserts `updateMs < 5` (the same
+  kind, not red yet; left for the lead).
 
 ### 47T.2
 
@@ -211,6 +243,10 @@ Check runs in this phase:
 | 2026-11-26 01:53, `--failed` (that file isolated) | 34 s | 25 s | 2 s | 6 s (1 file) | — | GREEN |
 | 2026-11-26 02:04, aae79d14 (47T.3 batch B done: 57 browser files archived, 19 new unit tests and one new assertion) | 250 s | 26 s | 9 s | 188 s (1 file failed: `vertex-paint-draw`, stored WGSL digests after other files in its worker) | 27 s | RED |
 | 2026-11-26 02:08, `--failed` (that file isolated, as the other WGSL-digest files) | 33 s | 26 s | 1 s | 6 s (1 file) | — | GREEN |
+| 2026-11-26 02:37, 4e46f6a9 (47T.3 batch C: 49 browser files archived, 15 new unit tests) | 242 s | 26 s | 6 s | 184 s (1 file failed: `tracer-terrain-rings`, a wall-clock bound) | 25 s | RED |
+| 2026-11-26 02:41, `--failed` (the bound removed, → 776dc7be) | 35 s | 25 s | 5 s | 5 s (1 file) | — | GREEN |
+| 2026-11-26 02:50, 3bc77380 + isolation by kind (→ 5952b4d7) | 244 s | 25 s | 6 s | 186 s (955 files) | 27 s | GREEN |
+| 2026-11-26 02:57, 5952b4d7 + 47T.3's docs (47T.3 done) | 245 s | 25 s | 2 s | 188 s (955 files, 7,185 tests) | 30 s | GREEN |
 
 The phase run's one trial, 2026-11-25 23:29 at 0e511679 (`tools/gate.sh start phase`): GREEN in 946 s — build 29 s,
 full lint 110 s, every unit test 603 s (972 files passed, 13 skipped), boot 25 s, pictures skipped, perf 179 s

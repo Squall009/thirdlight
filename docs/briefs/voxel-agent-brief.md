@@ -170,7 +170,7 @@ D-rows continue at D568.
 WEBGPU FIRST (owner 2026-11-10; AGENTS.md; plan-46d §2/§9): WebGPU is the renderer voxel work is designed, built,
 tested and measured for. WebGL 2 is no longer checked or kept working (owner 2026-11-25; its smoke test is archived);
 no effort is spent on it. New items measure and take pictures on WebGPU only;
-cut existing both-renderer e2e passes / two-renderer rounds in the area you touch (not a sweep). Vista steps
+(the both-renderer browser passes are archived). Vista steps
 46d.17–46d.20 go on compute, reusing three-adapter occlusion-pyramid.ts and occlusion-instances.ts (no second
 culling path). Vista note: docs/research/voxel-vista-performance.md (§6 supersedes §4 where they differ).
 Commit trailer now: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

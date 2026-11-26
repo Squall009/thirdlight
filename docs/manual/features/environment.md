@@ -161,7 +161,7 @@ the bake reuses its target, so the scene's environment texture never
 changes during a blend. A blend that only changes fog, exposure, grading or
 lights never re-bakes. A script may give `blend(a, b, t)` a new t every step:
 measured on the GPU host (Iris Xe), no step is dropped once loaded
-(`environment-blend-cost.e2e.ts`). Fog of different kinds converts (linear
+(a measurement, not a check). Fog of different kinds converts (linear
 ↔ exp2 by density = 2 / far); a look without fog thins it. Tone mapping,
 anti-aliasing, AO, depth of field and the LUT image cannot blend: the
 heavier look's is used.

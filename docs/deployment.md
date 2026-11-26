@@ -256,18 +256,14 @@ npm run build && npx playwright test tests/e2e/boot.e2e.ts   # the boot check al
 node tools/perf/run.mjs                     # the performance harness (long; see manual/features/performance.md)
 ```
 
-The boot check (`tests/e2e/boot.e2e.ts`) is the browser test the gate runs; the
-other files in `tests/e2e` are being moved to unit tests or the archive.
+The boot check (`tests/e2e/boot.e2e.ts`, five tests, one backend) is the only
+browser test; `npm run test:e2e` runs it too. The browser tests it replaced are
+in `archive/tests-e2e/` (historical, not run); what each checked and which
+unit test checks it now is in `docs/inventory-47t-ledger.md`. On a host with a
+usable GPU it draws on the product's renderer (`auto` → WebGPU); without one
+on SwiftShader with its WebGPU adapter. WebGL 2 is not checked (owner,
+2026-11-25; the old parity specs are in `archive/webgl2-parity/`).
 
-`npm run test:e2e` runs the Playwright specs. On a host with a usable GPU
-every spec runs once, in `default`, on the product's renderer (`auto` →
-WebGPU); WebGL 2 is not checked (owner, 2026-11-25; the old parity specs and
-the smoke test are in `archive/webgl2-parity/`).
-Without a GPU everything runs on SwiftShader: `default` has no WebGPU
-adapter (`auto` takes WebGL 2), and `webgpu` runs the renderer-sensitive
-specs again with headless WebGPU (Dawn's SwiftShader adapter).
-`TL_E2E_WORKERS=<n>` runs spec files in parallel (`tools/gate.sh` runs the boot check on 1).
-
-The browser tests need Playwright's Chromium (`npx playwright install
+The boot check needs Playwright's Chromium (`npx playwright install
 chromium`); on this LXC they use the library tree described in
 `tests/e2e/browser-env.mjs`.

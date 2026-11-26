@@ -10,7 +10,7 @@ A self-hosted browser game editor built on three.js. Goal and scope:
 npm ci --include=dev        # this host exports NODE_ENV=production
 npm run build               # checks + bundles into dist/
 npm test                    # unit and integration tests (vitest)
-npm run test:e2e            # browser tests (Playwright) against dist/
+npm run test:e2e            # the boot check (the one browser test, Playwright) against dist/
 ```
 
 ## Run it

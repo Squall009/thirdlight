@@ -39,7 +39,7 @@ real HTTP API into a throwaway data root under
 Effects are generated with their emitter objects, and Play and exports draw them.
 
 **Run the harness** (needs `dist/`; not part of `npm test` or the default
-Playwright run):
+boot check):
 
 ```sh
 npm run build
@@ -381,7 +381,7 @@ editor URL (like `?renderer=webgl2`) to run them all inline. The editor does so 
 not tried again until the page reloads), when a worker stops during a job,
 and — for the bake — when the worker's canvas gets no renderer. The editor
 page needs no extra headers for this (no SharedArrayBuffer is used).
-`tests/e2e/editor-workers.e2e.ts` measures the main-thread long tasks before and after.
+`tests/editor-workers.test.ts` checks the jobs across a real worker boundary in Node; the main-thread long tasks in a real page are not measured by any test.
 
 **Rendering.**
 
@@ -464,7 +464,7 @@ time, stay at the memory they started with.
   the renderer's internals of the pinned three version (guarded: another
   version would only lose the early release).
 
-`tests/e2e/memory.e2e.ts` checks it: each document tab kind opened and closed
+The archived `archive/tests-e2e/memory.e2e.ts` checked it (no test does now: leaks show in the phase run's memory report and by hand): each document tab kind opened and closed
 50×, the preview panes 50×, an editor scene closed and opened 50×, instancing
 groups formed and dissolved 50×, the backend swapped 10×, Play started and
 stopped 20×, and in one Play session an additive scene loaded and unloaded
@@ -472,12 +472,7 @@ stopped 20×, and in one Play session an additive scene loaded and unloaded
 (after a garbage collection), the WebGL/WebGPU objects per live context and
 the renderer's own counts come back to where they were. The Scene view's
 canvas carries the renderer's counts in `data-memory`; Play's diagnostics
-(`tl_diagnostics` renderer.gpu) carry the same counts. Run it after
-`npm run build` with `TL_MEMORY=1 npx playwright test tests/e2e/memory.e2e.ts` (both
-projects; 10–15 min on a CPU renderer; `[memory] …` lines print each
-scenario's baseline and end counts); `TL_MEMORY_CYCLES=5` shortens it for a
-quick smoke run. Without `TL_MEMORY=1` the spec is skipped (the full gate
-sets it).
+(`tl_diagnostics` renderer.gpu) carry the same counts, so a leak shows there.
 
 **Scale bench.** A project of a full game's size — 10,000 voice lines
 (Ogg Opus, 1–15 s), 1,000 other sounds, 5,000 textures, 2,000 models, 5,000
@@ -516,6 +511,6 @@ Presets: `full`, `caps` (every kind at the count caps older engines had), `half-
 `--walk N`, `--lines N`, `--commands N`, `--seed N`,
 `--renderer webgl2|webgpu`, `--gpu`, `--keep`, `--out FILE`.
 The generated project is kept under `~/.cache/thirdlight-perf/scale/<preset>/`
-and copied for each run. `tests/e2e/count-caps.e2e.ts` (in the fast gate)
-runs the files, open, commands, play, walk and export steps on a project over
-every old count cap.
+and copied for each run. `tests/integration/count-caps` (in the check) runs
+the files, open, commands and export steps over HTTP on a project over every
+old count cap; Play and the walk of that project are not checked by a test.

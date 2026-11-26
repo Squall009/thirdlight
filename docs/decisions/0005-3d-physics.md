@@ -93,7 +93,7 @@ itself on the global object through game-host's dependency-free
 script element in the page (single thread), `importScripts` in the
 simulation worker (the file next to the worker's script). A 2D project never
 fetches it; `preview-m3.js`, `sim-worker.js` and the export's `js/main.js` /
-`js/sim-worker.js` carry no rapier3d code (checked by the e2e test). The
+`js/sim-worker.js` carry no rapier3d code (checked by `tests/integration/m3-export/bundle-scan.test.ts`). The
 export gates the new bundle like the worker: import graph (the allow-list
 gains `@dimforge/rapier3d-compat`), forbidden-text scan, closure digest.
 

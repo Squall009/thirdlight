@@ -7,6 +7,33 @@ accepted by the owner: found later in the pictures or by hand). "Archived in" is
 (`git log --grep '<tag>'`). Paths are shortened as in the inventory (`pm/` packages/project-model/src, `ti/`
 tests/integration, `ex/` packages/exporter/src, …).
 
+## Totals (47T.3 done, three batches: A 74 files, B 57, C 49)
+
+- **Archived: 180 browser files** (every one but `boot.e2e.ts`) to `archive/tests-e2e/`: logic 148, retire 17, dropped
+  browser-only 8, looks 5, boot 2 (replaced by the boot check); 4 unit files of retiring systems; 23 helper modules
+  (and the three spec folders that moved with their specs). `tests/e2e` holds the boot check and its six helpers.
+- **Logic checks** listed in the rows: 579 (counted by `;` in the second column). Each is covered by a unit test whose
+  body was read, by a new unit test, or written in the "dropped" column. **New unit tests: 42** in 31 rows (A 8, B 19
+  and one assertion, C 15), at the code boundary: pure functions, the runtime in Node, commands over HTTP against a
+  real backend, Node WebSocket clients, the editor's pointer tools with a camera and a stand-in canvas, a child
+  process (`tools/start.mjs`). The inventory's "covered" was wrong for about one logic file in four (each row says).
+- **No longer checked by anything** (browser-only, accepted by the owner: found in the pictures or by hand):
+  1. what is drawn: post effects, skies, fog, tone mapping and node-material pixels; shadows, contact shadows and
+     reflections; instanced = not instanced, culling on = off, FSR and TAAU; decals, kit pieces, fades, letterboxes;
+  2. the GPU side: the particle compute kernel, graph materials' drawn values, the occlusion pyramid read back, the
+     voxel light volume's GPU path, RGBA transcoding where no compressed format exists;
+  3. editor gestures in a real page: gizmo and handle drags, the structure editor's ghosts, the water and spline grips,
+     the UI editor's drags, timeline scrubbing, the graph editor's wiring and debugger panel, the project window's drag,
+     floating windows, context menus, Inspector pickers, the code editor's marks and completion;
+  4. rates and timing in a real page: the frame-rate cap, the draw rate with a slow worker, input-to-motion latency,
+     render on demand, HiDPI (recorded as stats by the phase run, never checked);
+  5. the browser platform: IndexedDB and localStorage refusals, FontFace, Web Audio output, cross-origin isolation and
+     shared memory, real mouse, keyboard and gamepad events, blob URLs;
+  6. leaks in a real page (heap and GPU counts back to baseline: already skipped in every gate before);
+  7. Play of a project at scale (above the old caps, 1,800 assets) and scrolling the editor at that scale;
+  8. WebGL 2 (dropped by the owner) and the retiring systems (block layers, heightfield terrain, generated
+     architecture, terrain splines, old probe lighting) until 48 deletes them.
+
 ## Browser files
 
 | File | Logic checks found | Covered by (file: title) | New unit tests (file: title) | Dropped browser-only (unchecked) | Archived in |

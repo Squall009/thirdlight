@@ -48,8 +48,9 @@ standard, foliage wind (COLOR_0 + the scene's wind field: [Wind](environment.md#
 UV1 macro normal), unlit, water — and the lighting they read (the surface cache's light and
 an earlier bake's lightmaps: UV1, the bake's range, the lights a bake holds
 left out), the Scene view's selection tint and look
-overrides work there too. A pixel test compares each against the
-reference images the old WebGL renderer drew (`tests/e2e/shader-parity/`).
+overrides work there too. They were compared with reference images the old
+WebGL renderer drew (the archived `archive/tests-e2e/`); now their looks are
+judged from a phase's pictures.
 
 The environment draws the same on both backends too: every sky
 mode (physical — three's TSL sky —, gradient, colour, texture as an equirect
@@ -58,9 +59,9 @@ image or six cube faces) with its image-based lighting, fog, fog volumes
 in games without level bounds) and the whole post stack per quality level —
 ambient occlusion, depth of field, bloom, grading with lift/gamma/gain, the
 LUT and the vignette, SMAA/FXAA and AgX/ACES/Neutral tone mapping — as
-three's node post-processing. A level's own look works the same. A pixel
-test compares 21 environments with the old WebGL renderer's reference images
-(`tests/e2e/env-parity/`). Differences from the old WebGL renderer you may
+three's node post-processing. A level's own look works the same (once
+compared, 21 environments, with the old WebGL renderer's reference images;
+now judged from a phase's pictures). Differences from the old WebGL renderer you may
 see: scene fog is mixed before tone mapping (the WebGL renderer mixed it
 after when there was no post stack), so its tint is a little different;
 ambient occlusion has a different noise pattern and depth of field a
