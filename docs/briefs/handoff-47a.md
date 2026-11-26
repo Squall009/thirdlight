@@ -31,7 +31,7 @@ it names structures or splines; `packages/voxel/src/structure-overrides.ts` (a d
 `docs/plan-phase-46e.md` §1's "Out, with the phase that takes it" (what 46e left for 47a: structures on their own
 grids and their stitched walk graphs, door and window portal state as props) and its sections "46e.15", "46e.16"
 and "46e.18" (props in the light's rays, rooms and `portalsOf`, the walk graph: the things 47a's doors and
-structures must meet); `docs/briefs/acceptance-46e-b.md` (what is open); `docs/briefs/voxel-agent-brief.md` (the
+structures must meet); `archive/briefs/acceptance-46e-b.md` (what is open); `docs/briefs/voxel-agent-brief.md` (the
 item agents' standing brief; its last section is 46e-b's).
 
 ## Scope of 47a (the roadmap's words; the plan turns them into items)
@@ -155,6 +155,6 @@ keep going.
 
 ## When you finish 47a
 
-The acceptance page (`docs/briefs/acceptance-47a.md`, published as `acc47a`): what exists that did not, what the
+The acceptance page (`archive/briefs/acceptance-47a.md`, published as `acc47a`): what exists that did not, what the
 owner would notice in the editor, the measured table on the low tier, what is still open, at most five questions
 each with a default. Then stop. Do not begin 47b.

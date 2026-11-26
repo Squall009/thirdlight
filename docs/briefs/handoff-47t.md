@@ -14,7 +14,8 @@ without stopping to ask, then stop. **Do not begin 47b.**
   `~/.cache/thirdlight-phase47l/work/followup/census.md`.
 - The review server (`python3 -m http.server 8766` in `~/.cache/thirdlight-owner-review`, started with
   `setsid nohup`) does not survive restarts: check it answers before saying a page is published. Publish with
-  `python3 ~/.cache/thirdlight-owner-review/add-phase.py <id> "<title>" <pack dir> [review.md]`.
+  `node tools/review/add-phase.mjs 47t --acceptance docs/briefs/acceptance-47t.md` (the form: `docs/pictures.md`,
+  "The review page"; the page keeps this phase and the one before it).
 
 ## The owner's standing rules for this work
 

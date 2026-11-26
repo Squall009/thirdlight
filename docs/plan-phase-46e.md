@@ -1,6 +1,6 @@
 # Phase 46e — Lighting, regions and the walk graph
 
-Status: **46e-a done 2026-11-16; 46e-b done 2026-11-20 (items 46e.9–46e.19), accepted by the owner 2026-11-20 (`docs/briefs/acceptance-46e-b.md`, all five defaults stand)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
+Status: **46e-a done 2026-11-16; 46e-b done 2026-11-20 (items 46e.9–46e.19), accepted by the owner 2026-11-20 (`archive/briefs/acceptance-46e-b.md`, all five defaults stand)** on branch `phase-45` (worktree `~/projects/thirdlight-p45`, base
 32faf2c0; main frozen at d4053cab). Planned from `docs/roadmap.md` (order of 2026-11-12), plan 45's 46e scope and
 §5c, requirements R40, R45, R97–R104 and R110 (`docs/architecture/voxel-format-requirements.md`),
 `docs/architecture/voxel-engine.md` §6 (foundations 2 and 7) and the 46f close (`docs/plan-phase-46f.md` §10: the
@@ -239,7 +239,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.5 | Done 2026-11-15 (a, b; c: 52c88694…f6c8bcd0): charts on the view's worker, faces' hashes kept across changes, a chunk marks what it can shadow; street lit 18.9 s from Play (30), 1.5 M texels for 1.4 M; settled GPU lighting below res., page 0.25–0.44 ms; relighting 6.7–18.9 ms GPU; orbit no room at 30 Hz; edit → light 0.3 s, settled 2.4–2.9 s (§8a 46e.5c) |
 | 46e.6 | Done 2026-11-15 (a; b: e3d86ffb, 4d04a538): coarse 1/2/4 m levels, read by every lit draw; one pool (D691 fixed); settled no GPU, updating 8.9–11.2 ms (D690), orbit 5.9–6.5; near +1.3–4.8 read or not (invalid: the read was not off, D698; see §8b); 29.8 MB; edit → light 0.07–0.11 s, settled 0.5–1.7 s; Play → settled ≈ 20 s |
 | 46e.7 | Done 2026-11-16 (225ec7b5, b99489b2): `?voxelLight=hybrid` (cache probes near, volume past `voxelLightHandoverM`, 12 m low); A/B in one session, §8b: orbit room off 136 / cache 1 / volume 76 / hybrid −1 copies; settled near over off +2.3 / +4.1 / +5.9 ms (room); edit → settled 2.5 / 1.7 / 4.7 s; D693 = the read (D698); D697–D700 |
-| 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `docs/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
+| 46e.8 | Done 2026-11-16: travel fixes (D694 fixed; D667, D675 narrowed); phase gate 37 min (46f: 30), unit green, e2e 324/328, a chart-worker leak found and fixed (rerun green); review "close after fixes", fixed (derived v32, travel row re-measured, D699 counted); acceptance `archive/briefs/acceptance-46e-a.md`. **Stop: the owner chooses the store.** |
 | 46e.9 | Done 2026-11-16 (0c832013, 086737dc): cache port + hybrid removed, 54 files +206 −5,089; `?voxelLight=off|volume` (else off), off by default; Play e2e 3.4–3.8 → 2.5 min, voxel area 364–374 → 288 s; pictures as at the 46e-a end (A B A B: within run-to-run); orbit room 192 copies; D679, D682–D686, D704, D706 superseded, D699/D700 narrowed |
 | 46e.10 | Done 2026-11-17 (cb7229fa…5503e495): stitch searches in the slice; far sun tiles wait at speed (sun 1.6 → 0.4 ms/frame); 10b: walk blocks only while the page reads its GPU walk; 10c: sim frames build full diagnostics only when sent (11.8 ms a tick of voxel stats after a 150 m/s stop): store off nothing pending 7.0–7.3 s (base 7.4–7.5, before 10.5–11.4), D701 fixed; D672 narrowed; D711 |
 | 46e.11 | Proposed 2026-11-16 (24296e84, acc46e-11), **owner's note 2026-11-17 (relayed): approved with changes** — reuse `params.emissive` × `emissiveIntensity`; no mask: the surface draws glow × the colour texture, the volume uses glow × the material's mean colour; a mask only in a spare channel of a map already read, its entry to the owner first; no far glow. (d) builds the no-mask part. |
@@ -250,7 +250,7 @@ change to an approved format or spec; a newer three.js.
 | 46e.16 | Done 2026-11-20 (3983dbca…058d4470): regionAt gives a room's kind, box, surface, 4V/S (no walk; edit → 104 ms), portalsOf; see-through and cut-away (camera `cutAway`) round the subject's room only, roof still casts; far rooms' flat term at indoorShare 0.2 under a roof (sky heights); arrival not fixed (D731), L notch cut (D730); orbit near unchanged |
 | 46e.17 | Done 2026-11-20: measured, not built. The flood (Node) keeps every level-0 draw in view at every town house, street and orbit view (cave mouth: 1 of 31 beyond the pyramid), 0 false culls (oracle, rays), 0.6–1.1 ms a run; a perfect chunk pre-filter saves 0–0.9 ms page render, within spread. Caves (no far field): it drops 25–80 % (§8c). D733 |
 | 46e.18 | Done 2026-11-20 (ba7b489a…f6a20d81): `PathSearch` (shared A*); walk graph from derived nav (2 m walker, 0.5 m steps, pieces, exits), `ctx.voxels.findPath`/`reach` in the frame's 3.33 ms; levels = one A* in length, unknown 3–7 vs 61–69 ms; Play 2,682 chunks 7.6 MB, stitch 2.1 ms/frame filling; 100 queued ≤ 3.5 ms/frame; D734–D736 |
-| 46e.19 | Done 2026-11-20: phase gate `gate-phase-20261120-110800` green (36 min); review "close after fixes", fixed (1bbe029d, 760c2aa0); end-of-phase reading (76a3dc44): town 128 copies of room (off 176), near 4.8–5.1, lighting 5.0–5.5 ms; 128 lamps near +2.4 ms since the tuning, cause not found (D740); acceptance `docs/briefs/acceptance-46e-b.md`. **Stop for the owner.** |
+| 46e.19 | Done 2026-11-20: phase gate `gate-phase-20261120-110800` green (36 min); review "close after fixes", fixed (1bbe029d, 760c2aa0); end-of-phase reading (76a3dc44): town 128 copies of room (off 176), near 4.8–5.1, lighting 5.0–5.5 ms; 128 lamps near +2.4 ms since the tuning, cause not found (D740); acceptance `archive/briefs/acceptance-46e-b.md`. **Stop for the owner.** |
 
 ## 8. Format and spec steps (owner stops)
 
@@ -4577,7 +4577,7 @@ worktree removed.
   the cap on a moving eye: 76 [60–88] copies of room against none for the cache and the hybrid; least memory;
   fastest after an edit; travel like no store), its per-pixel read (+3.2 to +5.3 ms of `near` standing still, D705)
   and its update's pacing (D690) the first work of 46e-b. The acceptance page and its five questions:
-  `docs/briefs/acceptance-46e-a.md`.
+  `archive/briefs/acceptance-46e-a.md`.
 - 2026-11-16 (lead): 46e.5 and 46e.6 were each run as slices (5a tile source, tracer kind, direct light, read; 5b
   probes and readers; 5c the port's wiring costs and the column; 6a store, update, read; 6b coarse levels, readers,
   wiring costs, the column), 46e.4 as a (near shadows) and b (far shade, sun field); the fair-depth contract both
@@ -4912,7 +4912,7 @@ worktree removed.
 
 ### At the 46e-a stop (2026-11-16): five questions, each with the default that stands if unanswered
 
-The page with pictures and the table: `docs/briefs/acceptance-46e-a.md` (published as acc46e-a). **Owner 2026-11-16: answered** — 1 the volume; 2 remove, first in 46e-b; 3 no; 4 changed: no tuning first, the order of §6's 46e-b table; 5 keep on, fix D667, D675, D701, trace D672 and the 7-copy round (§9).
+The page with pictures and the table: `archive/briefs/acceptance-46e-a.md` (published as acc46e-a). **Owner 2026-11-16: answered** — 1 the volume; 2 remove, first in 46e-b; 3 no; 4 changed: no tuning first, the order of §6's 46e-b table; 5 keep on, fix D667, D675, D701, trace D672 and the 7-copy round (§9).
 
 1. **Which lighting store?** Default: the voxel light volume, switched on per tier in 46e-b.
 2. **The other one.** Default: the voxel port of the cache (charts, face hashes, chart worker) and the hybrid switch
@@ -4940,6 +4940,6 @@ The page with pictures and the table: `docs/briefs/acceptance-46e-a.md` (publish
 
 ### At the 46e-b close (2026-11-20): five questions
 
-The page: `docs/briefs/acceptance-46e-b.md` (published as acc46e-b). **Owner 2026-11-20: "All of the defaults are
+The page: `archive/briefs/acceptance-46e-b.md` (published as acc46e-b). **Owner 2026-11-20: "All of the defaults are
 accepted."** 1 the two relayed notes stand; 2 the mask's volume rule as built; 3 dark rooms under cut-away left as
 they are; 4 the update's share stays 3.5 ms on low; 5 the lower-rate read waits for the performance phase after 49.

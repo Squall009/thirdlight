@@ -88,7 +88,7 @@ on the new check.
 | 47T.3 | done 2026-11-26: 180 browser files archived (logic 148, retire 17, dropped 8, looks 5, boot 2), 4 retiring unit files, 23 helpers; 42 new unit tests where the inventory's "covered" was wrong (one logic file in four); `tests/e2e` = the boot check; unit files isolated by kind (stored WGSL digests, process-wide memory, vi.mock). Ledger: `docs/inventory-47t-ledger.md`. Check GREEN 244 s. |
 | 47T.4 | done 2026-11-26: `tools/gate.sh pictures` (also in `phase`, after perf): 22 world pictures (two light-shots runs on staging's 8 km town) and 6 editor screens, each settled on the engine's own signals, as a pack with the perf report and the read (`docs/pictures.md`). First run 28 of 28 settled in 868 s, 16.9 MB, published `pic47t`; something seen wrong in 25; D825–D832. |
 | 47T.5 | done 2026-11-26: every open and watch row read. 355 → 210 open (M 66 → 29, L 289 → 181), watch 57 → 0 (the status is gone): 61 retire in 48, 39 test rows (26 tests, 3 bounds to stats, 10 merged), 45 measured costs to the perf page (rows 20–44), 19 restated as product questions. 16 wall-clock bounds out of the unit suite. Check GREEN 243 s. |
-| 47T.6 | not started |
+| 47T.6 | done 2026-11-26: `tools/review/add-phase.mjs` (unit-tested) renders the page as two sections (47t, 47l) in a fixed form and deletes a dropped phase's folder under the review root only; five old acceptance texts to `archive/briefs/`. Deletion list written (825 paths, 6.93 GB; kept because: five paths); the lead runs it. Disk 14G free before. |
 | 47T.7 | not started |
 
 ## 6. How this phase is run
@@ -105,6 +105,59 @@ on the new check.
 ## 7. Results
 
 (one section an item)
+
+### 47T.6
+
+- **The tool**: `tools/review/add-phase.mjs` (Node, not Python: vitest covers it in the check with no new runner; the
+  old 25-line `add-phase.py` symlinked packs into the root and appended sections). `node tools/review/add-phase.mjs
+  <phase> [--title T] [--acceptance FILE] [--pictures PACK] [--root DIR]`. A section is a phase id (`47t`); its parts
+  (acceptance text, picture set) are COPIED into `<root>/<phase>/`, so a dropped phase's folder is inside the root
+  and deleting it touches nothing else (a link there is unlinked, an id that is a path is refused). Two phases kept
+  (`KEPT_PHASES`); a third drops the oldest and prints the MB freed. Fixed form, in order: What changed (at most
+  five lines), Pictures (wrong or unsettled first and marked, Sees/Wrong/Sure under each), What is wrong (the read's
+  summary, the acceptance's list), Numbers (the perf report's table, the picture run's time, the acceptance's list),
+  Questions (at most five, each with its default; an answer shown when given). Missing parts say "not provided".
+  The acceptance file's form: `docs/pictures.md`, "The review page"; the tool refuses a text that breaks it.
+  Tests: `tools/review/add-phase.test.mjs` (9: the form parsed, the read parsed, the order, the two-section rule and
+  the drop, links and path ids never followed out of the root, a broken text refused before anything changes).
+- **The live page** rebuilt: `47t` (`pic47t`'s pack, 17 MB; the acceptance follows from the lead) and `47l` (its 20
+  pictures, 7.6 MB, and a page-form head quoted from `acceptance-47l.md` with the owner's answers, the full text
+  behind it). Served 200 at `review.html`; looked at in headless Chrome at 1400 px (light) and 390 px (dark): both
+  sections, pictures in the grid, no console error, no sideways scroll. No thumbnails are made (no image library
+  on the host): the grid shows the PNGs scaled, lazily loaded. The old `review.html` is overwritten, not kept.
+  `~/.cache/thirdlight-owner-review/add-phase.py` forwards to the repo's tool.
+- **Acceptance texts**: `acceptance-46e-a`, `-46e-b-interim`, `-46e-b`, `-47a-interim`, `-47a` → `archive/briefs/`
+  (`git mv`); their links in STATUS, the plans of 46e and 47a, the decisions register and the old handoffs follow.
+  Kept in `docs/briefs/`: 47L's (and 47T's when written).
+- **The deletion list** (written, NOT run; the lead runs `~/.cache/thirdlight-phase47t/work/47T.6/delete-old.sh`
+  after reading `delete-old.list`, path and bytes a line; made by `make-list.py` beside them): 825 paths, 6.93 GB
+  (disk usage). Disk now: 63G, 47G used, 14G free (78 %).
+
+| What goes | Paths | Size |
+|---|---|---|
+| `~/.cache/thirdlight-phase25` … `thirdlight-phase44b`, `thirdlight-phase27-draft` (26 folders, whole) | 26 | 223 MB |
+| `~/.cache/thirdlight-phase46f` (whole) | 1 | 51 MB |
+| `~/.cache/thirdlight-phase46` (all but the kept path below) | 544 | 3,120 MB |
+| `~/.cache/thirdlight-phase46e` (all but the kept paths below) | 114 | 3,006 MB |
+| `~/.cache/thirdlight-phase47a` (all but the kept files below) | 67 | 531 MB |
+| `~/.cache/thirdlight-owner-review`: the old pages' links (acc33 … acc47a, acc47l, acc47l-interim, plan47a, plan47l, pic47t, mockups, p36-*, the spec links: links only, no data) | 45 | 0 |
+| `~/.cache/thirdlight-owner-review`: `review-*.md` copies, `looks/`, `work/`, `add-looks.py` | 28 | 3 MB |
+
+  Kept because a current doc or the open list links it: `~/.cache/thirdlight-phase45` whole (39 MB:
+  `docs/architecture/voxel-format-spec.md` links its `acceptance/`, `docs/plan-phase-45.md` — the voxel plan, current
+  to 49 — its work results); `thirdlight-phase46/work/46d.26c/shots/side-by-side/` (87 MB,
+  `docs/briefs/fine-bricks-comparison-2026-11-12.md`); `thirdlight-phase46e/work/46e.12e/drift-1024.json` (open D726);
+  `thirdlight-phase46e/work/46e.12d/maskcost/` (`docs/briefs/proposal-46e.11-emissive.md`);
+  `thirdlight-phase47a/work/47a.13/m/O-128-def-r{1,2}.json` (`docs/plan-phase-47l.md`'s results). Kept as the last two
+  phases: `thirdlight-phase47l` (713 MB, the census included), `thirdlight-phase47t`. Kept in the review root: the page,
+  `phases.json`, `47l/`, `47t/`, the forwarder, `server.log`, the owner's `answers-2026-10-21.md` and
+  `decisions-2026-10-21.md` (owner data). NOT on the list (not matching the two patterns): `~/.cache/thirdlight-voxel-bench`
+  (world cache, staging), `~/.cache/thirdlight-logs`, `~/.cache/tmp`, backups, every other `~/.cache/thirdlight-*`.
+  Checked: no git worktree in any listed folder (`git worktree list`: main and this one), no `.git` inside them, no
+  process with a file open or its working folder there (only the review server's, in the kept root). Not kept: links
+  from closed rows (`docs/audit-closed.md`), old plans (46a–47a), old handoffs' folder conventions (`work/<item>/`);
+  `tools/perf/cache-spike-run.ts`'s default output folder `thirdlight-phase42/acceptance` (it writes there and makes
+  the folder again).
 
 ### 47T.5
 
@@ -339,6 +392,7 @@ Check runs in this phase:
 | 2026-11-26 03:50, `--failed` (the file gone: nothing to run) | 40 s | 37 s | 3 s | — | — | GREEN |
 | 2026-11-26 04:11, edf78d54 + 47T.4's read, D-rows and docs (47T.4 done) | 239 s | 26 s | 1 s | 186 s (956 files) | 26 s | GREEN |
 | 2026-11-26 04:33, a50ed1e9 + 47T.5's unit-test bounds (→ c55215c0) | 243 s | 25 s | 8 s | 184 s (956 files) | 26 s | GREEN |
+| 2026-11-26 04:48, 26df3296 + 47T.6 (the review tool and its test) | 235 s | 25 s | 2 s | 183 s (957 files) | 25 s | GREEN |
 
 The phase run's one trial, 2026-11-25 23:29 at 0e511679 (`tools/gate.sh start phase`): GREEN in 946 s — build 29 s,
 full lint 110 s, every unit test 603 s (972 files passed, 13 skipped), boot 25 s, pictures skipped, perf 179 s
@@ -381,6 +435,11 @@ run's "previous".
   or a picture can answer); a measured frame, GPU, CPU or memory cost goes to the perf page, a latency or settle time
   against a behaviour target stays an open row; a watch row that pointed at the product became an open row saying what
   might be wrong and how one would notice, not closed.
+
+- **2026-11-26 — the review page's defaults** (47T.6; default chosen, owner to confirm): the tool is Node, not
+  Python, so the check's vitest runs its test; packs are copied into the review root (17 MB a picture set) so the
+  drop deletes only there; no thumbnails (full PNGs, lazily loaded); the closed defect list's and old plans' links
+  to old work folders do not keep them; 47L's section carries a page-form head quoted from its acceptance text.
 
 ## 9. Open questions for the owner (each with the default that stands if unanswered)
 

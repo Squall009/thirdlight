@@ -66,12 +66,51 @@ never a pass or fail.
 
 A defect seen gets a D-row in `docs/audit-2026-09-22.md` naming the picture's id; it is not fixed in the read.
 
-## Publishing
+## The review page
+
+The owner's page shows two phases, the one being worked on and the one before it, nothing else; each in one
+fixed form he can answer with yes or no. One tool builds it, `tools/review/add-phase.mjs` (unit test beside it):
 
 ```
-python3 ~/.cache/thirdlight-owner-review/add-phase.py <id> "<title>" <pack dir> <pack dir>/read.md
+node tools/review/add-phase.mjs <phase> --pictures <pack dir>                 # a phase's picture set
+node tools/review/add-phase.mjs <phase> --acceptance docs/briefs/acceptance-<phase>.md   # its acceptance text
+node tools/review/add-phase.mjs <phase> --title "<title>"                      # rename a section
 ```
 
-The review page is served by `python3 -m http.server 8766` in `~/.cache/thirdlight-owner-review` (started with
-`setsid nohup`; it does not survive a restart): check `curl -s -o /dev/null -w '%{http_code}'
-http://localhost:8766/` answers 200, then that the page lists the pictures and one image URL opens.
+`<phase>` is the phase id in lower case (`47t`); every part of a phase goes under it, in one section. The parts
+are copied into `~/.cache/thirdlight-owner-review/<phase>/` (`--root DIR` for another root), so the page needs
+nothing outside its folder. Adding a third phase drops the oldest: its section leaves the page and its folder
+under the root is deleted (only there; it prints the megabytes freed). The acceptance text stays in the repo; when
+it is two phases old it moves to `archive/briefs/` with `git mv`.
+
+A section reads, in this order: **What changed** (the acceptance text's list), **Pictures** (the pack's pictures,
+those whose read says something is wrong or that did not settle first and marked, each with its Sees, Wrong and
+Sure; a click opens the full picture), **What is wrong** (the read's summary and the acceptance text's list),
+**Numbers** (the perf report's table, the picture run's time, the acceptance text's list), **Questions**. A part
+not given shows "not provided"; nothing is filled in.
+
+The acceptance text's form (other sections may follow; the page links the whole text as "full text"):
+
+```
+# 47T — the test suite reset
+
+## What changed
+- at most five lines
+
+## What is wrong
+- the new D-rows and what the owner should know is broken
+
+## Numbers
+- the check's and the phase run's times, anything measured
+
+## Questions
+1. The question in one or two sentences. Default: what stands if he does not answer.
+2. … at most five, each with "Default:"; an answered one adds "Answer: …"
+```
+
+The tool refuses a text with more than five "What changed" lines, more than five questions or a question without
+its default.
+
+The page is served by `python3 -m http.server 8766` in `~/.cache/thirdlight-owner-review` (started with
+`setsid nohup`; it does not survive a restart), at `review.html` (and `index.html`): check `curl -s -o /dev/null
+-w '%{http_code}' http://localhost:8766/review.html` answers 200, then that one picture's URL opens.

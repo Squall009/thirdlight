@@ -2454,7 +2454,7 @@ read again at this commit.
   cell the stroke starts on (D762).
 - 2026-11-23 (47a.6; default chosen, owner to confirm): **the editor sends `editVoxels` without the project's
   revision**, as the voxel world page does: a stroke applies to its world as it stands.
-- 2026-11-23 (the lead): **the interim look page** (`docs/briefs/acceptance-47a-interim.md`, `acc47a-interim`) is published
+- 2026-11-23 (the lead): **the interim look page** (`archive/briefs/acceptance-47a-interim.md`, `acc47a-interim`) is published
   after 47a.6; not a stop. It carries six decisions with defaults (D751 the fit rule, D752 a ridge a polygon, D753
   F2's "one region file", D756 an object key a grid, D759 a stale far view after a restart, D762 a material-only
   paint): **none is built before the owner's note**, since each changes an approved entry or spec; the defaults

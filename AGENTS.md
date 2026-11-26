@@ -105,7 +105,7 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
 - **Looks are judged from pictures**: at a phase's close an agent opens each picture of the picture set and
   writes honestly what it sees and what is wrong; then the owner looks, and uses the editor by hand. No
   pixel-percentage criteria anywhere. The list, the command (`tools/gate.sh pictures`), the read's form and
-  how to publish: `docs/pictures.md`.
+  how to publish (`tools/review/add-phase.mjs`: the owner page keeps two phases): `docs/pictures.md`.
 - **Performance is recorded, never gating**: the phase run writes frame rate, frame time, GPU time and memory
   beside the previous phase's. This host is a shared dev box; its numbers are a baseline.
 - **Two commands** (`tools/gate.sh`; its usage text is the reference):

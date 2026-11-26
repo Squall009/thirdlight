@@ -24,7 +24,7 @@ otherwise. This page says where things stand and what is left.
   of it). Continue the log in a NEW memory file `phase47a-run-2.md` so it stays short.
 - Owner pages published (the review server is `python3 -m http.server 8766` in `~/.cache/thirdlight-owner-review`,
   started with `setsid nohup`; check it answers before saying a page is published):
-  `plan47a`, `acc47a-1` (`docs/briefs/result-47a.1.md`), `acc47a-interim` (`docs/briefs/acceptance-47a-interim.md`).
+  `plan47a`, `acc47a-1` (`docs/briefs/result-47a.1.md`), `acc47a-interim` (`archive/briefs/acceptance-47a-interim.md`).
   Packs under `~/.cache/thirdlight-phase47a/`; work folders `~/.cache/thirdlight-phase47a/work/<item>/`.
 
 ## What is left
@@ -55,7 +55,7 @@ Quote the plan's §6 row in each brief; these notes are what the rows do not say
   the owner's word. Record whatever is decided in the plan's §9 and the register.
 - **47a.13 Close**, as the original handoff says: the phase gate once (from b5093d11), one independent review by a
   fresh agent that built none of it, fixes, the end-of-phase reading against 47a.0's baseline (plan §8a "47a.0"),
-  `docs/architecture/voxel-engine.md` checked, STATUS, the acceptance page `docs/briefs/acceptance-47a.md` published
+  `docs/architecture/voxel-engine.md` checked, STATUS, the acceptance page `archive/briefs/acceptance-47a.md` published
   as `acc47a` with at most five questions each with a default. Then stop.
 
 ## Owner decisions waiting (build none of them before the owner's note)
@@ -130,6 +130,6 @@ a reboot once and doubled the ticks). Delete it when nothing runs.
 
 ## Deliver at the end
 
-As the original handoff: `docs/briefs/acceptance-47a.md` published as `acc47a` (what exists that did not, what the
+As the original handoff: `archive/briefs/acceptance-47a.md` published as `acc47a` (what exists that did not, what the
 owner would notice in the editor, the measured table on the low tier, what is still open, at most five questions
 each with a default), a plain summary, the cron deleted. Then stop. Do not begin 47b.

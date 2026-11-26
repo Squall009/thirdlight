@@ -24,7 +24,7 @@ stops below. The item list and its order are approved by the owner (2026-11-16).
 `AGENTS.md`; `docs/architecture/voxel-engine.md`; `docs/decisions/owner-decisions.md`; `docs/plan-phase-46e.md`:
 §1–§5, §6 (the 46e-b table is your contract), §8 (spec steps), §8b (the A/B: what the volume cost and looked like),
 in §8a only "46e.6a", "46e.6b", "46e.8 — travel fixes" and "46e.8 — the close", §9's entries of 2026-11-16, §10;
-`docs/briefs/acceptance-46e-a.md` (what the owner saw); `docs/plan-phase-45.md` §5c (the volume as proposed);
+`archive/briefs/acceptance-46e-a.md` (what the owner saw); `docs/plan-phase-45.md` §5c (the volume as proposed);
 `docs/briefs/voxel-agent-brief.md` (the item agents' standing brief: its last section is 46e-a's). The volume's code:
 `packages/three-adapter/src/voxel-light-volume.ts`, `-layout.ts`, `-wgsl.ts`. The open rows you will meet: D448,
 D662, D667, D672, D675, D690, D692, D695, D696, D701–D709 in `docs/audit-2026-09-22.md`.
@@ -190,7 +190,7 @@ boundary unless it fixes something broken.
 ## When you finish
 
 Publish the acceptance page for 46e-b (the pack goes in `~/.cache/thirdlight-phase46e/acceptance/46e-b/`, the page
-itself in `docs/briefs/acceptance-46e-b.md`, published with
+itself in `archive/briefs/acceptance-46e-b.md`, published with
 `python3 ~/.cache/thirdlight-owner-review/add-phase.py acc46e-b "<title>" <pack dir> <review.md>`, served at
 `http://10.0.10.223:8766/review.html#acc46e-b`): the five cameras and the many-lamps scene before and after, each
 light type shown once, an edit in the light, the measured table on the low tier (town and many lamps, the moving
