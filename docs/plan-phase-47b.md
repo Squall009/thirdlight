@@ -467,6 +467,14 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
     data keeping a gas's material → 108 sections' shader data differ; the far faces not skipping gas → far faces
     differ; the far ground standing on gas → far ground differs; the flag on the part's bit (as found) → four
     sections derived.
+  - **over HTTP** (`tests/integration/voxel-world/voxel-world.test.ts`): a gas `set`, a change of its density and
+    material, and their undos each answer the gas part alone; a geometry change answers every part, the gas part
+    among them (127: the test compared the 63 a derive builds).
+- **Gate:** `tools/gate.sh check` once: RED in 250 s (build 25 s, lint 9 s, unit 189 s: 963 files passed, 2 failed;
+  boot 5 passed, 27 s). Both failures real: the behaviour API's generated typings were not regenerated for the new
+  use (`node tools/gen-behavior-api.mjs`), and the command route's test expected 63 for a geometry change's parts
+  (two more tests of that file failed after it, on the state it left). Fixed in 496c249b. `check --failed` once:
+  GREEN in 58 s.
 - **Not built, and why:** the gas part's faces (47b.7), the surface fields (47b.4), cover points (47b.9): their
   entries are in the spec's list only. No stroke kind (47b.3): gas is written with `set`, `place`, `add`, `dig`.
 - **Left as it is, to know:** (1) a gas-only edit leaves the coarser levels and the backend's far cache as a
