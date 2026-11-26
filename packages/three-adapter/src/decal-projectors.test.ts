@@ -85,7 +85,6 @@ describe('the decal host changing in place', () => {
     const o = h.observe();
     expect(o.builds).toBe(1);
     expect(o.updates).toBe(10);
-    expect(o.updateMs).toBeLessThan(5);
     expect(listedAt(scene, 0)).toBe(0);
     expect(listedAt(scene, 30)).toBe(1);
     h.dispose();

@@ -209,6 +209,7 @@ describe('runPlaytest over a backend', () => {
     for (const when of ['before', 'during', 'relay'] as const) {
       const { backend, calls } = fakeBackend();
       let exercised = false;
+      let observes = 0;
       const failing: PlaytestBackend = {
         ...backend,
         inputRelay: async (id, body) => {
@@ -218,13 +219,16 @@ describe('runPlaytest over a backend', () => {
           return backend.inputRelay(id, body, 1000);
         },
         // The run fails before it holds after the exercise: the observation says so (no lastInput held).
-        gameObserve: async () => ({ status: 200, body: when === 'before' || exercised ? { ok: true, state: 'failed', error, run: { runStep: 3, digest: 'x' } } : { ok: true, state: 'running', run: { runStep: 0, digest: 'x' } } }),
+        gameObserve: async () => {
+          observes++;
+          return { status: 200, body: when === 'before' || exercised ? { ok: true, state: 'failed', error, run: { runStep: 3, digest: 'x' } } : { ok: true, state: 'running', run: { runStep: 0, digest: 'x' } } };
+        },
       };
-      const t0 = Date.now();
       const r = await runPlaytest(failing, 'p', { frames: [walk(0, 10)] });
       expect(r, when).toMatchObject({ ok: false, error: { code: 'playtest_game_failed', message: expect.stringContaining('boom') } });
       expect(r.ok === false && r.error.message, when).toContain(when === 'before' ? 'before the play-test began' : 'during the run');
-      expect(Date.now() - t0).toBeLessThan(5_000);
+      // At once: the observation that reads the failure ends it (one before the run, one more after the exercise), no polling until a timeout.
+      expect(observes, when).toBe(when === 'before' ? 1 : 2);
       expect(calls[calls.length - 1]).toBe('stop play-1');
     }
   });

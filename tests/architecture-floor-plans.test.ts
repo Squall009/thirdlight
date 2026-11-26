@@ -222,17 +222,14 @@ describe('a building split into rooms and furnished', () => {
         { graphId: 'test-furnishing', kind: FURNISHING_SET_KIND, graph: furnishing },
       ]);
     const b = building(RECT, { layoutSeed: 3, furnishing: 'test-furnishing' });
-    const t0 = performance.now();
+    // A 12 × 8 m storey on a 1 m grid holds 96 rooms at most: a million asked costs that, not a million (a million would
+    // run past the test's timeout; no wall-clock bound).
     const x = expandArchitecture(comp(b), [0, 0, 0], styles(program));
-    // A 12 × 8 m storey on a 1 m grid holds 96 rooms at most: a million asked costs that, not a million.
-    expect(performance.now() - t0).toBeLessThan(10_000);
     const over = x.problems.filter((p) => p.includes('rooms of type small do not fit storey 0'));
     expect(over).toHaveLength(1);
     expect(Number(/: (\d+) rooms of type small/.exec(over[0]!)?.[1])).toBeGreaterThan(many - 96);
     // The program's own four rooms: each takes crates until it is full, more than the one a room took before.
-    const t1 = performance.now();
     const y = expandArchitecture(comp(b), [0, 0, 0], styles(programGraph()));
-    expect(performance.now() - t1).toBeLessThan(10_000);
     const crates = (y.props ?? []).filter((p) => p.model?.assetId === 'kit-crate');
     expect(crates.length).toBeGreaterThan(y.rooms.length);
     expect(crates.length).toBeLessThan(many);

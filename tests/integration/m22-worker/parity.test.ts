@@ -189,15 +189,17 @@ describe('identical results in the page and in the simulation worker', () => {
 describe('physics in the worker', () => {
   it('dispose frees the simulation in the worker (acknowledged before the worker ends)', async () => {
     const { snapshot, physics } = level();
-    const worker = await startNodeSimWorker();
+    const node = await startNodeSimWorker();
+    // What the worker answers, as the simulation reads it: the end comes from its `disposed` answer, not the fallback timer.
+    const answers: unknown[] = [];
+    const worker: typeof node = { ...node, listen: (onMessage) => node.listen((m) => { answers.push((m as { t?: unknown }).t); onMessage(m); }) };
     const remote = await startRemoteSimulation({ worker, init: { snapshot, settings: SETTINGS, physics, behaviors: { rows: [], urls: {}, enginePins: [] } }, input: null, driver: 'manual' });
     remote.runtimeFactory(() => undefined);
     await remote.tick(1);
     await remote.tick(1 + DT);
-    const t0 = Date.now();
     await remote.dispose();
-    // The worker answered `disposed` (runtime + Rapier world freed) well before the 2 s fallback.
-    expect(Date.now() - t0).toBeLessThan(1500);
+    // The worker answered `disposed` (runtime + Rapier world freed) by the time the wait ended.
+    expect(answers).toContain('disposed');
     expect(remote.runtime.getInterpolatedState().ok).toBe(false);
   }, 60_000);
 

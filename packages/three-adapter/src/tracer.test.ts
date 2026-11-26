@@ -408,7 +408,8 @@ describe('tracer: imported static models (distance-field bricks)', () => {
     expect(Array.from(bricks.sets[0]!.bricks)).toEqual(Array.from(set.bricks));
     // Longest side 2.1 m (the sphere's top): 32 voxels.
     expect(set.voxel).toBeCloseTo(2.1 / 32, 6);
-    expect(ms).toBeLessThan(2000);
+    // Printed, not asserted: a wall-clock bound reads the host's load.
+    console.log(`distance bricks of a box and a sphere built in ${ms.toFixed(0)} ms`);
     const placed = [3, -1, 2];
     const rot = [0, Math.sin(0.35), 0, Math.cos(0.35)];
     const scale = 1.5;

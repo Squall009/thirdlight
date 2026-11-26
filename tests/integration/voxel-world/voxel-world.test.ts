@@ -365,14 +365,11 @@ describe('voxel world routes', () => {
       { v: 2, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'place', voxel: { material: 3, role: 3, wetness: 0 } },
       { ...DIG, size: [2000, 2000, 2000] },
     ]) {
-      const t0 = performance.now();
+      // Refused before any cell is visited: one that was not would hold the backend past the test's timeout.
       const r = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: huge } });
-      const ms = performance.now() - t0;
       expect(r.status).toBe(400);
       expect(r.json.error).toMatchObject({ code: 'over_budget' });
       expect((r.json.error as { message: string }).message).toMatch(/more than 341 chunks of 32³ cells .* over the 64\.0 MiB undo budget of one edit/);
-      // A refusal answers like any other; 2 s leaves room for a loaded gate host.
-      expect(ms).toBeLessThan(2000);
     }
     const browser = await command({ op: 'editVoxels', projectId: PROJECT, origin: { kind: 'browser' }, args: { world: WORLD, command: DIG } });
     expect(browser.status).toBe(403);

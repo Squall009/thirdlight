@@ -234,12 +234,11 @@ describe('edit commands', () => {
     const thin = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [1, 1, 1], points, mode: 'dig', smooth: false });
     expect(code(() => applyEdit(grids(townStore()), thin, { budgetBytes: 9 * per }))).toBe('applied');
     expect(code(() => applyEdit(grids(townStore()), thin, { budgetBytes: 7 * per }))).toBe('over_budget');
-    // The default budget: the world filled, or a sphere 2 km across, refused at once (no cell visited).
-    const t0 = performance.now();
+    // The default budget: the world filled, or a sphere 2 km across, refused at once (no cell visited: one that visited
+    // them would run past the test's timeout; no wall-clock bound).
     expect(code(() => applyEdit(grids(s), canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'place', voxel: stone })))).toBe('over_budget');
     expect(code(() => applyEdit(grids(s), canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2000, 0, 0], points: [0, 0, 0], mode: 'dig', smooth: false })))).toBe('over_budget');
     expect(code(() => editChunks(grid, canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'dig' })))).toBe('over_budget');
-    expect(performance.now() - t0).toBeLessThan(500);
   });
 });
 

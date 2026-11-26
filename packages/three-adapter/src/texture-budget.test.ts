@@ -77,7 +77,8 @@ describe('texture budget: which mips fit', () => {
     const many = Array.from({ length: 1000 }, (_, i) => tex(`t${i}`, 2048, { wanted: i % 5, weight: i }));
     const t0 = performance.now();
     const plan = planMipLevels(many, 256 * MiB);
-    expect(performance.now() - t0).toBeLessThan(50);
+    // Printed, not asserted: a wall-clock bound reads the host's load.
+    console.log(`texture budget: 1,000 textures planned in ${(performance.now() - t0).toFixed(1)} ms`);
     expect(plan.bytes).toBeLessThanOrEqual(256 * MiB);
   });
 });

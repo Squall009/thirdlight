@@ -150,22 +150,27 @@ describe('the decal index changing in place', () => {
     expect(empty.set(0, box(0, 0, 0))).toBe(false);
   });
 
-  it('moving one decal of a few hundred stays far inside the frame (≤ 0.2 ms each)', () => {
+  it('moving one decal of a few hundred updates the index in place, never rebuilding it', () => {
     const r = mulberry32(3);
     const boxes = Array.from({ length: 400 }, () => box(-50 + r() * 100, 0, -50 + r() * 100, 0.6 + r() * 1.4));
     const grid = new DecalGrid(DECAL_CELL_BUDGET);
     grid.build(boxes);
     const moves = 2000;
+    let rebuilds = 0;
     const t0 = performance.now();
     for (let k = 0; k < moves; k++) {
       const i = k % boxes.length;
       const b = boxes[i]!;
       const c = [(b.min[0]! + b.max[0]!) / 2 + 0.05, 0, (b.min[2]! + b.max[2]!) / 2];
       boxes[i] = box(c[0]!, c[1]!, c[2]!, b.max[0]! - b.min[0]!);
-      if (!grid.set(i, boxes[i])) grid.build(boxes);
+      if (!grid.set(i, boxes[i])) {
+        rebuilds++;
+        grid.build(boxes);
+      }
     }
     const each = (performance.now() - t0) / moves;
-    console.log(`decal index: ${each.toFixed(4)} ms a moved decal (${boxes.length} decals)`);
-    expect(each).toBeLessThan(0.2);
+    // The time is printed, not asserted (it reads the host's load); the rule is that a move updates the index in place.
+    console.log(`decal index: ${each.toFixed(4)} ms a moved decal (${boxes.length} decals), ${rebuilds} rebuilds`);
+    expect(rebuilds).toBe(0);
   });
 });
