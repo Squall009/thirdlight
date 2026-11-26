@@ -44,6 +44,7 @@ The pages, and the Deployment sections each took:
 | [game-modes.md](game-modes.md) | Game modes | done |
 | [dialogue.md](dialogue.md) | Dialogue | done |
 | [voxel-worlds.md](voxel-worlds.md) | — (new: voxel worlds, the `voxelWorld` component, streaming and its budget, the Scene view, `editVoxels`, one undo for scene and voxels, what is not built yet) | growing |
+| [world-editor.md](world-editor.md) | — (new: the world edit mode on a voxel world: Sculpt with add, dig, smooth and flatten, Paint with the material palette, wetness and the noise mask) | growing |
 | [migration.md](migration.md) | Migration notes | done |
 
 Deployment keeps running the server: requirements, starting, the service,

@@ -13,8 +13,11 @@ one line of what to look for.
   8 km town of staging's `voxel-slice` project (world `far`, staged once by `run.mjs far-world`; nothing is
   generated per run), low tier, WebGPU, 1280 × 720, at the tier's cap. Two `light-shots` runs: the day run
   (two lit props, the L-shaped room) and the lamps run (128 lamps).
-- **E1–E6, editor screens**, 1600 × 900: the editor with a scene, structure mode, a water body, a spline road (a
-  fresh backend's made yard), the voxel world page and Play with the Profiler (staging's town).
+- **E1–E7, editor screens**, 1600 × 900: the editor with a scene, structure mode, a water body, a spline road (a
+  fresh backend's made yard), the voxel world page and Play with the Profiler (staging's town), and the world mode
+  (E7, last on the yard: a hill raised, smoothed and painted there by the strokes the mode's brush sends, then one
+  Add stroke dragged with the real pointer; the view before that drag is kept beside it in the raw folder as
+  `screen-world-mode-before-drag.png`, and the picture's facts say what the drag did).
 
 Every picture waits for the engine's own settle signals: streaming still, nothing pending in the simulation, no
 texture level loading and the light volume settled (world pictures); the Scene view's worlds and grids settled

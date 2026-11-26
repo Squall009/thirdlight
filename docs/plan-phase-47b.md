@@ -1,7 +1,7 @@
 # Plan — phase 47b: the world edit mode, the fill, fog as voxels, dressing rules and ground cover
 
 **Status: APPROVED by the owner 2026-11-26, with the changes of that conversation (§8). A fresh session builds
-it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D837.
+it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D838.
 
 The roadmap's line (owner, 2026-11-12): "**47b World edit mode**: one mode on the brush kit in the Scene view;
 fields derived from voxels; the height-based fill for water and fog; the fog role and fog painting with a plain
@@ -139,7 +139,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.2 | done 2026-11-26: role `gas` = 10 (11 roles), its mip rule, material use `gas` (`voxel.gas`: colour, full density), the gas feed (`DERIVED_PART.gas`), spec text, derived 34. Town and hard-case row with gas in 224,397 open cells derive byte for byte as without. Besides the row: 6 places named liquid alone or assumed two media. Results §9 |
 | 47b.3 | done 2026-11-26: edit command v3 (v2 read as written): `flood` (the water bodies' level fill, its role, fade and a floor as parameters; a leak refused with its places), brush modes `smooth` and `flatten` (the ground a column at a time; a gas's density), a paint that keeps roles. 30 unit tests, 2 over HTTP on the one undo line. D762 stays open for the tool. Results §9 |
 | 47b.4 | done 2026-11-26: `surface-fields.ts` (16 values a surface; the block form is the kernel at each column's top, the per-point form answers caves and storeys), a `surface-fields` job at level 0 and on the 2 m nodes (`farGroundFields`), `ctx.voxels.surfaceAt`. Never stored, no derive part, run when asked: 8–9 ms a chunk column. 2 m against 0.5 m within stated tolerances. Results §9 |
-| 47b.5 | not started |
+| 47b.5 | done 2026-11-26: the world mode (Edit world on a `voxelWorld`; Sculpt: add, dig, smooth, flatten; Paint: palette with variants, wetness, noise mask) on one voxel brush tool the structure mode's hand edits now use (D762 fixed). A drag is one v3 command of thinned dabs at the release. E7 read; a real pointer drag changed the ground. D837 opened. Results §9 |
 | 47b.6 | not started |
 | 47b.7 | not started |
 | 47b.8 | not started |
@@ -317,6 +317,46 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
      without them, 29,659 with).
   10. **The 2 m tolerances** (§9) are stated on ground (all sixteen 0.5 m surfaces and the 2 m one terrain), and the
       two distances one-sided: never nearer at 2 m by more than a 2 m cell's diagonal.
+- **2026-11-26 — 47b.5, defaults chosen, owner to confirm** (item agent):
+  1. **During a drag the ground does not change: the cursor and a line through the dabs show the stroke, and the
+     release sends it.** One command a stroke is the row; nothing joins several commands into one undo step, and the
+     Scene view has no local preview of voxels (its worker reads the backend's region files), so segments sent while
+     dragging would be an undo step each. What the owner sees: the ring following the pointer, a thin line where the
+     stroke went, the status line counting dabs, and the changed ground about a frame or two after the release
+     (17–19 ms for the command on the picture's yard, then the chunks' derive).
+  2. **Dabs sit on cells, on both lattices**: the cell under the pointer, Add's the cell in front of the face met (as
+     the structure mode's hand edits did). The brush's size is a whole odd count of cells (4 m: 9 cells), so a dab is
+     centred on a cell. A world brush is 0.5 m to 32 m, 4 m to start.
+  3. **The spacing is the brush kit's Spacing setting** (a share of the size, 25 % for a voxel brush, shown in the
+     panel), taken in whole cells and never under one; a gap between two picks wider than it is filled along the
+     straight line between them, so a fast drag leaves no holes. A stroke keeps a cell once.
+  4. **Flatten's plane is the surface under the first dab**: its cell's row plus its fill (a block: the cell's top).
+     Each dab still sits where the pointer is, so the plane must lie within the brush's rows there: a mound taller
+     than the brush comes down over several strokes.
+  5. **Add's role comes from the material's use** in the world mode: a terrain material is written as ground, a
+     construction material as plain wall blocks (the structure mode keeps its role picker). Add writes dry.
+  6. **Paint writes the picked material and the wetness together, with no role** (v3's role-less paint). The command's
+     paint has no way to change wetness and keep each cell's material, so **wetness alone cannot be painted**: that
+     needs a command field, not built (owner stop; a line for after the merge).
+  7. **The noise mask thins on the editor's side**: v3 has no mask field, so a Paint through the mask is sent as one
+     brush command of one-cell-wide box columns, the brush's height, at every column under the dabs where the mask
+     (read at the column's middle, in the grid's metres, the brush kit's `brushMask`) is at half weight or more. The
+     mask is all or nothing a column (a cell holds one material), a ball brush paints its footprint's full height,
+     and a mask that lets nothing through sends nothing and says so. Sculpt reads no mask. Cost not measured: a
+     wide masked stroke is thousands of dabs for the backend's cover loop.
+  8. **The palette** is the project's voxel materials whose use is terrain or construction; within a use the
+     materials without variants first (heading Ground, Construction), then each base material with its instances
+     that have a voxel id of their own, under the base's name. Liquids and gases are left out here: the same
+     function lists them for another use (47b.6's fog paint).
+  9. **Ctrl (or the panel's switch) swaps Add and Dig** for a stroke, as the other sculpt brushes invert. Smooth and
+     Flatten have no inverse. The soft rim is one switch (the command's `smooth`), not the brush kit's falloff
+     curves; a Paint is always hard.
+  10. **The cursor is level on a world's lattice** (the brush's footprint from above, round the dab's cell, at the
+      surface's height), on the face under the pointer on a structure. After the first take of E7, where it lay on
+      whichever cell face the ray entered and stood upright on a slope. It does not follow the ground's height.
+  11. **The mode is a scene's mode** (as decals): opened on a `voxelWorld` object by the Inspector's Edit world or a
+      double-click in the Hierarchy, it edits that object's world, draws the whole scene, and takes only hits on the
+      world's own lattice (over a structure a drag orbits). No menu entry or toolbar button was added.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -753,6 +793,75 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
 - **Unverified:** nothing here draws, so there is no picture. `surfaceAt` was run through the runtime in Node, not
   in a browser or an export (the boot check runs neither). The worker's cost was read from four jobs a world.
   Fields on a structure turned 30° and 45° were read on its floor and roof only.
+
+### 47b.5
+
+- **What exists.** A scene-scope edit mode `world` on a `voxelWorld` object (`ui/editmode/world-mode.tsx`): the
+  Inspector's **Edit world**, or a double-click on the object in the Hierarchy. Rails **Sculpt** (Add A, Dig D,
+  Smooth S, Flatten T; ball, box or cylinder; soft or hard rim; under Add the palette) and **Paint** (the palette,
+  wetness 0–7, shape; the Brush panel with size and spacing, and the Noise mask panel). No other rail.
+- **The one tool** (`viewport/voxel-brush-tool.ts`, 443 lines; arithmetic `session/voxel-brush.ts`; wiring
+  `ui/shell/useVoxelBrush.ts`; the mode's state `session/world-mode.ts`). It extends, and names in its headers: the
+  edit-mode shell, the brush store, `BrushControl` (keys, F drag, Ctrl), `BrushCursor`, `brushPanels` and
+  `NoiseMask`, `LayerPalette`, `brushMask`, the worker's pick, the change feed. Its own: the dabs' trail (a line), a
+  box outline for a box brush, `data-voxel-brush` on the canvas.
+- **What moved out of the structure mode**: the hand stroke's code in `structure-tool.ts` (791 → 694 lines: the
+  stroke drag, its cursor, `BrushControl` and store, `strokeCell`), `handStrokeCommand`, `HandStroke` and
+  `brushCells` in `structure-shape.ts`, the `stroke` callback of `useStructureTools`. The Hand edits column arms the
+  voxel brush on the structure's grid and keeps the structure tool in Navigate for its grid and outline. Its Paint
+  sends `voxel: {material, wetness}` with no role (**D762 fixed**). Its commands are now `v: 3`.
+- **No command, field or stored thing was added.** The mode sends `editVoxels` only.
+- **Tests** (new: `session/voxel-brush.test.ts` 8, `viewport/voxel-brush-tool.test.ts` 10, one in
+  `tests/integration/voxel-world/voxel-world.test.ts`; changed: `structure-tool.test.ts`, `structure-shape.test.ts`,
+  which lost what moved):
+  - the tool with a camera, a stand-in canvas and a fake pick: a 12 m drag of a 4 m brush in 97 picks is one dig
+    command of 13 dabs two cells apart, nothing sent before the release; one pick 12 m on gives the same 13; each
+    Sculpt tool's mode, voxel and rim; Add on the cell over the ground, refused in words with no material; Flatten's
+    height 3 + 6/15 from the first dab on a slope the drag climbs; Paint role-less with material and wetness even
+    when handed a role; through the mask a box of columns, and whole again for a brush that uses no mask; Ctrl
+    swaps Add to Dig; a structure's grid 7 with its cells once each, Add in front of the wall; the ground, another
+    world, a structure and the sky left to the view; Navigate takes no press; Escape drops the stroke and the
+    release then sends nothing; a release with the last pick in flight sends once with that cell.
+  - the arithmetic: odd cells, spacing in whole cells, the dab cell, the surface height, the trail's thinning, gap
+    fill and once-only cells; every tool's command read back by `canonicalEditCommand`; the masked columns against a
+    scan of the mask over the footprint; the palette's order, families and colours; what each rail arms.
+  - **over HTTP, the tool itself driven** (pointer events, a pick answering from an oracle store) against a real
+    backend: five drags (add, smooth, flatten, paint, masked paint) each answered 200 with the oracle's cell count
+    and parts, the region files equal to `applyEdit`'s voxels; the ridge over 4 cells high, the step at its foot
+    lower after Smooth, the ridge's end flat at the plane 1 where Flatten began; a painted wall still a wall and the
+    ground under it ground, wetness 3; the masked paint took some columns and left some; five undos give the first
+    bytes. About 0.5 s.
+  - **Broken on purpose, each run once** (8): no thinning → 3 red; Flatten's height from the last pick → 1; Paint
+    keeping the role handed → 1; the mask never read → 1; the grid always the world's → 1; Escape leaving the stroke
+    → 1; a hit on another grid counted → 2; a release not waiting for its pick → 1.
+- **Picture E7** (three takes: 21 s, 7 s, 7 s; low load; WebGPU). `~/.cache/thirdlight-phase47b/work/47b.5/`:
+  - Take 1 (`pictures/E07-world-mode.png`): the mode open with its column, but the view inside the house (the yard
+    object framed is its origin) and no hill, cursor or drag: the screen's script was wrong, and its settle did not
+    ask for the cursor. Fixed: the hill in the yard's open corner, a curve over it framed by its bounds, the cursor
+    required.
+  - Take 2 (`pictures-2/`): the hill and the mode; the cursor stood upright on the slope (it lay on whichever cell
+    face the ray entered) and the palette gave every lone material a heading and a row. Both fixed (§8 10, 8).
+  - **Take 3, the picture** (`pictures-3/E07-world-mode.png`; settled). Sees: the World editor on "voxel world
+    yard": a rounded green hill about 14 m wide and 5 m high with a tan cap (the Dry grass variant painted on its
+    top), the road behind it; the Sculpt column with Navigate, Add (armed), Dig, Smooth, Flatten, the shape and rim
+    switches, the palette under "Adds" (Ground: Road; Grass: Grass and Dry grass marked V; Construction below, cut
+    by the column's end), the Brush panel (4.0 m, 25 %, Dig instead) docked over the view's right side, the status
+    line's keys. At the hill's foot a grey mound about 4 m across with the amber ring, its dashed inner ring and
+    dot on top of it. Wrong: a band of cell-sized cube corners where the hill meets the flat ground (D837); the
+    tan patch's edge is toothed a cell at a time; the mound's base has a ragged fringe; the Brush panel covers part
+    of the view. Sure: high for what is there, low for how any of it feels in use.
+  - **A real pointer drag was driven** in that screen (Playwright's mouse on the canvas: move, press, 16 moves of
+    8 px, release) with Add armed: the tool took it (3 dabs counted while dragging), its command answered ok in
+    17 ms, the view's world went from revision 13 to 14, and the mound in the picture is not in
+    `pictures-3.raw/screen-world-mode-before-drag.png` (flat grass and the level ring there). The mound is grey
+    because the palette's first material is Road. That is one Add stroke on WebGPU in headless Chrome.
+- **Unverified:** Dig, Smooth, Flatten and Paint with a real pointer; the noise mask's look (cursor fill and painted
+  patches); Ctrl+Z in the editor after a brush stroke (the HTTP test undoes the tool's commands); Escape and the F
+  drag in a browser; the structure mode's hand edits after the move (unit tests only, no picture); the trail's look
+  while dragging (the picture is taken after the release); anything on a world bigger than the 64 m yard.
+- **Left out, and why:** the Fill rail, fog paint, the spline entry (47b.6); the Rules rail (47b.10); a menu entry
+  for the mode; a preview of the result while dragging and wetness painted alone (§8 1, 6); a strength for Smooth
+  and Flatten (47b.3 named none); a cursor that follows the ground's height.
 
 ## 10. The proposed plan's questions and how each stands
 

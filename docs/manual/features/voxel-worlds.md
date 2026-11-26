@@ -458,8 +458,10 @@ Limits today:
   editor, and the Scene view rebuilds the chunks it changed.
 - **Edit → Undo / Redo** (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) take voxel strokes
   back and apply them again in turn with the scene's edits (below).
-- The editor has no voxel brush yet (brushes and role painting come
-  later). Edits are sent by the voxel world page or over the API (below).
+- **The world editor** sculpts and paints a world's ground with brushes
+  (select the voxel world object, **Edit world**):
+  [The world editor](world-editor.md). Edits are also sent by the voxel world
+  page or over the API (below).
 - **The voxel world page**, `/voxel-world.html?project=<id>&world=<name>`
   (optionally `&at=x,y,z`, `&renderer=webgl2`), opens one world on its own:
   drag to orbit, wheel to zoom, W A S D to move; a click digs a 1 m ball,
@@ -1034,8 +1036,7 @@ These come later; worlds made now keep working when they arrive:
   and the physical section in the Inspector (profiles are set over the API).
 - **Lighting**: the far field's bounce light, and what reads the light
   coverage props stamp; culling and navigation over voxels.
-- **Structures** (rotated grids of their own, such as a ship or a moving
-  building), voxel brushes and role painting in the editor, and more MCP
-  voxel tools.
+- **Structures** that move (a ship, a moving building), fill tools for fog
+  and water in the world editor, and more MCP voxel tools.
 - **Converters** from terrain and block layers, and `ctx.grid` over voxels
   ([migration note](migration.md#voxel-worlds-beside-block-layers-and-terrain)).
