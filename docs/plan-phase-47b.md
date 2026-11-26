@@ -855,6 +855,10 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
     17 ms, the view's world went from revision 13 to 14, and the mound in the picture is not in
     `pictures-3.raw/screen-world-mode-before-drag.png` (flat grass and the level ring there). The mound is grey
     because the palette's first material is Road. That is one Add stroke on WebGPU in headless Chrome.
+- **Gate:** before it, the generators (reference, typings: nothing changed, 6 s), `npm run build` (24 s), `npm run
+  lint` (96 s, uncached) and the manual's links test (1 s) green. `tools/gate.sh check` once: GREEN in 249 s (build
+  25 s, lint 7 s, unit 191 s: 971 files passed; boot 5 passed, 25 s). No second call. The two new unit files take
+  about 4 s together; the HTTP file grew by about 0.5 s.
 - **Unverified:** Dig, Smooth, Flatten and Paint with a real pointer; the noise mask's look (cursor fill and painted
   patches); Ctrl+Z in the editor after a brush stroke (the HTTP test undoes the tool's commands); Escape and the F
   drag in a browser; the structure mode's hand edits after the move (unit tests only, no picture); the trail's look
