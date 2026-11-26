@@ -57,6 +57,8 @@ describe('the picture pack', () => {
     expect(r[0]).toMatchObject({ source: '/raw/street-noon.png', settled: true, specks: { white: 12, green: 5, black: 5, clusters: 6 } });
     expect(r[0]!.settle).toBe('streaming still after 3 s, no texture level loading, light volume settled after 13.2 s');
     expect(r[0]!.facts).toMatchObject({ camera: 'street-noon', world: 'far', quality: 'low', counts: { chunks: 308 } });
+    expect(r[0]!.facts).not.toHaveProperty('benchError');
+    expect(worldResults([street], 'day', { ...shots, error: 'Error: game relay failed' }, '')[0]).toMatchObject({ settled: true, facts: { benchError: 'Error: game relay failed' } });
     expect(r[1]).toMatchObject({ settled: false, settle: 'did not settle: streaming (chunks 300–320); the light volume' });
     expect(r[2]).toMatchObject({ source: null, settled: false, settle: 'not taken: the bench took no shot of this camera' });
     expect(worldResults(three, 'day', null, 'staging did not start')[0]!.settle).toBe('not taken: staging did not start');

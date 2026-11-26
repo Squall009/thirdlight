@@ -86,7 +86,7 @@ on the new check.
 | 47T.1 | done 2026-11-25: `tools/gate.sh check` (build in lanes, cached lint, fast unit set, `tests/e2e/boot.e2e.ts`) and `phase` (all units, boot, picture step skipped, perf report recorded); old modes and gate areas archived; AGENTS.md and the brief rewritten. Check GREEN 342–367 s (unit 287–308 s: over 5 min until 47T.2); `--failed` 31–60 s; phase trial GREEN 946 s. |
 | 47T.2 | done 2026-11-26: shared vitest workers (isolate off where no state leaks; 10 files and the bench keep isolation, with why), bench worlds cached in `~/.cache/thirdlight-voxel-bench/worlds` (code-digest key), two oracles made fast, slow list 43 → 29 (real scale only). Check GREEN 204–225 s (unit 146–171 s: over the 2 min target); phase units 418 s. |
 | 47T.3 | done 2026-11-26: 180 browser files archived (logic 148, retire 17, dropped 8, looks 5, boot 2), 4 retiring unit files, 23 helpers; 42 new unit tests where the inventory's "covered" was wrong (one logic file in four); `tests/e2e` = the boot check; unit files isolated by kind (stored WGSL digests, process-wide memory, vi.mock). Ledger: `docs/inventory-47t-ledger.md`. Check GREEN 244 s. |
-| 47T.4 | not started |
+| 47T.4 | done 2026-11-26: `tools/gate.sh pictures` (also in `phase`, after perf): 22 world pictures (two light-shots runs on staging's 8 km town) and 6 editor screens, each settled on the engine's own signals, as a pack with the perf report and the read (`docs/pictures.md`). First run 28 of 28 settled in 868 s, 16.9 MB, published `pic47t`; something seen wrong in 25; D825–D832. |
 | 47T.5 | not started |
 | 47T.6 | not started |
 | 47T.7 | not started |
@@ -105,6 +105,43 @@ on the new check.
 ## 7. Results
 
 (one section an item)
+
+### 47T.4
+
+- **The command**: `tools/gate.sh pictures` (detached: `start pictures`, then `wait`), and the phase run's last step after the
+  perf report (`build; lint; unit all; boot; perf; pictures`). It runs `node tools/voxel-bench/run.mjs pictures --out DIR`
+  (`pictures-cli.ts`); `TL_PICTURES_DIR` sets the packs' folder (default `~/.cache/thirdlight-pictures/`). One list,
+  `tools/voxel-bench/picture-list.ts` (id, title, what to look for); the pack's forms in `picture-pack.ts`; the screens in
+  `editor-screens.ts`. Not in `check`. RED when a picture could not be taken or did not settle; what a picture shows never.
+- **The list** (28): L1 `street-noon`, L2 `room-window`, L3 `cave`, L4 `night-lamps`, L5 `far-view`, L6–L8 `lamps-street`,
+  `lamps-room`, `lamps-high` (run `--lamps 128`), L9 `props-cart`, L10 `props-table`, L11 `house-60m`, L12 `house-above`,
+  L13 `lroom-above`, L14–L18 `town-100m` … `town-2km`, L19–L22 `ref-30m` … `ref-150m` (day run `--props 2 --rooms off`);
+  E1 the editor with a scene, E2 structure mode (Shape tool on a two-storey house with a door and windows), E3 a water body,
+  E4 a spline road (all on a fresh backend's made yard: 64 m of grass, made by the commands), E5 the voxel world page and E6
+  Play with the Profiler (staging's town, read only). Left out: the inventory's E7–E10 (material graph, Effect, Animator, UI
+  editor): §9's default of about 30 pictures and four editor screens; their looks join what no picture shows.
+- **Settled**: world pictures by light-shots' own wait (draw counts still, nothing pending in the simulation, no texture level
+  loading — added here, read from the play's observation — and the light volume settled); screens by the Scene view's worlds
+  and the house grid settled with no frame wanted, the page's `settle`, or Play's counts still 3 s and its light settled. A
+  picture that does not settle is kept as `…-UNSETTLED.png`, "did not settle: <what>". No fixed sleeps (one converge second
+  after a settle, as light-shots had).
+- **First runs** (low tier, WebGPU, 1280 × 720 world pictures, 1600 × 900 screens): run 1 at e88f6056, 1149 s, 26 of 28: L17
+  and L18 refused after 120 s each, the light volume keeping no brick never reports `settled` (D826; the bench now counts kept
+  0 with nothing stale or waiting as settled). Run 2 at edf78d54 (`gate-pictures-20261126-035116`): GREEN, **868 s**, 28 of
+  28, memory peak 6.3 GB, load mean 5.2; day run 496 s (19 cameras), lamps run 226 s, staging screens 138 s, yard screens 6 s.
+  Over the "few minutes": about 470 s of it is the light volume settling per camera (cave 24 s, lamps room 103 s, lamps
+  street 64 s, the rest 1–31 s), which the pictures must wait for. Pack 16.9 MB (PNG; no WebP needed), raw 32 MB beside it.
+  The day light-shots run ends with `game_command_invalid` after its last shot (D832; its pictures stand, the pack shows it).
+- **Perf report** beside the pictures: `tools/perf-report.mjs --latest` (the newest kept report beside the one before, writes
+  nothing); this pack carries 47T.1's trial report (0e511679), no previous yet.
+- **The read** (`read.md` in the pack, published as `pic47t` with the pictures; every picture opened): 28 pictures; something
+  wrong or doubtful in 25 (nothing seen in E3, E5; cannot tell in L8). Worth the owner's eye: L16, a broken band of slabs
+  on the ground in front of the town at 250 m (D827); speck clusters on walls, roofs and in openings at 60–150 m (D828) and
+  black gaps under stepped gables (D829); the rooms at noon dark with no sun patch (L2, L10). Also: ripple lines on far
+  grass slopes (D830), a wire grid beside the yard's house in the Scene view (D831), the Profiler opened during Play never
+  answering (D825: E6 opens it before Play), far ponds drawn as empty pits (far water, 49's), blotches (D692).
+- **Tests** (in the check): `picture-list.test.ts` (the list's shape, the light-shots reading, file names, `pictures.json`, the
+  README and the read's skeleton); `perf-report.test.mjs` (the newest report beside the one before).
 
 ### 47T.3
 
@@ -247,6 +284,9 @@ Check runs in this phase:
 | 2026-11-26 02:41, `--failed` (the bound removed, → 776dc7be) | 35 s | 25 s | 5 s | 5 s (1 file) | — | GREEN |
 | 2026-11-26 02:50, 3bc77380 + isolation by kind (→ 5952b4d7) | 244 s | 25 s | 6 s | 186 s (955 files) | 27 s | GREEN |
 | 2026-11-26 02:57, 5952b4d7 + 47T.3's docs (47T.3 done) | 245 s | 25 s | 2 s | 188 s (955 files, 7,185 tests) | 30 s | GREEN |
+| 2026-11-26 03:45, e88f6056 + 47T.4's command (→ edf78d54) | 241 s | 27 s | 2 s | 183 s (1 file failed: `tools/voxel-bench/thirdlight-demo-local.test.ts`, not of this repo, there at collection and gone at run) | 29 s | RED |
+| 2026-11-26 03:50, `--failed` (the file gone: nothing to run) | 40 s | 37 s | 3 s | — | — | GREEN |
+| 2026-11-26 04:11, edf78d54 + 47T.4's read, D-rows and docs (47T.4 done) | 239 s | 26 s | 1 s | 186 s (956 files) | 26 s | GREEN |
 
 The phase run's one trial, 2026-11-25 23:29 at 0e511679 (`tools/gate.sh start phase`): GREEN in 946 s — build 29 s,
 full lint 110 s, every unit test 603 s (972 files passed, 13 skipped), boot 25 s, pictures skipped, perf 179 s
@@ -277,6 +317,12 @@ run's "previous".
   post effects and skies; leak checks were already skipped in every gate); the retiring systems' slow unit files
   are archived in 47T.3 with their browser tests (§9 question 2's default); the repository test in
   `tools/check-size.test.mjs` runs in the phase run only. The fifth boot test is an MCP play with no editor open.
+
+- **2026-11-26 — the picture set's defaults** (47T.4; default chosen, owner to confirm): 22 world pictures and 6 editor
+  screens (the inventory's E7–E10 left out, §9's default); the day run's rooms bench with the camera's occlusion off (roofs
+  seen as they are); the Profiler screen opens the tab before Play (D825); a picture that could not be taken or did not
+  settle turns the phase run red; the set takes about 15 minutes, mostly the light volume settling, so it is started
+  detached and is not part of `check`.
 
 ## 9. Open questions for the owner (each with the default that stands if unanswered)
 

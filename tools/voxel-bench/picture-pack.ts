@@ -91,6 +91,8 @@ export function worldResults(pictures: readonly WorldPicture[], run: PictureRun,
         changedAfter1s: s.secondShare ?? null,
         msPerFrame: s.profile?.msPerFrame ?? null,
         ...((s.problems ?? []).length > 0 ? { benchProblems: s.problems } : {}),
+        // The bench failed after this shot was taken (its later steps): the picture stands, the failure is shown with it.
+        ...(json?.error !== undefined ? { benchError: json.error } : {}),
       },
     };
   });
