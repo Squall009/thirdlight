@@ -5,8 +5,10 @@
  * The authoring screens (the editor with a scene, structure mode, a water body, a spline road) are taken on a fresh
  * backend (tests/e2e/backend.ts: its own data root, removed after) whose project holds a made yard: 64 m of flat
  * grass in a voxel world, a two-storey house with a door and windows, a lake in a dug hollow and a spline that
- * writes a road, every one made by the same commands the editor sends. The voxel world page and Play are taken on
- * staging's 8 km town (what the world pictures show), which they only read.
+ * writes a road, every one made by the same commands the editor sends. The world mode's screen comes last on that
+ * yard: a hill is raised, smoothed and painted by the strokes the mode's brush sends (`voxelStrokeCommand`), sent
+ * through the backend while the editor is open, and then one stroke is dragged with the real pointer. The voxel world
+ * page and Play are taken on staging's 8 km town (what the world pictures show), which they only read.
  *
  * Each screen waits for the editor's own settle signals (the Scene view's voxel worlds settled and no frame wanted,
  * the page's `settle`, Play's streaming counts and light volume), never a fixed sleep; a screen that does not settle
@@ -14,8 +16,9 @@
  */
 import { join } from 'node:path';
 import type { Browser, Page } from '@playwright/test';
-import { chunkGrid, createWorldStore } from '@thirdlight/voxel';
+import { chunkGrid, createWorldStore, VOXEL_ROLE } from '@thirdlight/voxel';
 import { VOXEL_WORLDS_FOLDER, writeVoxelWorld } from '@thirdlight/workspace';
+import { voxelStrokeCommand, type VoxelStroke } from '../../packages/editor/src/session/voxel-brush';
 import { startBackend, type E2EBackend } from '../../tests/e2e/backend';
 import { mustCommand } from '../../tests/support/commands';
 import type { ScreenName } from './picture-list';
@@ -33,7 +36,7 @@ const POLL_MS = 250;
 const YARD = 'yard';
 /** The yard's half side in cells (0.5 m): 64 m across. */
 const YARD_HALF = 64;
-const YARD_MAT = { road: 21, water: 30 } as const;
+const YARD_MAT = { road: 21, dryGrass: 22, water: 30 } as const;
 
 type Results = Map<ScreenName, PictureResult>;
 type Wait = { ok: true; s: number } | { ok: false; what: string };
@@ -53,7 +56,7 @@ async function until(page: Page, ready: () => Promise<string | null>, ms = SETTL
 
 interface SceneVoxels {
   readonly worlds: Record<string, { chunks: number }>;
-  readonly states: Record<string, { settled: boolean; grids?: Record<string, { settled: boolean }> }>;
+  readonly states: Record<string, { settled: boolean; revision?: number; grids?: Record<string, { settled: boolean }> }>;
   readonly problems: Record<string, string>;
 }
 const sceneVoxels = async (page: Page): Promise<SceneVoxels | null> => JSON.parse((await page.locator('canvas.tl-viewport').getAttribute('data-voxels')) ?? 'null') as SceneVoxels | null;
@@ -126,6 +129,85 @@ async function makeYard(be: E2EBackend): Promise<Record<string, string>> {
   // An object far off that draws nothing: selected before a picture whose subject is not a selection.
   ids['marker'] = await made('Marker', [400, 0, 0]);
   return ids;
+}
+
+/** The world mode's hill: its middle in the yard's open corner (cells; the ground's top is y = 0). */
+const HILL = Object.freeze({ x: -28, z: -12 });
+
+/**
+ * The world mode's hill: raised with Add strokes of grass, evened with Smooth strokes and painted on its top, each
+ * the command the mode's brush sends for such a stroke. Returns what was sent, the material painted (a variant of
+ * Grass when the project took the instance, else the road's, with why) and the object the view is framed on.
+ */
+async function makeHill(be: E2EBackend): Promise<{ strokes: number; painted: string; variant: string; view: string | null }> {
+  const refusal = (e: unknown): string => String(e).slice(0, 300);
+  const variant = await mustCommand(be, 'setMaterial', { material: { materialId: 'mat-grass-dry', name: 'Dry grass', shader: 'standard', instanceOf: 'mat-grass', params: { color: '#b8a24a' }, textures: {}, voxel: { id: YARD_MAT.dryGrass } } }, { clientId: 'pictures' }).then(() => 'made', refusal);
+  const painted = variant === 'made' ? { id: YARD_MAT.dryGrass, name: 'Dry grass (a variant of Grass)' } : { id: YARD_MAT.road, name: 'Road' };
+  const base = { grid: 0, shape: 'sphere', soft: true } as const;
+  const grass = { material: MAT.grass, role: VOXEL_ROLE.terrain, wetness: 0 };
+  const row = (y: number, dxs: readonly number[], dz: number): [number, number, number][] => dxs.map((dx) => [HILL.x + dx, y, HILL.z + dz]);
+  const strokes: VoxelStroke[] = [
+    { ...base, kind: 'add', across: 17, voxel: grass, cells: [...row(0, [-6, -2, 2, 6], 0), ...row(0, [-2, 2], -4), ...row(0, [-2, 2], 4)] },
+    { ...base, kind: 'add', across: 11, voxel: grass, cells: row(7, [-2, 0, 2], 0) },
+    ...Array.from({ length: 6 }, (): VoxelStroke => ({ ...base, kind: 'smooth', across: 25, cells: [...row(4, [-8, -4, 0, 4, 8], 0), ...row(4, [-4, 0, 4], -6), ...row(4, [-4, 0, 4], 6)] })),
+    { ...base, kind: 'paint', soft: false, across: 11, voxel: { material: painted.id, wetness: 0 }, cells: row(8, [-1, 1], 0) },
+  ];
+  for (const s of strokes) {
+    const r = await be.command({ op: 'editVoxels', projectId: be.projectId, args: { world: YARD, command: voxelStrokeCommand(s) } });
+    if (r['ok'] !== true) throw new Error(`the hill's ${s.kind} stroke: ${JSON.stringify(r).slice(0, 300)}`);
+  }
+  // A curve over the hill that draws nothing by itself: F frames a curve by its bounds, so the view fits the hill.
+  const cx = HILL.x / 2;
+  const cz = HILL.z / 2;
+  const view = await mustCommand(be, 'createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Hill view', transform: { position: [cx, 0, cz] }, components: { spline: { points: [{ at: [-9, 0, 0] }, { at: [0, 6, 0] }, { at: [9, 0, 0] }], width: 12 } } }, { clientId: 'pictures' }).then((r) => String(r['createdId']), () => null);
+  return { strokes: strokes.length, painted: painted.name, variant, view };
+}
+
+interface BrushStamp {
+  readonly navigate: boolean;
+  readonly cursor: boolean;
+  readonly stroke: { dabs: number } | null;
+  readonly hover: { mine: boolean; at: [number, number] | null } | null;
+  readonly last: { stroke: string; dabs?: number; ok: boolean | null; error?: string } | null;
+}
+const brushStamp = async (page: Page): Promise<BrushStamp | null> => JSON.parse((await page.locator('canvas.tl-viewport').getAttribute('data-voxel-brush')) ?? 'null') as BrushStamp | null;
+
+/**
+ * One stroke with the real pointer on the world's ground: the pointer moved over the view until the brush is over
+ * the world's own cells, pressed, dragged and released. What happened is told, never asserted: whether the tool
+ * took the drag, what its command's answer was, and whether the view's world moved to a new revision.
+ */
+async function dragStroke(page: Page, beforeFile: string): Promise<Record<string, unknown>> {
+  const box = (await page.locator('canvas.tl-viewport').boundingBox())!;
+  const revision = async (): Promise<number | null> => (await sceneVoxels(page))?.states[YARD]?.revision ?? null;
+  const before = await revision();
+  let from: { x: number; y: number } | null = null;
+  // The view's left half, under its middle: clear of the docked panels on its right edge.
+  for (const [fx, fy] of [[0.36, 0.62], [0.3, 0.72], [0.22, 0.8], [0.4, 0.8], [0.3, 0.5], [0.5, 0.7]] as const) {
+    const p = { x: Math.round(box.x + box.width * fx), y: Math.round(box.y + box.height * fy) };
+    await page.mouse.move(p.x - 6, p.y);
+    await page.mouse.move(p.x, p.y);
+    const over = await until(page, async () => ((await brushStamp(page))?.hover?.mine === true ? null : 'the brush not over the world\'s ground'), 3000);
+    if (over.ok) {
+      from = p;
+      break;
+    }
+  }
+  if (from === null) return { dragged: false, why: 'no point of the view had the brush over the world\'s ground' };
+  // The view as it is before the stroke, beside the picture (the raw folder): what the drag changed is seen by comparing.
+  await page.screenshot({ path: beforeFile });
+  await page.mouse.down();
+  let dabs = 0;
+  for (let i = 1; i <= 16; i++) {
+    await page.mouse.move(from.x + i * 8, from.y);
+    await page.waitForTimeout(40);
+    dabs = Math.max(dabs, (await brushStamp(page))?.stroke?.dabs ?? 0);
+  }
+  await page.mouse.up();
+  const answered = await until(page, async () => ((await brushStamp(page))?.last?.ok != null ? null : 'the stroke\'s command not answered'), 30_000);
+  const last = (await brushStamp(page))?.last ?? null;
+  const moved = await until(page, async () => ((await revision()) !== before ? null : 'the view\'s world still at the revision before the stroke'), 30_000);
+  return { dragged: true, from, toX: from.x + 128, dabsWhileDragging: dabs, answered: answered.ok, last, revisionBefore: before, revisionAfter: await revision(), viewTookTheChange: moved.ok };
 }
 
 async function editorOpen(page: Page, url: string): Promise<Wait> {
@@ -210,6 +292,39 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
         return sceneSettled(page);
       });
       out.set('spline', await shoot(page, files('spline'), w, facts('spline', { selected: 'Lane' }), idOf('spline'), 'the lane selected, its road written, the Scene view settled'));
+    }
+    if (want.includes('world-mode')) {
+      // After the other screens: the hill is not part of their yard.
+      const hill = await makeHill(be);
+      // The view on the hill (the curve over it framed by its bounds; without it, the lane and back off).
+      await select(page, hill.view ?? ids['lane']!);
+      await frame(page, hill.view !== null ? 5 : 8);
+      await select(page, ids['yard']!);
+      await page.locator('[data-tl-inspector]').getByRole('button', { name: 'Edit world', exact: true }).click();
+      const mode = page.getByRole('region', { name: 'edit mode', exact: true });
+      const tile = mode.locator('button.tl-tool', { hasText: 'Add' });
+      const armed = await until(page, async () => {
+        if ((await mode.getAttribute('data-edit-mode')) !== 'world') return 'world mode not open';
+        if ((await tile.getAttribute('aria-pressed')) !== 'true') {
+          await tile.click();
+          return 'the Add tool not armed';
+        }
+        if ((await brushStamp(page))?.navigate !== false) return 'the voxel brush not armed in the Scene view';
+        return sceneSettled(page);
+      });
+      const drag = armed.ok ? await dragStroke(page, files('world-mode').replace(/\.png$/, '-before-drag.png')) : { dragged: false, why: 'the mode did not open' };
+      // The pointer back on the ground where the stroke began: the cursor is in the picture.
+      const at = drag['from'] as { x: number; y: number } | undefined;
+      if (at !== undefined) {
+        await page.mouse.move(at.x + 40, at.y);
+        await page.mouse.move(at.x + 48, at.y);
+      }
+      const w = await until(page, async () => {
+        if ((await brushStamp(page))?.cursor !== true) return 'the brush cursor not on the ground';
+        return sceneSettled(page);
+      });
+      out.set('world-mode', await shoot(page, files('world-mode'), armed.ok ? w : armed, facts('world-mode', { tool: 'Add', hill, pointerDrag: drag }), idOf('world-mode'), 'world mode open, the Add tool armed, the brush cursor on the ground, the Scene view settled'));
+      await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
     }
     await context.close();
   } finally {

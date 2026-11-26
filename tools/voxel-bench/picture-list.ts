@@ -24,7 +24,7 @@ export const PICTURE_RUNS = Object.freeze({
 export type PictureRun = keyof typeof PICTURE_RUNS;
 
 /** The editor screens (editor-screens.ts takes each). */
-export const SCREEN_NAMES = ['editor', 'structure', 'water', 'spline', 'voxel-world-page', 'play-profiler'] as const;
+export const SCREEN_NAMES = ['editor', 'structure', 'water', 'spline', 'voxel-world-page', 'play-profiler', 'world-mode'] as const;
 export type ScreenName = (typeof SCREEN_NAMES)[number];
 
 interface PictureBase {
@@ -77,6 +77,7 @@ export const PICTURES: readonly PictureEntry[] = Object.freeze([
   screen('E4', 'spline', 'A spline road', 'a spline that writes a road across the yard, selected: its point grips, the road cut and its surface, the Inspector\'s voxels section'),
   screen('E5', 'voxel-world-page', 'The voxel world page', 'the town on the voxel world page: the world drawn with its far field, the page\'s own panel readable'),
   screen('E6', 'play-profiler', 'Play with the Profiler', 'Play in the editor on the town, the Profiler tab open under it: the game drawn, the timeline and the frame\'s spans readable'),
+  screen('E7', 'world-mode', 'World edit mode', 'the world mode on the yard: a hill raised and smoothed by brush strokes with a patch of another material painted on its top, the Sculpt rail\'s tools and palette, the brush panel, the brush cursor on the ground'),
 ]);
 
 /** What is wrong with a picture list (empty: nothing): ids unique, every entry has its title and its line, every camera and screen known. */

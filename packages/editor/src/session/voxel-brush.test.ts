@@ -104,6 +104,7 @@ describe('the world mode: its palette and what each rail arms', () => {
     { materialId: 'mat-grass-lush', name: 'Lush grass', instanceOf: 'mat-grass-dry', params: {} },
     { materialId: 'mat-mist', name: 'Mist', params: {} },
     { materialId: 'mat-plain', name: 'No voxel part', params: {} },
+    { materialId: 'mat-sand', name: 'Sand', params: {} },
   ];
   const parts = new Map<string, { id: number; use?: 'terrain' | 'construction' | 'liquid' | 'gas' }>([
     ['mat-water', { id: 30, use: 'liquid' }],
@@ -112,33 +113,34 @@ describe('the world mode: its palette and what each rail arms', () => {
     ['mat-grass', { id: 2, use: 'terrain' }],
     ['mat-grass-lush', { id: 11, use: 'terrain' }],
     ['mat-mist', { id: 40, use: 'gas' }],
+    ['mat-sand', { id: 20, use: 'terrain' }],
   ]);
   const palette = voxelPalette(materials, parts);
 
-  it('lists ground then construction materials, a base followed by its instances as its variants; liquids and gases are left out', () => {
-    expect(palette.map((e) => [e.base, e.name, e.id, e.variant])).toEqual([
-      ['Grass', 'Grass', 2, false],
-      ['Grass', 'Lush grass', 11, true],
-      ['Grass', 'Dry grass', 12, true],
-      ['Brick', 'Brick', 4, false],
+  it('lists ground then construction materials, those without variants first, then a base followed by its instances as its variants; liquids and gases are left out', () => {
+    expect(palette.map((e) => [e.base, e.name, e.id, e.variant, e.family])).toEqual([
+      ['Sand', 'Sand', 20, false, false],
+      ['Grass', 'Grass', 2, false, true],
+      ['Grass', 'Lush grass', 11, true, true],
+      ['Grass', 'Dry grass', 12, true, true],
+      ['Brick', 'Brick', 4, false, false],
     ]);
     // A variant's colour is its own, else the nearest up its chain.
-    expect(palette.map((e) => e.colour)).toEqual(['#4d7a3a', '#8a8a3a', '#8a8a3a', '#c0603a']);
+    expect(palette.map((e) => e.colour)).toEqual([undefined, '#4d7a3a', '#8a8a3a', '#8a8a3a', '#c0603a']);
     const tiles = paletteTiles(palette);
-    expect(tiles.map((t) => [t.index, t.group, t.name, t.badge])).toEqual([[0, 'Grass', 'Grass', undefined], [1, 'Grass', 'Lush grass', 'V'], [2, 'Grass', 'Dry grass', 'V'], [3, 'Brick', 'Brick', undefined]]);
-    // No variants anywhere: no headings.
-    expect(paletteTiles(voxelPalette(materials.filter((m) => m.instanceOf === undefined), parts)).every((t) => t.group === undefined)).toBe(true);
+    // A tile's index is its place; a use heads its lone materials, a family is headed by its base.
+    expect(tiles.map((t) => [t.index, t.group, t.name, t.badge])).toEqual([[0, 'Ground', 'Sand', undefined], [1, 'Grass', 'Grass', undefined], [2, 'Grass', 'Lush grass', 'V'], [3, 'Grass', 'Dry grass', 'V'], [4, 'Construction', 'Brick', undefined]]);
     // The seam for a fog brush: a gas palette is the same list asked for another use.
     expect(voxelPalette(materials, parts, ['gas']).map((e) => e.name)).toEqual(['Mist']);
   });
 
   it('Sculpt arms its tool with the picked material as what Add writes; Paint arms a role-less paint with the wetness', () => {
-    expect(pickedEntry(palette, null)?.id).toBe(2);
+    expect(pickedEntry(palette, null)?.id).toBe(20);
     expect(pickedEntry(palette, 4)?.name).toBe('Brick');
     // A picked material that is gone falls back to the first.
-    expect(pickedEntry(palette, 99)?.id).toBe(2);
+    expect(pickedEntry(palette, 99)?.id).toBe(20);
     expect(pickedEntry([], 2)).toBeNull();
-    expect(worldBrushArming('sculpt', WORLD_BRUSH_START, palette)).toEqual({ kind: 'add', shape: 'sphere', soft: true, voxel: { material: 2, role: VOXEL_ROLE.terrain, wetness: 0 }, uses: ['size', 'spacing', 'invert'] });
+    expect(worldBrushArming('sculpt', WORLD_BRUSH_START, palette)).toEqual({ kind: 'add', shape: 'sphere', soft: true, voxel: { material: 20, role: VOXEL_ROLE.terrain, wetness: 0 }, uses: ['size', 'spacing', 'invert'] });
     for (const sculpt of ['dig', 'smooth', 'flatten'] as const) expect(worldBrushArming('sculpt', { ...WORLD_BRUSH_START, sculpt, shape: 'box', soft: false }, palette)).toMatchObject({ kind: sculpt, shape: 'box', soft: false });
     expect(worldBrushArming('sculpt', { ...WORLD_BRUSH_START, material: 4 }, palette).voxel).toEqual({ material: 4, role: addRoleOf('construction'), wetness: 0 });
     expect(addRoleOf('construction')).toBe(VOXEL_ROLE.wall);

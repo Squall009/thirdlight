@@ -10,8 +10,10 @@
  *   view's (it orbits);
  * - the brush is the shared one: its settings store, its keys and in-view
  *   drags (`BrushControl`: `[` `]`, F, Ctrl to invert Add and Dig) and its
- *   cursor (`BrushCursor`), laid on the face under the pointer at the
- *   brush's size in whole cells, with the cells' box where the brush is one;
+ *   cursor (`BrushCursor`) at the brush's size in whole cells: level over
+ *   the dab's cell on a world's lattice (the brush's footprint from above),
+ *   on the face under the pointer on a structure, with the cells' box where
+ *   the brush is one;
  * - a drag collects dabs on the grid's cells, thinned to the brush's
  *   spacing (`session/voxel-brush.ts`), and the release sends **one**
  *   `editVoxels` command for the stroke, so a stroke is one undo step.
@@ -381,9 +383,13 @@ export class VoxelBrushTool {
     this.cursor.setLook({ falloff: a.soft && kind !== 'paint' ? 'smooth' : 'constant', hardness: 1, strength: 1, mask, state: kind === 'dig' ? 'erase' : (kind === 'add' || kind === 'paint') && a.voxel === null ? 'off' : 'paint' });
     const radius = (n * VOXEL_SIZE_M) / 2;
     const fill = this.stroke === null;
-    // Flat on ground met from above (the mask reads as the stroke's columns do); on any other face, on that face's plane.
-    if (h.normal[1] > 0) this.cursor.place({ centre, rx: radius, rz: radius, maskOrigin: [place.position[0], place.position[2]], fill });
-    else if (normal.lengthSq() > 0.5) this.cursor.place({ centre, rx: radius, rz: radius, normal: normal.normalize(), fill });
+    // On the world's lattice the ring is the brush's footprint from above, level, round the dab's own cell (the mask
+    // reads as the stroke's columns do): on a slope it does not turn with each cell face the pointer crosses. On a
+    // structure it lies on the face under the pointer, where a wall is as likely as a floor.
+    if (a.entityId === null) {
+      const mid = toWorld((c[0] + 0.5) * VOXEL_SIZE_M, (c[1] + 0.5) * VOXEL_SIZE_M, (c[2] + 0.5) * VOXEL_SIZE_M);
+      this.cursor.place({ centre: new THREE.Vector3(mid[0], h.normal[1] > 0 ? centre.y : mid[1], mid[2]), rx: radius, rz: radius, maskOrigin: [place.position[0], place.position[2]], fill });
+    } else if (normal.lengthSq() > 0.5) this.cursor.place({ centre, rx: radius, rz: radius, normal: normal.normalize(), fill });
     else this.cursor.hide();
   }
 

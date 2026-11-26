@@ -66,13 +66,16 @@ export function worldBrushArming(rail: WorldRail, s: WorldBrushState, palette: r
   return { kind: s.sculpt, shape: s.shape, soft: s.soft, voxel: m === null ? null : { material: m.id, role: addRoleOf(m.use), wetness: 0 }, uses: WORLD_BRUSH_USES.sculpt };
 }
 
+/** A use's heading over the materials that have no variants. */
+const USE_HEADINGS: Readonly<Record<string, string>> = Object.freeze({ terrain: 'Ground', construction: 'Construction', liquid: 'Liquids', gas: 'Gases' });
+
 /**
  * The palette as tiles, in its order (a tile's index is its place, as the
- * number keys pick it): each under its base material's heading when any
- * material has variants, a variant badged "V", the voxel id under its name.
+ * number keys pick it): the materials without variants under their use's
+ * heading, each family under its base material's name, a variant badged
+ * "V", the voxel id under its name.
  */
 export function paletteTiles(palette: readonly VoxelPaletteEntry[]): PaletteLayer[] {
-  const grouped = palette.some((e) => e.variant);
   return palette.map((e, index) => ({
     index,
     name: e.name,
@@ -81,6 +84,6 @@ export function paletteTiles(palette: readonly VoxelPaletteEntry[]): PaletteLaye
     sub: `${e.use} · ${e.id}`,
     aria: `voxel material ${e.name}`,
     ...(e.variant ? { badge: 'V' } : {}),
-    ...(grouped ? { group: e.base } : {}),
+    group: e.family ? e.base : (USE_HEADINGS[e.use] ?? e.use),
   }));
 }

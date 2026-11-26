@@ -58,7 +58,10 @@ import {
   RegionChunkSource,
   sameDenseChunk,
   SHAPE_FULL,
+  valueOf,
   VOXEL_ROLE,
+  VOXEL_SIZE_M,
+  type BrushEdit,
   type ChunkCoord,
   shippedChunkSource,
   type RegionChunkRead,
@@ -71,8 +74,12 @@ import { glbBytes, hexToBytes } from '@thirdlight/shared';
 import { importRead, RegionWorld, writeVoxelWorld } from '@thirdlight/workspace';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import * as THREE from 'three';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
+import { brushStore, resetBrushStores } from '../../../packages/editor/src/session/brush';
+import { surfaceHeightCells, VOXEL_BRUSH, VOXEL_BRUSH_BOUNDS } from '../../../packages/editor/src/session/voxel-brush';
+import { VoxelBrushTool, type VoxelBrushArm } from '../../../packages/editor/src/viewport/voxel-brush-tool';
 import { BackendClient } from '../../../packages/mcp-adapter/src/backend-client';
 import { createMcpServer } from '../../../packages/mcp-adapter/src/server';
 import { caseAt } from '../../../tools/voxel-bench/case-probe';
@@ -1156,6 +1163,150 @@ describe('voxel world routes', () => {
     for (let i = 0; i < strokes.length; i++) {
       expect((await step('redo')).voxels).toMatchObject({ ok: true, op: 'redo' });
       expectSame(await readChunks(CHUNKS, STROKES), states[i]!, CHUNKS);
+    }
+  }, 120_000);
+
+  it('the voxel brush tool\'s drags over the command route: add, smooth, flatten, a role-less paint and a masked paint each one command the backend applies as the oracle does, and one undo step each', async () => {
+    const BRUSHED = 'brushed';
+    const ROCK = recordValue(7, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
+    // Rock with its top at cell 1 (y ≤ 0), and one wall block standing on it.
+    const made = (): PaletteStore => {
+      const st = createWorldStore(grid);
+      const r = { material: 0, role: 0, shape: 0, wetness: 0 };
+      for (let x = -8; x <= 56; x++) for (let z = -8; z <= 40; z++) for (let y = -6; y <= 0; y++) st.setVoxel(x, y, z, readValue(ROCK, r));
+      st.setVoxel(30, 1, 16, readValue(recordValue(5, VOXEL_ROLE.wall, SHAPE_FULL, 0), r));
+      return st;
+    };
+    const first = made();
+    const oracle = made();
+    writeVoxelWorld(join(backend._test.service.projectDir(PROJECT)!, 'voxels', BRUSHED), { worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512 }, made());
+    const CHUNKS: ChunkCoord[] = [-1, 0, 1].flatMap((cx) => [-1, 0].flatMap((cy) => [-1, 0, 1].map((cz) => ({ cx, cy, cz }))));
+    const rec = { material: 0, role: 0, shape: 0, wetness: 0 };
+    const at = (x: number, y: number, z: number): number => valueOf(oracle.voxelAt(x, y, z, rec));
+    /** The top of a column as the oracle holds it now: its highest cell that is not air. */
+    const top = (x: number, z: number): number => {
+      for (let y = 24; y >= -6; y--) if (at(x, y, z) !== 0) return y;
+      return -7;
+    };
+    const height = (x: number, z: number): number => surfaceHeightCells([x, top(x, z), z], at(x, top(x, z), z));
+
+    // The tool as the Scene view holds it: a camera over the ground, a pick that answers from the voxels as they are.
+    const RECT = { left: 0, top: 0, width: 800, height: 600, x: 0, y: 0, right: 800, bottom: 600 };
+    const camera = new THREE.PerspectiveCamera(50, RECT.width / RECT.height, 0.1, 500);
+    camera.position.set(12, 40, 30);
+    camera.lookAt(12, 0, 8);
+    camera.updateMatrixWorld();
+    const answers: Array<{ status: number; json: Record<string, unknown> }> = [];
+    const sent: Record<string, unknown>[] = [];
+    let pending: Promise<void> = Promise.resolve();
+    vi.stubGlobal('window', { addEventListener: () => undefined, removeEventListener: () => undefined });
+    resetBrushStores();
+    const store = brushStore('http', 'voxel', VOXEL_BRUSH, VOXEL_BRUSH_BOUNDS, null);
+    const canvas = { getBoundingClientRect: () => RECT, setAttribute: () => undefined, removeAttribute: () => undefined, parentElement: null } as unknown as HTMLCanvasElement;
+    const tool = new VoxelBrushTool(
+      {
+        overlay: new THREE.Group(),
+        camera,
+        canvas: () => canvas,
+        requestRender: () => undefined,
+        pick: (x, y) => {
+          const r = new THREE.Raycaster();
+          r.setFromCamera(new THREE.Vector2((x / RECT.width) * 2 - 1, -(y / RECT.height) * 2 + 1), camera);
+          const p = r.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+          if (p === null) return Promise.resolve(null);
+          const cx = Math.floor(p.x / VOXEL_SIZE_M);
+          const cz = Math.floor(p.z / VOXEL_SIZE_M);
+          return Promise.resolve({ world: BRUSHED, grid: 0, t: 1, cell: [cx, top(cx, cz), cz] as const, normal: [0, 1, 0] as const, record: at(cx, top(cx, cz), cz) });
+        },
+        place: () => null,
+      },
+      {
+        stroke: (world, cmd) => {
+          sent.push(cmd);
+          pending = command({ op: 'editVoxels', projectId: PROJECT, args: { world, command: cmd } }).then((r) => void answers.push(r));
+          return pending;
+        },
+        refused: (m) => {
+          throw new Error(m);
+        },
+        readout: () => undefined,
+      },
+    );
+    const ev = (xm: number, zm: number): PointerEvent => {
+      const p = new THREE.Vector3(xm, 0, zm).project(camera);
+      return { clientX: ((p.x + 1) / 2) * RECT.width, clientY: ((1 - p.y) / 2) * RECT.height, button: 0, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false, pointerId: 1 } as unknown as PointerEvent;
+    };
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+    /** A drag over the ground along x (metres) at z, a move every 0.5 m; the command's answer awaited, the oracle moved by the same command. */
+    const drag = async (arm: Partial<VoxelBrushArm>, x0: number, x1: number, zm: number): Promise<{ cmd: BrushEdit; cells: number }> => {
+      tool.arm({ kind: 'dig', navigate: false, world: BRUSHED, grid: 0, entityId: null, store, uses: ['size', 'spacing'], shape: 'sphere', soft: true, voxel: null, ...arm });
+      tool.pointerMove(ev(x0, zm));
+      await tick();
+      expect(tool.pointerDown(ev(x0, zm))).toBe('capture');
+      for (let x = x0 + 0.5; x <= x1; x += 0.5) {
+        tool.pointerMove(ev(x, zm));
+        await tick();
+      }
+      const before = sent.length;
+      tool.pointerUp(ev(x1, zm));
+      expect(sent.length).toBe(before + 1);
+      await pending;
+      const cmd = canonicalEditCommand(sent.at(-1)) as BrushEdit;
+      const out = applyEdit({ store: () => oracle }, cmd);
+      const r = answers.at(-1)!;
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+      expect(r.json).toMatchObject({ ok: true, op: 'editVoxels', cells: out.cells, parts: out.parts });
+      expect(out.cells, JSON.stringify(cmd).slice(0, 200)).toBeGreaterThan(0);
+      expectSame(await readChunks(CHUNKS, BRUSHED), oracle, CHUNKS);
+      return { cmd, cells: out.cells };
+    };
+    try {
+      // Add: a ridge of the picked ground over the stroke, higher than the flat rock beside it.
+      const add = await drag({ kind: 'add', voxel: { material: 12, role: VOXEL_ROLE.terrain, wetness: 0 } }, 6, 14, 8);
+      expect(add.cmd).toMatchObject({ v: 3, mode: 'add', smooth: true, voxel: { material: 12, role: VOXEL_ROLE.terrain } });
+      expect(add.cmd.points.length / 3).toBeLessThan(17);
+      expect(height(20, 16)).toBeGreaterThan(4);
+      expect(height(20, 30)).toBe(1);
+      const ridge = height(20, 16);
+      // Smooth along the ridge's foot: the step from the ridge's flank to the rock beside it gets lower.
+      const stepAt = (): number => Math.max(...[9, 10, 11, 12, 13].map((z) => Math.abs(height(20, z) - height(20, z - 1))));
+      const steep = stepAt();
+      const smooth = await drag({ kind: 'smooth' }, 6, 14, 5.75);
+      expect(smooth.cmd.mode).toBe('smooth');
+      expect(smooth.cmd.voxel).toBeUndefined();
+      expect(stepAt()).toBeLessThan(steep);
+      // Flatten from the flat rock onto the ridge's end: the plane is the rock's top where the stroke began, and the ridge under the stroke comes down to it.
+      store.set({ size: 6 });
+      const flat = await drag({ kind: 'flatten', soft: false, shape: 'cylinder' }, 2, 8, 8);
+      expect(flat.cmd).toMatchObject({ mode: 'flatten', height: 1, smooth: false });
+      expect(ridge).toBeGreaterThan(4);
+      for (const x of [10, 12, 14]) expect(height(x, 16)).toBe(1);
+      expect(height(26, 16)).toBeGreaterThan(4);
+      // Paint: the material and the wetness; the wall block stays a wall, the rock ground.
+      store.set({ size: 4 });
+      const paint = await drag({ kind: 'paint', uses: ['size', 'spacing', 'mask'], voxel: { material: 9, wetness: 3 } }, 14, 16, 8);
+      expect(paint.cmd.voxel).toEqual({ material: 9, wetness: 3 });
+      expect(readValue(at(30, 1, 16), { ...rec })).toMatchObject({ material: 9, role: VOXEL_ROLE.wall, wetness: 3 });
+      expect(readValue(at(30, 0, 16), { ...rec })).toMatchObject({ material: 9, role: VOXEL_ROLE.terrain, wetness: 3 });
+      // Through the noise mask: some of the columns under the brush take the material, not all.
+      store.set({ mask: { on: true, scale: 1.5 } });
+      const masked = await drag({ kind: 'paint', uses: ['size', 'spacing', 'mask'], voxel: { material: 11, wetness: 0 } }, 4, 8, 14);
+      expect(masked.cmd).toMatchObject({ shape: 'box', size: [0.5, 4.5, 0.5] });
+      let took = 0;
+      let left = 0;
+      for (let x = 6; x <= 18; x++) for (let z = 26; z <= 30; z++) {
+        if (readValue(at(x, 0, z), { ...rec }).material === 11) took++;
+        else left++;
+      }
+      expect(took).toBeGreaterThan(0);
+      expect(left).toBeGreaterThan(0);
+
+      // Each stroke was one step of the project's undo line: five undos give the first voxels back.
+      for (let i = 0; i < 5; i++) expect((await step('undo')).voxels, `undo ${i}`).toMatchObject({ ok: true, op: 'undo' });
+      expectSame(await readChunks(CHUNKS, BRUSHED), first, CHUNKS);
+    } finally {
+      tool.dispose();
+      vi.unstubAllGlobals();
     }
   }, 120_000);
 });

@@ -200,6 +200,8 @@ export interface VoxelPaletteEntry {
   readonly base: string;
   /** It is an instance of its base, not the base itself. */
   readonly variant: boolean;
+  /** Its base has variants in the palette (the base and they are shown together). */
+  readonly family: boolean;
 }
 
 interface PaletteMaterial {
@@ -213,11 +215,12 @@ interface PaletteMaterial {
 export const SOLID_PALETTE_USES: readonly VoxelMaterialUse[] = Object.freeze(['terrain', 'construction']);
 
 /**
- * The project's voxel materials of `uses` as palette entries: a base
- * material followed by its variants (the material instances whose chain ends
- * at it, each with a voxel id of its own), bases in the order of `uses` and
- * then by voxel id, variants by voxel id. `parts`: each material's resolved
- * voxel part (`resolvedVoxelParts`).
+ * The project's voxel materials of `uses` as palette entries, in the order
+ * of `uses`; within a use first the materials that stand alone (by voxel
+ * id), then each family: a base material followed by its variants (the
+ * material instances whose chain ends at it, each with a voxel id of its
+ * own, by voxel id). `parts`: each material's resolved voxel part
+ * (`resolvedVoxelParts`).
  */
 export function voxelPalette(materials: readonly PaletteMaterial[], parts: ReadonlyMap<string, { readonly id: number; readonly use?: VoxelMaterialUse }>, uses: readonly VoxelMaterialUse[] = SOLID_PALETTE_USES): VoxelPaletteEntry[] {
   const byId = new Map(materials.map((m) => [m.materialId, m]));
@@ -242,20 +245,27 @@ export function voxelPalette(materials: readonly PaletteMaterial[], parts: Reado
     return undefined;
   };
   const taken = new Set<number>();
-  const entries: (VoxelPaletteEntry & { root: string; rootId: number })[] = [];
+  const entries: (VoxelPaletteEntry & { root: string })[] = [];
   for (const m of materials) {
     const v = parts.get(m.materialId);
     if (v === undefined || v.use === undefined || !uses.includes(v.use) || taken.has(v.id)) continue;
     taken.add(v.id);
     const root = rootOf(m);
     const colour = colourOf(m);
-    entries.push({ id: v.id, materialId: m.materialId, name: m.name, use: v.use, ...(colour !== undefined ? { colour } : {}), base: root.name, variant: root.materialId !== m.materialId, root: root.materialId, rootId: parts.get(root.materialId)?.id ?? v.id });
+    entries.push({ id: v.id, materialId: m.materialId, name: m.name, use: v.use, ...(colour !== undefined ? { colour } : {}), base: root.name, variant: root.materialId !== m.materialId, family: false, root: root.materialId });
   }
-  // A group stands where its base's id puts it (a base that is no voxel material itself: its first variant's).
-  const groupId = new Map<string, number>();
-  for (const e of entries) groupId.set(e.root, Math.min(groupId.get(e.root) ?? Infinity, e.variant ? e.id : e.rootId));
-  const groupUse = new Map<string, number>();
-  for (const e of entries) groupUse.set(e.root, Math.min(groupUse.get(e.root) ?? Infinity, uses.indexOf(e.use)));
-  entries.sort((a, b) => groupUse.get(a.root)! - groupUse.get(b.root)! || groupId.get(a.root)! - groupId.get(b.root)! || a.root.localeCompare(b.root) || Number(a.variant) - Number(b.variant) || a.id - b.id);
-  return entries.map(({ root: _root, rootId: _rootId, ...e }) => e);
+  // A family: a root with a variant in the list. It stands where its lowest voxel id puts it, under its base's use.
+  const family = new Map<string, { id: number; use: number }>();
+  for (const e of entries) if (e.variant) family.set(e.root, { id: Infinity, use: Infinity });
+  for (const e of entries) {
+    const f = family.get(e.root);
+    if (f === undefined) continue;
+    f.id = Math.min(f.id, e.id);
+    f.use = Math.min(f.use, e.variant ? Infinity : uses.indexOf(e.use));
+  }
+  for (const [root, f] of family) if (f.use === Infinity) f.use = Math.min(...entries.filter((e) => e.root === root).map((e) => uses.indexOf(e.use)));
+  const useOf = (e: (typeof entries)[number]): number => family.get(e.root)?.use ?? uses.indexOf(e.use);
+  const inFamily = (e: (typeof entries)[number]): number => (family.has(e.root) ? 1 : 0);
+  entries.sort((a, b) => useOf(a) - useOf(b) || inFamily(a) - inFamily(b) || (family.get(a.root)?.id ?? 0) - (family.get(b.root)?.id ?? 0) || a.root.localeCompare(b.root) || Number(a.variant) - Number(b.variant) || a.id - b.id);
+  return entries.map(({ root, ...e }) => ({ ...e, family: family.has(root) }));
 }
