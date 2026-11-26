@@ -151,6 +151,9 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 - From 47b.4: the surface fields' two distances as a walk along the ground rather than a cone over one row a
   column; a values-only read of the chunk the derive already holds (about half the fields job's time is reading
   chunks); far fields for more than one node column at a time (the rings phase); sky as a share rather than yes/no.
+- From 47b.5: the ground changing while a brush is dragged (joined undo steps or a local preview: today one
+  command at the release); a wetness-only paint and a noise mask on the command (each a command field); a brush
+  cursor that follows the ground's height; a menu or toolbar entry for the world mode.
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
