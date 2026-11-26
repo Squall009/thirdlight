@@ -45,6 +45,8 @@ The server the engine is built, tested and served on (checked 2026-10-30). The 2
   (`free -g`); one backend and one browser at a time.
 - **Performance is measured at the display's 60 Hz cap**, never uncapped (uncapped runs throttle).
 - The shell exports `NODE_ENV=production`; installs need `NODE_ENV=development`.
+- The bench worlds the unit tests load are cached in `~/.cache/thirdlight-voxel-bench/worlds/`
+  (`tools/voxel-bench/world-cache.ts`; about 44 MB, keyed by the generators' code; safe to delete: the next run refills it).
 
 ## Gate on this host
 

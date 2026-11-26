@@ -160,6 +160,9 @@ in the foreground afterwards ran 1.5 to 6.7 hours each without a cut.
   silently dropped.
 - An edit that changes nothing is refused with `no_change`; a script that re-sends values treats it as done.
 - Archive with `git mv` into `archive/`, not `git rm`.
+- Most unit files share a vitest worker (`vitest.config.mts`, project `shared`): a file that leaves state behind
+  (a `vi.mock`, a faked clock, output compared with stored digests of process-wide counters) goes in its
+  `ISOLATED_FILES` with why. A bench test loads a generated world with `loadAreaCached` (cached on disk).
 
 `archive/` is historical record only. It is not authoritative; do not read it unless you need a specific past
 detail.

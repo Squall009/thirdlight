@@ -84,7 +84,7 @@ on the new check.
 |---|---|
 | 47T.0 | done 2026-11-26: `docs/inventory-47t.md`. 180 browser files (326 tests run): logic 149, retire 15, dropped browser-only 8, looks 5, boot 3; 131 logic files covered today, 19 new unit tests to write; 43 slow unit files (1,743 s), most partly served by a cached world; boot check and a 32-picture set drafted. |
 | 47T.1 | done 2026-11-25: `tools/gate.sh check` (build in lanes, cached lint, fast unit set, `tests/e2e/boot.e2e.ts`) and `phase` (all units, boot, picture step skipped, perf report recorded); old modes and gate areas archived; AGENTS.md and the brief rewritten. Check GREEN 342–367 s (unit 287–308 s: over 5 min until 47T.2); `--failed` 31–60 s; phase trial GREEN 946 s. |
-| 47T.2 | not started |
+| 47T.2 | done 2026-11-26: shared vitest workers (isolate off where no state leaks; 10 files and the bench keep isolation, with why), bench worlds cached in `~/.cache/thirdlight-voxel-bench/worlds` (code-digest key), two oracles made fast, slow list 43 → 29 (real scale only). Check GREEN 204–225 s (unit 146–171 s: over the 2 min target); phase units 418 s. |
 | 47T.3 | not started |
 | 47T.4 | not started |
 | 47T.5 | not started |
@@ -105,6 +105,58 @@ on the new check.
 ## 7. Results
 
 (one section an item)
+
+### 47T.2
+
+Measured on this host, 6 workers, capped like the gate; "tracked" is vitest's per-file import + test time summed over files.
+
+| Step | Fast unit set | What it bought |
+|---|---|---|
+| before (47T.1's check) | 287–308 s; import 649–713 s tracked, tests 732–791 s | — |
+| `isolate: false` everywhere | OOM at the 12 GB cap after 85 s | — (workers kept every file's worlds, backends and esbuild services) |
+| two projects: 16 in-memory packages shared, the rest isolated | 213 s | import 713 → 427 s tracked |
+| shared widened to backend, workspace, tests, tools (bench, crash isolated) | OOM at 127 s, then 147 s | esbuild's service (≈ 650 MB) stayed in each worker: stopped after each file |
+| bench shared too | 146 s, peak 10.3–12.0 GB | nothing (146 against 147 s): the bench went back to isolation |
+| world cache (fast files) | 146 s (check 204 s) | little in the check: its bench fills are small |
+| 11 files back from the slow list, walk.test.ts to it, two oracles | 171 s (check 225 s) | coverage: the rules those files prove run in every check again |
+
+- **Shared workers** (`vitest.config.mts`): project `shared` (`isolate: false`, setup `tests/shared-worker-setup.ts`: after
+  each file esbuild's service stops and timers, stubbed globals and env are restored) and project `isolated` (a fresh
+  process a file) for `tools/voxel-bench/`, `tests/crash/` and ten named files. Failed only when sharing a worker, and
+  isolated with why rather than rerun: `tests/authoring-rules` and `environment-nodes` (vi.mock does not take on a module the
+  worker already holds); `mesh-decals`, `projected-decals`, `see-through` (stored WGSL digests: three numbers nodes from a
+  process-wide counter); `clipped-decals` (fakes `performance`) with `profiler` and `profile-view` (failed after it, cause
+  not traced); `surface-relight`, `surface-probes` (old probe lighting, not traced); `stream.test` (its stale-result test
+  needs the pool's replies after the second edit; once they came first). Memory peak 10.4 GB of 12.
+- **The world cache** (`tools/voxel-bench/world-cache.ts`, `loadAreaCached`; the bench tests, `featuresStore` and
+  `writeWorldRegions` load through it): `~/.cache/thirdlight-voxel-bench/worlds/` (beside the benches' other output; 43
+  files, 44 MB). Key: the grid's `cacheKey` (generator and every parameter, set by `keyedWorld` in each generator), the
+  area, chunk edge, store name, a digest of the generators' bundled code (esbuild, tree-shaken, no comments: a change to code
+  that fills a world refills it once, a comment does not; chosen over a version constant that a change could forget) and
+  V8's serializer version. Temp file + rename; an older digest's file of the same area is removed. Its own tests:
+  `world-cache.test.ts`. Hilly 512 m: 2.6 s generated, 11 ms read; 1 km: 9.5 s, 32 ms. A cold cache costs 50 s of
+  worker time once (34 areas of the slow set 44.7 s, 7 of the fast set 4.8 s).
+- **What the cache did not do**: the slow files are derive-bound, not fill-bound (inventory's "partly"): the slow set took
+  330 s cold, the fills 45 s of it summed. Caching derives (the oracle side) needs a decoder for derived data the engine
+  does not have; not built.
+- **Oracles made fast, same worlds and checks**: `occupancy-walk` 37 → 3 s (its blob world tests a cell against the balls in
+  its 8-cell bucket, not all 40); `walk-graph` 33 → 7 s (the brute force's Dijkstra pops from a heap instead of sorting
+  its open list, and keeps clearances during one search). Both left the slow list.
+- **The slow list** (43 → 29) now holds real-scale files only (its `about` says so). Back in the check, as the inventory has
+  them (no test over about 8 s, small made cases): open-regions, light-volume layout and rooms, check-boundaries,
+  walk-graph-links, play, voxel-world, voxel-structures, far-cache-runner, spline-writer, create, edits, walk-feed. Moved to
+  the phase run: `tools/voxel-bench/walk.test.ts` (20 s of real-scale derive at import; the walk's rule on made worlds is
+  occupancy-walk's, now in the check).
+- **Not split** (still on the list whole, the inventory's "check + phase" rows): derived, collision, stream, liquid,
+  mesh-cases, glow, roof-mesher, far-fine, voxel-far-fine, kit-pieces, structure-grid, world-host, relief, relief-ring,
+  light-volume-reference, kit-cases, case-forms. Each split moves their small tests (about 150 s tracked together) into the
+  check, about 25 s more on the unit step; left for the owner's call against the 2 min target.
+- **Phase run's unit part**: 603 s → 418 s (973 files passed, 13 skipped; warm cache; memory peak 10.4 GB).
+- **Over target**: the fast set is 171 s, not under 2 min; the whole check is 225 s (under 5 min). Where the rest is: test
+  bodies, 700 s tracked over 940 files (integration 248 s, backend 105 s, bench 80 s, three-adapter 63 s); import 123 s.
+  Options: (a) the 11 returned files back on the slow list: about 25 s less, their rules out of the check; (b) more oracle
+  work file by file (open-regions, light-volume layout); (c) more workers (the host rule caps 6).
+- Build 25–28 s warm: nothing obvious; left. Boot test 2 keeps the made 48 m world.
 
 ### 47T.1
 
@@ -151,6 +203,9 @@ Check runs in this phase:
 | 2026-11-25 23:17, `--failed` (one unit file) | 31 s | 28 s | 2 s | 1 s | — | GREEN |
 | 2026-11-25 23:22, ea2d3363 | 367 s | 27 s | 2 s | 308 s | 30 s | GREEN |
 | 2026-11-25 23:45, 4445b56b | 342 s | 28 s | 1 s | 287 s | 26 s | GREEN |
+| 2026-11-26 00:35, 0582452d + 47T.2 (uncommitted) | 204 s | 28 s | 4 s | 145 s (1 file failed: a WGSL digest test in a shared worker) | 27 s | RED |
+| 2026-11-26 00:39, the same, that file isolated (→ 5aa08fd5) | 204 s | 27 s | 2 s | 146 s (932 files) | 28 s | GREEN |
+| 2026-11-26 00:46, 5aa08fd5 + 11 files back from the slow list (→ 9899be4e) | 225 s | 25 s | 4 s | 171 s (944 files) | 25 s | GREEN |
 
 The phase run's one trial, 2026-11-25 23:29 at 0e511679 (`tools/gate.sh start phase`): GREEN in 946 s — build 29 s,
 full lint 110 s, every unit test 603 s (972 files passed, 13 skipped), boot 25 s, pictures skipped, perf 179 s
