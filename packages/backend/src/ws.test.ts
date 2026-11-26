@@ -253,6 +253,18 @@ describe('commands over HTTP + mutation.applied', () => {
     expect(ev.problem.message).toMatch(/^updateEntity: /);
   });
 
+  it("the browser's selection is what the session list reports (what tl_inspect target selection reads)", async () => {
+    ws.send({ type: 'selection.changed', entityIds: ['cam-main', 'box-0001'] });
+    const listed = async (): Promise<string[] | undefined> => {
+      const res = await fetch(`${tb.authUrl}/api/v1/sessions?projectId=demo-0001`, { headers: { authorization: `Bearer ${tb.authToken}` } });
+      const body = (await res.json()) as { sessions: Array<{ sessionId: string; connected: boolean; selection?: string[] }> };
+      return body.sessions.find((x) => x.sessionId === sid && x.connected)?.selection;
+    };
+    await expect.poll(listed).toEqual(['cam-main', 'box-0001']);
+    ws.send({ type: 'selection.changed', entityIds: [] });
+    await expect.poll(listed).toEqual([]);
+  });
+
   it('a browser-origin command with no registered session ⇒ 403 session_required', async () => {
     // Use a second project (no session established for it) with an
     // authoring token scoped to it.

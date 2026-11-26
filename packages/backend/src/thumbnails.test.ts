@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { testTempBase } from './testing';
 
 import { checkThumbnailPng, createThumbnailCache, thumbnailKey } from './thumbnails';
+import { AUTHORING_ORIGIN, startBackend } from './test-helpers';
 
 /** A zlib stream of stored (uncompressed) blocks — enough for a test PNG. */
 function stored(raw: Buffer): Buffer {
@@ -102,5 +103,37 @@ describe('thumbnail cache', () => {
     const again = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     expect(again.write('demo', DIGEST, 'piece-3', png(8, 8))).toBeNull();
     expect(again.read('demo', DIGEST, 'piece-3')).not.toBeNull();
+  });
+});
+
+describe('the thumbnail route over HTTP', () => {
+  it('a miss is 204; a PNG put is read back with an ETag, revalidated with 304; a piece has its own; the token is needed and only PNGs are taken', async () => {
+    const tb = await startBackend();
+    try {
+      const digest = 'c'.repeat(64);
+      const url = (piece?: string) => `${tb.authUrl}/api/v1/projects/demo-0001/content/thumbnails/${digest}${piece !== undefined ? `?piece=${piece}` : ''}`;
+      const auth = { authorization: `Bearer ${tb.authToken}` };
+      const put = (body: Uint8Array | string, piece?: string) => fetch(url(piece), { method: 'PUT', headers: { ...auth, origin: AUTHORING_ORIGIN, 'content-type': 'image/png' }, body: typeof body === 'string' ? body : Buffer.from(body) });
+      expect((await fetch(url(), { headers: auth })).status).toBe(204);
+      const bytes = png(128, 128);
+      expect((await put(bytes)).status).toBe(200);
+      const first = await fetch(url(), { headers: auth });
+      expect(first.status).toBe(200);
+      expect(first.headers.get('content-type')).toBe('image/png');
+      expect(new Uint8Array(await first.arrayBuffer())).toEqual(bytes);
+      const etag = first.headers.get('etag')!;
+      expect(etag).toMatch(/^"t-/);
+      const again = await fetch(url(), { headers: { ...auth, 'if-none-match': etag } });
+      expect(again.status).toBe(304);
+      expect((await again.arrayBuffer()).byteLength).toBe(0);
+      // A piece of the model is its own entry.
+      expect((await fetch(url('rock'), { headers: auth })).status).toBe(204);
+      expect((await put(png(64, 64), 'rock')).status).toBe(200);
+      expect((await fetch(url('rock'), { headers: auth })).status).toBe(200);
+      expect((await fetch(url())).status).toBe(401);
+      expect((await put('not a png', 'rock')).status).toBe(400);
+    } finally {
+      await tb.teardown();
+    }
   });
 });

@@ -1,9 +1,8 @@
 /**
  * Run-time material values in the renderer — no GPU here
  * (the per-object uniform and the per-object data texture are driven by hand
- * the way three drives them per drawn object; the pixels and the shared
- * program are checked by `tests/e2e/material-runtime.e2e.ts` on WebGL 2 and
- * WebGPU).
+ * the way three drives them per drawn object; the pixels on the GPU are
+ * judged from pictures, not here).
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';

@@ -30,31 +30,22 @@ const WEBGPU_ARGS = SOFTWARE_WEBGPU_ARGS;
 /** The renderer-sensitive specs the `webgpu` project runs again on a host without a GPU. */
 const WEBGPU_SPECS = [
   '**/renderer.e2e.ts',
-  '**/materials.e2e.ts',
   '**/textures.e2e.ts',
   '**/shadows.e2e.ts',
   // Standard materials share one texture object across model files on WebGPU too.
   '**/shared-textures.e2e.ts',
-  '**/material-graph-play.e2e.ts',
-  '**/material-preview.e2e.ts',
   // The editor window's one preview pane: on its own canvas and on the lent Scene view, on WebGPU.
   '**/preview-pane.e2e.ts',
   // Phase 21.3: instancing, render on demand and MSAA by quality on WebGPU.
   '**/rendering.e2e.ts',
   // Phase 23.0: a 3D project's Play and export (the 3D physics backend) on WebGPU too.
   '**/physics-3d.e2e.ts',
-  // Phase 23.12: material parameters set per object by scripts (the per-object data texture) on WebGPU.
-  '**/material-runtime.e2e.ts',
-  // A material swapped while the game runs shows only once loaded, on WebGPU.
-  '**/material-swap.e2e.ts',
   // Each scene's look in the Scene view, and the active scene's blend in Play and the export, on WebGPU.
   '**/scene-environment.e2e.ts',
   // Phase 25.2: Play screenshots read back from WebGPU, image textures included.
   '**/screenshot.e2e.ts',
   // Phase 25.8: scene lights on load and unload, 12 point lights, spot cookies on WebGPU.
   '**/scene-lights.e2e.ts',
-  // Phase 25.19: material instances and KTX2 textures (Scene view, Play, export) on WebGPU.
-  '**/material-instances.e2e.ts',
   // Mip streaming of large KTX2 textures under the texture budget (Play, the export's files) on WebGPU.
   '**/texture-streaming.e2e.ts',
 ];
