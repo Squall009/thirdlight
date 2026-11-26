@@ -65,9 +65,14 @@ is refused whole), unknown fields at every level are refused, and later steps on
     wall to the material's own look (`voxelSurfaceSet`). Empty sets are left out canonically.
   - `gas` `{color?, density?}`, in that order, only on a material whose (resolved) use is `gas`: the plain look's
     two fields. `color` "#rrggbb", lower case (absent: `VOXEL_MATERIAL_LIMITS.gasColorDefault`, white); `density`
-    the **full density per metre**, 0–8 (`gasDensityMax`; absent: `gasDensityDefault` 0.1): what a gas cell of shape
+    the **full density per metre**, 0–8 (`gasDensityMax`; absent: `gasDensityDefault` 0.5, raised from 0.1 when
+    the look was first drawn, 47b.7: 2 m of it passes about a third of what is behind): what a gas cell of shape
     15 holds, a cell of shape d holding d/15 of it (format spec §2.2, G1). Inherited along an instance chain field
     by field; an empty look is left out canonically; `voxelGasLook` gives the two with the defaults filled in.
+    **As drawn (47b.7, the plain look; 51 replaces it)**: inside the detail ring a chunk's gas part (format spec
+    §3.7 *Derived data 34 → 35*) is one more mesh of its draw in `color`, unlit, a pixel's opacity 1 − exp(−`density`
+    × the cells' density × the metres of gas behind it along the view ray); from inside a bank one screen-wide layer
+    of the same colour and rule (`three-adapter/voxel-gas-draw.ts`; `voxel-engine.md` §3 *Gas*).
 - `content.materialProfiles?`: `[{profileId, name, density?, friction?, restitution?, flowRate?, gameData?}]` by
   `profileId`. Engine profiles are constants (`ENGINE_MATERIAL_PROFILES`: earth, glass, lava, metal, stone, water,
   wood); a project profile with one of their ids overrides it field by field (game data whole), one with a new id

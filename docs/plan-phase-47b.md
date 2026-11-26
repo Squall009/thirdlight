@@ -1,7 +1,7 @@
 # Plan — phase 47b: the world edit mode, the fill, fog as voxels, dressing rules and ground cover
 
 **Status: APPROVED by the owner 2026-11-26, with the changes of that conversation (§8). A fresh session builds
-it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D841.
+it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D842.
 
 The roadmap's line (owner, 2026-11-12): "**47b World edit mode**: one mode on the brush kit in the Scene view;
 fields derived from voxels; the height-based fill for water and fog; the fog role and fog painting with a plain
@@ -141,7 +141,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.4 | done 2026-11-26: `surface-fields.ts` (16 values a surface; the block form is the kernel at each column's top, the per-point form answers caves and storeys), a `surface-fields` job at level 0 and on the 2 m nodes (`farGroundFields`), `ctx.voxels.surfaceAt`. Never stored, no derive part, run when asked: 8–9 ms a chunk column. 2 m against 0.5 m within stated tolerances. Results §9 |
 | 47b.5 | done 2026-11-26: the world mode (Edit world on a `voxelWorld`; Sculpt: add, dig, smooth, flatten; Paint: palette with variants, wetness, noise mask) on one voxel brush tool the structure mode's hand edits now use (D762 fixed). A drag is one v3 command of thinned dabs at the release. E7 read; a real pointer drag changed the ground. D837 opened. Results §9 |
 | 47b.6 | done 2026-11-26: the Fill rail (fog to a dragged level with a fade and a reach, one `flood`; a leak refused and marked; drain; Water makes a water body), the fog brush on Paint (a `set` or `dig` of the cells it names, so ground and water stay; smooth) and a Splines rail, all on the one tool. No command or stored thing added. E8 read; fog is not drawn before 47b.7. D838–D840. Results §9 |
-| 47b.7 | not started |
+| 47b.7 | done 2026-11-26: the gas part (hull quads with the density behind them, and runs; the quads shared with liquid; derived 35) and its plain draw: flat colour, opacity from the scene's depth behind each face, a screen-wide layer with the eye in a bank, a density view in the world mode. In Play, exports and the Scene view. L23, L24, E8 read; cost not resolved (about 1 ms). D841. Results §9 |
 | 47b.8 | not started |
 | 47b.9 | not started |
 | 47b.10 | not started |
@@ -398,6 +398,51 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   11. **Picture E8's stand-in for the fog itself** is the level ring, the leak mark and the status line; no overlay
       and no gas draw was built (47b.7's). Its script also drags one stroke of the fog brush, so the worker's cell
       read ran in a real page.
+- **2026-11-26 — 47b.7, defaults chosen, owner to confirm** (item agent):
+  1. **How "see-through by density" is made: the scene's depth behind each hull face, and two densities a quad.** A
+     hull has no inside. Each gas face's pixel takes the length of gas behind it as the distance along the view ray
+     from the face to the scene behind it (three's copy of the scene's depth, as river shores and soft particles
+     read it), at most 64 m; the first cell at the face's own density, the rest at the density of the cell behind
+     the face, which the derive writes on the quad (its spare byte). Opacity 1 − exp(−density a metre × that).
+     Chosen over a thickness written by the derive (a face would read as many cells behind it as the fog is deep,
+     which a section with a one-cell apron cannot, and equal neighbours would no longer merge) and over a second
+     depth target for the hull's far side (a pass and a target more; 51 replaces the draw). What it gives: no line
+     where fog meets the ground, a soft top that reads thin, a bank in a hollow as deep as the hollow. What it
+     cannot: know where a bank ends in the air (D841).
+  2. **From inside, one screen-wide layer.** With the eye in gas the hull is behind it and most rays end on ground
+     without crossing a face, so back faces alone would leave the ground clear and the sky fogged. The eye's column
+     of gas is taken as a level slab (its top and bottom the run's, without end sideways, at the run's mean
+     density); a ray leaves through the top or bottom or ends at the scene; the layer comes in over the first metre
+     under the run's top, and hull faces between the slab's heights are left out while it draws. To know the eye is
+     in gas, the gas part carries **runs** (each column's touching gas cells of one material: 8 bytes a run), read
+     on the page each render: derived, sent with the chunk's batch, never stored.
+  3. **The gas part reads a liquid as the air it stands in** (the item's brief said "not against liquid"). With a
+     face only against air, draining a pool under fog would change the fog's faces, and G6 says a change only
+     between air and liquid feeds the liquid part alone. So fog lying on water has a face looking down at the
+     water, which nothing sees (front faces only; water is opaque).
+  4. **The part's layout** (format spec §3.7 *Derived data 34 → 35*): the liquid part's 16-byte quad, shared
+     (`derived-medium.ts`), its spare byte the two densities; whole cell faces; faces merge within a cell layer by
+     material and density pair. Derived data 34 → 35. **Nothing stored**: no record bit, file, manifest key,
+     far-cache channel or material field.
+  5. **Order and light**: blended, depth tested, no depth written, front faces; hull meshes sort with the scene's
+     other transparent draws by three's order, the eye's layer after them all. Unlit: no sun, lamp, light volume
+     or shadow, so a pale fog is as pale at night (q2's accepted look); the hull takes the scene's distance fog.
+  6. **A gas's default density is 0.5 a metre** (47b.2 chose 0.1 unseen and said this item may change it): at 0.1
+     the fill of a 1.5 m hollow hid about a tenth of its floor. 0–8 stands.
+  7. **The density overlay is built** (not cut): a switch "Fog in the view" on the Fill panel and the fog brush's
+     panel, As drawn or Density; the hull nearly opaque in a colour for each face's own cell's density (blue,
+     magenta, yellow); shown only while a rail with fog tools shows, never in Play; a uniform, nothing rebuilt. It
+     shows the hull's outer cells only, not densities inside a bank.
+  8. **The look's two fields are a fifth block of the voxel surface's material table**, read by the gas draw alone.
+  9. **`?voxelGas=off`** leaves the gas undrawn (as `voxelLiquid`), passed by the editor to Play: the cost
+     comparison's other side.
+  10. **The bench fog** (`bench-fog.ts`): a hollow dug into the town's empty lot (5, 6) and filled by one `flood`
+      with a 1.5 m fade, the bench's gas material at the default density, placed last through the commands and
+      taken out first by the project's undo (two steps, each checked to be a voxel step), the material deleted.
+      `headroom --fog` orbits that hollow.
+  11. To stay within the unit sizes: `VoxelWorldDraws` keeps its two view switches and its two walk-feed counters
+      as one record each, `VoxelChunkView`'s tip scratch is the module's, the surface's table entry and gas row are
+      module functions.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -1008,6 +1053,123 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
   3); a soft rim or a density by coverage for painted fog, and a fog brush wider than 8 m (they need a brush mode
   in the command: owner); a starter material in the kit (§8 8); a preview of what a fill would cover before the
   release; a spline's later points inside the mode.
+
+### 47b.7
+
+- **What exists.** Fog is drawn. A derive section's **gas part** (`packages/voxel/src/derived-gas.ts`): its gas
+  faces against open space as quads (material, the face's own cell's density, the density of the cell behind it),
+  and its gas as runs up its columns. `DERIVED_PART.gas` has its builder (`ALL_DERIVED_PARTS` 127, derived 35); a
+  gas-only change derives that part alone (`SURFACE_KEEPING_PARTS`, one cell of apron), the chunk's batch carries
+  a `gas` entry and the page replaces the chunk's gas mesh alone. The draw (`three-adapter/src/voxel-gas-draw.ts`):
+  one more mesh of the level-0 chunk draw in the gas material's colour, unlit, casting nothing, its opacity from the
+  scene's depth behind each face; one screen-wide layer while the eye stands in gas; a density overlay; the
+  programs made with the first gas part. In Play, exports and the Scene view through the one chunk view; structure
+  grids the same way. The world mode has a **Fog in the view** switch (As drawn, Density).
+- **Shared with liquid, not copied**: `derived-medium.ts` (the 16-byte quad and its writer, the rectangle merge, the
+  join, what closes a medium's face) and `three-adapter/voxel-medium-geometry.ts` (a quad list as a geometry);
+  `derived-liquid.ts` lost 94 lines to them and gives the same bytes (its tests untouched and green).
+- **How opacity is made, the inside view, the order**: §8 "47b.7" 1, 2, 5.
+- **Stored:** nothing. No record bit, file, manifest key, far-cache channel or material field; `voxel.gas`'s two
+  fields as approved (the default density's value changed: §8 6).
+- **Tests** (new: `packages/voxel/src/derived-gas.test.ts` 13, `packages/three-adapter/src/voxel-gas-draw.test.ts`
+  10, `tools/voxel-bench/bench-fog.test.ts` 4; one added to `exporter/src/closure-materials.test.ts` and to
+  `editor/src/session/voxel-fill.test.ts`; changed: `tools/voxel-bench/liquid.test.ts`, `voxel/src/chunk-batch.test.ts`):
+  - the part on made cases: a box in the air (six quads, whole cells, both densities); a sheet a cell thick
+    (nothing behind its faces); on ground, against a wall, against ground filled to the surface (no face) and
+    below it (a face); over water (the faces it has over a dry hollow; the water's own unchanged; draining the
+    pool leaves the gas part byte for byte); two densities and two gases side by side (no face between, the shared
+    faces split); a fill's soft top (15, 11, 4: the top quad carries 4 and 11, a side a quad a row); density 0 as
+    air; the runs (materials apart, densities summed; kept where gas is closed in and shows no face); across a
+    chunk border (no inner face, the tops meet on the border); a chunk's eight sections joined against the whole
+    chunk (same area a face, no quad on an inner border, the same gas cells by column, a run split at a section);
+    the part alone from a one-cell apron, byte for byte the full derive's.
+  - the narrowed feed through real workers and region files (`liquid.test.ts`, on the slow list, run once: 45 s):
+    a gas stroke over a lake across four chunks answers the gas part alone and derives it for exactly the
+    sections within one cell of the stroke (no `derived`, shader, liquid or collision derive; `gasDerives` = that
+    count), every section standing equal to a fresh derive of the world with the gas, faces and runs.
+  - the draw against the real derive, join and batcher: no gas, no program, layer or mesh; a bank is one mesh
+    named for its material's look (26 triangles, the top's densities 4/15 and 11/15, transparent, no depth write,
+    front faces, no lights, no shadow, counted in the chunk's bytes), the table holding the record's colour and
+    density and the defaults for a gas no record names; a gas-only change: the batch is one `gas` entry, no mesh
+    build, no grid upload, **the surface mesh the same object with the same geometry**, the old gas geometry
+    disposed; erased: the mesh goes, the chunk stays; the eye's run joined across a section and a chunk border, its
+    slab, the fade under the top, off above, beside and under, and off again once the bank is erased under a camera
+    standing in it; gas closed in keeps the eye's fog; the overlay a switch with the same mesh and material; both
+    programs build to WGSL (the hull reads the scene's depth and no light; the layer no model matrix); through
+    `VoxelWorldDraws` (a batch's gas entry, the stats, the overlay for a world drawn later, a record's change with
+    no new mesh); the page flag; dispose lets go of the hull's geometry and program and the layer's.
+  - the export: a build with a voxel world ships its gas materials with `voxel.gas` (an instance's folded onto its
+    base's, a look left out left out), nothing without a voxel world.
+  - the editor: the overlay shows only while its switch is on and the rail has fog tools.
+  - the bench fog: the lot is empty; the hollow's dig and the flood are commands the format takes, the flood stays
+    in the hollow and thins to its top, a drain takes it back to the dug hollow cell for cell; the cameras stand in
+    clear air and in the bank; placed and taken out through the commands in the order the undo needs, a leftover
+    hollow not undone, a leak not swallowed.
+  - **Broken on purpose, each run once** (13, all red): the density behind a face never written → 5; a face made
+    toward a gas of another density → 2; a liquid closing a gas face → 1; runs joined without their section's
+    origin → 2; the gas part not a surface-keeping part → 1; a gas-only change sending no gas entry → 2; a chunk
+    keeping no runs → 6; the eye's run not looked up again when gas changes → 1; the layer and its program not let
+    go → 1; the gas flag ignored → 1; the overlay not given to a world drawn later → 1; the overlay shown on every
+    rail → 1; the bench's flood over the lot's ground → 2.
+- **Pictures** (three takes: 130 s, 86 s, 24 s; low tier, WebGPU, staging's 8 km town and a fresh backend's yard).
+  `~/.cache/thirdlight-phase47b/work/47b.7/`:
+  - **L23** `pictures/L23-fog-bank.png` (take 1; streaming still after 5.5 s, the light volume settled; the hull
+    130 triangles, the eye outside). Sees: the town at noon from 6 m up; in the empty lot a round hollow about 13 m
+    across filled to just under its rim with a pale grey-white mist, the grass and four houses round it. The bank
+    is opaque over most of its area and thins over the last metre toward the hollow's sides, where the earth of
+    the wall shows through (brown at the far side, the ground's steps at the near rim); no line where it meets the
+    ground, no box edge, no seam at the chunk borders it crosses. Wrong: it reads as a bowl of milk more than as
+    mist: one flat colour with no shading or depth cue across its middle (the path through it from this height is
+    over 10 m, so it is fully opaque there); the ground's cell steps show as dark teeth through the thin fog at
+    the near rim (the ground's own, D837); faint radial streaks at the far side where the wall's steps show
+    through. Sure: high for what is there; nothing on how it looks while the camera moves.
+  - **L24** `pictures-2/L24-fog-inside.png` (take 2; settled; the facts say the eye stood in gas). Take 1
+    (`pictures/L24-fog-inside.png`, looking 14° up) was one grey with two faint house shapes: too little to judge,
+    so the camera was tilted to 29° up; nothing of the draw changed. Sees: from 1.7 m over the hollow's floor, a
+    grey murk over the whole picture; through it the flat grey shapes of a gabled house with three faint windows
+    and a roof to the right, and the sky, bluer and a little clearer toward the top of the picture; the lower
+    third is even grey (the hollow's wall, about 8 m off, cannot be told from the fog). No clear patch, no seam or
+    line where the bank's surface is, no hull face seen from behind. Wrong: the fog is mid grey here and near
+    white in L23: the bench camera's exposure follows the picture, and a view that is all fog is brought to
+    middle grey (the fog has one unlit colour; nothing adapts it); very little can be seen at all at this density
+    (0.5 a metre: things fade within about 5 m); the houses are flat shapes. Sure: medium: it shows the layer
+    covers the view evenly and thins upward; it cannot show the near ground against the far, or the crossing of
+    the bank's surface.
+  - **E8** `pictures-3/E08-world-fill.png` (take 3, as takes 1 and 2; settled; 290 gas triangles in the Scene
+    view). Sees: the World editor's Fill rail on the yard; the far square hollow holds a pale mist, thin at its
+    near edge and thicker toward its far side, the hollow's sides showing through; in the near hollow the fog
+    brush's stroke is a pale blocky cloud; the level ring, the leak's red mark and status line as in 47b.6; the
+    panel has a new section "Fog in the view" (As drawn / Density). Wrong: the brush's blob shows its cells: two
+    bright square faces and a stepped outline (D841); the mist in the far hollow is faint at its near edge; the
+    editor's red "error flood_leaks" is still there (D839). Sure: high.
+  - **The density view** `pictures-3.raw/screen-world-fill-density.png` (the same view, the switch on Density;
+    the view's attribute read `density`, then `off` again). Sees: the far hollow's fill a flat purple (its top
+    cells' density, 4 of 15, between blue and magenta), the brush's blob pink-magenta (8 of 15), both nearly
+    opaque and plain against the grass. Take 1's colours ran blue to yellow and gave grey at the fill's density;
+    take 2's green was lost on the grass; each was changed for the next take. Wrong: the colours are pastel (the
+    view's tone mapping); a bank shows only its outer cells' density. Sure: high.
+- **Cost** (never a gate; `run.mjs headroom --quality low --fog --copies none --scales none`, one round a run, the
+  camera orbiting the hollow 10 m out and 7 m up so the bank fills about a quarter of the view; WebGPU,
+  1280 × 720, the 30 Hz cap; alone on this shared box, load 1.4–2.9; 213 s, 178 s, 183 s):
+
+  | Run | Gas | `near` ms (spread) | Frame GPU ms | Room (ballast held) | Resolution ms |
+  |---|---|---|---|---|---|
+  | 1 | drawn (130 triangles) | 6.99 (0.29) | 17.01 | 60 | 1.73 |
+  | 2 | drawn | ≥ 6.81 (1.44) | 14.54 | none held | 0.48 |
+  | 3 | not drawn (`voxelGas=off`: 0 triangles, no program) | 5.93 (1.51) | 15.95 | none held | 0.67 |
+
+  Run 2 was meant as the gas-off run: the editor did not pass Play the flag, so it is a second drawn reading (the
+  flag is passed since 345e7c9c; run 3's facts show it off). **About 1 ms of `near` with the gas drawn, not
+  resolved**: the difference is under the spread between samples, and two runs alike differ by more (the room 60
+  copies and none; frame GPU 17.0 and 14.5 ms). The eye's layer (the camera inside a bank) was not measured.
+  Medium and high: unverified on target hardware. `perf-recommendations.md` row 47.
+- **Unverified:** anything in motion (walking into and out of a bank, the layer coming in, the temporal upscale
+  on the hull and the layer); fog by night and under lamps; fog beside glass, particles or water in one view; a
+  structure grid's gas; an exported game's fog (the boot check's export holds none; the batches and the material
+  rows are the same); the density view anywhere but E8's yard; the eye's layer's cost.
+- **Left out, and why:** light, shade, a march, drift, fog past the detail ring (51); where a bank ends in the
+  air (D841: a second depth for the hull's far side, or 51's march); a density overlay of a bank's inner cells; a
+  fog tint that follows the camera's exposure or the sky.
 
 ## 10. The proposed plan's questions and how each stands
 

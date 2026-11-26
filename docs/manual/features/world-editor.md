@@ -132,6 +132,36 @@ The Fill rail fills the open space joined to a point, up to a level.
 A fog fill is a stroke: it does not follow later ground edits (dig the bank
 away and the fog stays where it was). Fill again, or drain it first.
 
+## How fog looks
+
+Fog is drawn in the Scene view, in Play and in an exported game alike, in
+its material's **colour** and **full density** (the material's Voxel
+section; a gas that names neither is white at 0.5 a metre: two metres of it
+at full density hide about two thirds of what is behind).
+
+- **From outside** a bank is see-through by how much of it lies behind each
+  pixel: thin where it meets the ground at its edge, thick over its middle,
+  and the scene behind shows through accordingly. A fill's **Fade** makes
+  its top thin.
+- **From inside** the whole view is fogged: near things clearer than far
+  ones, and clearer upward, where the view leaves the bank sooner.
+- It is one flat colour: the sun, lamps and shadows do not light it, so a
+  pale fog stays pale at night and in a dark cave. It does not move.
+- It is drawn **near the camera only** (within the detail ring, about 45 m
+  on the low quality level, 64 m on medium). Farther away a bank is not
+  there.
+- **Fog standing free** (a blob painted in the open, not lying in a hollow)
+  looks as thick as the view behind it is far, and shows the cells it is
+  made of. Painted fog reads best in or against something: a hollow, a wall,
+  the ground. Smooth softens its edge a little.
+
+**Fog in the view** (on the Fill panel, and on the Paint panel while a gas
+is picked) switches the Scene view between **As drawn** and **Density**: every
+fog face in a colour for its density (blue the thinnest, magenta half,
+yellow the full density), nearly opaque, so fog too thin to see can be found
+and erased. It is an editing aid of this editor: it shows while the Fill
+panel or the fog brush's panel is open, and never in Play.
+
 ## Splines
 
 **Road** (R), **Path** (P) and **River** (V) start a spline that writes
@@ -146,9 +176,8 @@ click without a drag makes nothing.
 ## Limits to know
 
 - The ground changes at the release, not under the pointer while you drag.
-- **Fog is not drawn yet.** A fill or a fog stroke changes the world (the
-  status line and undo show it), but nothing shows the fog in the view until
-  its drawing is built.
+- Fog has a plain look for now: one flat colour, unlit, near the camera
+  only ([How fog looks](#how-fog-looks)).
 - Wetness cannot be painted alone: a Paint stroke always writes its material
   too.
 - Smooth and Flatten have no strength setting; a stroke over a place again

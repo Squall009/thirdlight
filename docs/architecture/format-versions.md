@@ -18,7 +18,7 @@ where the format is an owner hard stop (the voxel formats: `voxel-format-spec.md
 | Save file / base form codec | `SAVE_FORMAT_VERSION`, `BASE_FORM_CODEC_VERSION` (voxel/save-file.ts) | 2 / 2 | — |
 | Structure overrides | `OVERRIDE_FORMAT_VERSION` (voxel/structure-overrides.ts) | 2 | from draft to used, F3 (47a.3; owner 2026-11-20); its layout also holds what a world-grid structure replaced, F5 (`voxels/<world>/structures/<object id>.tlvo`, before and written; 47a.11) |
 | Building generator (a structure record's `generator`, F1) | `BUILDING_GENERATOR_VERSION` (voxel/structures/building.ts) | 1 | the first building generator (47a.3) |
-| Derived data (never stored; a version of the rules) | `DERIVED_FORMAT_VERSION` (voxel/derived-data.ts) | 34 | the gas role open to every output, its mip rule, and three entries of the derived list (surface fields, the gas part, cover points), G1, G2, G6 (47b.2; owner 2026-11-26) |
+| Derived data (never stored; a version of the rules) | `DERIVED_FORMAT_VERSION` (voxel/derived-data.ts) | 35 | the gas part built (a section's gas faces as quads with the density behind them, and its runs), G6 (47b.7; owner 2026-11-26); 34: the gas role open to every output, its mip rule, and three entries of the derived list (surface fields, the gas part, cover points), G1, G2, G6 (47b.2) |
 | Piece table | `PIECE_TABLE_FORMAT` (voxel/piece-table.ts) | 5 | — |
 | Far cache | `FAR_CACHE_FORMAT` (voxel/far-tree.ts) | 3 | the bake level: fine levels by region (46d.26) |
 | Baked bricks blob | `FAR_BRICKS_BLOB_VERSION` (voxel/far-bricks-baked.ts) | 1 | — |
