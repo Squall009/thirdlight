@@ -776,6 +776,7 @@ export class Viewport {
     this.marks.viewProjection(root, this.camera);
     this.occlusion.keepWorkedOn({ selected: this.selectedId, projected: this.projected, edited: this.isolation.ids }, (id) => this.queries.subtreeIds(id));
     this.voxels.focus(this.orbit.target);
+    this.ground.frame(this.camera, Math.max(1, root.clientHeight || root.height));
     const r0 = performance.now();
     const drawn = adapter.renderFrame();
     this.marks.renderTime(root, performance.now() - r0);
