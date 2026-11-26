@@ -1,7 +1,7 @@
 # Plan — phase 47b: the world edit mode, the fill, fog as voxels, dressing rules and ground cover
 
 **Status: APPROVED by the owner 2026-11-26, with the changes of that conversation (§8). A fresh session builds
-it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D836.
+it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D837.
 
 The roadmap's line (owner, 2026-11-12): "**47b World edit mode**: one mode on the brush kit in the Scene view;
 fields derived from voxels; the height-based fill for water and fog; the fog role and fog painting with a plain

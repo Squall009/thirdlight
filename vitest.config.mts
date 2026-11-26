@@ -76,6 +76,10 @@ const ISOLATED_FILES: string[] = [
   'packages/game-host/src/profile-view.test.ts',
   // Failed only when sharing a worker (no unit marked, no bounce); old probe lighting, cause not traced.
   'packages/three-adapter/src/surface-relight.test.ts',
+  // Parses a document nested 4,000 deep, two frames a level: the strict JSON parser reads about 4,100 levels before the
+  // stack ends while it is not yet compiled and about 8,400 once it is, so in a shared worker the answer was the
+  // files before it. A process of its own starts the same way every run.
+  'packages/workspace/src/corrupt-project-startup.test.ts',
 ];
 const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const EXCLUDE = ['**/node_modules/**', '**/dist/**', 'archive/**', '.claude/**', ...(UNIT_SET === 'fast' ? slow : [])];
