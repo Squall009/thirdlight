@@ -213,6 +213,13 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 
 (one section an item)
 
+### 47b.0
+
+- **three.js release check (2026-11-26):** `npm view three version` answers 0.187.0, the pinned version (its
+  version list ends at 0.187.0; the registry entry last changed 2026-10-30). Nothing newer exists, so there are
+  no release notes to read against `docs/three-upgrade-checklist.md`: no hook, pixel or fix to assess. three
+  stays at 0.187.0; no update was made or proposed.
+
 ## 10. The proposed plan's questions and how each stands
 
 1. **One phase or two?** Two: 47b ends at ground cover; 47p (props in the world) follows with its own plan.
