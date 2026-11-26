@@ -145,6 +145,9 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 - From 47b.2: the reference generator keeps a page's name when it splits one by size (a rename broke 13 manual
   links); a stroke's material use is checked against the role it writes, liquid and gas alike; `ALL_DERIVED_PARTS`
   named for what it is (what a derive builds), and the flags beside the part bits allocated in one place.
+- From 47b.3: a strength for the smooth and flatten brushes; a smooth in three dimensions for overhangs and cave
+  walls; a flood wider than one stroke's work bound (about 60 m of reach); flood, smooth and flatten on
+  `ctx.voxels`; a nesting bound in the strict JSON parser (D836).
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
