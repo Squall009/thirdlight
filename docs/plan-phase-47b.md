@@ -138,7 +138,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.1 | done 2026-11-26: D827 (the far march wrote the edge ring's pushed depth into its own target), D825 (the first profile read over the bridge's 1 MiB bound, no cursor), D831 (the Scene view's grid 1 cm under the floor), D832 (33 debug commands declared, a game holds 32) found and fixed with tests; D829 restated: wall-top fill is off by design. L16, E1, E6 clean. D835 opened. Results §9 |
 | 47b.2 | done 2026-11-26: role `gas` = 10 (11 roles), its mip rule, material use `gas` (`voxel.gas`: colour, full density), the gas feed (`DERIVED_PART.gas`), spec text, derived 34. Town and hard-case row with gas in 224,397 open cells derive byte for byte as without. Besides the row: 6 places named liquid alone or assumed two media. Results §9 |
 | 47b.3 | done 2026-11-26: edit command v3 (v2 read as written): `flood` (the water bodies' level fill, its role, fade and a floor as parameters; a leak refused with its places), brush modes `smooth` and `flatten` (the ground a column at a time; a gas's density), a paint that keeps roles. 30 unit tests, 2 over HTTP on the one undo line. D762 stays open for the tool. Results §9 |
-| 47b.4 | not started |
+| 47b.4 | done 2026-11-26: `surface-fields.ts` (16 values a surface; the block form is the kernel at each column's top, the per-point form answers caves and storeys), a `surface-fields` job at level 0 and on the 2 m nodes (`farGroundFields`), `ctx.voxels.surfaceAt`. Never stored, no derive part, run when asked: 8–9 ms a chunk column. 2 m against 0.5 m within stated tolerances. Results §9 |
 | 47b.5 | not started |
 | 47b.6 | not started |
 | 47b.7 | not started |
@@ -281,6 +281,42 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
       meets its reach, and creates no region past it.
   11. **No game API**: `ctx.voxels` gains no flood, smooth or flatten (G4 names the command only). A game's overlay
       applies them like any command if handed one.
+- **2026-11-26 — 47b.4, defaults chosen, owner to confirm** (item agent; the row names the fields, these say what each
+  means where it could be read more than one way):
+  1. **Computed when asked, kept nowhere, no derive part.** No consumer reads the fields before 47b.8 and 47b.9, so
+     no chunk's derive makes them and no bit joins the parts mask: a `surface-fields` job answers a chunk column (the
+     derive workers' pool), `ctx.voxels.surfaceAt` reads a point. The feed is a constant a consumer checks
+     (`SURFACE_FIELDS_FED_BY`: mesh, shader, liquid, gas), so a gas- or liquid-only edit still derives nothing.
+  2. **A surface is any body cell with an open cell over it**; the block form answers each column's highest, the
+     per-point form the one under the point (in it, or up to four open cells, 2 m, over it; water and gas are passed
+     at any depth, so a swimmer reads the bed).
+  3. **Height is the row plus the fill** (a block: whole), as the coarse floor and the smoothing strokes read ground,
+     not the mesher's vertex.
+  4. **Slope is the ground's**: degrees, from the four columns beside. A column where a block stands within 2 m over
+     the surface is left out (grass grows to a wall's foot); a cliff of ground is steep; ground more than 16 rows (8 m)
+     up or down a column is left out as a wall is.
+  5. **Sky is yes or no**, read from the cells over the surface (a body or a structure's stamp closes it). How much
+     sky light arrives is the light volume's. `surfaceAt` reads the cells, not the stitched sky heights, so it is
+     never behind an edit; it reads as far up as chunks are loaded.
+  6. **Water** is the run of liquid cells standing on the surface; **gas** the lowest bank over it of one material,
+     its density the mean of its cells. Both name their material (two values the row does not list, kept because a
+     game asks which liquid it stands in; with the surface cell's row, 16 values in all).
+  7. **The two distances are measured on the surface's own sheet**: between column centres, searched and capped at
+     8 m; a column `d` away counts within `d` rows of the surface (its surface nearest in row for the material; any
+     construction cell there or up to 2 m higher). So a cave's floor does not read the meadow over it. It is a cone,
+     not a walk along the ground: a storey 4 m up reads the ground outside from 4 m off, ground steeper than 45°
+     leaves the sheet, and a block more than 2 m overhead is not near to the ground under it. A walk over the
+     surface was weighed and left: its answer would depend on how much of the world the asker holds.
+  8. **Construction is a block role or a structure's stopping stamp.** The world's cells see a structure only through
+     its stamp (off by up to a cell on a turned house, as light is); a stamped cell is closed and never a surface of
+     the world's (no ground under a house's floor). A structure's own surfaces are read in its own grid alone, which
+     holds no ground: on a house's floor the nearest other material is the house's.
+  9. **`surfaceAt`**: a structure's surface under the point answers before the world's (lower grid id first), not the
+     nearer of the two; null where a cell it needs is not loaded; **the distances only with `{ distances: true }`**
+     (they read over a hundred times the cells: counted on flat ground with 32 m of loaded air over it, 203 cell reads
+     without them, 29,659 with).
+  10. **The 2 m tolerances** (§9) are stated on ground (all sixteen 0.5 m surfaces and the 2 m one terrain), and the
+      two distances one-sided: never nearer at 2 m by more than a 2 m cell's diagonal.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -603,6 +639,116 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
 - **Unverified:** nothing was looked at in a browser (no tool draws these yet, and gas is not drawn before 47b.7).
   A flood through a page's streamer and through the edit worker runs the same `applyEdit` but was not run there.
   Smoothed ground was judged by heights, never seen meshed.
+
+### 47b.4
+
+- **The module** (`packages/voxel/src/surface-fields.ts`, foundation 1; no three, no `node:`; typed arrays in and
+  out):
+  - `surfaceTable(cells: SurfaceCells): SurfaceTable` (a box of record values, index `(x · sz + z) · sy + y`, its
+    corner, `cellM`, and `built`: 1 where a structure's stamp stops) lists each column's surfaces and runs of
+    construction cells.
+  - `surfaceFieldsOf(table, x, z, row, distances, out: SurfacePoint)`: the kernel, one surface.
+  - **Block form** `surfaceFields(cells, footprint?, table?): SurfaceFieldColumns`: the kernel at each column's
+    highest surface, a typed array a field (`SURFACE_FIELD_NAMES`).
+  - **Per-point form** `surfacePoint(src: SurfaceSource, x, y, z, distances, out): boolean | null` over a reader
+    (`value(x, y, z)`, `built?`, `top(x, z)`): `surfaceRowUnder` finds the surface, `gatherSurfaceCells` reads only
+    the cells the kernel reads for it (the column up to the top, the four beside it ± 16 rows; with distances every
+    column within the cap in its sheet's rows), then the same kernel. `surfaceRows(table, x, z)` gives a column's
+    surfaces to a consumer holding a block (47b.8's scatter surface).
+  - **Fields**: `row` (cells), `height` (m), `slope` (degrees 0–90), `material`, `role`, `wetness` (0–7), `sky`
+    (0/1), `waterTop`, `waterDepth` (m), `waterMaterial`, `gasBottom`, `gasTop` (m), `gasDensity` (0–1),
+    `gasMaterial`, `materialEdge`, `construction` (m, capped at `SURFACE_DISTANCE_CAP_M` = 8: 16 cells of 0.5 m,
+    `SURFACE_PAD_CELLS`; 4 of 2 m). Other constants, each once: `SURFACE_SHEET_RISE` 1 row a column,
+    `SURFACE_WALL_M` 2, `SURFACE_SLOPE_ROWS` 16, `SURFACE_SNAP_CELLS` 4. Roles are asked of the traits table.
+  - **What each field needs round it**: the slope the four columns beside; the distances the 16 columns round (so a
+    chunk column needs the eight beside it); everything else its own column.
+- **Where it runs.** (1) The derive workers: job kind `surface-fields` (`surface-fields-job.ts`,
+  `SurfaceFieldsInput`: a chunk column of a level and the chunks that hold anything in it and the eight round it,
+  as resident payloads or stored bytes, with stamps as `built`; `surfaceFieldsInputOf(store, cx, cz, cy0, cy1)`
+  makes a level-0 input; `surfaceFieldsNow` is the same job in the calling thread). Nothing submits it yet: 47b.9's
+  cover is its first consumer. (2) The 2 m far nodes: `farGroundFields` (`far-ground.ts`, job `far-ground-fields`):
+  the coarse floor's decode (one shared `decodeStoredChunk`) read for every field over a node column and the eight
+  round it. A function with tests; nothing draws from it. (3) The runtime: `ctx.voxels.surfaceAt`.
+- **`ctx.voxels.surfaceAt(x, y, z, options?: { distances?: boolean }): VoxelSurface | null`** (runtime
+  `voxel-surface-read.ts`): `{ grid, at, height, slope, material, role, wetness, sky, water: { top, depth,
+  material } | null, gas: { bottom, top, density, material } | null, materialEdge, construction }` (the last two
+  null unless asked). On `BehaviorVoxelWorld` and `ctx.voxels`; typings, the reference and
+  `guides/voxel-scripts.md` (*Surfaces: `surfaceAt`*) written; a graph skip (an object output). The script type
+  pages were re-cut by size (`script-types-save-meta.md` → `script-types-behavior-camera-state.md`); the manual's
+  links hold.
+- **Cost** (the unit bench's lines, this shared box, reported and not asserted; a box of 64 × 64 columns over
+  160–192 rows, 45–47 chunks sent): `surface fields bench: 72 chunk columns in this thread, ms a column p50 8.959
+  p95 12.143 max 25.677`; `in a worker, two chunk columns twice over (the town's, then the hills'), ms a column
+  64.077, 52.135, 23.408, 11.514, 7.827, 7.497, 5.798, 5.539` (the first jobs are the worker's code's first run).
+  Split, in this thread: reading the chunks sent about half (13 ms before payloads were read as whole values, a
+  `RecordChunk.toValues`), the table 1.5–2.6 ms, the fields 3–10 ms (the town's, where construction is near
+  everywhere). Nothing runs it a chunk, so the default path costs nothing more. `perf-recommendations.md` row 46.
+- **2 m against 0.5 m** (`tools/voxel-bench/surface-fields.test.ts`; the cached town, 96 m square of it, and the
+  hills at a lake's shore, each 2,304 columns of 2 m over 16 columns of 0.5 m; wet ground and mist painted on the
+  hills). Tolerances, stated in the test, and what was measured:
+
+  | Field | Tolerance (on ground: all sixteen surfaces and the 2 m one terrain) | Measured (town; hills) |
+  |---|---|---|
+  | height | within 0.25 m of the mean of the sixteen | 0.033; 0.11 |
+  | slope | within 5° of the mean in 95 of 100 columns, 10° in all | 0 and 7.6 (beside the ponds); 1.4 and 2.7 |
+  | material | one of the sixteen's in at least 95 of 100 columns | 1,126 of 1,146; all |
+  | role | compared only where it is terrain at both scales | — |
+  | sky | equal wherever the sixteen agree | all 2,304; all |
+  | wetness | within 1 level of the mean | no wet ground; 0 on 64 wet columns |
+  | water top, depth | within 0.25 m where all sixteen are wet and the 2 m column kept it | none kept; 0.16 and 0.10 on 960 |
+  | material edge | never nearer at 2 m than the mean by more than 2.83 m (a 2 m cell's diagonal); both ways on the hills | −1.3 … +6.2; −0.75 … +2.04 |
+  | construction | never nearer at 2 m than the nearest of the sixteen by more than 2.83 m | never nearer (0 … 8 farther) |
+
+  **What cannot agree at 2 m:** (1) anything where a building stands: the 2 m surface is the roof, the sixteen are
+  roof and ground. (2) Thin construction (the town's fences and posts) and materials narrower than a 2 m cell (a
+  kerb, a pond's rim): not in the 2 m data, so both distances read farther, by up to the cap (construction near at
+  0.5 m is also near at 2 m in 2,133 of 2,280 columns). (3) **Water** where a 2 m cell holds its bed: all 12 of the
+  town's whole-pond columns and its 32 shore columns read dry; on the hills 65 of 84 shore columns kept it. (4)
+  **Gas**: mist two cells thick on a slope is in the 2 m data in 41 of 64 columns (where its cells fall in a 2 m
+  cell the ground does not hold), its bottom and top within 2 m of the 0.5 m ones, its density 0.47–0.93 lower.
+  G2's "lost from the 2 m copy up" is what happens where the ground shares the cell, not everywhere.
+- **Tests** (new: `packages/voxel/src/surface-fields.test.ts`, 18; `tools/voxel-bench/surface-fields.test.ts`, 2;
+  one in `tools/voxel-bench/world-host-grids.test.ts`):
+  - every field on a made case: a fill's height; slopes of atan ⅓ along each axis, 45°, across both, at the box's
+    edge and in 2 m cells; a wall left out and a cliff steep; a material boundary 5, 1 and 16 columns off, one
+    column 3 and 4 off, one past the cap inside the square searched, a tie between a surface over and under the
+    sheet; a wall 6 and 1 columns off, past its end, its top, no ground under it, a block 5 and 10 rows overhead;
+    a pond's top and depth; a gas bank's bottom, top and density, the lowest of two, over water; a roof and open
+    sky; a stamp (no ground under it, no sky through it, construction beside it, never a surface); empty columns.
+  - the per-point form: a cave's floor under a hill (stone, no sky, the moss 4 columns off, not the grass over
+    it) against the same column's top; both storeys of a house and its roof; the point snap (4 cells over, inside
+    the body, through 10 m of water, a stamped cell); null where a needed cell is not known, and no cell read
+    that the kernel does not need.
+  - one arithmetic: both distances against a plain scan of the definition on every surface of two made worlds
+    (rolling ground of three materials, a pond, fog, a cave, a two-storey shell, a stamped shed: over 5,000
+    surfaces, columns of several); the per-point form through a reader against the kernel on the whole box, every
+    field, for every surface a ring inside it; the block form against the kernel value for value, and the same
+    bytes twice.
+  - page and worker alike: two chunk columns of each world through a real `worker_threads` worker running the
+    bundled worker, a column with a stamp, and a 2 m node column: every array byte for byte as in this thread.
+  - `ctx.voxels.surfaceAt` through a real runtime, region files and workers: open ground (every field), the ground
+    beside house 1 reading its wall through the stamp at 1 m, each of three turned houses' floor (its own grid,
+    its place's height) and roof, a pit dug, filled with a liquid and mist and wet ground painted in the same step
+    (bed, top, depth, bank), the swimmer's read, another material 3 columns off, distances null unless asked, null
+    under a house's floor, 2 m over the ground, where nothing is loaded.
+  - the feeds: eleven kinds of change all feed the fields; a gas's and a liquid's change still answer their own
+    part alone.
+  - **Broken on purpose, each run once** (21): the height without the fill → 3 red; the slope keeping a wall → 2;
+    a one-sided difference halved wrongly → 2; the search starting a ring late → 6; construction without the wall
+    rows → 2; the material read off the sheet → 3; the sky ignoring a stamp → 1; a gas run across materials → 1;
+    the water's top as a whole cell → 1; the gather a row short → 1; a stamp as a surface → 2; the snap a cell
+    longer → 1; gas left out of the feeds → 1; the higher of two surfaces as near → first green, a tie case added,
+    then 1 red; the cap's skip of columns past it removed → green (it only saves work: the result is capped
+    again). The job: a far node read as 0.5 m cells → 2; the neighbour columns swapped → 2; stamps dropped → 1. The
+    runtime: structures not asked first → 1; stamps not read → 1; a grid's height without its place → 1.
+- **Stored:** nothing. No field cache, far-cache channel, manifest key or record bit; `DERIVED_FORMAT_VERSION` stays
+  34 (the entry was listed by 47b.2; its layout is now in the format spec §3.7).
+- **Not built, and why:** the fields a chunk by default, a cache of them, GPU field windows (no consumer: 47b.9, 49,
+  51); a walk along the surface for the distances (decision 7); a shader port (49, 51: the kernel is plain
+  arithmetic on typed arrays); the far fields past one node column at a time (the rings phase).
+- **Unverified:** nothing here draws, so there is no picture. `surfaceAt` was run through the runtime in Node, not
+  in a browser or an export (the boot check runs neither). The worker's cost was read from four jobs a world.
+  Fields on a structure turned 30° and 45° were read on its floor and roof only.
 
 ## 10. The proposed plan's questions and how each stands
 

@@ -18,6 +18,10 @@
  *   and the same corner reads the same from either chunk (no seam). A body
  *   on it drops a little when the fine ground (lower) replaces it, and one
  *   left inside fine ground that lies higher is lifted by its host.
+ * - **Every field.** The same stored nodes, with those of the node columns
+ *   round them, give the ground's whole surface fields a coarse cell column
+ *   ({@link farGroundFields}: surface-fields.ts at the nodes' cell size),
+ *   for placing things past the detail ring. Asked for, never kept here.
  * - **Memory.** The tops of a node column are 4 KiB; at most
  *   {@link FAR_GROUND_CACHE_BYTES} are kept, least recently used dropped
  *   first (read again when wanted).
