@@ -27,11 +27,11 @@
 - Disk: 6.93 GB of old packs and work folders deleted; free 14 GB to 21 GB.
 
 ## Questions
-1. The phase run is 28.5 minutes because 28 pictures take 15.5 of them. Keep all 28 pictures? Default: yes, keep them and accept a phase run of about half an hour; a phase then costs about an hour of test time in all.
-2. The check is 4 minutes, with its unit step a minute over its own target. Leave it there? Default: yes, no more work on speed now.
-3. Nothing checks these any more, as agreed: what the GPU draws, editor gestures in a real page, leaks, frame rates, and the compute-built fine bricks against the CPU build (the full list is below). No bench tool is kept for them. Accept? Default: yes; you or the pictures find these.
-4. The pictures list eight new defects (D825–D832). Fix them in a short pass before 47b, or let 47b's plan place them? Default: 47b's plan places them, with the ground band (D827) and the Profiler (D825) first.
-5. Tests of the systems that retire in 48 (block layers, old terrain, old probe lighting) are archived now, so that code is untested until 48 deletes it. Accept? Default: yes.
+1. The phase run is 28.5 minutes because 28 pictures take 15.5 of them. Keep all 28 pictures? Default: yes, keep them and accept a phase run of about half an hour; a phase then costs about an hour of test time in all. Answer: yes, the default stands (owner 2026-11-26).
+2. The check is 4 minutes, with its unit step a minute over its own target. Leave it there? Default: yes, no more work on speed now. Answer: yes, the default stands (owner 2026-11-26).
+3. Nothing checks these any more, as agreed: what the GPU draws, editor gestures in a real page, leaks, frame rates, and the compute-built fine bricks against the CPU build (the full list is below). No bench tool is kept for them. Accept? Default: yes; you or the pictures find these. Answer: yes, the default stands (owner 2026-11-26).
+4. The pictures list eight new defects (D825–D832). Fix them in a short pass before 47b, or let 47b's plan place them? Default: 47b's plan places them, with the ground band (D827) and the Profiler (D825) first. Answer: yes, the default stands (owner 2026-11-26).
+5. Tests of the systems that retire in 48 (block layers, old terrain, old probe lighting) are archived now, so that code is untested until 48 deletes it. Accept? Default: yes. Answer: yes, the default stands (owner 2026-11-26).
 
 ## What was archived and what replaced it
 

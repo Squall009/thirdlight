@@ -490,6 +490,10 @@ run's "previous".
   printed and its product question is D834. Three fresh checks followed the first; the phase run stands as run.
 - **2026-11-26 — the phase run's budget** (lead; owner to confirm, acceptance question 1): 28.5 min against "about
   15". The default keeps the 28 pictures; a phase then costs about an hour of test time with eight checks.
+- **2026-11-26 — 47T accepted by the owner** ("I accept these defaults"): all five defaults of the acceptance
+  text stand — the 28 pictures and a phase run of about half an hour; the check left at 4 minutes; the list of what
+  nothing checks any more; D825–D832 placed by 47b's plan (D827 and D825 first); the retiring systems untested
+  until 48. §9's three earlier questions stand at their defaults with it.
 
 ## 9. Open questions for the owner (each with the default that stands if unanswered)
 
