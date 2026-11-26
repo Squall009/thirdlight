@@ -53,7 +53,7 @@ import {
   EditCommandError,
   EditRefused,
   valueRole,
-  VOXEL_ROLE,
+  isLiquidRole,
   CellSet,
   UndoStore,
   VOXEL_WORLD_NAME_RE,
@@ -1183,7 +1183,7 @@ export class VoxelWorlds {
       for (const c of this.recordOf(w, id).value.chunks.values()) {
         for (let k = 0; k < c.value.count; k++) {
           const v = c.value.values[k]!;
-          if (v === 0 || valueRole(v) !== VOXEL_ROLE.liquid) continue;
+          if (v === 0 || !isLiquidRole(valueRole(v))) continue;
           const i = c.value.cells[k]!;
           out.add((c.cx << s) + (i >>> (s << 1)), (c.cy << s) + (i & g.mask), (c.cz << s) + ((i >>> s) & g.mask));
         }

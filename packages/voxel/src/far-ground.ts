@@ -27,7 +27,8 @@ import { chunkGrid, VOXEL_SIZE_M, type ChunkCoord, type ChunkEdge, type ChunkGri
 import { createDenseChunk } from './dense-chunk';
 import type { FarNodeSource } from './far-field';
 import type { FarNodeIndex } from './far-tree';
-import { fillLevel, ROLE_MASK, SHAPE_FULL, VOXEL_ROLE } from './record';
+import { fillLevel, SHAPE_FULL } from './record';
+import { isMediumRole } from './role-traits';
 import { regionChunkCodecBytes, type RegionChunkRead } from './region-file';
 import type { StoredChunk } from './stream-job';
 import type { WorkerPool } from './worker-pool';
@@ -50,8 +51,8 @@ export interface FarGroundOutput {
   readonly tops: Float32Array;
 }
 
-/** Whether a role stands as ground for a body (liquids do not). */
-const standsOn = (role: number): boolean => (role & ROLE_MASK) !== VOXEL_ROLE.liquid;
+/** Whether a role stands as ground for a body: any that is not a medium (a liquid does not). */
+const standsOn = (role: number): boolean => !isMediumRole(role);
 
 /**
  * Each cell column's top solid surface (metres) over a far node column's nodes: the highest node first, the cell's

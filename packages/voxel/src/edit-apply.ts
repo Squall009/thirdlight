@@ -26,7 +26,8 @@ import { CellDelta, chunkScratch, DELTA_CELL_BYTES, encodeDenseChunk, exportOrAi
 import { type BrushEdit, type EditMode, type EditVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
 import { scratchImage, uniformImage } from './palette-chunk';
 import { encodePaletteImage } from './palette-codec';
-import { ALL_PLANES, changedFields, changeFeeds, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, materialSwap, SHAPE_FULL, valueOf, VOXEL_ROLE, type VoxelRecord } from './record';
+import { changedFields, changeFeeds, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, materialSwap, SHAPE_FULL, valueOf, type VoxelRecord } from './record';
+import { isMediumRole } from './role-traits';
 import type { StampResolver, StampShape } from './stamp-shape';
 import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
@@ -284,7 +285,7 @@ function nextVoxel(plan: Plan, cov: number, old: Readonly<VoxelRecord>, out: Vox
       out.shape = t;
       break;
     case 'add': {
-      const open = oldAir || old.role === VOXEL_ROLE.liquid;
+      const open = oldAir || isMediumRole(old.role);
       if (open) {
         out.material = v!.material;
         out.role = v!.role;

@@ -18,7 +18,11 @@
  *
  * Every form that stores raw values outside the chunk codec names the value
  * form it holds ({@link RECORD_VALUE_FORM}).
+ *
+ * This module names the roles (the format's constants); what a role does
+ * is the role traits table's (role-traits.ts), which every consumer asks.
  */
+import { INTEGRITY_ROLES, isIntegrityRole, isMediumRole, ROLE_SLOTS, ROLE_TRAITS } from './role-traits';
 
 /** One voxel's fields (material 12 bits, role 4, shape 4, wetness 3). */
 export interface VoxelRecord {
@@ -54,6 +58,12 @@ export const VOXEL_ROLE = Object.freeze({
 /** Roles assigned so far; a stored role of this value or above is refused. */
 export const VOXEL_ROLE_COUNT = 10;
 
+// The traits table's rows are these roles: a name a row, and no row past the assigned ones.
+for (let r = 0; r < ROLE_SLOTS; r++) {
+  const name = Object.entries(VOXEL_ROLE).find(([, id]) => id === r)?.[0] ?? null;
+  if ((ROLE_TRAITS[r]!.name ?? null) !== name || (name !== null) !== r < VOXEL_ROLE_COUNT) throw new RangeError(`role traits: row ${r} is ${ROLE_TRAITS[r]!.name ?? 'unassigned'}, the record's role ${r} is ${name ?? 'unassigned'}`);
+}
+
 /** Material id of air. */
 export const MATERIAL_AIR = 0;
 
@@ -84,6 +94,7 @@ export const WETNESS_MAX = 2 ** WETNESS_BITS - 1;
 
 /** Mask of the role field once shifted down by {@link ROLE_SHIFT}. */
 export const ROLE_MASK = 2 ** ROLE_BITS - 1;
+if (ROLE_SLOTS !== ROLE_MASK + 1) throw new RangeError('role traits: the table and the role field differ in size');
 const SHAPE_MASK = 2 ** SHAPE_BITS - 1;
 const WETNESS_MASK = 2 ** WETNESS_BITS - 1;
 
@@ -143,18 +154,11 @@ export function shapeDensity(shape: number): number {
  * a damaged block stays a whole block for every consumer until it is air.
  * Terrain's shape is its fill, a liquid's its fill level.
  */
-export const CONSTRUCTION_ROLES: readonly number[] = Object.freeze([VOXEL_ROLE.wall, VOXEL_ROLE.floor, VOXEL_ROLE.roof, VOXEL_ROLE.foundation, VOXEL_ROLE.stair, VOXEL_ROLE.pillar]);
-
-/** Per role (all 16 slots): 1 for a construction role. */
-const CONSTRUCTION = (() => {
-  const t = new Uint8Array(ROLE_MASK + 1);
-  for (const r of CONSTRUCTION_ROLES) t[r] = 1;
-  return t;
-})();
+export const CONSTRUCTION_ROLES: readonly number[] = INTEGRITY_ROLES;
 
 /** Whether a role is a construction role (its shape is integrity, {@link CONSTRUCTION_ROLES}). */
 export function isConstructionRole(role: number): boolean {
-  return CONSTRUCTION[role & ROLE_MASK] === 1;
+  return isIntegrityRole(role);
 }
 
 /**
@@ -164,7 +168,7 @@ export function isConstructionRole(role: number): boolean {
  */
 export function damagedIntegrity(v: number): number {
   const shape = valueShape(v);
-  return shape !== SHAPE_EMPTY && shape < SHAPE_FULL && CONSTRUCTION[valueRole(v)] === 1 && valueMaterial(v) !== MATERIAL_AIR ? shape : 0;
+  return shape !== SHAPE_EMPTY && shape < SHAPE_FULL && isIntegrityRole(valueRole(v)) && valueMaterial(v) !== MATERIAL_AIR ? shape : 0;
 }
 
 /**
@@ -173,7 +177,7 @@ export function damagedIntegrity(v: number): number {
  * with any integrity is full; every other role's shape is its fill.
  */
 export function fillLevel(role: number, shape: number): number {
-  return shape !== SHAPE_EMPTY && CONSTRUCTION[role & ROLE_MASK] === 1 ? SHAPE_FULL : shape;
+  return shape !== SHAPE_EMPTY && isIntegrityRole(role) ? SHAPE_FULL : shape;
 }
 
 /** A value's density for the consumers ({@link fillLevel} on the {@link DENSITY_FULL} scale). */
@@ -327,9 +331,9 @@ export function fieldsFeed(fields: number): number {
   return parts;
 }
 
-/** Whether a value is air or liquid: open space every output but the liquid part reads alike. */
+/** Whether a value is air or a medium (liquid): open space every output but the medium's own part reads alike. */
 function airOrLiquid(v: number): boolean {
-  return v === 0 || ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.liquid;
+  return v === 0 || isMediumRole((v >>> ROLE_SHIFT) & ROLE_MASK);
 }
 
 /**

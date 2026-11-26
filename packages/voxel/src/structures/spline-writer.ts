@@ -31,6 +31,7 @@
 import { CellDelta } from '../cell-delta';
 import { cellInWorld, WORLD_CELL_MAX_XZ, WORLD_CELL_MAX_Y, WORLD_CELL_MIN_XZ, WORLD_CELL_MIN_Y, VOXEL_SIZE_M, type ChunkCoord, type ChunkGrid } from '../coords';
 import { recordValue, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE } from '../record';
+import { isMediumRole } from '../role-traits';
 import type { CellBox } from '../stroke';
 import { fillShapeAt, liquidValue } from '../water/level-fill';
 import type { GeneratedDefinition } from './generator';
@@ -246,7 +247,7 @@ function nearest(c: Course, x: number, z: number, out: Near): boolean {
 }
 
 /** Ground the shoulders cut and fill against: not air and not liquid. */
-const solid = (v: number): boolean => v !== 0 && valueRole(v) !== VOXEL_ROLE.liquid;
+const solid = (v: number): boolean => v !== 0 && !isMediumRole(valueRole(v));
 
 /** One column's writes, rows ascending (cells; 0 is air). */
 class Column {

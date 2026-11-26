@@ -26,7 +26,8 @@
  */
 import type { Neighbourhood } from './assembly';
 import { packedWidth } from './packed-width';
-import { isConstructionRole, MATERIAL_BITS, valueMaterial, valueRole, valueWetness, VOXEL_ROLE, WETNESS_BITS, WETNESS_MAX } from './record';
+import { isConstructionRole, MATERIAL_BITS, valueMaterial, valueRole, valueWetness, WETNESS_BITS, WETNESS_MAX } from './record';
+import { isMediumRole } from './role-traits';
 
 /** Cells of neighbouring chunks the shader data holds around its chunk, on every side. */
 export const SHADER_BORDER_CELLS = 1;
@@ -70,7 +71,7 @@ export function shaderGridSide(edge: number): number {
  * shader data as it is.
  */
 export function shaderEntry(material: number, wetness: number, role: number): number {
-  return material === 0 || role === VOXEL_ROLE.liquid ? 0 : material | (wetness << MATERIAL_BITS) | (isConstructionRole(role) ? SHADER_CONSTRUCTION_BIT : 0);
+  return material === 0 || isMediumRole(role) ? 0 : material | (wetness << MATERIAL_BITS) | (isConstructionRole(role) ? SHADER_CONSTRUCTION_BIT : 0);
 }
 
 /** The wetness level (0 … `WETNESS_MAX`) of a shader palette entry ({@link shaderEntry}). */

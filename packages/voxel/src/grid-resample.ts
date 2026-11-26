@@ -17,7 +17,8 @@
 import { localIndex, type ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
 import type { GridFrame } from './grid-place';
-import { MATERIAL_AIR, recordValue, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
+import { MATERIAL_AIR, recordValue, valueMaterial, valueRole, valueShape, valueWetness } from './record';
+import { isPortalRole } from './role-traits';
 
 /** Points a world cell is sampled at along each horizontal axis (yaw turns about the vertical: one height suffices). */
 export const GRID_RESAMPLE_SAMPLES = 2;
@@ -85,7 +86,7 @@ export function resampleGridInto(out: DenseChunk, grid: ChunkGrid, cx: number, c
       for (let p = 0; p < n; p++) {
         const v = gx[p]! >= box.lo[0] && gx[p]! < box.hi[0] && gz[p]! >= box.lo[2] && gz[p]! < box.hi[2] ? at(gx[p]!, gy, gz[p]!) : 0;
         vals[p] = v;
-        if (v !== 0 && (valueMaterial(v) !== MATERIAL_AIR || valueRole(v) === VOXEL_ROLE.opening)) solid++;
+        if (v !== 0 && (valueMaterial(v) !== MATERIAL_AIR || isPortalRole(valueRole(v)))) solid++;
       }
       if (solid * 2 < n) continue;
       // The record the most points hold (the first such on a tie).
@@ -93,7 +94,7 @@ export function resampleGridInto(out: DenseChunk, grid: ChunkGrid, cx: number, c
       let bestN = 0;
       for (let p = 0; p < n; p++) {
         const v = vals[p]!;
-        if (v === 0 || (valueMaterial(v) === MATERIAL_AIR && valueRole(v) !== VOXEL_ROLE.opening)) continue;
+        if (v === 0 || (valueMaterial(v) === MATERIAL_AIR && !isPortalRole(valueRole(v)))) continue;
         let c = 0;
         for (let q = 0; q < n; q++) if (vals[q] === v) c++;
         if (c > bestN) {

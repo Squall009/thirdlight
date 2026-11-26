@@ -30,7 +30,8 @@
  * underside reads as a ceiling (a cave roof) and only its lip as an
  * overhang, because nothing within reach tells the two apart.
  */
-import { ASSEMBLY_CLASS, CLASS_MASK, OPEN_ROLE, PLACEHOLDER_RULES, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { ASSEMBLY_CLASS, CLASS_MASK, PLACEHOLDER_RULES, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { OPEN_ROLE } from './role-traits';
 import { SURFACE_ISO } from './derived-mesh';
 import { DENSITY_FULL, ROLE_MASK, ROLE_SHIFT } from './record';
 

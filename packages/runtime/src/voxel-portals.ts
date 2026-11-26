@@ -33,7 +33,7 @@
  * Open, the stamp and the shut cells go. A prop whose opening is not resident
  * yet is joined once it is; one standing in no opening stops nothing.
  */
-import { gridStampBounds, MATERIAL_AIR, stampGrid, STAMP_CLASS, VOXEL_ROLE, VOXEL_SIZE_M, type GridStampCells, type LitStamp, type PropLightChannel, type ShutOpeningWire, type VoxelRecord } from '@thirdlight/voxel';
+import { gridStampBounds, isPortalRole, MATERIAL_AIR, stampGrid, STAMP_CLASS, VOXEL_SIZE_M, type GridStampCells, type LitStamp, type PropLightChannel, type ShutOpeningWire, type VoxelRecord } from '@thirdlight/voxel';
 import type { VoxelGridHost } from './voxel-grid-host';
 
 /** What a portal stops while shut. */
@@ -82,7 +82,7 @@ function openingCellsAt(g: VoxelGridHost, start: readonly [number, number, numbe
   const isOpening = (x: number, y: number, z: number): boolean | null => {
     if (!s.isResident(x >> sh, y >> sh, z >> sh)) return null;
     s.voxelAt(x, y, z, cell);
-    return cell.role === VOXEL_ROLE.opening;
+    return isPortalRole(cell.role);
   };
   const first = isOpening(start[0], start[1], start[2]);
   if (first !== true) return null;
@@ -264,7 +264,7 @@ export class WorldPortals {
       if (k.some((v, a) => v < e.min[a]! || v > e.max[a]!)) continue;
       if (!s.isResident(k[0]!, k[1]!, k[2]!)) return 'later';
       s.voxelAt(c[0], c[1], c[2], record);
-      if (record.material === MATERIAL_AIR && record.role !== VOXEL_ROLE.opening) continue;
+      if (record.material === MATERIAL_AIR && !isPortalRole(record.role)) continue;
       const found = openingCellsAt(g, c);
       if (found === 'later') return 'later';
       if (found === null) continue;

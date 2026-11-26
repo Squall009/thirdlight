@@ -26,7 +26,8 @@
  * Packed in a byte a cell, inside the derive job only: bits 0–2 the shape,
  * 3–5 the transform (kit-cases.ts fold), 6–7 the base.
  */
-import { ASSEMBLY_CLASS, CLASS_MASK, CONSUMER_REACH, OPEN_ROLE, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { ASSEMBLY_CLASS, CLASS_MASK, CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './assembly';
+import { OPEN_ROLE } from './role-traits';
 import { DAMAGE_STAGE } from './damage-stages';
 import { damageStageOf, type PieceTable } from './piece-table';
 import { valueRole } from './record';

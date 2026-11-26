@@ -40,7 +40,8 @@
  * by the unfolded window skips folding and matching for windows seen
  * before, which on built-up worlds is nearly every cell.
  */
-import { OPEN_ROLE, type Neighbourhood } from './assembly';
+import type { Neighbourhood } from './assembly';
+import { isFillRole, OPEN_ROLE, PORTAL_ROLES, roleLookup } from './role-traits';
 import { SURFACE_ISO } from './derived-mesh';
 import { CONSTRUCTION_ROLES, MATERIAL_ID_MAX, ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
 
@@ -51,7 +52,7 @@ export const CASE_REACH = 2;
 const BUILT_ROLES: readonly number[] = CONSTRUCTION_ROLES;
 
 /** The roles that carry a case: the built roles and openings. Terrain, liquid and air have none. */
-export const CASE_ROLES: readonly number[] = Object.freeze([...BUILT_ROLES, VOXEL_ROLE.opening]);
+export const CASE_ROLES: readonly number[] = Object.freeze([...BUILT_ROLES, ...PORTAL_ROLES]);
 
 /** Window cell symbols (4 bits). */
 export const CASE_SYMBOL = Object.freeze({
@@ -585,6 +586,9 @@ export class CaseCatalogue {
 const FACE_CELLS: readonly number[] = [caseWindowIndex(0, 1, 0), caseWindowIndex(0, -1, 0), caseWindowIndex(1, 0, 0), caseWindowIndex(-1, 0, 0), caseWindowIndex(0, 0, 1), caseWindowIndex(0, 0, -1)];
 const faceSym = new Uint8Array(6);
 
+/** Per role: 1 for a gap a portal prop stands in (the opening symbol). */
+const PORTAL_ROLE = roleLookup((t) => t.portal);
+
 /** Per role: 1 when cells of it carry a case. */
 const CARRIES = (() => {
   const t = new Uint8Array(ROLE_MASK + 1);
@@ -597,7 +601,7 @@ const ROLE_SYMBOL = (() => {
   const t = new Uint8Array(ROLE_MASK + 1);
   for (let r = 0; r <= ROLE_MASK; r++) {
     const b = BUILT_ROLES.indexOf(r);
-    t[r] = b >= 0 ? CASE_SYMBOL.built + 2 * b : r === VOXEL_ROLE.opening ? CASE_SYMBOL.opening : r === VOXEL_ROLE.terrain ? CASE_SYMBOL.ground : CASE_SYMBOL.open;
+    t[r] = b >= 0 ? CASE_SYMBOL.built + 2 * b : PORTAL_ROLE[r] === 1 ? CASE_SYMBOL.opening : isFillRole(r) ? CASE_SYMBOL.ground : CASE_SYMBOL.open;
   }
   return t;
 })();
@@ -605,7 +609,7 @@ const ROLE_SYMBOL = (() => {
 /** The symbol of a value and its density, before the same-material bit. */
 export function caseSymbol(value: number, density: number): number {
   const role = (value >>> ROLE_SHIFT) & ROLE_MASK;
-  if (role === VOXEL_ROLE.opening) return CASE_SYMBOL.opening;
+  if (PORTAL_ROLE[role] === 1) return CASE_SYMBOL.opening;
   if (OPEN_ROLE[role] === 1 || density < SURFACE_ISO) return CASE_SYMBOL.open;
   return ROLE_SYMBOL[role]!;
 }
@@ -628,7 +632,7 @@ function symbolsOf(n: Neighbourhood, lo: number, hi: number): Uint8Array {
     for (let y = lo; y < hi; y++) {
       const i = row + y;
       const role = (vals[i]! >> ROLE_SHIFT) & ROLE_MASK;
-      sym[i] = role === VOXEL_ROLE.opening ? CASE_SYMBOL.opening : OPEN_ROLE[role] === 1 || shapes[i]! < SURFACE_ISO ? CASE_SYMBOL.open : ROLE_SYMBOL[role]!;
+      sym[i] = PORTAL_ROLE[role] === 1 ? CASE_SYMBOL.opening : OPEN_ROLE[role] === 1 || shapes[i]! < SURFACE_ISO ? CASE_SYMBOL.open : ROLE_SYMBOL[role]!;
     }
   }
   return sym;

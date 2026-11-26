@@ -58,9 +58,14 @@
  *
  * Reads one cell round each cell ({@link EDGE_REACH}); pure and per thread.
  */
-import { OPEN_ROLE, type Neighbourhood } from './assembly';
+import type { Neighbourhood } from './assembly';
+import { OPEN_ROLE, roleLookup } from './role-traits';
 import { SURFACE_ISO } from './derived-mesh';
 import { isConstructionRole, MATERIAL_ID_MAX, ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
+
+/** Per role: 1 where the shape is a surface's fill (ground: a piece never stands in it), and 1 for a gap a portal prop stands in. */
+const FILL_ROLE = roleLookup((t) => t.shape === 'fill');
+const PORTAL_ROLE = roleLookup((t) => t.portal);
 
 /** How far (Chebyshev, cells) the edge pass reads from a cell. */
 export const EDGE_REACH = 1;
@@ -308,7 +313,7 @@ export function extractEdges(n: Neighbourhood, lo: number, hi: number, out: Edge
       const d = shapes[i]!;
       let c = 0;
       if (OPEN_ROLE[role] !== 1 && d >= SURFACE_ISO) c |= SOLID;
-      if (role === VOXEL_ROLE.terrain && d > 0) c |= BLOCKS;
+      if (FILL_ROLE[role] === 1 && d > 0) c |= BLOCKS;
       if (excluded !== null && excluded[i] !== 0) c |= BLOCKS;
       else if ((c & SOLID) !== 0 && isConstructionRole(role)) {
         c |= OWNS;
@@ -435,7 +440,7 @@ export function slotDressing(n: Neighbourhood, i: number, slot: number, inner: b
   for (let k = 0; k < blocks.length; k++) {
     const j = i + deltas[blocks[k]!]!;
     const role = (vals[j]! >>> ROLE_SHIFT) & ROLE_MASK;
-    if (role === VOXEL_ROLE.opening) openings |= 1 << k;
+    if (PORTAL_ROLE[role] === 1) openings |= 1 << k;
     else if (OPEN_ROLE[role] !== 1 && shapes[j]! >= SURFACE_ISO) solid |= 1 << k;
   }
   let word = SELF_BLOCK;

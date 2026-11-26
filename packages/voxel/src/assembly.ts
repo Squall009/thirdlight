@@ -27,7 +27,8 @@ import { denseValue } from './cell-delta';
 import type { EdgeMasks } from './edge-cases';
 import type { CaseCatalogueDef } from './kit-cases';
 import type { PieceTable } from './piece-table';
-import { valueDensity, valueRole, VOXEL_ROLE } from './record';
+import { valueDensity, valueRole } from './record';
+import { OPEN_ROLE, ROLE_SLOTS, ROLE_TRAITS, roleLookup } from './role-traits';
 
 /** Resolved classes (the low 4 bits of a resolved cell byte). */
 export const ASSEMBLY_CLASS = Object.freeze({
@@ -246,20 +247,8 @@ export const PLACEHOLDER_RULES: AssemblyRuleSet = Object.freeze({
     for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) for (let y = lo; y < hi; y++) {
       const i = (x * s + z) * s + y;
       const c = role(i);
-      if (c === VOXEL_ROLE.air || c === VOXEL_ROLE.opening) {
-        out[i] = ASSEMBLY_CLASS.empty;
-        continue;
-      }
-      if (c === VOXEL_ROLE.terrain) {
-        out[i] = ASSEMBLY_CLASS.ground;
-        continue;
-      }
-      if (c === VOXEL_ROLE.liquid) {
-        out[i] = ASSEMBLY_CLASS.liquid;
-        continue;
-      }
       if (BUILT_ROLE[c] !== 1) {
-        out[i] = ASSEMBLY_CLASS.wall;
+        out[i] = PLAIN_CLASS[c]!;
         continue;
       }
       if (open(i - 1) && open(i + 1)) {
@@ -293,15 +282,18 @@ export const PLACEHOLDER_RULES: AssemblyRuleSet = Object.freeze({
 });
 
 /** Per role: 1 when the placeholder rules read beams and rails from it. */
-const BUILT_ROLE = roleTable([VOXEL_ROLE.wall, VOXEL_ROLE.floor, VOXEL_ROLE.foundation, VOXEL_ROLE.stair, VOXEL_ROLE.pillar]);
-/** Per role: 1 when the assembly rules treat the cell as open (air, liquid, an opening): nothing stands on it or against it. */
-export const OPEN_ROLE = roleTable([VOXEL_ROLE.air, VOXEL_ROLE.liquid, VOXEL_ROLE.opening]);
-
-function roleTable(roles: readonly number[]): Uint8Array {
-  const t = new Uint8Array(16);
-  for (const r of roles) t[r] = 1;
-  return t;
-}
+const BUILT_ROLE = roleLookup((t) => t.frame);
+/**
+ * Per role: the placeholder rules' class of a cell they read no beam or rail from: ground for a body drawn from its
+ * fill, a wall for any other body, liquid for a liquid, empty for the rest of open space.
+ */
+const PLAIN_CLASS = (() => {
+  const out = new Uint8Array(ROLE_SLOTS);
+  ROLE_TRAITS.forEach((t, r) => {
+    out[r] = t.body ? (t.shape === 'fill' ? ASSEMBLY_CLASS.ground : ASSEMBLY_CLASS.wall) : t.medium === 'liquid' ? ASSEMBLY_CLASS.liquid : ASSEMBLY_CLASS.empty;
+  });
+  return out;
+})();
 
 /** A rule set's reference (what a derived result records). */
 export function rulesRef(rules: AssemblyRuleSet): AssemblyRulesRef {

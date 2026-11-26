@@ -97,6 +97,7 @@ export {
   type VoxelPlane,
   type VoxelRecord,
 } from './record';
+export * from './role-traits';
 export {
   clearDenseChunk,
   copyDenseChunk,
@@ -280,7 +281,7 @@ export { appendRelief, checkReliefOptions, emptyReliefSurface, groundCreaseRule,
 export { checkReliefRing, DEFAULT_RELIEF_RADIUS_CELLS, RELIEF_BUDGET_SHARE, RELIEF_DRAW_PART, RELIEF_FADE_CELLS, RELIEF_HYSTERESIS_CELLS, RELIEF_FOCUS_STEP_CELLS, RELIEF_PART, RELIEF_RING_SCALES, RELIEF_STEPS, RELIEF_STEPS_BY_TIER, reliefFade, ReliefRing, sectionHalfDiagonal, type ReliefRingSettings, type SectionCoord } from './relief-ring';
 export { StreamRelief, type ReliefDerives, type ReliefEvent } from './stream-relief';
 export { appendSurface, roofSurface } from './roof-mesher';
-export { classifyRoofs, isRoofCellValue, isRoofGapCell, isRoofPlaneCell, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofReading, roofTopAt, type RoofEdge, type RoofEdgeCase, type RoofProbe } from './roof-words';
+export { classifyRoofs, isRoofCellValue, isRoofGapCell, isRoofPlaneCell, isRoofRole, ROOF_DIR, ROOF_EDGE_CASE_IDS, ROOF_MESHER_REACH, ROOF_PLANE_REACH, ROOF_WORD, roofEdgesOf, roofReading, roofTopAt, type RoofEdge, type RoofEdgeCase, type RoofProbe } from './roof-words';
 export {
   cellBit,
   collisionPartBytes,
@@ -399,7 +400,7 @@ export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismat
 export { cellOutputs, resolvedClassAt, type CellOutputs, type CellPieceOutput } from './derived-cell';
 export { collisionBodyParts, collisionGeometry, heightfieldPart, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';
 export { groundHeightfield, groundHeightfieldPatches, GROUND_HEIGHTFIELD_TOLERANCE_M, MIN_HEIGHTFIELD_PATCH_CELLS, type GroundHeightfield, type GroundHeightfieldPatches, type HeightfieldPatchOptions, type HeightfieldRefusal } from './ground-heightfield';
-export { ChunkTreeFlags, downsampleMip, MIP_OPENING_KEEP_CELLS, MIP_ROLE_PRIORITY, MIP_SHEET_CELLS, MIP_SHEET_NEIGHBOURS, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
+export { ChunkTreeFlags, downsampleMip, isRelaidRole, MIP_MEDIUM_ROLES, MIP_OPENING_KEEP_CELLS, MIP_ROLE_PRIORITY, MIP_SHEET_CELLS, MIP_SHEET_NEIGHBOURS, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
 export {
   buildFarNode,
   collapseUniform,

@@ -63,7 +63,8 @@
  * cell rising toward +x or +z) or along a cell's middle, a hip where two
  * planes meet convex, a valley where they meet concave.
  */
-import { OPEN_ROLE, type Neighbourhood } from './assembly';
+import type { Neighbourhood } from './assembly';
+import { OPEN_ROLE, isAirRole, isFillRole, isMediumRole } from './role-traits';
 import { SURFACE_ISO } from './derived-mesh';
 import { DAMAGE_STAGE } from './damage-stages';
 import { cellWallTopFill, damageStageOf, type PieceTable } from './piece-table';
@@ -487,9 +488,14 @@ function drawnWhole(v: number): boolean {
   return valueShape(v) !== 0 && (!damageDrawn || damageStageOf(damageTable, v) < DAMAGE_STAGE.many);
 }
 
+/** Whether a role is the roof's: the one whose stepped cells are read as roof words and drawn as planes. */
+export function isRoofRole(role: number): boolean {
+  return role === VOXEL_ROLE.roof;
+}
+
 /** Cell predicates over a neighbourhood. */
 function roofValue(v: number): boolean {
-  return ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.roof && drawnWhole(v);
+  return isRoofRole((v >>> ROLE_SHIFT) & ROLE_MASK) && drawnWhole(v);
 }
 
 function solid(n: Neighbourhood, i: number): boolean {
@@ -499,7 +505,7 @@ function solid(n: Neighbourhood, i: number): boolean {
 /** A body a roof can rest on: a solid construction cell drawn whole (terrain is drawn by its own mesher, a hole is not drawn). */
 function body(v: number): boolean {
   const role = (v >>> ROLE_SHIFT) & ROLE_MASK;
-  return valueMaterial(v) !== MATERIAL_AIR && OPEN_ROLE[role] !== 1 && role !== VOXEL_ROLE.terrain && drawnWhole(v);
+  return valueMaterial(v) !== MATERIAL_AIR && OPEN_ROLE[role] !== 1 && !isFillRole(role) && drawnWhole(v);
 }
 
 /**
@@ -508,7 +514,7 @@ function body(v: number): boolean {
  */
 function air(v: number): boolean {
   const role = (v >>> ROLE_SHIFT) & ROLE_MASK;
-  return role === VOXEL_ROLE.air || role === VOXEL_ROLE.liquid || valueMaterial(v) === MATERIAL_AIR;
+  return isAirRole(role) || isMediumRole(role) || valueMaterial(v) === MATERIAL_AIR;
 }
 
 /** The neighbourhood the probe reads (one job at a time a thread). */
@@ -598,7 +604,7 @@ export function classifyRoofs(n: Neighbourhood, out: Uint32Array, table: PieceTa
     const row = (x * s + z) * s;
     for (let y = lo; y < hi; y++) {
       const i = row + y;
-      if (((vals[i]! >>> ROLE_SHIFT) & ROLE_MASK) !== VOXEL_ROLE.roof) {
+      if (!isRoofRole((vals[i]! >>> ROLE_SHIFT) & ROLE_MASK)) {
         out[i] = 0;
         continue;
       }

@@ -33,7 +33,8 @@ import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import type { ChunkBox, GridFrame } from './grid-place';
 import { LIGHT_STOP_COVERAGE } from './occupancy-walk';
 import { PROP_SAMPLES_PER_AXIS, type PropLocalCoverage } from './prop-coverage';
-import { damagedIntegrity, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, recordValue, valueDensity, valueMaterial, valueRole, VOXEL_ROLE } from './record';
+import { damagedIntegrity, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, recordValue, valueDensity, valueMaterial, valueRole } from './record';
+import { isPortalRole, roleStopsLight } from './role-traits';
 import { integrityCoverage } from './damage-stages';
 
 /** A grid cell's or a stamped world cell's class: open, stopping light (a body for the regions), or an opening (a portal). */
@@ -69,14 +70,14 @@ export const GRID_STAMP_URL_PARAM = 'gridStamp';
 /** The class of a grid cell from its record value ({@link STAMP_CLASS}). */
 export function stampClassOfValue(v: number): number {
   const role = valueRole(v);
-  if (role === VOXEL_ROLE.opening) return STAMP_CLASS.opening;
-  if (valueMaterial(v) === MATERIAL_AIR) return STAMP_CLASS.open;
+  if (isPortalRole(role)) return STAMP_CLASS.opening;
+  if (valueMaterial(v) === MATERIAL_AIR || !roleStopsLight(role)) return STAMP_CLASS.open;
+  // A block stops by its integrity's coverage, a surface where it is filled by half.
   if (isConstructionRole(role)) {
     const integrity = damagedIntegrity(v);
     return integrity === 0 || integrityCoverage(integrity) >= LIGHT_STOP_COVERAGE ? STAMP_CLASS.stop : STAMP_CLASS.open;
   }
-  if (role === VOXEL_ROLE.terrain) return valueDensity(v) * 2 >= DENSITY_FULL ? STAMP_CLASS.stop : STAMP_CLASS.open;
-  return STAMP_CLASS.open;
+  return valueDensity(v) * 2 >= DENSITY_FULL ? STAMP_CLASS.stop : STAMP_CLASS.open;
 }
 
 /** A grid's cells as a stamp reads them: a box of its cells (its frame) and one class a cell, index `(x · size[2] + z) · size[1] + y`. */
@@ -113,7 +114,7 @@ export function gridStampCellsOfChunks(grid: ChunkGrid, extent: ChunkBox, chunk:
     const oz = cz * E - lo0[2]!;
     for (let x = 0; x < E; x++) for (let z = 0; z < E; z++) for (let y = 0; y < E; y++) {
       const i = localIndex(grid, x, y, z);
-      if (dense.material[i] === MATERIAL_AIR && dense.role[i] !== VOXEL_ROLE.opening) continue;
+      if (dense.material[i] === MATERIAL_AIR && !isPortalRole(dense.role[i]!)) continue;
       const k = stampClassOfValue(recordValue(dense.material[i]!, dense.role[i]!, dense.shape[i]!, dense.wetness[i]!));
       if (k === STAMP_CLASS.open) continue;
       const p = [ox + x, oy + y, oz + z];

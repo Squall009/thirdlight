@@ -13,8 +13,9 @@
  * is skipped there and no cell gets a case.
  */
 import { CONSUMER_REACH, type AssemblyRuleSet, type Neighbourhood } from './assembly';
-import { ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
-import { isRoofGapCell, isRoofPlaneCell, ROOF_PLANE_REACH } from './roof-words';
+import { ROLE_MASK, ROLE_SHIFT } from './record';
+import { isAirRole } from './role-traits';
+import { isRoofGapCell, isRoofPlaneCell, isRoofRole, ROOF_PLANE_REACH } from './roof-words';
 import { caseFormTable, isHoleCell } from './case-forms';
 import type { PieceTable } from './piece-table';
 import { levelDrawsPieces } from './derived-mesh';
@@ -132,7 +133,7 @@ function edgeExclusions(n: Neighbourhood, lo: number, hi: number, table: PieceTa
       const i = row + y;
       // Most cells are air or plain bodies: only a roof cell can be a plane cell, only an air cell a roof's gap.
       const role = (v[i]! >>> ROLE_SHIFT) & ROLE_MASK;
-      out[i] = role === VOXEL_ROLE.air ? (isRoofGapCell(n, i, table) ? 1 : 0) : isHoleCell(n, i, table) || (role === VOXEL_ROLE.roof && isRoofPlaneCell(n, i, table)) ? 1 : 0;
+      out[i] = isAirRole(role) ? (isRoofGapCell(n, i, table) ? 1 : 0) : isHoleCell(n, i, table) || (isRoofRole(role) && isRoofPlaneCell(n, i, table)) ? 1 : 0;
     }
   }
   return out;

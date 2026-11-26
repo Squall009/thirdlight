@@ -36,6 +36,7 @@ import {
   SHAPE_FULL,
   valueRole,
   VOXEL_ROLE,
+  isLiquidRole,
   withinReach,
   chunksPerRegionSide,
   chunkKeyOrNone,
@@ -268,7 +269,7 @@ export function bodyFillWorld(fw: FillWorld, w: WaterWorld, spec: LevelFillSpec 
   if (rivers === undefined || rivers.size === 0) return fw;
   const value = (x: number, y: number, z: number): number => {
     const v = fw.value(x, y, z);
-    if (v <= 0 || valueRole(v) !== VOXEL_ROLE.liquid || !rivers.has(x, y, z)) return v;
+    if (v <= 0 || !isLiquidRole(valueRole(v)) || !rivers.has(x, y, z)) return v;
     return spec !== null && withinReach(spec, x, z) && fillShapeAt(spec.level, y) > 0 ? v : RIVER_TO_A_BODY;
   };
   return fw.stops === undefined ? { value } : { value, stops: fw.stops };

@@ -5,7 +5,7 @@
  * whether its rebuilt sections swapped in one frame, the files read again
  * for what local edits changed, and the spot finders a measuring run uses.
  */
-import { canonicalEditCommand, voxel, VOXEL_ROLE, VOXEL_SIZE_M, type ChunkDrawBatch, type ChunkGrid, type VoxelStreamer } from '@thirdlight/voxel';
+import { canonicalEditCommand, isFillRole, voxel, VOXEL_SIZE_M, type ChunkDrawBatch, type ChunkGrid, type VoxelStreamer } from '@thirdlight/voxel';
 import type { PendingEdits, SwapSeen } from './pending-edits';
 import type { EditTiming } from './page';
 
@@ -229,7 +229,7 @@ export function localEditHooks(ctx: LocalEditContext): Record<string, (...args: 
       const out: Record<string, number> = { air: 0, terrain: 0, built: 0 };
       for (let x = min[0]; x <= max[0]; x++) for (let y = min[1]; y <= max[1]; y++) for (let z = min[2]; z <= max[2]; z++) {
         streamer.voxelAt(x, y, z, v);
-        const k = v.material === 0 ? 'air' : v.role === VOXEL_ROLE.terrain ? 'terrain' : 'built';
+        const k = v.material === 0 ? 'air' : isFillRole(v.role) ? 'terrain' : 'built';
         out[k]! += 1;
       }
       return out;

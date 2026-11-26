@@ -42,7 +42,7 @@ import type { SetEdit, VoxelEditCommand, FillEdit } from './edit-command';
 import { CASE_REACH, CASE_SYMBOL, CASE_WINDOW, CASE_WINDOW_CELLS, CaseCatalogue, caseIndexOf, NO_CASE, type CaseCatalogueDef, type CaseRule } from './kit-cases';
 import { evaluateCases } from './kit-rules';
 import { WORLD_GRID_ID } from './region-file';
-import { MATERIAL_ID_MAX, SHAPE_FULL, shapeDensity, valueDensity, valueMaterial, valueOf, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
+import { CONSTRUCTION_ROLES, MATERIAL_ID_MAX, SHAPE_FULL, shapeDensity, valueDensity, valueMaterial, valueOf, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
 import { isHoleCell } from './case-forms';
 import { DAMAGE_PIECE_SLOTS, DAMAGE_STAGE, DAMAGE_STAGES_DEFAULT } from './damage-stages';
 import { damageStageOf } from './piece-table';
@@ -193,7 +193,7 @@ function samplerCases(rules: AssemblyRuleSet, cells: SamplerCells): Map<string, 
 
 const BUILT_FIRST = CASE_SYMBOL.built;
 /** The built roles in symbol order (kit-cases.ts: role b is symbol 3 + 2b, + 1 in the centre's material). */
-const BUILT_ROLES: readonly number[] = [VOXEL_ROLE.wall, VOXEL_ROLE.floor, VOXEL_ROLE.roof, VOXEL_ROLE.foundation, VOXEL_ROLE.stair, VOXEL_ROLE.pillar];
+const BUILT_ROLES: readonly number[] = CONSTRUCTION_ROLES;
 const SYMBOLS = BUILT_FIRST + 2 * BUILT_ROLES.length;
 
 /** A role's symbol in the centre's material (openings: the opening symbol). */

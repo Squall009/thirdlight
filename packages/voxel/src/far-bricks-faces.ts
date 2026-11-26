@@ -31,10 +31,10 @@ import { farBrickOcclusion } from './far-bricks-shade';
 import { withFarNeighbourhood, type FarMeshInput } from './far-mesh';
 import type { PaletteStore } from './palette-store';
 import { SHADER_CONSTRUCTION_BIT } from './derived-shader';
-import { fillLevel, isConstructionRole, MATERIAL_AIR, MATERIAL_BITS, recordValue, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE } from './record';
-import { OPEN_ROLE } from './assembly';
+import { fillLevel, isConstructionRole, MATERIAL_AIR, MATERIAL_BITS, recordValue, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness } from './record';
+import { OPEN_ROLE, isMediumRole } from './role-traits';
 import { FAR_ROOF_COLUMN, FAR_ROOF_READ_PAD, farRoofColumns, farRoofDistance, type FarRoofColumns } from './far-bricks-roofs';
-import { isRoofCellValue } from './roof-words';
+import { isRoofCellValue, isRoofRole } from './roof-words';
 import { regionChunkCodecBytes } from './region-file';
 
 /**
@@ -201,12 +201,12 @@ export function gatherFarCells(g: ChunkGrid, chunkCells: ChunkCells, node: reado
         const li = column | (y & mask);
         const m = material[li]!;
         const r = role[li]!;
-        if (m === MATERIAL_AIR || r === VOXEL_ROLE.liquid) continue;
+        if (m === MATERIAL_AIR || isMediumRole(r)) continue;
         const fill = fillLevel(r, shape[li]!);
         if (fine) {
           const f = ((z - pz0) * np + (y - py0)) * np + (x - px0);
           // Only a roof cell's value is read (its damage stage): the rest of the block pays a flag.
-          const roof = r === VOXEL_ROLE.roof && isRoofCellValue(recordValue(m, r, shape[li]!, wetness[li]!));
+          const roof = isRoofRole(r) && isRoofCellValue(recordValue(m, r, shape[li]!, wetness[li]!));
           flags[f] = (OPEN_ROLE[r] !== 1 && fill * 2 >= SHAPE_FULL ? 1 : 0) | (roof ? 2 : 0);
           if (roof) anyRoof = true;
         }

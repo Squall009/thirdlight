@@ -32,8 +32,8 @@
  */
 import type { ChunkGrid } from './coords';
 import { copyDenseChunk, createDenseChunk, type DenseChunk } from './dense-chunk';
-import { fillLevel, readValue, recordValue, SHAPE_FULL, VOXEL_ROLE, type VoxelRecord } from './record';
-import { downsampleMip, MIP_ROLE_PRIORITY, mipChildren, mipNodeKey, MipStaleSet, type MipNode } from './voxel-mips';
+import { fillLevel, readValue, recordValue, SHAPE_FULL, type VoxelRecord } from './record';
+import { downsampleMip, isRelaidRole, MIP_ROLE_PRIORITY, mipChildren, mipNodeKey, MipStaleSet, type MipNode } from './voxel-mips';
 
 /**
  * The far cache's format; a cache of another format is built again (it is derived data). Format 2 adds the kept
@@ -79,7 +79,7 @@ export type FarCells = null | number | DenseChunk;
  */
 export function isUniformKeepable(v: number): boolean {
   const cell = readValue(v, scratchRecord);
-  if (cell.material === 0 || cell.role === VOXEL_ROLE.roof) return false;
+  if (cell.material === 0 || isRelaidRole(cell.role)) return false;
   return MIP_ROLE_PRIORITY.includes(cell.role) && cell.shape === SHAPE_FULL && fillLevel(cell.role, cell.shape) === SHAPE_FULL;
 }
 

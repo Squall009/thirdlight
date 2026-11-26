@@ -40,7 +40,8 @@
  */
 import type { Neighbourhood } from './assembly';
 import { SURFACE_ISO } from './derived-mesh';
-import { MATERIAL_ID_MAX, ROLE_MASK, ROLE_SHIFT, SHAPE_FULL, SHAPE_SHIFT, VOXEL_ROLE } from './record';
+import { MATERIAL_ID_MAX, ROLE_MASK, ROLE_SHIFT, SHAPE_FULL, SHAPE_SHIFT } from './record';
+import { isBodyRole, isFillRole, isLiquidRole } from './role-traits';
 
 /** Steps a cell along each axis in the liquid part's positions: a fill level is a whole step. */
 export const LIQUID_STEPS_PER_CELL = SHAPE_FULL;
@@ -80,12 +81,12 @@ function kindOf(v: number, density: number): number {
   const material = v & MATERIAL_ID_MAX;
   if (material === 0) return OPEN;
   const role = (v >>> ROLE_SHIFT) & ROLE_MASK;
-  if (role === VOXEL_ROLE.liquid) {
+  if (isLiquidRole(role)) {
     const h = (v >>> SHAPE_SHIFT) & SHAPE_FULL;
     return h === 0 ? OPEN : h;
   }
-  if (role === VOXEL_ROLE.air || role === VOXEL_ROLE.opening) return OPEN;
-  if (role === VOXEL_ROLE.terrain) return density >= SURFACE_ISO ? SOLID : OPEN;
+  if (!isBodyRole(role)) return OPEN;
+  if (isFillRole(role)) return density >= SURFACE_ISO ? SOLID : OPEN;
   // Every built role, of any form or integrity: the liquid part reads the value alone (no rule evaluation), so a
   // rail or a post stands as a wall would.
   return SOLID;
@@ -98,7 +99,7 @@ function holdsLiquid(n: Neighbourhood): boolean {
     const row = ((x + p) * s + (z + p)) * s + p;
     for (let y = 0; y < e; y++) {
       const v = values[row + y]!;
-      if (((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.liquid && (v & MATERIAL_ID_MAX) !== 0) return true;
+      if (isLiquidRole((v >>> ROLE_SHIFT) & ROLE_MASK) && (v & MATERIAL_ID_MAX) !== 0) return true;
     }
   }
   return false;

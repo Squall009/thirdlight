@@ -61,7 +61,11 @@
  */
 import type { Neighbourhood } from './assembly';
 import { POSITION_STEPS_PER_CELL, snorm8, SURFACE_ISO, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
-import { DENSITY_FULL, ROLE_MASK, ROLE_SHIFT, VOXEL_ROLE } from './record';
+import { DENSITY_FULL, ROLE_MASK, ROLE_SHIFT } from './record';
+import { roleLookup } from './role-traits';
+
+/** Per role: 1 where the shape is the fill of a smooth surface, the one kind this mesher draws. */
+const FILL_ROLE = roleLookup((t) => t.shape === 'fill');
 import { TERRAIN_FEATURE, terrainFeatureOf } from './terrain-rules';
 
 /** Cells above and below a dual cube's two sample layers that its column-lattice height reads. */
@@ -402,7 +406,7 @@ export function terrainSurface(n: Neighbourhood, classes: Uint8Array, creases?: 
     const dst = (cx * m + cz) * ny;
     const sample = cx >= 1 && cx <= e + 2 && cz >= 1 && cz <= e + 2;
     for (let k = 0; k < ny; k++) {
-      const d = ((vals[src + k]! >> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.terrain ? shapes[src + k]! : 0;
+      const d = FILL_ROLE[(vals[src + k]! >> ROLE_SHIFT) & ROLE_MASK] === 1 ? shapes[src + k]! : 0;
       F[dst + k] = d;
       if (sample && d >= SURFACE_ISO && k >= R - 1 && k <= R + e) inside0++;
     }

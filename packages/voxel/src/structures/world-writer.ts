@@ -31,7 +31,8 @@ import { CellDelta, denseValue, exportOrAir } from '../cell-delta';
 import { chunkKeyOrNone, chunkOfKey, localIndex, type ChunkCoord, type ChunkGrid } from '../coords';
 import { createDenseChunk } from '../dense-chunk';
 import type { ChunkUndo } from '../edit-apply';
-import { changedFields, changeFeeds, materialSwap, readValue, ROLE_MASK, ROLE_SHIFT, valueMaterial, valueOf, VOXEL_ROLE, type VoxelRecord } from '../record';
+import { changedFields, changeFeeds, materialSwap, readValue, ROLE_MASK, ROLE_SHIFT, valueMaterial, valueOf, type VoxelRecord } from '../record';
+import { isMediumRole } from '../role-traits';
 import type { VoxelStoreCandidate } from '../store';
 import type { CellBox } from '../stroke';
 import { reapplyOverrides, type ChunkOverrides, type StructureOverrides } from '../structure-overrides';
@@ -119,7 +120,7 @@ export function stillWritten(now: number, written: number): boolean {
   return now === written || (airOrLiquid(now) && airOrLiquid(written));
 }
 
-const airOrLiquid = (v: number): boolean => v === 0 || ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.liquid;
+const airOrLiquid = (v: number): boolean => v === 0 || isMediumRole((v >>> ROLE_SHIFT) & ROLE_MASK);
 
 /** The index of `cell` among a delta's ascending cells, or −1. */
 function find(d: CellDelta, cell: number): number {

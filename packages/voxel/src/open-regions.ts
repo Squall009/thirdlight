@@ -24,7 +24,8 @@
  */
 import type { Neighbourhood } from './assembly';
 import { OCCUPANCY, type OccupancyOut } from './derived-data';
-import { valueRole, VOXEL_ROLE } from './record';
+import { valueRole } from './record';
+import { isPortalRole } from './role-traits';
 import { STAMP_CLASS } from './structure-stamp';
 
 /** Face bits of a unit: −x, +x, −y, +y, −z, +z. */
@@ -137,7 +138,7 @@ export function openRegionsOf(n: Neighbourhood, occ: OccupancyOut): OpenRegionsO
     for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
       const row = ((x + p) * s + (z + p)) * s + p;
       for (let y = 0; y < e; y++) {
-        if (valueRole(n.values[row + y]!) !== VOXEL_ROLE.opening) continue;
+        if (!isPortalRole(valueRole(n.values[row + y]!))) continue;
         openings ??= new Uint8Array(cells);
         openings[(x * e + z) * e + y] = 1;
       }
