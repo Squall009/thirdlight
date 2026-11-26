@@ -9,9 +9,9 @@ branch code. Nothing is merged or deployed in phase 46 (the merge is 48c). tools
 folder with main, so one gate at a time still holds.
 Main at the freeze: d4053cab. Phase 46 base on the branch: aeb8114a (phase 45 done, format spec v1 APPROVED by the owner 2026-11-02).
 46a DONE at ac283f22 (2026-11-03); 46b DONE at 6ffc2031 (2026-11-04). Last D-row used: D499; NEW BLOCK D500–D599 (continue at D500).
-CURRENT PHASE: 47T, the test suite reset (docs/plan-phase-47t.md; the lead's prompt names your item). Before it: 47L, the
-lighting pass (see the "47L" section at the very end), and 47a, structures and water bodies (the "47a" section: its HOW
-YOU WORK still holds where the TESTS AND GATES section below does not replace it). NEVER start 47b.
+CURRENT PHASE: 47b, the world edit mode (docs/plan-phase-47b.md; the lead's prompt names your item; the "47b" section
+at the very end is your rules). The sections between are history: read only the ones the 47b section names. NEVER
+start 47p or any later phase.
 TESTS AND GATES (from 47T on; AGENTS.md "Tests and the gate" is the rule, and it replaces every older gate, e2e and rerun
 line of this brief): unit tests prove behaviour (commands over HTTP in Node count); the boot check
 (tests/e2e/boot.e2e.ts, five tests) is the only browser test, and no other is written; looks are judged from pictures
@@ -397,3 +397,48 @@ WHAT IS DIFFERENT IN 47L:
 - Reference cameras live in tools/voxel-bench/lighting-cameras.ts (one list); bench worlds are changed only through
   the commands and restored after; staging on 127.0.0.1 only while you test; leave nothing running.
 - Gates: as the TESTS AND GATES section at the top; the lead runs the close's phase run.
+
+47b (owner 2026-11-26). CURRENT PHASE = 47b: docs/plan-phase-47b.md §5 is the item table (the CONTRACT: never edit it;
+status in §6's row, at most 400 characters; results in §9 under a heading for your item; decisions in §8 as "default
+chosen, owner to confirm"). Start commit a22b8a99. D-rows continue at D835 (block to D899; grep both audit files first).
+READ: AGENTS.md in full (the rule for tests, gates and sub-agents); docs/plan-phase-47b.md in full;
+docs/architecture/voxel-engine.md; docs/decisions/owner-decisions.md; in this brief the "Host rules" list, the "47a"
+section (its OWNER DECISIONS, SCOPE FENCE and HOW YOU WORK hold where this section does not replace them) and the
+"47L" section's WHAT IS DIFFERENT; then only what the lead's prompt points at (a research note is an input: where it
+differs from the plan, the plan stands).
+OWNER'S RULES FOR 47b (do not cross, do not re-litigate):
+- SCOPE IS FIXED: your item's row and nothing more. Trees, rocks, large props, the `prop` role, stamps from models and
+  overlays are 47p: never built here. Anything that comes up is reported to the lead as one line for the roadmap's
+  "noted for after the merge" list; do not build it. Nothing inside block layers, heightfield terrain, generated
+  architecture or their scatter sources (48 removes them).
+- FORMATS: only the plan's G1–G6, exactly as §4 says. Anything stored beyond them (a field, a file, a manifest key, a
+  record bit, a command field G4 does not name) is an OWNER STOP: do not build it, report to the lead what you need and
+  why, and finish the rest of the item. The two reserved vegetation bits stay unspent.
+- TESTS: unit tests prove behaviour (real files, real workers, commands over HTTP in Node). No new browser test, no
+  pixel bound, no wall-clock bound. Inside the item a commit is green on `npm run build` and the unit files you touched
+  (`npx vitest run <files>`); `tools/gate.sh check` runs ONCE, at the item's end (`timeout 560 tools/gate.sh check`, one
+  blocking call). If it is red: fix the cause or archive the test with the reason, then `tools/gate.sh check --failed`
+  once. Never rerun to see whether it passes. Never run `tools/gate.sh phase` or `pictures` unless the lead's prompt
+  says so. Report every gate call you made and its seconds: the phase has about 75 minutes of test time in all.
+- PICTURES: a picture your item names is added to tools/voxel-bench/picture-list.ts (a new id) with what makes it
+  (docs/pictures.md), taken once with `node tools/voxel-bench/run.mjs pictures --only <ids> --out <work folder>` in a
+  capped scope, OPENED by you with the Read tool and described honestly in the results: what it shows, what is wrong,
+  how sure. "Unverified" for anything you did not open. Give the lead the paths.
+- PERFORMANCE is recorded, never a gate. This is a shared dev box: keep its load low (one heavy run at a time, in a
+  capped scope, at most 3 rounds, no uncapped runs), and delete exports and traces you made.
+- You run in the FOREGROUND of the lead's turn: never `run_in_background`, no detached helper, no timer, no sub-agent
+  of your own. Every command is one blocking call under 10 minutes.
+- Work folder ~/.cache/thirdlight-phase47b/work/<item>/ with `progress.txt` (a dated line a step: done, next, commit).
+  `export TMPDIR=~/.cache/tmp`. Commit and push each green slice at once (only your own files, by path).
+  Commit trailer: Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>.
+- Docs with the code: the spec text an entry needs, voxel-engine.md where your item changes what it says, the manual
+  page and reference entries your row names, §6's row and §9's results, STATUS's 47b row (at most 400 characters).
+  `node tools/check-docs.mjs` alone, never piped or chained.
+- Art (47b.10 only): game-ready assets by the art pipeline's rules, reported with triangle counts per LOD, texture
+  sizes and file sizes.
+REPORT to the lead at the end (at most 25 lines): commits; each gate call with its seconds and result; what each new
+test would do with the feature broken; pictures by path with your read; D-rows opened or closed; anything stored that
+you added (should be none beyond G1–G6); "default chosen" decisions you logged; what is unverified; what you left out
+and why; lines for "noted for after the merge".
+DONE = unit tests at the boundary changed, `tools/gate.sh check` green, §6's row and §9's results written (§5
+untouched), pushed, nothing left running.
