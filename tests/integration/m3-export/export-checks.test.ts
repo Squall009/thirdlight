@@ -10,17 +10,22 @@
  *   the exported manifest carries it when it is on and not otherwise (the
  *   export page starts the console from that setting alone);
  * - a model file changed on disk is imported again before the build, so the
- *   export ships the new bytes and not the old.
+ *   export ships the new bytes and not the old;
+ * - a streamed texture ships as its parts (the head with the mip tail, then
+ *   the larger levels), never the whole KTX2 as well: the manifest lists the
+ *   parts and together they are the whole file.
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { testTempBase } from '@thirdlight/backend/testing';
-import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model';
+import { COLLIDER_3D_LIMITS, readRuntimeContentSync } from '@thirdlight/project-model';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { encodeRgbaPng } from '../../../packages/backend/src/image-thumbnail';
 import { api, startBackend, type TestBackend } from '../../../packages/backend/src/test-helpers';
+import { encodeKtx2 } from '../../../packages/backend/src/texture-encode';
 import { mustCommand, type CommandRoute } from '../../support/commands';
 import { multiPieceGlb } from '../../e2e/multi-piece-glb';
 
@@ -114,5 +119,40 @@ describe('the export route', () => {
     const second = await shipped();
     expect(second).toContain(sha(GLB_V2));
     expect(second).not.toContain(sha(GLB_V1));
+  }, 120_000);
+
+  it('a streamed texture ships as its parts, never the whole KTX2 as well; the parts together are the whole', async () => {
+    const dir = join(tb.root, 'data', 'projects', PID, 'assets', 'streamed');
+    mkdirSync(dir, { recursive: true });
+    // 512² (levels above the 128 px tail): streaming is possible, and turned on (the default is on only over 1024 px).
+    const rgba = new Uint8Array(512 * 512 * 4).map((_, i) => (i % 4 === 3 ? 255 : ((i >> 2) % 512) >> 1));
+    const encoded = await encodeKtx2(encodeRgbaPng(rgba, 512, 512), 'color');
+    if (!encoded.ok) throw new Error(encoded.message);
+    writeFileSync(join(dir, 'ramp.ktx2'), encoded.ktx2);
+    await run('importAssets', { folder: 'assets/streamed' });
+    const tex = ((await query('queryAssets', { limit: 50, offset: 0 }))['assets'] as { assetId: string; displayName?: string; kind?: string }[]).find((a) => a.kind === 'texture' && a.displayName === 'ramp')!;
+    await run('setAssetOptions', { assetId: tex.assetId, streaming: true });
+    await run('setMaterial', { material: { materialId: 'mat-ramp', name: 'Ramp', shader: 'standard', params: {}, textures: { map: tex.assetId } } });
+    const box = await run('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Ramp box' });
+    await run('setComponent', { entityId: box['createdId'], component: 'materials', value: { '*': 'mat-ramp' } });
+    const r = await exportNow();
+    expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
+    const out = join(exportRoot, String((r.json as { outputDir: string }).outputDir));
+    const shipped = readdirSync(join(out, 'content', 'sha256'));
+    const whole = createHash('sha256').update(encoded.ktx2).digest('hex');
+    expect(shipped).not.toContain(whole);
+    const content = readRuntimeContentSync(JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')), (p) => {
+      try {
+        return new Uint8Array(readFileSync(join(out, p)));
+      } catch {
+        return null;
+      }
+    }) as unknown as { assets: { assetId: string; mipParts?: { digest: string; byteLength: number; offset: number }[] }[] };
+    const row = content.assets.find((a) => a.assetId === tex.assetId);
+    const parts = row!.mipParts!;
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    for (const p of parts) expect(shipped).toContain(p.digest);
+    const joined = Buffer.concat([...parts].sort((a, b) => a.offset - b.offset).map((p) => readFileSync(join(out, 'content', 'sha256', p.digest))));
+    expect(createHash('sha256').update(joined).digest('hex')).toBe(whole);
   }, 120_000);
 });

@@ -164,6 +164,22 @@ describe('staged library edits', () => {
     expect(command(env, 'commitScriptLibraryStage', { stageId: 'nope' }).error.code).toBe('field_type');
     env.svc.dispose();
   }, 120_000);
+
+  it('a library change a dependent script no longer compiles against fails its preparation naming that script; nothing changes', async () => {
+    const env = await setup('m25-library-breaks-dependent');
+    const before = record(env, 'user-a').outputDigest;
+    const broken = { libraryId: 'mid', files: [{ path: 'src/index.ts', text: 'export const other = 1;\n' }] };
+    trust(env, scriptLibraryDigest({ files: broken.files }));
+    const prep: Any = await env.svc.prepareScriptLibraryDependents(env.project, broken);
+    expect(prep.ok).toBe(false);
+    expect(prep.kind).toBe('compile');
+    expect(['user-a', 'user-b']).toContain(prep.behaviorId);
+    expect(prep.failure.diagnostics.length).toBeGreaterThan(0);
+    // The route refuses the command on that answer: the library and the scripts are as they were.
+    expect(libraries(env).find((l) => l.libraryId === 'mid').files[0].text).toBe(MID.files[0]!.text);
+    expect(record(env, 'user-a').outputDigest).toBe(before);
+    env.svc.dispose();
+  }, 120_000);
 });
 
 describe('records published before shared libraries', () => {

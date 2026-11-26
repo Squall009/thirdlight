@@ -43,7 +43,7 @@ import type { SceneAdapter } from '@thirdlight/three-adapter';
 import type { InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { playVoxelPorts } from './voxel-ports';
-import { answerScreenshotWhenDrawn, answerScreenshotWithOverlay } from './screenshot-answer';
+import { answerScreenshotRequest } from './screenshot-answer';
 import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
 import { fitGameObservation, fitPlayDiagnostics, GAME_OBSERVATION_HEADER, pickPlaySections, type GameControlCommand } from '@thirdlight/protocol';
@@ -465,10 +465,7 @@ export function bootstrapPreviewM3(): void {
     const adapter = current.adapter;
     const capture = adapter === null ? null : (w: number) => adapter.captureScreenshot(w);
     // The game's UI and overlays over the frame, as the player sees it (unless asked for the frame alone).
-    const answered =
-      body.ui === false
-        ? answerScreenshotWhenDrawn(capture, body.maxWidth ?? 1024, body.answerWithinMs ?? 0, () => handle === current)
-        : answerScreenshotWithOverlay(capture, (frame) => current.withOverlay(frame), body.maxWidth ?? 1024, body.answerWithinMs ?? 0, () => handle === current);
+    const answered = answerScreenshotRequest(body, capture, (frame) => current.withOverlay(frame), () => handle === current);
     void answered.then((answer) => bridge.sendScreenshotResult(playId, body.relayId, answer));
   });
 

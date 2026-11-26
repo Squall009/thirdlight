@@ -7,7 +7,7 @@
 import { validateBridgePreviewToEditor } from '@thirdlight/protocol';
 import { describe, expect, it } from 'vitest';
 
-import { answerScreenshot, answerScreenshotWhenDrawn, answerScreenshotWithOverlay, type CaptureOutcome } from './screenshot-answer';
+import { answerScreenshot, answerScreenshotRequest, answerScreenshotWhenDrawn, answerScreenshotWithOverlay, type CaptureOutcome } from './screenshot-answer';
 
 const PLAY = `play-${'a'.repeat(32)}`;
 const RELAY = `relay-${'b'.repeat(32)}`;
@@ -129,5 +129,20 @@ describe('answerScreenshotWithOverlay', () => {
     }, 512, 0, () => true);
     expect(bad).toMatchObject({ ok: false, error: { code: 'screenshot_failed' } });
     expect(bridged(bad).ok).toBe(true);
+  });
+});
+
+describe('answerScreenshotRequest', () => {
+  it('draws the UI over the frame unless the request says ui: false; then the frame alone, the overlay never asked', async () => {
+    const capture = (w: number): CaptureOutcome => ({ ok: true, result: { dataUrl: png(w), width: w, height: Math.round(w / 2) } });
+    let overlays = 0;
+    const overlay = async (f: { dataUrl: string }): Promise<string> => {
+      overlays += 1;
+      return `${f.dataUrl}UI`;
+    };
+    expect(await answerScreenshotRequest({ maxWidth: 256 }, capture, overlay, () => true)).toEqual({ ok: true, dataUrl: `${png(256)}UI`, width: 256, height: 128 });
+    expect(overlays).toBe(1);
+    expect(await answerScreenshotRequest({ maxWidth: 256, ui: false }, capture, overlay, () => true)).toEqual({ ok: true, dataUrl: png(256), width: 256, height: 128 });
+    expect(overlays).toBe(1);
   });
 });

@@ -105,3 +105,13 @@ export async function answerScreenshotWithOverlay(capture: ((maxWidth: number) =
     frame = answerScreenshot(capture, Math.min(next, frame.width - 1), dataUrlMax);
   }
 }
+
+/**
+ * A screenshot request's answer: the frame with the page's UI and overlays over it, as the player sees it, unless
+ * the request asks for the frame alone (`ui: false`, then `overlay` is never called).
+ */
+export function answerScreenshotRequest(request: { readonly ui?: boolean; readonly maxWidth?: number; readonly answerWithinMs?: number }, capture: ((maxWidth: number) => CaptureOutcome) | null, overlay: OverlayDrawer, alive: () => boolean): Promise<ScreenshotAnswer> {
+  const maxWidth = request.maxWidth ?? 1024;
+  const within = request.answerWithinMs ?? 0;
+  return request.ui === false ? answerScreenshotWhenDrawn(capture, maxWidth, within, alive) : answerScreenshotWithOverlay(capture, overlay, maxWidth, within, alive);
+}

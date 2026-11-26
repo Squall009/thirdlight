@@ -168,4 +168,71 @@ describe('project save documents (page and worker)', () => {
       await idle.h.dispose();
     }
   }, 180_000);
+
+  it('character_place turns the character; a save keeps the way it faces and the slot\'s meta, a load turns it back', async () => {
+    // Places the character facing 90°, saves slot 1, turns it to −45° elsewhere, loads slot 1; counts what it read.
+    const director = `
+export default {
+  instantiate() { return { phase: 0, at: 0 }; },
+  step(state, ctx) {
+    if (ctx.phase !== 'intent') return;
+    const s = ctx.saves;
+    const st = ctx.physics.characterState();
+    if (st === undefined) return;
+    if (state.phase === 0 && ctx.stepIndex > 20) {
+      ctx.emit({ kind: 'character_place', position: [0, 1.2, 0], facing: 90 });
+      state.phase = 1; state.at = ctx.stepIndex;
+    } else if (state.phase === 1 && ctx.stepIndex > state.at + 20 && s.ready()) {
+      ctx.game.add('facing_placed', Math.round(st.facing));
+      s.save(1, { title: 'Mill', meta: { leader: 'odessa' } });
+      state.phase = 2;
+    } else if (state.phase === 2) {
+      for (const r of s.results()) if (r.op === 'save' && r.ok) { state.phase = 3; state.at = ctx.stepIndex; ctx.game.add('saved', 1); }
+    } else if (state.phase === 3) {
+      ctx.emit({ kind: 'character_place', position: [1, 1.2, 0], facing: -45 });
+      state.phase = 4; state.at = ctx.stepIndex;
+    } else if (state.phase === 4 && ctx.stepIndex > state.at + 20) {
+      ctx.game.add('facing_moved', Math.round(st.facing));
+      s.load(1);
+      state.phase = 5;
+    } else if (state.phase === 5) {
+      for (const r of s.results()) if (r.op === 'load' && r.ok) { state.phase = 6; state.at = ctx.stepIndex; }
+    } else if (state.phase === 6 && ctx.stepIndex > state.at + 20) {
+      ctx.game.add('facing_loaded', Math.round(st.facing));
+      ctx.game.add('x_loaded', 100 + Math.round(st.position.x * 10)); // offset: a counter added 0 is not listed
+      state.phase = 7;
+    }
+  },
+};
+`;
+    const entities: Any[] = [
+      { id: 'cam-main', components: { transform: T([0, 3, 8]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 100 } } },
+      { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), collider: { shape: { type: 'box', hx: 10, hy: 0.5, hz: 10 } } } },
+      { id: 'player-0001', components: { transform: T([0, 1, 0]), controller: {} } },
+      { id: 'director-0001', components: { transform: T([0, -10, 0]), behavior: { behaviorId: 'director', values: {} } } },
+    ];
+    const snap: Any = { snapshotId: 'face@r1', projectId: 'face', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, saveSchema: { version: 1, slots: 3, sections: ['world'] } };
+    const store = new Map<string, string>();
+    const h = await startHarness('single', {
+      snapshot: snap,
+      settings: SETTINGS,
+      physics: physics3DConfigOf(entities, SETTINGS as Any),
+      behaviors: [behaviorModule('director', director)],
+      host: { projectSaveBackend: memoryProjectSaveBackend(store), saveNamespace: 'test' },
+    });
+    try {
+      let now = 10;
+      const counters = (): Record<string, number> => ({ ...((h.rt as Any).gameCounters().counters ?? {}) });
+      for (let i = 0; i < 600 && counters()['facing_loaded'] === undefined; i += 1) {
+        now += DT;
+        await h.tick(now);
+        await h.host.projectSaves?.idle();
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      expect(counters()).toMatchObject({ facing_placed: 90, saved: 1, facing_moved: -45, facing_loaded: 90, x_loaded: 100 });
+      expect(JSON.parse(store.get('test:slot:1:meta')!)).toMatchObject({ slot: 1, title: 'Mill', meta: { leader: 'odessa' } });
+    } finally {
+      await h.dispose();
+    }
+  }, 120_000);
 });
