@@ -71,6 +71,9 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
   `tools/check-redefinitions.mjs` fails on a second definition of an owned name
   (`tools/redefinition-ratchet.json` lists today's copies and only shrinks). If you can't import something,
   change the boundary rule in its own commit; never copy.
+- A voxel role is asked of the role traits table (`@thirdlight/voxel` `role-traits.ts`), never compared by id:
+  `tools/check-role-traits.mjs` (in `npm run build`) refuses a role comparison outside the table and its listed
+  owner files. A new role is a row.
 - Units stay small: no function or closure over 400 lines, no class over 80 members, no file over 2,000 lines
   (`tools/check-size.mjs`, in `npm run build`; `tools/size-ratchet.json` lists today's larger units; an entry
   only shrinks, and goes when the unit fits). Split before growing: a change that adds to a file over 2,000
