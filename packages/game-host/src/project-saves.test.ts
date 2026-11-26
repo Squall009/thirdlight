@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { SaveEvent } from '@thirdlight/runtime';
 
+import { startHostSaves } from './host-saves';
 import { createProjectSaveService, memoryProjectSaveBackend, unavailableProjectSaveBackend, type DeviceStorage, type ProjectSaveBackend } from './project-saves';
 
 describe('project saves: clear', () => {
@@ -195,5 +196,36 @@ describe('project saves: engine-bound settings fields', () => {
     const b = start();
     expect(b.applied).toEqual([['renderScale', 0.75], ['music', 0.8]]);
     expect(b.svc.settings()).toEqual({ quality: 'high', scale: 0.75, music: 0.8 });
+  });
+});
+
+describe('project saves: the frame-rate cap a player picks', () => {
+  it("a field bound to the cap applies its default at start, a write live, and the player's choice on the next run", () => {
+    const kv = new Map<string, string>();
+    const storage = { get: (k: string) => kv.get(k) ?? null, set: (k: string, v: string) => void kv.set(k, v), remove: (k: string) => void kv.delete(k) };
+    const schema = { version: 1, slots: 1, settings: [{ key: 'fps', type: 'enum' as const, values: ['30', '60', '120', 'none'], default: '120', engine: 'frameRateCap' as const }] };
+    const start = () => {
+      const caps: string[] = [];
+      const svc = startHostSaves({
+        schema,
+        runtime: { queueSaveEvent: () => ({ ok: true }) } as never,
+        namespace: 'cap',
+        settingsStorage: storage,
+        captureThumbnail: () => null,
+        pictureWaits: () => false,
+        setFrameRateCap: (fps) => void caps.push(fps),
+        disposed: () => false,
+      });
+      return { svc, caps };
+    };
+    const first = start();
+    expect(first.caps).toEqual(['120']);
+    first.svc.handle([{ op: 'settings', values: { fps: '30' } }]);
+    first.svc.handle([{ op: 'settings', values: { fps: '60' } }]);
+    expect(first.caps).toEqual(['120', '30', '60']);
+    // The next run starts at the player's 60, not the field's default.
+    const next = start();
+    expect(next.caps).toEqual(['60']);
+    expect(next.svc.settings()).toEqual({ fps: '60' });
   });
 });

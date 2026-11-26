@@ -8,9 +8,12 @@
  *   it refused, naming the count;
  * - the debug console ships only with the project's `debug_console` setting:
  *   the exported manifest carries it when it is on and not otherwise (the
- *   export page starts the console from that setting alone).
+ *   export page starts the console from that setting alone);
+ * - a model file changed on disk is imported again before the build, so the
+ *   export ships the new bytes and not the old.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { testTempBase } from '@thirdlight/backend/testing';
@@ -23,6 +26,9 @@ import { multiPieceGlb } from '../../e2e/multi-piece-glb';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const PID = 'demo-0001';
+const GLB_V1 = join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v1.glb');
+const GLB_V2 = join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v2.glb');
+const sha = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 describe('the export route', () => {
   let tb: TestBackend;
@@ -88,4 +94,25 @@ describe('the export route', () => {
     await run('setSettings', { settings: { debug_console: 0 } });
     expect(settingsOf(await exportNow())['debug_console'] ?? 0).toBe(0);
   }, 60_000);
+
+  it('a model file changed on disk is imported again before the export: the export ships the new bytes, not the old', async () => {
+    const dir = join(tb.root, 'data', 'projects', PID, 'assets', 'crates');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'crate.glb');
+    copyFileSync(GLB_V1, file);
+    await run('importAssets', { folder: 'assets/crates' });
+    const crate = ((await query('queryAssets', { limit: 50, offset: 0 }))['assets'] as { assetId: string; sourcePath?: string }[]).find((a) => a.assetId.startsWith('crate'))!;
+    await run('createEntities', { sceneId: 'scene-main', entities: [{ kind: 'model', name: 'Crate', model: { asset: { assetId: crate.assetId } }, transform: { position: [0, 0, -40] } }] });
+    const shipped = async (): Promise<string[]> => {
+      const r = await exportNow();
+      expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
+      return readdirSync(join(exportRoot, String((r.json as { outputDir: string }).outputDir), 'content', 'sha256'));
+    };
+    const first = await shipped();
+    expect(first).toContain(sha(GLB_V1));
+    copyFileSync(GLB_V2, file);
+    const second = await shipped();
+    expect(second).toContain(sha(GLB_V2));
+    expect(second).not.toContain(sha(GLB_V1));
+  }, 120_000);
 });

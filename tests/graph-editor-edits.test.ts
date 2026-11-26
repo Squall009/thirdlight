@@ -127,3 +127,36 @@ describe('graph editor edits against project-model', () => {
     expect(editor.itemsInGroup(K, g, grp).sort()).toEqual(['c1', 'c2']);
   });
 });
+
+describe('graph editor catalogue', () => {
+  it('a wire dragged from a number output lists only nodes with an input that takes a number, with that port; the search filters within them', () => {
+    const hits = editor.compatibleNodeDefs(K, 'number', 'out').map((x) => `${x.def.type}.${x.port}`);
+    expect(hits).toEqual(['vector.x', 'add.a', 'multiply.a', 'sum.values', 'scale.vector', 'select.a', 'label.in', 'output.value']);
+    // From a vector input backwards: only nodes whose output can feed a vector.
+    expect(editor.compatibleNodeDefs(K, 'vector', 'in').map((x) => x.def.type)).not.toContain('toggle');
+    const only = editor.compatibleNodeDefs(K, 'number', 'out').map((x) => x.def);
+    expect(editor.searchCatalogue(K, 'add', only).map((d) => d.type)).toEqual(['add', 'sum']); // Sum all's description: "Adds every…"
+    expect(editor.searchCatalogue(K, 'toggle', only)).toEqual([]);
+    // The whole catalogue, in category order; a word must match label, type, category or description.
+    expect(editor.searchCatalogue(K, 'math').map((d) => d.type)).toEqual(['add', 'multiply', 'sum', 'scale']);
+  });
+});
+
+describe('graph editor view', () => {
+  it('zoom keeps the graph point under the cursor, within the zoom limits; fit centres a rectangle, never past 1:1', () => {
+    const v = { x: 30, y: -12, zoom: 0.8 };
+    const under = editor.toGraph(v, 400, 250);
+    const z = editor.zoomAt(v, 400, 250, 1.25);
+    expect(z.zoom).toBeCloseTo(1);
+    const after = editor.toGraph(z, 400, 250);
+    expect(after[0]).toBeCloseTo(under[0]);
+    expect(after[1]).toBeCloseTo(under[1]);
+    expect(editor.zoomAt(v, 0, 0, 100).zoom).toBe(editor.MAX_ZOOM);
+    expect(editor.zoomAt(v, 0, 0, 0.001).zoom).toBe(editor.MIN_ZOOM);
+    const fit = editor.fitView({ x: 100, y: 50, w: 200, h: 100 }, 800, 600);
+    expect(fit.zoom).toBe(1);
+    const centre = editor.toGraph(fit, 400, 300);
+    expect(centre).toEqual([200, 100]);
+    expect(editor.fitView({ x: 0, y: 0, w: 4000, h: 3000 }, 800, 600).zoom).toBeCloseTo((600 - 80) / 3000); // the tighter axis, margins off
+  });
+});

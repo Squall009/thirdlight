@@ -159,6 +159,22 @@ describe('relay tools are bounded and never fabricate', () => {
     expect(validateGameControlResult(res.body).ok, JSON.stringify(validateGameControlResult(res.body))).toBe(true);
   });
 
+  it('a signal goes out as the engine\'s signal debug command; a signal with a value is refused before anything is sent', async () => {
+    const tools = await mcp.listTools();
+    expect(tools).toContain('tl_game_control');
+    const withValue = await mcp.call('tl_game_control', { playSessionId, signal: 'reveal', value: 3 });
+    expect(withValue.isError).toBe(true);
+    expect(JSON.stringify(withValue.body)).toContain('no value');
+    const call = mcp.call('tl_game_control', { playSessionId, signal: 'reveal' });
+    const request = await ws.waitFor((e) => e.type === 'game.control.request' && JSON.stringify(e).includes('"reveal"'));
+    // Only the call without a value reached the play.
+    expect(ws.events.filter((e) => e.type === 'game.control.request' && JSON.stringify(e).includes('"reveal"'))).toHaveLength(1);
+    expect(JSON.stringify(request)).toContain('"command":"debugCommand"');
+    expect(JSON.stringify(request)).toMatch(/"name":"signal","args":\{"name":"reveal"\}/);
+    ws.send({ type: 'game.control.ack', relayId: request.relayId, ok: true, result: controlResult({ command: 'debugCommand' }) });
+    expect((await call).isError).toBe(false);
+  });
+
   it('forwards an observation and returns a bounded, binary-free document', async () => {
     const call = mcp.call('tl_game_observe', { playSessionId, timeoutMs: 2000 });
     await replyToRelay('observe', observation());
