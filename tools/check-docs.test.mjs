@@ -126,7 +126,7 @@ describe('links and defect lists', () => {
     expect(r.stderr).not.toContain('plan-phase-8.md, which');
   });
 
-  it('fails an open row in the closed list, an unknown status and a D-number in both lists', () => {
+  it('fails an open row in the closed list, an unknown status (watch included) and a D-number in both lists', () => {
     const table = (...rows) => `| # | Sev | Status | Defect | Location |\n|---|---|---|---|---|\n${rows.join('\n')}\n`;
     const root = workspace({
       [STATUS_FILE]: status(),
@@ -137,8 +137,10 @@ describe('links and defect lists', () => {
     expect(r.status).toBe(1);
     expect(r.stderr).toContain(`${AUDIT_CLOSED_FILE}: D6 has status 'open'`);
     expect(r.stderr).toContain(`${AUDIT_OPEN_FILE}: D7 has status 'done'`);
+    // A test is fixed or archived, never watched: "watch" is no status.
+    expect(r.stderr).toContain(`${AUDIT_OPEN_FILE}: D2 has status 'watch'`);
     expect(r.stderr).toContain('D1 is listed twice');
     // A row closed in the open list waits there for the tidy at the phase end.
-    expect(r.stderr).not.toMatch(/D[2345] has status/);
+    expect(r.stderr).not.toMatch(/D[345] has status/);
   });
 });

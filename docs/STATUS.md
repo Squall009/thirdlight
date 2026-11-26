@@ -4,7 +4,7 @@ Updated 2026-11-25. Current work: **47a Structures and water bodies is done** (`
 What the engine is now:
 `docs/architecture/voxel-engine.md`; owner decisions: `docs/decisions/owner-decisions.md`; order: `docs/roadmap.md`.
 
-Defects: open and watch rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
+Defects: open rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
 On 2026-11-26: 298 open (M 64, L 234; no C or H), 57 watch; closed 477 (432 fixed, 34 superseded, 11 won't fix); next free D833.
 
 Done: an item works in a real browser and has an automated test at the boundary it fixes (Playwright for the editor).

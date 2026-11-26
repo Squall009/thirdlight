@@ -1,7 +1,7 @@
 # Audit — closed defects
 
-The closed rows (fixed, superseded, won't fix) of the defect list begun by the audit of 2026-09-22. The open and
-watch rows, the severity and status key and the audit's summary are in `docs/audit-2026-09-22.md`; D-numbers are
+The closed rows (fixed, superseded, won't fix) of the defect list begun by the audit of 2026-09-22. The open
+rows, the severity and status key and the audit's summary are in `docs/audit-2026-09-22.md`; D-numbers are
 shared by both files and never reused.
 
 | # | Sev | Status | Defect | Location |

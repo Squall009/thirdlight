@@ -10,7 +10,7 @@
  *     source line; about two lines of the rendered page);
  *   - every `*.md` path a STATUS row names in backticks exists;
  *   - every defect row has a known status, the closed list (AUDIT_CLOSED_FILE)
- *     holds no open or watch row, and a D-number is in one of the two lists once.
+ *     holds no open row, and a D-number is in one of the two lists once.
  *
  * Rows over the limit today are named in the ratchet list (RATCHET_FILE) by
  * file and row key (the row's first cell; a repeated key gets `#2`, `#3`) with
@@ -39,7 +39,7 @@ export const AUDIT_CLOSED_FILE = 'docs/audit-closed.md';
 /** The ratchet list, relative to the workspace root. */
 export const RATCHET_FILE = 'tools/docs-ratchet.json';
 
-const OPEN_STATUSES = new Set(['open', 'watch']);
+const OPEN_STATUSES = new Set(['open']);
 const CLOSED_STATUSES = new Set(['fixed', 'superseded', "won't"]);
 const PROGRESS_HEADING_RE = /^##\s+(?:\d+[a-z]?\.\s+)?Progress\b/;
 const STATUS_TABLE_HEADER_RE = /^\|\s*Phase\s*\|/;
@@ -184,7 +184,7 @@ export function defectRows(text) {
 /**
  * Defect rows in the wrong list, with an unknown status, or listed twice: `[text]`. A row closed in the open
  * list may wait there for the next tidy (at the latest the phase end), so only the closed list's side is held:
- * it never carries an open or watch row.
+ * it never carries an open row.
  */
 export function defectProblems(root) {
   const problems = [];
@@ -196,9 +196,9 @@ export function defectProblems(root) {
       if (seen.has(id)) problems.push(`${id} is listed twice (${seen.get(id)} and ${file}); a D-number is never reused`);
       seen.set(id, file);
       if (!OPEN_STATUSES.has(status) && !CLOSED_STATUSES.has(status)) {
-        problems.push(`${file}: ${id} has status '${status}'; a status is open, watch, fixed, superseded or won't fix`);
+        problems.push(`${file}: ${id} has status '${status}'; a status is open, fixed, superseded or won't fix`);
       } else if (file === AUDIT_CLOSED_FILE && OPEN_STATUSES.has(status)) {
-        problems.push(`${file}: ${id} has status '${status}'; an open or watch row belongs in ${AUDIT_OPEN_FILE}`);
+        problems.push(`${file}: ${id} has status '${status}'; an open row belongs in ${AUDIT_OPEN_FILE}`);
       }
     }
   }

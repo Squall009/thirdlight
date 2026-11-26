@@ -56,8 +56,9 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
   dumps.
 - Defects: a new D-row takes the next free number in `docs/audit-2026-09-22.md`; a branch first reserves a
   block there (`Reserved: D<first>–D<last> for branch <name>`), and main skips it. Closed rows move to
-  `docs/audit-closed.md` when a phase ends; the docs check fails an open or watch row there, and a D-number
-  listed twice.
+  `docs/audit-closed.md` when a phase ends; the docs check fails an open row there, and a D-number listed
+  twice. A row is a product's defect or question, never a test's; a measured cost goes to
+  `docs/perf-recommendations.md`.
 - Commit to the working branch with a clear message when a coherent change is green (`tools/gate.sh check`),
   then push to `origin`.
 - Comments say why the code is the way it is. No phase numbers, item ids, dates or `§` spec references in

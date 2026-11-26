@@ -91,7 +91,7 @@ Owner-level decisions: pick the most sensible generic default, log it in the sub
 chosen, owner to confirm", keep going. Never stop to ask. If blocked: add a D-row and a plan note, move on.
 D-ROWS: this branch owns D430–D499 (reserved on main). Take the next free number in that block (grep both
 docs/audit-2026-09-22.md and docs/audit-closed.md; D430–D440 were used in phase 45; continue at D441). New rows
-`| Dn | Sev | open | … |`; closing sets `fixed <commit>` (or superseded / won't fix / watch).
+`| Dn | Sev | open | … |`; closing sets `fixed <commit>` (or superseded / won't fix).
 
 Host rules (an OOM once forced a shutdown of this host (16 GiB then, 32 GiB since 2026-11-11); the owner was furious):
 - EVERY backend, browser, perf, benchmark or gate run is memory-capped. `tools/gate.sh` caps itself. Ad-hoc runs
