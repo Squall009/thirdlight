@@ -741,6 +741,10 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
     then 1 red; the cap's skip of columns past it removed → green (it only saves work: the result is capped
     again). The job: a far node read as 0.5 m cells → 2; the neighbour columns swapped → 2; stamps dropped → 1. The
     runtime: structures not asked first → 1; stamps not read → 1; a grid's height without its place → 1.
+- **Gate:** before it, the generators (typings, graph API, reference), `npm run build` (79 s) and `npm run lint`
+  (95 s, uncached) green, the manual's links test green. `tools/gate.sh check` once: GREEN in 253 s (build 25 s,
+  lint 8 s, unit 194 s: 969 files passed; boot 5 passed, 26 s). No second call. The two new unit files take about
+  7 s and 12 s alone (the fast set 189 → 194 s).
 - **Stored:** nothing. No field cache, far-cache channel, manifest key or record bit; `DERIVED_FORMAT_VERSION` stays
   34 (the entry was listed by 47b.2; its layout is now in the format spec §3.7).
 - **Not built, and why:** the fields a chunk by default, a cache of them, GPU field windows (no consumer: 47b.9, 49,
