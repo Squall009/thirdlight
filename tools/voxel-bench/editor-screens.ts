@@ -170,7 +170,7 @@ interface BrushStamp {
   readonly cursor: boolean;
   readonly stroke: { dabs: number } | null;
   readonly hover: { mine: boolean; at: [number, number] | null; cell: [number, number, number] } | null;
-  readonly last: { stroke: string; dabs?: number; ok: boolean | null; error?: string } | null;
+  readonly last: { stroke: string; dabs?: number; cells?: number; ok: boolean | null; error?: string; refused?: string } | null;
   /** The Fill rail's gesture (absent: a brush is armed). */
   readonly fill?: { readonly kind: string; readonly gesture: { seed: number[]; level: number } | null; readonly ring: boolean; readonly leaks: number[][]; readonly last: { fill: string; level?: number; ok: boolean | null; error?: string; leaks?: number } | null };
 }
@@ -302,6 +302,45 @@ async function fillClick(page: Page, from: ViewPoint | null, downM: number): Pro
   }, 30_000);
   const fill = (await brushStamp(page))?.fill ?? null;
   return { clicked: true, pickAnswered: over.ok, from, floorCell, levelAtPress: start, levelSent: level, answered: answered.ok, last: answered.ok ? (fill?.last ?? null) : null, leaksMarked: fill?.leaks ?? [] };
+}
+
+/**
+ * One fog stroke with the real pointer on the Paint rail (the Mist picked, the fog brush's Fog tool): pressed on
+ * `from`, dragged 96 px to the right, released. A fog stroke reads the cells under it from the view's worker
+ * before it names them, so this is that read in a real page. Told, never asserted.
+ */
+async function fogStroke(page: Page, mode: ReturnType<Page['getByRole']>, from: ViewPoint | null): Promise<Record<string, unknown>> {
+  if (from === null) return { dragged: false, why: 'no point on a hollow\'s floor to start from' };
+  await mode.getByRole('tab', { name: /Paint/ }).click();
+  const mist = mode.getByRole('radio', { name: 'voxel material Mist', exact: true });
+  const tile = mode.locator('button.tl-tool', { hasText: 'Fog' });
+  const armed = await until(page, async () => {
+    if ((await mist.getAttribute('aria-checked')) !== 'true') {
+      await mist.click();
+      return 'the Mist not picked';
+    }
+    if ((await tile.getAttribute('aria-pressed')) !== 'true') {
+      await tile.click();
+      return 'the fog brush not armed';
+    }
+    const stamp = await brushStamp(page);
+    return stamp?.navigate === false && (stamp as { kind?: string }).kind === 'fog' && stamp.fill === undefined ? null : 'the fog brush not armed in the Scene view';
+  }, 20_000);
+  if (!armed.ok) return { dragged: false, why: armed.what };
+  await page.mouse.move(from.x - 3, from.y);
+  await page.mouse.move(from.x, from.y);
+  await until(page, async () => ((await brushStamp(page))?.hover?.mine === true ? null : 'the brush not over the ground'), 3000);
+  await page.mouse.down();
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(from.x + i * 8, from.y);
+    await page.waitForTimeout(40);
+  }
+  await page.mouse.up();
+  const answered = await until(page, async () => {
+    const last = (await brushStamp(page))?.last ?? null;
+    return last !== null && last.stroke === 'fog' && last.ok != null ? null : 'the fog stroke not answered';
+  }, 30_000);
+  return { dragged: true, from, toX: from.x + 96, answered: answered.ok, last: (await brushStamp(page))?.last ?? null };
 }
 
 async function editorOpen(page: Page, url: string): Promise<Wait> {
@@ -448,7 +487,9 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
       let reach: string | null = null;
       let whole: Record<string, unknown> = { clicked: false, why: 'the mode did not open' };
       let breached: Record<string, unknown> = whole;
+      let fog: Record<string, unknown> = whole;
       const before = await revision();
+      let afterFog: number | null = null;
       let afterWhole: number | null = null;
       if (armed.ok) {
         // An 8 m reach: the trench runs past it.
@@ -458,8 +499,14 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
         reach = await field.inputValue().catch(() => null);
         // The whole hollow: its level dragged half a metre down from the brim, so the fog stays under the grass.
         const [far, near] = await floorPoints(page, [HOLLOW.whole, HOLLOW.breached]);
+        // First a stroke of the fog brush in the near hollow (the Paint rail), then back to the Fill rail.
+        fog = await fogStroke(page, mode, near ?? null);
+        await mode.getByRole('tab', { name: /Fill/ }).click();
+        await until(page, async () => ((await brushStamp(page))?.fill?.kind === 'fog' ? null : 'the fill not armed again'), 20_000);
+        if (fog['answered'] === true && (fog['last'] as { ok?: boolean } | null)?.ok === true) await until(page, async () => ((await revision()) !== before ? null : 'the view\'s world still at the revision before the fog stroke'), 30_000);
+        afterFog = await revision();
         whole = await fillClick(page, far ?? null, 0.5);
-        await until(page, async () => ((await revision()) !== before ? null : 'the view\'s world still at the revision before the fill'), 30_000);
+        await until(page, async () => ((await revision()) !== afterFog ? null : 'the view\'s world still at the revision before the fill'), 30_000);
         afterWhole = await revision();
         // The breached one, to the same depth over its floor: the fog would run down the trench past the reach.
         breached = await fillClick(page, near ?? null, 0);
@@ -477,7 +524,7 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
         return sceneSettled(page);
       });
       const status = await page.locator('.tl-hints__text').first().textContent().catch(() => null);
-      out.set('world-fill', await shoot(page, files('world-fill'), armed.ok ? w : armed, facts('world-fill', { tool: 'Fog', reachField: reach, wholeHollow: whole, breachedHollow: breached, revisionBefore: before, revisionAfterTheFirstFill: afterWhole, revisionAtTheEnd: await revision(), status: status?.slice(0, 300) ?? null, note: 'nothing draws gas yet (the gas part is the next item\'s): the filled hollow looks empty; what shows a fill here is the command\'s answer and the world\'s revision' }), idOf('world-fill'), 'world mode\'s Fill rail open, the Fog tool armed, a leak marked, the level ring on the ground, the Scene view settled'));
+      out.set('world-fill', await shoot(page, files('world-fill'), armed.ok ? w : armed, facts('world-fill', { tool: 'Fog', reachField: reach, fogBrushStroke: fog, wholeHollow: whole, breachedHollow: breached, revisionBefore: before, revisionAfterTheFogStroke: afterFog, revisionAfterTheFirstFill: afterWhole, revisionAtTheEnd: await revision(), status: status?.slice(0, 300) ?? null, note: 'nothing draws gas yet (the gas part is the next item\'s): the filled hollow looks empty; what shows a fill here is the command\'s answer and the world\'s revision' }), idOf('world-fill'), 'world mode\'s Fill rail open, the Fog tool armed, a leak marked, the level ring on the ground, the Scene view settled'));
       await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
     }
     await context.close();
