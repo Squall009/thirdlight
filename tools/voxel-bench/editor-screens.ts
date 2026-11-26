@@ -7,7 +7,9 @@
  * grass in a voxel world, a two-storey house with a door and windows, a lake in a dug hollow and a spline that
  * writes a road, every one made by the same commands the editor sends. The world mode's screen comes last on that
  * yard: a hill is raised, smoothed and painted by the strokes the mode's brush sends (`voxelStrokeCommand`), sent
- * through the backend while the editor is open, and then one stroke is dragged with the real pointer. The voxel world
+ * through the backend while the editor is open, and then one stroke is dragged with the real pointer. After it the
+ * Fill rail's screen: two hollows dug by commands, one filled with fog and the other, breached by a trench, refused,
+ * both by the real pointer on the Fill rail's Fog tool. The voxel world
  * page and Play are taken on staging's 8 km town (what the world pictures show), which they only read.
  *
  * Each screen waits for the editor's own settle signals (the Scene view's voxel worlds settled and no frame wanted,
@@ -36,7 +38,7 @@ const POLL_MS = 250;
 const YARD = 'yard';
 /** The yard's half side in cells (0.5 m): 64 m across. */
 const YARD_HALF = 64;
-const YARD_MAT = { road: 21, dryGrass: 22, water: 30 } as const;
+const YARD_MAT = { road: 21, dryGrass: 22, water: 30, mist: 31 } as const;
 
 type Results = Map<ScreenName, PictureResult>;
 type Wait = { ok: true; s: number } | { ok: false; what: string };
@@ -167,8 +169,10 @@ interface BrushStamp {
   readonly navigate: boolean;
   readonly cursor: boolean;
   readonly stroke: { dabs: number } | null;
-  readonly hover: { mine: boolean; at: [number, number] | null } | null;
+  readonly hover: { mine: boolean; at: [number, number] | null; cell: [number, number, number] } | null;
   readonly last: { stroke: string; dabs?: number; ok: boolean | null; error?: string } | null;
+  /** The Fill rail's gesture (absent: a brush is armed). */
+  readonly fill?: { readonly kind: string; readonly gesture: { seed: number[]; level: number } | null; readonly ring: boolean; readonly leaks: number[][]; readonly last: { fill: string; level?: number; ok: boolean | null; error?: string; leaks?: number } | null };
 }
 const brushStamp = async (page: Page): Promise<BrushStamp | null> => JSON.parse((await page.locator('canvas.tl-viewport').getAttribute('data-voxel-brush')) ?? 'null') as BrushStamp | null;
 
@@ -208,6 +212,96 @@ async function dragStroke(page: Page, beforeFile: string): Promise<Record<string
   const last = (await brushStamp(page))?.last ?? null;
   const moved = await until(page, async () => ((await revision()) !== before ? null : 'the view\'s world still at the revision before the stroke'), 30_000);
   return { dragged: true, from, toX: from.x + 128, dabsWhileDragging: dabs, answered: answered.ok, last, revisionBefore: before, revisionAfter: await revision(), viewTookTheChange: moved.ok };
+}
+
+/**
+ * The Fill rail's two hollows in the yard's open side (cells; the ground's top is y = 0), each 6 m square and 2 m
+ * deep: one whole, one whose far bank is cut by a trench of the same depth running 14 m away, so a fill of it
+ * passes an 8 m reach in the trench.
+ */
+const HOLLOW = Object.freeze({ x0: 36, x1: 47, whole: { z0: -24, z1: -13 }, breached: { z0: 0, z1: 11 }, trench: { x0: 41, x1: 42, z1: 40 }, floor: -5 });
+const FILL_REACH_M = 8;
+
+/** The hollows dug, a mist material made, and a curve over both that the view is framed on. */
+async function makeHollows(be: E2EBackend): Promise<{ view: string | null }> {
+  const cmd = (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => mustCommand(be, op, args, { clientId: 'pictures' });
+  await cmd('setMaterial', { material: { materialId: 'mat-mist', name: 'Mist', shader: 'standard', params: { color: '#dfe6ea' }, textures: {}, voxel: { id: YARD_MAT.mist, use: 'gas', gas: { color: '#dfe6ea' } } } });
+  const dig = async (min: number[], max: number[]): Promise<void> => {
+    const r = await be.command({ op: 'editVoxels', projectId: be.projectId, args: { world: YARD, command: { v: 2, grid: 0, kind: 'fill', min, max, mode: 'dig' } } });
+    if (r['ok'] !== true) throw new Error(`a hollow: ${JSON.stringify(r).slice(0, 300)}`);
+  };
+  const h = HOLLOW;
+  await dig([h.x0, h.floor + 1, h.whole.z0], [h.x1, -1, h.whole.z1]);
+  await dig([h.x0, h.floor + 1, h.breached.z0], [h.x1, -1, h.breached.z1]);
+  await dig([h.trench.x0, h.floor + 1, h.breached.z1 + 1], [h.trench.x1, -1, h.trench.z1]);
+  const view = await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Hollows view', transform: { position: [21, 0, 0] }, components: { spline: { points: [{ at: [0, 0, -13] }, { at: [0, 4, 2] }, { at: [0, 0, 19] }], width: 10 } } }).then((r) => String(r['createdId']), () => null);
+  return { view };
+}
+
+type ViewPoint = { x: number; y: number };
+
+/**
+ * Where the pointer is over each hollow's floor (`z0` … `z1`): the view's left three quarters (the docked panels are
+ * on its right edge) scanned once, row by row, until every hollow has a point (a far hollow's floor shows as a strip
+ * a few dozen pixels high behind its near bank, so the rows are close).
+ */
+async function floorPoints(page: Page, hollows: readonly { z0: number; z1: number }[]): Promise<(ViewPoint | null)[]> {
+  const box = (await page.locator('canvas.tl-viewport').boundingBox())!;
+  const found: (ViewPoint | null)[] = hollows.map(() => null);
+  const inFloor = (c: readonly number[], h: { z0: number; z1: number }): boolean => c[1] === HOLLOW.floor && c[0]! >= HOLLOW.x0 + 1 && c[0]! <= HOLLOW.x1 - 1 && c[2]! >= h.z0 + 1 && c[2]! <= h.z1 - 1;
+  for (let fy = 0.2; fy <= 0.9 && found.includes(null); fy += 0.025) {
+    for (let fx = 0.1; fx <= 0.76 && found.includes(null); fx += 0.025) {
+      const p = { x: Math.round(box.x + box.width * fx), y: Math.round(box.y + box.height * fy) };
+      await page.mouse.move(p.x, p.y);
+      // The pick for this point answered (the tool publishes where its hover was picked).
+      let hover: BrushStamp['hover'] = null;
+      for (let k = 0; k < 20; k++) {
+        hover = (await brushStamp(page))?.hover ?? null;
+        if (hover?.at != null && Math.abs(hover.at[0] - p.x) <= 1 && Math.abs(hover.at[1] - p.y) <= 1) break;
+        hover = null;
+        await page.waitForTimeout(15);
+      }
+      if (hover?.mine !== true) continue;
+      hollows.forEach((h, i) => {
+        if (found[i] === null && inFloor(hover!.cell, h)) found[i] = p;
+      });
+    }
+  }
+  return found;
+}
+
+/**
+ * One fill with the real pointer: moved onto a hollow's floor, pressed, dragged down until the level is `downM`
+ * under where it began (0: no drag), and released. What happened is told, never asserted: where it clicked, the
+ * level sent, the command's answer, the leaks marked.
+ */
+async function fillClick(page: Page, from: ViewPoint | null, downM: number): Promise<Record<string, unknown>> {
+  if (from === null) return { clicked: false, why: 'no point of the view had the pointer over the hollow\'s floor' };
+  await page.mouse.move(from.x - 3, from.y);
+  await page.mouse.move(from.x, from.y);
+  const over = await until(page, async () => {
+    const at = (await brushStamp(page))?.hover?.at;
+    return at != null && Math.abs(at[0] - from.x) <= 1 && Math.abs(at[1] - from.y) <= 1 ? null : 'the pick not answered';
+  }, 3000);
+  const floorCell = (await brushStamp(page))?.hover?.cell ?? null;
+  // The answer of the fill before this one: this one's is the next that differs from it.
+  const earlier = JSON.stringify((await brushStamp(page))?.fill?.last ?? null);
+  await page.mouse.down();
+  await until(page, async () => ((await brushStamp(page))?.fill?.gesture != null ? null : 'the press not taken'), 3000);
+  const start = (await brushStamp(page))?.fill?.gesture?.level ?? null;
+  let level = start;
+  for (let dy = 4; downM > 0 && start !== null && level !== null && level > start - downM && dy <= 400; dy += 4) {
+    await page.mouse.move(from.x, from.y + dy);
+    await page.waitForTimeout(30);
+    level = (await brushStamp(page))?.fill?.gesture?.level ?? level;
+  }
+  await page.mouse.up();
+  const answered = await until(page, async () => {
+    const last = (await brushStamp(page))?.fill?.last ?? null;
+    return last !== null && last.ok != null && JSON.stringify(last) !== earlier ? null : 'the fill\'s command not answered';
+  }, 30_000);
+  const fill = (await brushStamp(page))?.fill ?? null;
+  return { clicked: true, pickAnswered: over.ok, from, floorCell, levelAtPress: start, levelSent: level, answered: answered.ok, last: answered.ok ? (fill?.last ?? null) : null, leaksMarked: fill?.leaks ?? [] };
 }
 
 async function editorOpen(page: Page, url: string): Promise<Wait> {
@@ -324,6 +418,66 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
         return sceneSettled(page);
       });
       out.set('world-mode', await shoot(page, files('world-mode'), armed.ok ? w : armed, facts('world-mode', { tool: 'Add', hill, pointerDrag: drag }), idOf('world-mode'), 'world mode open, the Add tool armed, the brush cursor on the ground, the Scene view settled'));
+      await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
+    }
+    if (want.includes('world-fill')) {
+      // After the other screens: the hollows are not part of their yard.
+      const hollows = await makeHollows(be);
+      await select(page, hollows.view ?? ids['lane']!);
+      await frame(page, hollows.view !== null ? 4 : 8);
+      await select(page, ids['yard']!);
+      await page.locator('[data-tl-inspector]').getByRole('button', { name: 'Edit world', exact: true }).click();
+      const mode = page.getByRole('region', { name: 'edit mode', exact: true });
+      const tile = mode.locator('button.tl-tool', { hasText: 'Fog' });
+      const revision = async (): Promise<number | null> => (await sceneVoxels(page))?.states[YARD]?.revision ?? null;
+      const armed = await until(page, async () => {
+        if ((await mode.getAttribute('data-edit-mode')) !== 'world') return 'world mode not open';
+        const rail = mode.getByRole('tab', { name: /Fill/ });
+        if ((await rail.getAttribute('aria-selected')) !== 'true') {
+          await rail.click();
+          return 'the Fill rail not shown';
+        }
+        if ((await tile.getAttribute('aria-pressed')) !== 'true') {
+          await tile.click();
+          return 'the Fog tool not armed';
+        }
+        const stamp = await brushStamp(page);
+        if (stamp?.navigate !== false || stamp.fill?.kind !== 'fog') return 'the fill not armed in the Scene view';
+        return sceneSettled(page);
+      });
+      let reach: string | null = null;
+      let whole: Record<string, unknown> = { clicked: false, why: 'the mode did not open' };
+      let breached: Record<string, unknown> = whole;
+      const before = await revision();
+      let afterWhole: number | null = null;
+      if (armed.ok) {
+        // An 8 m reach: the trench runs past it.
+        const field = mode.getByLabel('world fill reach', { exact: true });
+        await field.fill(String(FILL_REACH_M));
+        await field.press('Enter');
+        reach = await field.inputValue().catch(() => null);
+        // The whole hollow: its level dragged half a metre down from the brim, so the fog stays under the grass.
+        const [far, near] = await floorPoints(page, [HOLLOW.whole, HOLLOW.breached]);
+        whole = await fillClick(page, far ?? null, 0.5);
+        await until(page, async () => ((await revision()) !== before ? null : 'the view\'s world still at the revision before the fill'), 30_000);
+        afterWhole = await revision();
+        // The breached one, to the same depth over its floor: the fog would run down the trench past the reach.
+        breached = await fillClick(page, near ?? null, 0);
+        // The pointer nudged where it clicked: the level ring is in the picture.
+        const at = breached['from'] as { x: number; y: number } | undefined;
+        if (at !== undefined) {
+          await page.mouse.move(at.x + 3, at.y);
+          await page.mouse.move(at.x, at.y);
+        }
+      }
+      const w = await until(page, async () => {
+        const stamp = await brushStamp(page);
+        if (stamp?.fill?.ring !== true) return 'the level ring not on the ground';
+        if ((stamp.fill.leaks.length ?? 0) === 0) return 'no leak marked';
+        return sceneSettled(page);
+      });
+      const status = await page.locator('.tl-hints__text').first().textContent().catch(() => null);
+      out.set('world-fill', await shoot(page, files('world-fill'), armed.ok ? w : armed, facts('world-fill', { tool: 'Fog', reachField: reach, wholeHollow: whole, breachedHollow: breached, revisionBefore: before, revisionAfterTheFirstFill: afterWhole, revisionAtTheEnd: await revision(), status: status?.slice(0, 300) ?? null, note: 'nothing draws gas yet (the gas part is the next item\'s): the filled hollow looks empty; what shows a fill here is the command\'s answer and the world\'s revision' }), idOf('world-fill'), 'world mode\'s Fill rail open, the Fog tool armed, a leak marked, the level ring on the ground, the Scene view settled'));
       await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
     }
     await context.close();

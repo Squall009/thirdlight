@@ -9,8 +9,8 @@
  *   and follows the pointer up and down the screen; the release sends one
  *   command: a `flood` stroke for fog (a gas) or a drain (air), a
  *   `createEntity` of a water body for water. The level is drawn as the
- *   ring a water body's level handle shows (`heightRingLines`), with its
- *   post from the surface.
+ *   ring a water body's level handle shows (`heightRingLines`), with a
+ *   post from the point clicked up to it.
  * - **A refused flood** that names where it leaked is marked there with
  *   the water bodies' leak markers (`WaterLeakMarkers`) until the next fill
  *   is made or the tool is put down; nothing was written.
@@ -259,10 +259,10 @@ export class VoxelFillGesture {
         for (const p of [base, to]) pts.push(p[0] - 0.5, p[1], p[2], p[0] + 0.5, p[1], p[2], p[0], p[1], p[2] - 0.5, p[0], p[1], p[2] + 0.5, p[0], p[1], p[2], p[0], p[1] + 1, p[2]);
       } else {
         const level = g?.levelM ?? this.levelFor(a, base);
-        for (const line of heightRingLines({ x: base[0], y: base[1], z: base[2] }, level - base[1], SCENE_HEIGHT_RING_M)) {
-          for (let i = 0; i + 1 < line.length; i++) pts.push(line[i]!.x, line[i]!.y, line[i]!.z, line[i + 1]!.x, line[i + 1]!.y, line[i + 1]!.z);
-        }
-        // The seed: a post up the ring's middle, from the point clicked to the level.
+        // The level ring of a water body's handle; its post stands at the point clicked, up the ring's middle to the
+        // level (a handle's stands at the rim, where its grip is: a fill has no grip, and its seed is what matters).
+        const ring = heightRingLines({ x: base[0], y: base[1], z: base[2] }, level - base[1], SCENE_HEIGHT_RING_M)[0]!;
+        for (let i = 0; i + 1 < ring.length; i++) pts.push(ring[i]!.x, ring[i]!.y, ring[i]!.z, ring[i + 1]!.x, ring[i + 1]!.y, ring[i + 1]!.z);
         pts.push(base[0], base[1], base[2], base[0], level, base[2]);
       }
     }
