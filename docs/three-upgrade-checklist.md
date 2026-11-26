@@ -21,6 +21,11 @@ build hooks round line 520).
 For each row, check the new three's source for the member, its signature
 and the behaviour the hook relies on. A rename or a changed meaning is a
 change to the hook (or its removal, if three now does the job itself).
+A row that names a browser test (`*.e2e.ts`) or "both renderers" is older
+than the test reset: those tests are archived (`archive/tests-e2e/`, not
+run) and WebGL 2 is not checked. What such a test checked is now looked at
+in the picture set before and after the update (§3), and is what to look
+for there.
 
 `node tools/three-hooks.mjs` lists every hook site with its file:line and
 the member it uses (prototype patches, replaced instance methods,
@@ -104,44 +109,48 @@ them against the notes too.
   level --classes landscape --spline-edit`, the windows' `nodeBuilds`):
   none at all means the marks did not install; the edit windows' node builds on a re-bake should
   stay near zero (the reuse works), not 80–100 ms a re-bake.
-- Leaks: `tests/e2e/memory.e2e.ts` (open/close and load/unload cycles back
-  to their baseline: heap, graphics API counts, `info.memory`) and
-  `play-memory.e2e.ts` (Play's counts flat frame over frame), both
-  renderers.
+- Leaks: nothing checks them any more (the browser leak tests were archived; a
+  real page's heap and GPU counts are looked at by hand when an update is
+  suspected). The phase run's performance report records page heap and GPU
+  memory beside the previous phase's: compare the two runs below.
 
-## 3. Check the shading on both renderers
+## 3. Check the shading (WebGPU only)
 
-These hooks are only proven by pixels:
+These hooks are only proven by what is drawn. WebGL 2 is not checked.
 
-- Layered and room-bound lights: `tests/e2e/lights.e2e.ts` (every light
-  after a skipped one still lights), the rooms lighting checks in
-  `tests/e2e/layered-material.e2e.ts` (a lamp stops at the shared wall).
-- Probe and local lights: `tests/e2e/lightmaps.e2e.ts`,
-  `block-lightmaps.e2e.ts`, `effect-light-pool.e2e.ts`.
-- Materials and AO: `tests/e2e/material-graph-render.e2e.ts` (every node
-  kind drawn), `material-custom-lit.e2e.ts`.
-- The frame in two passes and the depth pyramid (WebGPU): the export's
-  culling on vs off pixels in `tests/e2e/rendering.e2e.ts` (the post stack
-  with AO and glass behind a stand-in, the plain MSAA frame, a render scale,
-  poses along a moving camera, instanced copies, models culled whole and
-  terrain nodes culled) and its pyramid read-back.
-- Projected decals: the decal reads in `tests/e2e/layered-material.e2e.ts`
-  (terrain, blocks, props, a generated wall, normal only, a layer mask;
-  Scene view, Play and the export).
-- Vertex paint: the painted reads in `tests/e2e/level-acceptance.e2e.ts`
-  (a model alone, in a batch, merged, an instance copy, a generated wall, a
-  spline; Play and the export, and the painted draws counted).
-- The village perf check (`node tools/perf/run.mjs village --gate --renderers webgpu --check
-  tests/perf/village-baseline.json`, run by hand; the gate no longer runs it) against its baseline.
-- WGSL digests: `packages/three-adapter/src/material-graph-specular.test.ts`
-  (and `vertex-paint-draw.test.ts`, every shader type alone and through
-  instance columns) compares the WGSL three builds for graphs without a feature against
-  recorded digests. A new three changes the text: check that the new WGSL
-  is only three's change (no feature's nodes leaking in), then re-record the
-  digests from the failure message.
+1. **Before the update**, on the old three: `tools/gate.sh start pictures`, then
+   bounded `tools/gate.sh wait` (`docs/pictures.md`: the fixed list of world
+   cameras and editor screens, each settled on the engine's own signals). Keep
+   the pack's folder.
+2. **After the update**: `tools/gate.sh check` (the build, the fast unit set and
+   the boot check: the editor loads, a voxel world draws, Play starts and stops,
+   the export runs with the backend stopped; a hook that throws or a shader that
+   fails to build turns it red), then the phase run once (`tools/gate.sh start
+   phase`: every unit test, the boot check, the performance report beside the
+   previous one, and the picture set again).
+3. **WGSL digests**: `packages/three-adapter/src/material-graph-specular.test.ts`
+   (and `vertex-paint-draw.test.ts`, every shader type alone and through
+   instance columns) compares the WGSL three builds for graphs without a feature
+   against recorded digests. A new three changes the text: check that the new
+   WGSL is only three's change (no feature's nodes leaking in), then re-record
+   the digests from the failure message.
+4. **The pictures compared**: an agent opens each picture of the two packs side
+   by side and writes, in the read's form, what changed and whether it is the
+   release notes' change or a hook that no longer installs (lights after a
+   skipped one, lamps stopping at a shared wall, local lights, materials and AO,
+   the two-pass frame and its depth pyramid, decals, vertex paint: as far as a
+   picture shows them). Then the owner looks at both packs and uses the editor
+   by hand. No pixel-percentage criteria.
+5. **The performance report** beside the previous one: a build hook that stopped
+   reusing programs shows as hitches and frame time, a leak as memory growth.
+   Recorded, never gating (this host's numbers are a baseline).
 
-Run them in a memory-capped scope (`docs/environment.md`), one file at a
-time, then `tools/gate.sh check` and the phase run as usual.
+No longer checked by anything (the browser tests that did it are archived): the
+pixel reads of every node kind drawn, culling on against off, the decal and
+vertex-paint reads in the Scene view, Play and the export, and the pyramid's
+read-back. The village perf check (`node tools/perf/run.mjs village --renderers
+webgpu --check tests/perf/village-baseline.json`) can still be run by hand.
+Heavy runs go in a memory-capped scope (`docs/environment.md`), one at a time.
 
 ## 4. Record
 
