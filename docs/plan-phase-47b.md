@@ -283,6 +283,10 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   the old checks) and `tools/check-role-traits.test.mjs` (9: what counts, what passes, the owner list, the tool run
   on a failing and a passing checkout, this repository). Two rows broken by hand (wall and foundation ranks swapped;
   the roof made a frame role) each turned the first file red.
+- **Gate:** `tools/gate.sh check` once: RED in 245 s (build 26 s, lint 9 s, unit 184 s: 961 files passed, 1 failed;
+  boot 5 passed, 25 s). The failure was real: `tools/gen-reference.test.mjs` reads `VoxelWorldOpArgs` by file path and
+  the split had moved it; the generator now names `voxel-world-answers.ts` (16c03bc0). `check --failed` once: GREEN in
+  37 s.
 - **Not done, and why:** the role spec has no pointer to the table (an approved spec is not edited for it; the
   design page carries it). `AGENTS.md` does not name the new check (the rules page is the lead's to change).
 
