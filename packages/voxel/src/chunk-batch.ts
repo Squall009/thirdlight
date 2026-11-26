@@ -38,6 +38,7 @@ import type { InstanceList, SurfaceBuffer } from './derived-mesh';
 import { reliefBytes, type ReliefSurface } from './relief-mesh';
 import { RELIEF_DRAW_PART } from './relief-ring';
 import { shaderGridEntries, shaderGridSide, shaderSolidEntry } from './derived-shader';
+import type { GasPart } from './derived-gas';
 import type { LiquidPart } from './derived-liquid';
 import { ALL_DERIVED_PARTS, DERIVED_PART } from './record';
 import type { FaceSeam, NodeFace } from './lod-seam';
@@ -64,9 +65,10 @@ export interface ChunkDrawWire {
   readonly cz: number;
   /**
    * `draw`: its draw is replaced (nothing to draw removes it); `shader`: only its shader data; `liquid`: only its
-   * liquid part (`liquid`, absent: no liquid face any more); `remove`: no longer drawn.
+   * liquid part (`liquid`, absent: no liquid face any more); `gas`: only its gas part (`gas`, absent: no gas any
+   * more); `remove`: no longer drawn.
    */
-  readonly kind: 'draw' | 'shader' | 'liquid' | 'remove';
+  readonly kind: 'draw' | 'shader' | 'liquid' | 'gas' | 'remove';
   readonly ground?: DrawSurface;
   readonly base?: DrawSurface;
   /**
@@ -82,6 +84,8 @@ export interface ChunkDrawWire {
   readonly cells?: Uint16Array;
   /** Its liquid faces (a `draw` or a `liquid` entry of a level-0 chunk; absent: none). */
   readonly liquid?: LiquidPart;
+  /** Its gas: hull faces and runs (a `draw` or a `gas` entry of a level-0 chunk; absent: none). */
+  readonly gas?: GasPart;
 }
 
 /** One seam piece: positions in the finer level's steps from `origin` (cells of the finer level). */
@@ -292,6 +296,8 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
     add(c.instances?.data);
     add(c.cells);
     add(c.liquid?.quads);
+    add(c.gas?.quads);
+    add(c.gas?.runs);
   }
   for (const s of b.seams ?? []) for (const p of s.pieces ?? []) {
     add(p.ground.vertices);
@@ -483,9 +489,11 @@ export class ChunkDrawBatcher {
     const grid = { solid: d.solid, ...(cells !== undefined ? { cells } : {}) };
     const own = <T extends Uint8Array | Uint16Array | Uint32Array>(a: T): T => (this.copy ? (a.slice() as T) : a);
     const liquid = d.liquid === null ? {} : { liquid: { count: d.liquid.count, quads: own(d.liquid.quads) } };
+    const gas = d.gas === null ? {} : { gas: { count: d.gas.count, quads: own(d.gas.quads), runCount: d.gas.runCount, runs: own(d.gas.runs) } };
     if (shaderOnly && this.sent.has(key)) {
       if ((parts & DERIVED_PART.shader) !== 0) this.push({ cx, cy, cz, kind: 'shader', ...grid });
       if ((parts & DERIVED_PART.liquid) !== 0) this.push({ cx, cy, cz, kind: 'liquid', ...liquid });
+      if ((parts & DERIVED_PART.gas) !== 0) this.push({ cx, cy, cz, kind: 'gas', ...gas });
       return;
     }
     this.sent.add(key);
@@ -498,11 +506,11 @@ export class ChunkDrawBatcher {
       // view builds is the chunk's mesh part, as the same surfaces drawn plain would be.
       this.reliefSent.set(key, reliefBytes({ n: 0, ...d.relief }));
       const caster = { ground: surface(d.ground), base: surface(d.base) };
-      this.push({ cx, cy, cz, kind: 'draw', ground: relief(d.relief.ground), base: relief(d.relief.base), caster, instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid, ...liquid });
+      this.push({ cx, cy, cz, kind: 'draw', ground: relief(d.relief.ground), base: relief(d.relief.base), caster, instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid, ...liquid, ...gas });
       return;
     }
     if (this.reliefSent.delete(key)) this.feed.setPart(cx, cy, cz, RELIEF_DRAW_PART, 0);
-    this.push({ cx, cy, cz, kind: 'draw', ground: surface(d.ground), base: surface(d.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid, ...liquid });
+    this.push({ cx, cy, cz, kind: 'draw', ground: surface(d.ground), base: surface(d.base), instances: { count: d.instances.count, data: own(d.instances.data) }, ...grid, ...liquid, ...gas });
   }
 
   /** A drawn mip node's draw from its current result (nothing to draw: removed). */

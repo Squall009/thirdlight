@@ -83,6 +83,7 @@ import {
   type SeamPieceWire,
   type DrawSurface,
   type InstanceList,
+  type GasPart,
   type LiquidPart,
   MATERIAL_ID_MAX,
   SHADER_BORDER_CELLS,
@@ -104,7 +105,9 @@ import { gridPhases } from './voxel-surface-projection';
 import { AXIS_PROJECTION_LEVEL, voxelDrawPath } from './voxel-surface-path';
 import { MOVING_CASTER_KEY, STATIC_CASTER_KEY, type StaticShadowRevision } from './shadow-casters';
 import { disposeObjectTree } from './dispose';
-import { geometryBytes, VOXEL_LIQUID_KEY, VoxelLiquidDraws } from './voxel-liquid-draw';
+import { VOXEL_GAS_KEY, VoxelGasDraws } from './voxel-gas-draw';
+import { VOXEL_LIQUID_KEY, VoxelLiquidDraws } from './voxel-liquid-draw';
+import { geometryBytes } from './voxel-medium-geometry';
 import { markOccludee, markOccludeeGroup } from './occludees';
 import { SEE_THROUGH_ROOM_DRAW_KEY } from './see-through';
 import { FULL_PATH, PHASE_CELLS, VOXEL_CREASE_ATTRIBUTE, VOXEL_CRACK_ATTRIBUTE, VOXEL_OWNER_ATTRIBUTE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceObject } from './voxel-surface';
@@ -198,7 +201,7 @@ function placedGeometry(parts: readonly PlacedSurface[], reliefDepthM = 0): THRE
 }
 
 /** What a chunk's (or node's) draw is made of: its joined sections' surfaces, pieces and shader grid (a join, or a batch's copy of one). */
-export type VoxelChunkDraw = Pick<JoinedDraw, 'instances' | 'solid'> & { readonly ground: DrawSurface; readonly base: DrawSurface; readonly caster?: { readonly ground: DrawSurface; readonly base: DrawSurface }; readonly liquid?: LiquidPart | null };
+export type VoxelChunkDraw = Pick<JoinedDraw, 'instances' | 'solid'> & { readonly ground: DrawSurface; readonly base: DrawSurface; readonly caster?: { readonly ground: DrawSurface; readonly base: DrawSurface }; readonly liquid?: LiquidPart | null; readonly gas?: GasPart | null };
 
 /** `mesh.userData[VOXEL_CASTER_KEY]`: a chunk's plain shadow caster (drawn only by the shadow cameras, for its relief mesh). */
 export const VOXEL_CASTER_KEY = '__tlVoxelCaster';
@@ -275,6 +278,9 @@ export interface ChunkDraw {
   readonly mesh: THREE.Mesh | null;
   /** Its liquid faces' mesh (a level-0 chunk's; null: none), replaced alone when only the liquid part changes. */
   liquid: THREE.Mesh | null;
+  /** Its gas faces' mesh (a level-0 chunk's; null: none) and its gas part (the runs the eye is looked up in), replaced alone when only the gas part changes. */
+  gas: THREE.Mesh | null;
+  gasPart: GasPart | null;
 }
 
 /** A draw's kit pieces as runs in the view's piece draws, the instances they hold, and whether some waited for kit meshes. */
@@ -359,7 +365,12 @@ export interface VoxelChunkViewOptions {
   readonly sharedPieces?: VoxelPieceBatches;
   /** Draw the chunks' liquid parts (default true; false: a comparison of what drawing them costs). */
   readonly liquid?: boolean;
+  /** Draw the chunks' gas parts (default true; false: a comparison of what drawing them costs). */
+  readonly gas?: boolean;
 }
+
+/** Scratch for a tipped piece's turn (used and read within one call). */
+const PIECE_TIP = new THREE.Quaternion();
 
 /** GPU bytes an instance takes in a piece draw: its matrix and its `pieceU` (voxel-trim-u.ts). */
 const PIECE_INSTANCE_BYTES = (INSTANCE_MATRIX_FLOATS + PIECE_DATA_FLOATS) * Float32Array.BYTES_PER_ELEMENT;
@@ -391,7 +402,6 @@ export class VoxelChunkView {
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
   private readonly at = new THREE.Vector3();
-  private readonly tip = new THREE.Quaternion();
   private readonly grid: ChunkGrid;
   private readonly origin: FloatingOrigin;
   private readonly shading: VoxelSurface;
@@ -410,6 +420,8 @@ export class VoxelChunkView {
   casterTriangles = 0;
   /** The chunks' liquid meshes (their triangles not in {@link triangles}). */
   readonly liquids: VoxelLiquidDraws;
+  /** The chunks' gas meshes and the eye's layer (their triangles not in {@link triangles}). */
+  readonly gases: VoxelGasDraws;
   /** The plain casters' material (made with the first caster). */
   private caster: THREE.Material | null = null;
   /** Objects whose meshes were built (chunks and nodes), and shader grids uploaded or set (one solid entry). */
@@ -431,6 +443,7 @@ export class VoxelChunkView {
     this.fastPaths = opts.fastPaths !== false;
     this.plainCasters = opts.reliefCasters !== 'relief';
     this.liquids = new VoxelLiquidDraws(opts.surface, this.shadows, opts.liquid !== false, (cx, cy, cz) => this.levels[0]?.get(chunkKey(this.grid, cx, cy, cz)));
+    this.gases = new VoxelGasDraws({ surface: opts.surface, grid: opts.grid, origin: opts.origin, root: this.root, drawn: opts.gas !== false, find: (cx, cy, cz) => this.levels[0]?.get(chunkKey(this.grid, cx, cy, cz)) });
     this.cells = new Uint16Array(opts.surface.grids.layout.side ** 3);
     if (opts.sharedPieces !== undefined) this.pieces = opts.sharedPieces;
     else {
@@ -721,10 +734,17 @@ export class VoxelChunkView {
       group.add(liquid);
       bytes += geometryBytes(liquid.geometry);
     }
+    const gas = level === 0 ? this.gases.mesh(d.gas) : null;
+    if (gas !== null) {
+      group.add(gas);
+      bytes += geometryBytes(gas.geometry);
+    }
+    const gasPart = level === 0 ? this.gases.kept(d.gas) : null;
     const kept = keptInstances(d.instances, this.kitEntriesOf(d));
-    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, wet: kept.wet, pieceBytes: 0, cellMetres: cellM, waiting: false, decalSurface, mesh: surfaceMesh, liquid };
+    const m: ChunkDraw = { group, cell, level, bytes, surface, region: null, instances: kept.instances, materials: kept.materials, wet: kept.wet, pieceBytes: 0, cellMetres: cellM, waiting: false, decalSurface, mesh: surfaceMesh, liquid, gas, gasPart };
     const runs = this.pieceRuns(m);
-    const empty = group.children.length === 0 && runs.instances === 0 && !runs.waiting;
+    // Gas with no face to draw (closed in) still keeps its chunk's draw: the eye may stand in it.
+    const empty = group.children.length === 0 && runs.instances === 0 && !runs.waiting && gasPart === null;
     // The grid goes into a region of its own now; the draw it replaces is shown with its old one until the commit.
     if (!empty) this.applyShader(m, d.solid);
     return { cx, cy, cz, level, key, draw: empty ? null : m, runs, kits: this.kitSet };
@@ -750,6 +770,7 @@ export class VoxelChunkView {
     }
     for (const c of m.group.children) if (c instanceof THREE.Mesh && c.userData[VOXEL_CASTER_KEY] === true) this.casterTriangles += ((c.geometry as THREE.BufferGeometry).index?.count ?? 0) / 3;
     this.liquids.shown(m.liquid);
+    if (m.gasPart !== null) this.gases.shown(m.gas);
     this.givePieces(m, p.kits === this.kitSet && !p.runs.waiting ? p.runs : this.pieceRuns(m));
     this.place(m.group, m.cell);
     m.group.visible = this.nearShown;
@@ -945,7 +966,7 @@ export class VoxelChunkView {
           const mirror = ((list.data[o + 6]! | (list.data[o + 7]! << 8)) & PIECE_VARIANT_MIRROR) !== 0;
           // The mesh's run through its slot rotation, the tip and the turns: a vertical edge's U runs up y.
           const q = pieceTurn(this.quat, rot, instancePlaceOf(rot), g.turnSign);
-          if (g.rotation !== 0) q.multiply(this.tip.setFromRotationMatrix(cubeRotationMatrix(g.rotation)));
+          if (g.rotation !== 0) q.multiply(PIECE_TIP.setFromRotationMatrix(cubeRotationMatrix(g.rotation)));
           const [axis, sign] = runAxisOf(q, g.runAxis, mirror, mirrorAxisOf(g.rotation));
           [offset, factor] = pieceU(g.uPerMetre, m.cell, local, cellM, axis, sign);
         }
@@ -977,6 +998,7 @@ export class VoxelChunkView {
     this.flushPieces();
     if (m.decalSurface !== null) this.decalSurfaces?.removed(m.decalSurface);
     if (m.region !== null) this.shading.grids.release(m.region);
+    if (m.gasPart !== null && m.gas === null) this.gases.dropped();
     for (const child of m.group.children) {
       const i = this.pickable.indexOf(child);
       if (i >= 0) this.pickable.splice(i, 1);
@@ -985,6 +1007,8 @@ export class VoxelChunkView {
         (child.geometry as THREE.BufferGeometry).dispose();
       } else if (child instanceof THREE.Mesh && child.userData[VOXEL_LIQUID_KEY] === true) {
         this.liquids.gone(child, false);
+      } else if (child instanceof THREE.Mesh && child.userData[VOXEL_GAS_KEY] === true) {
+        this.gases.gone(child, false);
       } else if (child instanceof THREE.Mesh) {
         const g = child.geometry as THREE.BufferGeometry;
         this.triangles -= (g.index?.count ?? 0) / 3;
@@ -1082,6 +1106,7 @@ export class VoxelChunkView {
     this.caster?.dispose();
     this.caster = null;
     this.liquids.dispose();
+    this.gases.dispose();
   }
 }
 

@@ -153,6 +153,8 @@ const TABLE_WIDTH = 64;
 const TABLE_ROWS = 4096 / TABLE_WIDTH;
 /** The first texel of the table's layer block. */
 const LAYER_BLOCK = 3 * TABLE_ROWS * TABLE_WIDTH;
+/** The table's fifth block: a material's look as a gas. */
+const GAS_BLOCK = 4 * TABLE_ROWS * TABLE_WIDTH;
 /** Texels along a test pattern's side, and how many patterns there are. */
 const PATTERN_SIZE = 64;
 export const VOXEL_PATTERNS = 4;
@@ -439,7 +441,31 @@ export interface VoxelMaterialLook {
    * none): drawn times the pixel's colour, given off into the light volume times the material's mean colour.
    */
   readonly glow?: readonly [number, number, number];
+  /**
+   * Its look where its cells are a gas: a colour (sRGB hex) and the density per metre a cell at full density holds
+   * (absent: the gas material record's defaults, so a gas of a material no record names still shows).
+   */
+  readonly gas?: { readonly colour: number; readonly density: number };
 }
+
+/** A material's look as a gas into the table's fifth block. */
+function writeGasLook(tdata: Float32Array, m: number, gas: { readonly colour: number; readonly density: number }, c: THREE.Color): void {
+  if (!(gas.density >= 0) || !Number.isFinite(gas.density)) throw new RangeError(`voxel material ${m}: a gas density of ${gas.density} a metre`);
+  c.setHex(gas.colour);
+  tdata.set([c.r, c.g, c.b, gas.density], (GAS_BLOCK + m) * 4);
+}
+
+/** What the table holds for a material ({@link VoxelSurface.tableEntry}). */
+function tableEntryOf(tdata: Float32Array, m: number): ReturnType<VoxelSurface['tableEntry']> {
+  const a = m * 4;
+  const t = (TABLE_ROWS * TABLE_WIDTH + m) * 4;
+  const r = (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4;
+  const ly = (LAYER_BLOCK + m) * 4;
+  return { colour: [tdata[a]!, tdata[a + 1]!, tdata[a + 2]!], pattern: tdata[a + 3]!, constructionTileMetres: tdata[t]!, terrainTileMetres: tdata[t + 1]!, crackLayer: tdata[t + 2]!, reliefLayer: tdata[r]!, reliefDepthM: tdata[r + 1]!, blendM: tdata[r + 2]!, layers: [tdata[ly]!, tdata[ly + 1]!, tdata[ly + 2]!], glow: [tdata[t + 3]!, tdata[r + 3]!, tdata[ly + 3]!], gas: [tdata[GAS_BLOCK * 4 + a]!, tdata[GAS_BLOCK * 4 + a + 1]!, tdata[GAS_BLOCK * 4 + a + 2]!, tdata[GAS_BLOCK * 4 + a + 3]!] };
+}
+
+/** A gas of a material whose look names none: the gas material record's defaults. */
+const STAND_IN_GAS = Object.freeze({ colour: parseInt(VOXEL_MATERIAL_LIMITS.gasColorDefault.slice(1), 16), density: VOXEL_MATERIAL_LIMITS.gasDensityDefault });
 
 /** The test patterns: flat, grain, planks, cobbles (luminance about 0.5, in every channel). */
 function patternTexture(): THREE.DataArrayTexture {
@@ -539,10 +565,12 @@ function bandTexture(): THREE.DataTexture {
  * surface's); a fourth its texture layers (wall, floor,
  * ceiling in r, g, b; −1 none). Its glow (linear radiance, the record's
  * colour × strength; 0 none) is the a of the second, third and fourth
- * blocks (r, g, b): texels a pixel reads for its materials already.
+ * blocks (r, g, b): texels a pixel reads for its materials already. A fifth
+ * block is its look as a gas (linear colour in rgb, its full density per
+ * metre in a), read by the gas draw alone.
  */
 function tableTexture(): THREE.DataTexture {
-  const rows = 4 * TABLE_ROWS;
+  const rows = 5 * TABLE_ROWS;
   const data = new Float32Array(TABLE_WIDTH * rows * 4);
   // No material has a texture layer until the arrays are set, and none glows (the layer block's a).
   data.fill(-1, LAYER_BLOCK * 4);
@@ -651,7 +679,7 @@ export interface VoxelSurface {
   readonly tableUploads: number;
   readonly tableMs: number;
   /** What the table holds for a material (diagnostics): linear colour, pattern, tiles in metres, crack layer, relief layer (−1 none) and depth. */
-  tableEntry(material: number): { colour: [number, number, number]; pattern: number; constructionTileMetres: number; terrainTileMetres: number; crackLayer: number; reliefLayer: number; reliefDepthM: number; blendM: number; layers: [number, number, number]; glow: [number, number, number] };
+  tableEntry(material: number): { colour: [number, number, number]; pattern: number; constructionTileMetres: number; terrainTileMetres: number; crackLayer: number; reliefLayer: number; reliefDepthM: number; blendM: number; layers: [number, number, number]; glow: [number, number, number]; gas: [number, number, number, number] };
   /**
    * The deepest relief of any material (metres; 0 without heights): how far a displaced vertex can move, what culling
    * bounds grow by. A geometry keeps the bound it was placed with until it is placed again.
@@ -665,6 +693,8 @@ export interface VoxelSurface {
    * Read from the same table and arrays as the surface, so a record's change reaches far draws with no mesh change.
    */
   farColour(m: N, wet: N): N;
+  /** Material `m`'s look as a gas (a node): its linear colour in rgb, its full density per metre in a; from the same table. */
+  gasLook(m: N): N;
   /**
    * A fine far hit's surface as this surface draws its own: the two materials' texture sets on their projection (the
    * grid's 4 m tiles and wall/floor/ceiling sets by the normal on construction, one axis's 2 m tiles on terrain), at a
@@ -925,6 +955,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
       tdata.set([layer ?? -1, depth, blend ?? -1, glow[1]], (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4);
       tdata[t + 3] = glow[0];
       tdata[(LAYER_BLOCK + m) * 4 + 3] = glow[2];
+      writeGasLook(tdata, m, l.gas ?? STAND_IN_GAS, c);
       // Under the patterns only a material with a test layer has a height; with texture sets any may.
       if (textured || layer !== undefined) deepest = Math.max(deepest, depth);
     }
@@ -1238,13 +1269,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     get tableMs() {
       return tableMs;
     },
-    tableEntry(m) {
-      const a = m * 4;
-      const t = (TABLE_ROWS * TABLE_WIDTH + m) * 4;
-      const r = (2 * TABLE_ROWS * TABLE_WIDTH + m) * 4;
-      const ly = (LAYER_BLOCK + m) * 4;
-      return { colour: [tdata[a]!, tdata[a + 1]!, tdata[a + 2]!], pattern: tdata[a + 3]!, constructionTileMetres: tdata[t]!, terrainTileMetres: tdata[t + 1]!, crackLayer: tdata[t + 2]!, reliefLayer: tdata[r]!, reliefDepthM: tdata[r + 1]!, blendM: tdata[r + 2]!, layers: [tdata[ly]!, tdata[ly + 1]!, tdata[ly + 2]!], glow: [tdata[t + 3]!, tdata[r + 3]!, tdata[ly + 3]!] };
-    },
+    tableEntry: (m) => tableEntryOf(tdata, m),
     get textured() {
       return textured;
     },
@@ -1277,6 +1302,7 @@ export function createVoxelSurface(layout: VoxelSurfaceLayout, opts: VoxelSurfac
     objectValues: (cellMetres = layout.cellMetres) => ({ slot: new THREE.Vector4(0, 0, 0, -1), phase: new THREE.Vector3(), slopePhase: new THREE.Vector3(), slope5Phase: new THREE.Vector3(), cellMetres }),
     farSurface: (at, maps) => farSurfaceRead({ layout, arrays: arrayNodes, look, matMask, decode, heightEdge: heightEdgeU, farColour }, at, maps),
     farColour,
+    gasLook: (m) => look(m, 4),
     dispose() {
       grids.dispose();
       table.dispose();

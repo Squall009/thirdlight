@@ -32,16 +32,14 @@
  * the same span and material. A quad never crosses the unit's border (a
  * derive section, inside one storage chunk).
  *
- * **Bytes** ({@link LIQUID_QUAD_BYTES} a quad, little-endian): x0, y0, z0,
- * x1, y1, z1 (u16, steps from the unit's corner: the quad's box, flat along
- * its face's axis), material (u16), the face ({@link LIQUID_FACE}, u8), a
- * reserved byte 0. A unit with no liquid face has no part (null): nothing is
- * kept for it, and a unit with no liquid cell costs one look at its cells.
+ * **Bytes**: the media's quads (derived-medium.ts), their spare byte 0. A
+ * unit with no liquid face has no part (null): nothing is kept for it, and a
+ * unit with no liquid cell costs one look at its cells.
  */
 import type { Neighbourhood } from './assembly';
-import { SURFACE_ISO } from './derived-mesh';
+import { closesMedium, joinMediumQuads, MEDIUM_FACE, MEDIUM_FACE_NORMALS, MEDIUM_QUAD_BYTES, mediumQuad, MediumQuadWriter, mergeLayerRects, type MediumQuads } from './derived-medium';
 import { MATERIAL_ID_MAX, ROLE_MASK, ROLE_SHIFT, SHAPE_FULL, SHAPE_SHIFT } from './record';
-import { isBodyRole, isFillRole, isLiquidRole } from './role-traits';
+import { isLiquidRole } from './role-traits';
 
 /** Steps a cell along each axis in the liquid part's positions: a fill level is a whole step. */
 export const LIQUID_STEPS_PER_CELL = SHAPE_FULL;
@@ -50,27 +48,16 @@ export const LIQUID_STEPS_PER_CELL = SHAPE_FULL;
 export const LIQUID_REACH_CELLS = 1;
 
 /** Bytes of one quad. */
-export const LIQUID_QUAD_BYTES = 16;
+export const LIQUID_QUAD_BYTES = MEDIUM_QUAD_BYTES;
 
 /** A quad's face: the direction its outward normal points. */
-export const LIQUID_FACE = Object.freeze({ px: 0, nx: 1, py: 2, ny: 3, pz: 4, nz: 5 });
+export const LIQUID_FACE = MEDIUM_FACE;
 
 /** Outward normals by {@link LIQUID_FACE}. */
-export const LIQUID_FACE_NORMALS: ReadonlyArray<readonly [number, number, number]> = Object.freeze([
-  [1, 0, 0],
-  [-1, 0, 0],
-  [0, 1, 0],
-  [0, -1, 0],
-  [0, 0, 1],
-  [0, 0, -1],
-]);
+export const LIQUID_FACE_NORMALS = MEDIUM_FACE_NORMALS;
 
 /** A unit's (or a joined chunk's) liquid quads. */
-export interface LiquidPart {
-  readonly count: number;
-  /** {@link LIQUID_QUAD_BYTES} a quad. */
-  readonly quads: Uint8Array;
-}
+export type LiquidPart = MediumQuads;
 
 /** A neighbour as the liquid part sees it: open, solid, or liquid of its fill. */
 const OPEN = -1;
@@ -85,11 +72,7 @@ function kindOf(v: number, density: number): number {
     const h = (v >>> SHAPE_SHIFT) & SHAPE_FULL;
     return h === 0 ? OPEN : h;
   }
-  if (!isBodyRole(role)) return OPEN;
-  if (isFillRole(role)) return density >= SURFACE_ISO ? SOLID : OPEN;
-  // Every built role, of any form or integrity: the liquid part reads the value alone (no rule evaluation), so a
-  // rail or a post stands as a wall would.
-  return SOLID;
+  return closesMedium(role, density) ? SOLID : OPEN;
 }
 
 /** Whether any of a neighbourhood's own cells (not its pad) is liquid. */
@@ -103,37 +86,6 @@ function holdsLiquid(n: Neighbourhood): boolean {
     }
   }
   return false;
-}
-
-/** Grows a quad list as quads are added. */
-class QuadWriter {
-  bytes = new Uint8Array(LIQUID_QUAD_BYTES * 64);
-  view = new DataView(this.bytes.buffer);
-  count = 0;
-
-  add(face: number, material: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): void {
-    const at = this.count * LIQUID_QUAD_BYTES;
-    if (at + LIQUID_QUAD_BYTES > this.bytes.length) {
-      const grown = new Uint8Array(this.bytes.length * 2);
-      grown.set(this.bytes);
-      this.bytes = grown;
-      this.view = new DataView(grown.buffer);
-    }
-    const w = this.view;
-    w.setUint16(at, x0, true);
-    w.setUint16(at + 2, y0, true);
-    w.setUint16(at + 4, z0, true);
-    w.setUint16(at + 6, x1, true);
-    w.setUint16(at + 8, y1, true);
-    w.setUint16(at + 10, z1, true);
-    w.setUint16(at + 12, material, true);
-    w.setUint8(at + 14, face);
-    this.count++;
-  }
-
-  part(): LiquidPart {
-    return { count: this.count, quads: this.bytes.slice(0, this.count * LIQUID_QUAD_BYTES) };
-  }
 }
 
 /** One run of a side face up a column: from `lo` to `hi` (steps from the unit's floor), one material. */
@@ -176,7 +128,7 @@ export function liquidOfNeighbourhood(n: Neighbourhood): LiquidPart | null {
   }
   // A unit cell's index in `kinds`, and the steps to its neighbours there.
   const at = (x: number, z: number): number => ((x + 1) * ks + (z + 1)) * ks + 1;
-  const out = new QuadWriter();
+  const out = new MediumQuadWriter();
 
   // Tops and bottoms: per cell layer, a key a column (fill << 12 | material; −1 none), merged into rectangles.
   const key = new Int32Array(e * e);
@@ -198,21 +150,10 @@ export function liquidOfNeighbourhood(n: Neighbourhood): LiquidPart | null {
         any ||= k >= 0;
       }
       if (!any) continue;
-      used.fill(0);
-      for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
-        const k = key[x * e + z]!;
-        if (k < 0 || used[x * e + z] === 1) continue;
-        let dz = 1;
-        while (z + dz < e && key[x * e + z + dz] === k && used[x * e + z + dz] === 0) dz++;
-        let dx = 1;
-        grow: while (x + dx < e) {
-          for (let j = 0; j < dz; j++) if (key[(x + dx) * e + z + j] !== k || used[(x + dx) * e + z + j] === 1) break grow;
-          dx++;
-        }
-        for (let a = 0; a < dx; a++) for (let j = 0; j < dz; j++) used[(x + a) * e + z + j] = 1;
+      mergeLayerRects(e, e, key, used, (x0, z0, x1, z1, k) => {
         const yy = y * S + (k >>> 12);
-        out.add(face, k & 0xfff, x * S, yy, z * S, (x + dx) * S, yy, (z + dz) * S);
-      }
+        out.add(face, k & 0xfff, x0 * S, yy, z0 * S, x1 * S, yy, z1 * S);
+      });
     }
   }
 
@@ -279,7 +220,7 @@ export function liquidOfNeighbourhood(n: Neighbourhood): LiquidPart | null {
       }
     }
   }
-  return out.count === 0 ? null : out.part();
+  return out.count === 0 ? null : { count: out.count, quads: out.quads() };
 }
 
 /** Bytes a liquid part holds. */
@@ -289,8 +230,8 @@ export function liquidBytes(l: LiquidPart | null | undefined): number {
 
 /** One quad's fields (tests, the renderer's unpack). */
 export function liquidQuad(l: LiquidPart, k: number): { face: number; material: number; min: [number, number, number]; max: [number, number, number] } {
-  const v = new DataView(l.quads.buffer, l.quads.byteOffset + k * LIQUID_QUAD_BYTES, LIQUID_QUAD_BYTES);
-  return { face: v.getUint8(14), material: v.getUint16(12, true), min: [v.getUint16(0, true), v.getUint16(2, true), v.getUint16(4, true)], max: [v.getUint16(6, true), v.getUint16(8, true), v.getUint16(10, true)] };
+  const { face, material, min, max } = mediumQuad(l, k);
+  return { face, material, min, max };
 }
 
 /**
@@ -299,22 +240,5 @@ export function liquidQuad(l: LiquidPart, k: number): { face: number; material: 
  * chunk's (`origin(id)`, cells); null when no section has a quad.
  */
 export function joinLiquid(parts: ReadonlyArray<LiquidPart | null | undefined>, origin: (id: number) => readonly [number, number, number]): LiquidPart | null {
-  let count = 0;
-  for (const l of parts) count += l?.count ?? 0;
-  if (count === 0) return null;
-  const quads = new Uint8Array(count * LIQUID_QUAD_BYTES);
-  const view = new DataView(quads.buffer);
-  const S = LIQUID_STEPS_PER_CELL;
-  let at = 0;
-  parts.forEach((l, id) => {
-    if (l == null || l.count === 0) return;
-    quads.set(l.quads.subarray(0, l.count * LIQUID_QUAD_BYTES), at);
-    const [ox, oy, oz] = origin(id);
-    if (ox !== 0 || oy !== 0 || oz !== 0) {
-      for (let k = 0; k < l.count; k++, at += LIQUID_QUAD_BYTES) {
-        for (const [off, d] of [[0, ox], [2, oy], [4, oz], [6, ox], [8, oy], [10, oz]] as const) view.setUint16(at + off, view.getUint16(at + off, true) + d * S, true);
-      }
-    } else at += l.count * LIQUID_QUAD_BYTES;
-  });
-  return { count, quads };
+  return joinMediumQuads(parts, origin, LIQUID_STEPS_PER_CELL);
 }

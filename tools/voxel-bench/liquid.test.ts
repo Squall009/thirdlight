@@ -398,7 +398,7 @@ describe('a liquid edit where the world runs: real workers, region files on disk
     rmSync(workerFile, { force: true });
   });
 
-  it('derives nothing for a gas-only stroke, only the liquid part of the sections round a liquid-only stroke over 4 chunks, equal to a fresh full derive; a dig of the shore derives as before, its new side face with it', { timeout: 120_000 }, async () => {
+  it('derives only the gas part for a gas-only stroke, only the liquid part of the sections round a liquid-only stroke over 4 chunks, equal to a fresh full derive; a dig of the shore derives as before, its new side face with it', { timeout: 120_000 }, async () => {
     pool = new WorkerPool({ size: 2, create: () => nodePoolWorker(workerFile), timeoutMs: 10_000, maxQueued: 256 });
     disk = new DiskRegions(join(dir, 'world'));
     const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool, ring: { loadRadius: 64, unloadRadius: 96, loadHeight: 64, unloadHeight: 96, nearRadius: 48 }, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(WORLD_RULES), derive: true, rules: WORLD_RULES, deriveMsPerUpdate: 10_000 });
@@ -413,12 +413,14 @@ describe('a liquid edit where the world runs: real workers, region files on disk
     await s.settle();
     const derived = new Set<string>();
     const liquid = new Set<string>();
+    const gas = new Set<string>();
     s.on((e) => {
       if (e.type === 'derived') derived.add(`${e.cx},${e.cy},${e.cz}`);
       if (e.type === 'liquid') liquid.add(`${e.cx},${e.cy},${e.cz}`);
+      if (e.type === 'gas') gas.add(`${e.cx},${e.cy},${e.cz}`);
     });
     const sections = sectionGrid(16);
-    /** Every section derived now equals a fresh derive of the truth: its canonical bytes and its liquid part. */
+    /** Every section derived now equals a fresh derive of the truth: its canonical bytes, its liquid part and its gas part. */
     const expectFresh = (): number => {
       let n = 0;
       for (const d of s.derivedChunks()) {
@@ -427,6 +429,8 @@ describe('a liquid edit where the world runs: real workers, region files on disk
         const fresh = deriveSectionFromStore(truth, sections, d.cx, d.cy, d.cz, WORLD_RULES);
         expect(Buffer.compare(Buffer.from(encodeDerived(a)), Buffer.from(encodeDerived(fresh))), `section ${d.cx},${d.cy},${d.cz}`).toBe(0);
         expect(Buffer.from(a.liquid?.quads ?? []).equals(Buffer.from(fresh.liquid?.quads ?? [])), `liquid of ${d.cx},${d.cy},${d.cz}`).toBe(true);
+        expect(Buffer.from(a.gas?.quads ?? []).equals(Buffer.from(fresh.gas?.quads ?? [])), `gas faces of ${d.cx},${d.cy},${d.cz}`).toBe(true);
+        expect(Buffer.from(a.gas?.runs ?? []).equals(Buffer.from(fresh.gas?.runs ?? [])), `gas runs of ${d.cx},${d.cy},${d.cz}`).toBe(true);
         n++;
       }
       return n;
@@ -434,8 +438,9 @@ describe('a liquid edit where the world runs: real workers, region files on disk
     expect(expectFresh()).toBeGreaterThan(50);
     const counters = (): number[] => [s.counters.derives, s.counters.shaderDerives, s.counters.liquidDerives, s.counters.collisionDerives];
 
-    // Gas written over the water where the four chunks meet: it feeds the gas part alone, which no derive builds, so
-    // no section is derived again, and what stands is still what a fresh derive of the world with the gas gives.
+    // Gas written over the water where the four chunks meet: it feeds the gas part alone, so the sections within the
+    // gas part's one-cell reach derive that part and nothing else (no mesh, shader data, liquid or collision), and
+    // what stands is what a fresh derive of the world with the gas gives.
     const over: number[] = [];
     for (let x = CX - 2; x < CX + 2; x++) for (let z = CZ - 2; z < CZ + 2; z++) for (const y of [TOP + 1, TOP + 2]) over.push(x, y, z);
     const mist = canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: over, voxel: { material: 40, role: C.gas, shape: 9, wetness: 0 } });
@@ -445,11 +450,20 @@ describe('a liquid edit where the world runs: real workers, region files on disk
     expect(fogged.parts).toBe(DERIVED_PART.gas);
     expect(new Set(fogged.chunks.map((u) => `${u.cx},${u.cz}`)).size).toBe(4);
     await s.settle();
+    const fogWant = dependentChunks(sections, editBounds(grid, mist), 1).map((c) => `${c.cx},${c.cy},${c.cz}`).sort();
+    expect(fogWant.length).toBeGreaterThan(3);
     expect([...derived]).toEqual([]);
     expect([...liquid]).toEqual([]);
+    expect([...gas].sort()).toEqual(fogWant);
     expect(counters()).toEqual(still);
+    expect(s.counters.gasDerives).toBe(fogWant.length);
     expect(s.voxelAt(CX, TOP + 1, CZ, v).role).toBe(C.gas);
     expect(expectFresh()).toBeGreaterThan(50);
+    // The four sections at the corner hold the mist's faces now: tops against the air, none against the water under it.
+    let fogFaces = 0;
+    for (const d of s.derivedChunks()) fogFaces += d.result.assembly?.gas?.count ?? 0;
+    expect(fogFaces).toBeGreaterThan(4);
+    gas.clear();
 
     // The lake's top cells round the corner where four chunks meet, taken out (liquid to air), then the water put back lower.
     const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [CX - 2, TOP, CZ - 2], max: [CX + 1, TOP, CZ + 1], mode: 'dig' });

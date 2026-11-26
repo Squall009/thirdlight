@@ -36,7 +36,7 @@ function feed(): { feed: ChunkDrawFeed; emit(e: StreamEvent): void; parts: Map<s
 }
 
 const surface = { vertexCount: 3, vertices: new Uint8Array(36), indices: new Uint32Array([0, 1, 2]) };
-const draw = { edge: 32, ground: surface, base: surface, instances: { count: 0, data: new Uint32Array(0) }, solid: 1, side: 34, liquid: null } as unknown as JoinedDraw;
+const draw = { edge: 32, ground: surface, base: surface, instances: { count: 0, data: new Uint32Array(0) }, solid: 1, side: 34, liquid: null, gas: null } as unknown as JoinedDraw;
 
 describe('ChunkDrawBatcher', () => {
   it("sets a resident chunk's mesh part to 0 when its draw is removed (nothing derived with assembly any more)", () => {

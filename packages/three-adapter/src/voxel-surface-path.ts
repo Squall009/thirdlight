@@ -115,3 +115,11 @@ export class LightStoreChoice {
     return voxelLightStoreFor(this.query, store.tierOn, store.webgpu);
   }
 }
+
+/** The page flag that leaves the gas parts undrawn (`?voxelGas=off`: what drawing them costs, by comparison). */
+export const VOXEL_GAS_URL_PARAM = 'voxelGas';
+
+/** Whether a page's query string draws the gas parts (anything but `off`). */
+export function voxelGasFromUrl(search: string): boolean {
+  return new URLSearchParams(search).get(VOXEL_GAS_URL_PARAM) !== 'off';
+}

@@ -310,16 +310,14 @@ export function checkRecordValue(v: number, what = 'voxel value'): void {
  * Derived outputs, as bits of a parts mask: what a change to the voxels can
  * make stale. `shader` is the per-chunk material and wetness grid the
  * surface shader blends from; `liquid` the liquid's faces against open
- * space (derived-liquid.ts); `gas` a gas's own part; the others are built
- * by the assembly evaluation.
+ * space (derived-liquid.ts); `gas` a gas's faces against air and its runs
+ * (derived-gas.ts); the others are built by the assembly evaluation.
  */
 export const DERIVED_PART = Object.freeze({ mesh: 1, collision: 2, nav: 4, light: 8, shader: 16, liquid: 32, gas: 64 });
 
-/**
- * Every part a derive builds. The gas part is not among them while nothing
- * builds it: a change that feeds it alone derives nothing again.
- */
-export const ALL_DERIVED_PARTS = 63;
+/** Every part a derive builds. */
+export const ALL_DERIVED_PARTS = 127;
+if (ALL_DERIVED_PARTS !== Object.values(DERIVED_PART).reduce((m, bit) => m | bit, 0)) throw new RangeError('the parts mask is not every derived part');
 
 /**
  * Which derived outputs each field drives (the feeds mask), when nothing

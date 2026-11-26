@@ -344,6 +344,8 @@ export interface StreamCounters {
   shaderDerives: number;
   /** Derives of the liquid part alone (a change only between air and liquid, or of a liquid's fill or material). */
   liquidDerives: number;
+  /** Derives of the gas part alone (a change only between air and gas, or of a gas's density or material). */
+  gasDerives: number;
   /** Chunks the derive planner looked at (a blocked chunk is looked at again only after a neighbour lands). */
   deriveChecks: number;
   /** Ticks that ended over budget with nothing evictable (dirty or unknown neighbourhood). */
@@ -436,7 +438,7 @@ export class VoxelStreamer {
   readonly tracker: DirtyTracker;
   readonly radius: number;
   budgetBytes: number;
-  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, liquidDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, airDerives: 0, cancelledDerives: 0, detailHolds: 0, collisionDerives: 0, collisionAir: 0, collisionRefused: 0, activity: 0, ground: emptyCoverage() };
+  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, liquidDerives: 0, gasDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0, speedRings: 0, airDerives: 0, cancelledDerives: 0, detailHolds: 0, collisionDerives: 0, collisionAir: 0, collisionRefused: 0, activity: 0, ground: emptyCoverage() };
   /** Main-thread milliseconds: planning per update, adopting a chunk, building an apron. */
   readonly planMs = new SampleRing();
   readonly adoptMs = new SampleRing();

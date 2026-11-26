@@ -34,7 +34,7 @@ import { rulesRef, type AssemblyRuleSet } from './assembly';
 import { joinSections, joinSectionsForDraw, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, sectionGrid, type CellGrid, type ChunkGrid, type SectionEdge } from './coords';
-import { partsApronRadius, type SectionResult } from './derive-assembly';
+import { partsApronRadius, SURFACE_KEEPING_PARTS, type SectionResult } from './derive-assembly';
 import { derivedBytes, encodeDerived, type DerivedData } from './derived-data';
 import { reliefBytes, type ReliefOptions } from './relief-mesh';
 import { RELIEF_PART } from './relief-ring';
@@ -76,7 +76,7 @@ export interface SwapReport {
 
 /** A chunk's derive results and events, as the streamer reports them (derive units are sections). */
 export type SectionEvent =
-  | { readonly type: 'derived' | 'shader' | 'liquid'; readonly cx: number; readonly cy: number; readonly cz: number }
+  | { readonly type: 'derived' | 'shader' | 'liquid' | 'gas'; readonly cx: number; readonly cy: number; readonly cz: number }
   /**
    * A storage chunk's sections have new results (all that one task brings:
    * an edit group's swap, or one job's answer): its joined draw
@@ -116,7 +116,7 @@ export interface SectionHost {
   pieceTable(): PieceTable | null;
   /** The relief mesh a level-0 section derives beside its surfaces (absent, or null for the section: none; relief-ring.ts). */
   relief?(sx: number, sy: number, sz: number): ReliefOptions | null;
-  readonly counters: { derives: number; shaderDerives: number; liquidDerives: number; staleRefused: number; deriveChecks: number; swaps: number; airDerives: number; cancelledDerives: number };
+  readonly counters: { derives: number; shaderDerives: number; liquidDerives: number; gasDerives: number; staleRefused: number; deriveChecks: number; swaps: number; airDerives: number; cancelledDerives: number };
   readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing; readonly joinUs: SampleRing };
   isResident(cx: number, cy: number, cz: number): boolean;
   /** The only chunks that can ever be resident (a structure grid's read box; absent or null: any). */
@@ -201,10 +201,9 @@ const EMPTY_OUTPUT: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: n
 export const PIECES_AT_CELLS = 1 << 16;
 if ((PIECES_AT_CELLS & Object.values(DERIVED_PART).reduce((m, bit) => m | bit, 0)) !== 0) throw new RangeError('the pieces flag is a derived part\'s bit');
 
-/** The parts a section derives without the assembly evaluation, its surfaces standing: the shader data and the liquid part. */
-export const SURFACE_KEEPING_PARTS = DERIVED_PART.shader | DERIVED_PART.liquid;
+export { SURFACE_KEEPING_PARTS };
 
-/** Whether parts (DERIVED_PART bits) include any output the assembly evaluation builds (anything but the shader data and the liquid part). */
+/** Whether parts (DERIVED_PART bits) include any output the assembly evaluation builds (anything but the shader data and the media's parts). */
 export function geometryParts(parts: number): boolean {
   return (parts & ALL_DERIVED_PARTS & ~SURFACE_KEEPING_PARTS) !== 0;
 }
@@ -570,7 +569,6 @@ export class SectionDerives {
   invalidate(box: CellBox, why: 'yes' | 'edit', parts: number, groupOrId: EditGroup | number | null): void {
     let g = typeof groupOrId === 'number' ? this.group(groupOrId) : groupOrId;
     const own = parts & ALL_DERIVED_PARTS;
-    // A change that feeds only a part no derive builds leaves every section as it is.
     if (own === 0 && (parts & PIECES_AT_CELLS) === 0) return;
     const geometry = geometryParts(own);
     for (const d of dependentChunks(this.sections, box, geometry ? this.host.radius : partsApronRadius(own))) {
@@ -769,9 +767,9 @@ export class SectionDerives {
     const reliefOnly = s.reliefOnly;
     s.reliefOnly = false;
     const counters = this.host.counters;
-    if (out.assembly === null && (out.shader !== null || out.liquid !== undefined) && s.derived?.assembly != null) {
-      // Only the shader data or the liquid part (or both) was rebuilt: each replaces that part of the full result (its
-      // relief mesh stays: heights are shader data; the liquid part lies outside the canonical bytes).
+    if (out.assembly === null && (out.shader !== null || out.liquid !== undefined || out.gas !== undefined) && s.derived?.assembly != null) {
+      // Only surface-keeping parts were rebuilt: each replaces that part of the full result (its relief mesh stays:
+      // heights are shader data; the media's parts lie outside the canonical bytes).
       let assembly: DerivedData = s.derived.assembly;
       let hash = s.derived.hash;
       let parts = 0;
@@ -787,6 +785,12 @@ export class SectionDerives {
         counters.liquidDerives++;
         parts |= DERIVED_PART.liquid;
         this.host.emit({ type: 'liquid', cx: s.sx, cy: s.sy, cz: s.sz });
+      }
+      if (out.gas !== undefined) {
+        assembly = { ...assembly, gas: out.gas };
+        counters.gasDerives++;
+        parts |= DERIVED_PART.gas;
+        this.host.emit({ type: 'gas', cx: s.sx, cy: s.sy, cz: s.sz });
       }
       s.derived = { ...s.derived, assembly, hash };
       this.setParts(s, assembly);
@@ -1116,7 +1120,7 @@ export class SectionDerives {
           this.regionsUs.derive.add(t.evaluateUs + t.meshUs + t.consumersUs + t.regionsUs!);
         }
       }
-      this.deliver(s, { solid: 0, exposed: 0, mask: null, hash: r.hash, assembly: r.assembly, shader: r.shader, ...(r.liquid === undefined ? {} : { liquid: r.liquid }) }, r.times);
+      this.deliver(s, { solid: 0, exposed: 0, mask: null, hash: r.hash, assembly: r.assembly, shader: r.shader, ...(r.liquid === undefined ? {} : { liquid: r.liquid }), ...(r.gas === undefined ? {} : { gas: r.gas }) }, r.times);
     });
     this.flushChunks();
   }

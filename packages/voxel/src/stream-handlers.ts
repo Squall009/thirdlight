@@ -12,7 +12,7 @@
 import { apronVoxelAt, checkApron, checkRadius } from './apron';
 import { jobRadius } from './assembly';
 import { assemblyRules } from './rule-registry';
-import { deriveSectionCollisionsWithApron, deriveSectionPartsWithApron, deriveSectionsWithApron, deriveWithApron, type ChunkPieces, type SectionResult } from './derive-assembly';
+import { deriveSectionCollisionsWithApron, deriveSectionPartsWithApron, deriveSectionsWithApron, deriveWithApron, SURFACE_KEEPING_PARTS, type ChunkPieces, type SectionResult } from './derive-assembly';
 import type { ReliefOptions } from './relief-mesh';
 import { pieceTableOf } from './piece-table';
 import { collisionPartTransfer, derivedTransfer, encodeDerived } from './derived-data';
@@ -208,10 +208,10 @@ function derive(raw: unknown): JobResult {
     if (input.sections !== undefined) return deriveSections(store, input, parts);
     if (parts === DERIVED_PART.collision) throw new RangeError('derive job: collision alone is derived by sections');
     if ((parts & ~SURFACE_KEEPING_PARTS) === 0) {
-      // Material and wetness feed only the shader data, an air <-> liquid change only the liquid part: both read the
-      // chunk and a border one cell deep, no assembly evaluation.
+      // Material and wetness feed only the shader data, a change between air and a medium only that medium's part:
+      // each reads the chunk and a border one cell deep, no assembly evaluation.
       const [one] = deriveSectionPartsWithApron(g, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out), e, [0], parts);
-      const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: one!.hash, assembly: null, shader: one!.shader, ...(one!.liquid === undefined ? {} : { liquid: one!.liquid }) };
+      const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: one!.hash, assembly: null, shader: one!.shader, ...(one!.liquid === undefined ? {} : { liquid: one!.liquid }), ...(one!.gas === undefined ? {} : { gas: one!.gas }) };
       return { output, transfer: partsTransfer(one!, []) };
     }
     if (input.rules !== undefined) {
@@ -272,14 +272,10 @@ function deriveSections(store: PaletteStore, input: DeriveInput, parts: number):
   return { output, transfer };
 }
 
-/** The parts a derive may build alone while a section's surfaces stand: the shader data and the liquid part. */
-const SURFACE_KEEPING_PARTS = DERIVED_PART.shader | DERIVED_PART.liquid;
-
-/** A parts-only result's buffers (its shader data's and its liquid's) onto a transfer list. */
-function partsTransfer(r: Pick<SectionResult, 'shader' | 'liquid'>, out: ArrayBuffer[]): ArrayBuffer[] {
+/** A parts-only result's buffers (its shader data's, its liquid's and its gas's) onto a transfer list. */
+function partsTransfer(r: Pick<SectionResult, 'shader' | 'liquid' | 'gas'>, out: ArrayBuffer[]): ArrayBuffer[] {
   if (r.shader != null) out.push(r.shader.palette.buffer as ArrayBuffer, r.shader.ids.buffer as ArrayBuffer);
-  const q = r.liquid?.quads.buffer;
-  if (q instanceof ArrayBuffer && q.byteLength > 0 && !out.includes(q)) out.push(q);
+  for (const q of [r.liquid?.quads.buffer, r.gas?.quads.buffer, r.gas?.runs.buffer]) if (q instanceof ArrayBuffer && q.byteLength > 0 && !out.includes(q)) out.push(q);
   return out;
 }
 

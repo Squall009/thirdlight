@@ -12,7 +12,8 @@
  * heights blend, fill with water and displace) and its blend distance
  * (`voxel.blendMetres`; absent: the world's) and its glow (`params.emissive` × `params.emissiveIntensity`, in linear
  * light: the radiance its surfaces give off, drawn times their colour and given off into the light volume times its
- * mean colour). What a record does not say stays the
+ * mean colour), and for a gas material its plain look (`voxel.gas`: its colour and full density per metre, the
+ * record's defaults where it names none). What a record does not say stays the
  * base look's (by default the per-id stand-in, `voxelStandInLook`), as do
  * ids no record has. A record's surface texture sets draw from the texture
  * arrays (`voxelRecordTextures`: the arrays to assemble and each id's
@@ -22,7 +23,7 @@
  * never moves a texture; a record's tile is drawn at the nearest one that
  * does (e.g. 3 m as 2.994 m over a 512 m phase).
  */
-import { isVoxelMaterial, resolveMaterialInstances, VOXEL_SURFACES, voxelSurfaceSet, voxelSurfaceTextures, type MaterialDef, type VoxelSurfaceTextures } from '@thirdlight/project-model';
+import { isVoxelMaterial, resolveMaterialInstances, VOXEL_SURFACES, voxelGasLook, voxelSurfaceSet, voxelSurfaceTextures, type MaterialDef, type VoxelSurfaceTextures } from '@thirdlight/project-model';
 import { VOXEL_SIZE_M } from '@thirdlight/voxel';
 import { Color } from 'three';
 import { voxelStandInLook } from './voxel-chunk-view';
@@ -59,6 +60,7 @@ export function voxelRecordLooks(materials: readonly VoxelLookRecord[], base: (m
     const depth = m.voxel!.heightDepth;
     const blend = m.voxel!.blendMetres;
     const glow = recordGlow(m.params);
+    const gas = m.voxel!.use === 'gas' ? voxelGasLook(m.voxel) : null;
     return {
       ...look,
       ...(colour !== undefined ? { colour: parseInt(colour, 16) } : {}),
@@ -66,6 +68,7 @@ export function voxelRecordLooks(materials: readonly VoxelLookRecord[], base: (m
       ...(depth !== undefined ? { heightDepthMetres: depth } : {}),
       ...(blend !== undefined ? { blendMetres: blend } : {}),
       ...(glow !== null ? { glow } : {}),
+      ...(gas !== null ? { gas: { colour: parseInt(gas.color.slice(1), 16), density: gas.density } } : {}),
     };
   };
 }

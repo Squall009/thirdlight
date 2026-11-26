@@ -60,6 +60,7 @@ import { damagedIntegrity } from './record';
 export type { DerivePieces } from './derive-pieces';
 import { createEdgeMasks, type EdgeMasks } from './edge-cases';
 import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
+import { gasBytes, gasOfNeighbourhood, type GasPart } from './derived-gas';
 import { liquidBytes, liquidOfNeighbourhood, type LiquidPart } from './derived-liquid';
 import { evaluateCases, evaluateEdges } from './kit-rules';
 import { appendSurface, roofSurface } from './roof-mesher';
@@ -254,8 +255,13 @@ const REGIONS_SPAN = threadProfiler.span('open regions', 'voxelMesh');
  * table), and the downsample keeps it only where the cells without it give
  * air, by the mean of its density. Results differ from v33's only in the
  * nodes of a world that holds gas.
+ *
+ * v35: a new part, the gas (derived-gas.ts): a level-0 unit's gas faces
+ * against air merged into quads with their material and the density behind
+ * them, and its gas as runs up its columns; null without gas; outside the
+ * canonical bytes. Every other output is v34's.
  */
-export const DERIVED_FORMAT_VERSION = 34;
+export const DERIVED_FORMAT_VERSION = 35;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -360,6 +366,12 @@ export interface DerivedData {
    * air, so a result's hash is the same with or without it.
    */
   readonly liquid?: LiquidPart | null;
+  /**
+   * The gas's faces against air and its runs (derived-gas.ts): level 0
+   * only; null when the unit holds no gas (absent in a result made by
+   * hand). Outside the canonical bytes, as the liquid part.
+   */
+  readonly gas?: GasPart | null;
 }
 
 /** A level-0 unit's open regions from its occupancy, timed into `times` and the thread's span. */
@@ -729,6 +741,8 @@ export interface DeriveTimes {
   regionsUs?: number;
   /** The liquid part (level 0, a unit holding liquid or asked for it alone). */
   liquidUs?: number;
+  /** The gas part (level 0, a unit holding gas or asked for it alone). */
+  gasUs?: number;
 }
 
 /** The one assembly evaluation of a unit: its classes (in `classes`), then its cases and forms, or the uniform region it is. */
@@ -817,12 +831,16 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
   // Built from the voxels alone (no class or case), at level 0, where the near ring draws it.
   const tl = performance.now();
   const liquid = level === 0 ? liquidOfNeighbourhood(n) : null;
-  if (liquid !== null && times !== undefined) times.liquidUs = (times.liquidUs ?? 0) + (performance.now() - tl) * 1000;
+  const tg = performance.now();
+  if (liquid !== null && times !== undefined) times.liquidUs = (times.liquidUs ?? 0) + (tg - tl) * 1000;
+  const gas = level === 0 ? gasOfNeighbourhood(n) : null;
+  if (gas !== null && times !== undefined) times.gasUs = (times.gasUs ?? 0) + (performance.now() - tg) * 1000;
+  const media = { ...(liquid === null ? {} : { liquid }), ...(gas === null ? {} : { gas }) };
   const ev = evaluateUnit(n, rules, classes, level, table);
   if (ev.uniform !== null) {
     if (times !== undefined) times.evaluateUs += (performance.now() - t0) * 1000;
     const u = uniformDerived(n, rules, ev.uniform, level, times);
-    return liquid === null ? u : { ...u, liquid };
+    return liquid === null && gas === null ? u : { ...u, ...media };
   }
   const { cases, forms } = ev;
   const t1 = performance.now();
@@ -855,7 +873,7 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     shader: shaderOfNeighbourhood(n),
     counts: countsOf(n, classes),
     ...(reliefPart === undefined ? {} : { relief: reliefPart }),
-    ...(liquid === null ? {} : { liquid }),
+    ...media,
   };
   const t4 = performance.now();
   // Timed apart from the consumers above: the regions read the occupancy they made.
@@ -905,13 +923,13 @@ function arraysOf(d: DerivedData): ArrayBufferView[] {
 
 /** Bytes a derived chunk holds in memory (its arrays; what the streaming budget counts). */
 export function derivedBytes(d: DerivedData): number {
-  let n = (d.relief === undefined ? 0 : reliefBytes(d.relief)) + liquidBytes(d.liquid);
+  let n = (d.relief === undefined ? 0 : reliefBytes(d.relief)) + liquidBytes(d.liquid) + gasBytes(d.gas);
   for (const a of arraysOf(d)) n += a.byteLength;
   return n;
 }
 
 /** Bytes per consumer (for reports). */
-export function derivedPartBytes(d: DerivedData): { occupancy: number; light: number; collision: number; nav: number; ground: number; base: number; instances: number; shader: number; regions: number; liquid: number } {
+export function derivedPartBytes(d: DerivedData): { occupancy: number; light: number; collision: number; nav: number; ground: number; base: number; instances: number; shader: number; regions: number; liquid: number; gas: number } {
   const b = (a: ArrayBufferView | null): number => a?.byteLength ?? 0;
   return {
     occupancy: b(d.occupancy.bricks) + b(d.occupancy.mask),
@@ -924,6 +942,7 @@ export function derivedPartBytes(d: DerivedData): { occupancy: number; light: nu
     shader: shaderBytes(d.shader),
     regions: d.regions == null ? 0 : openRegionsBytes(d.regions),
     liquid: liquidBytes(d.liquid),
+    gas: gasBytes(d.gas),
   };
 }
 
@@ -931,8 +950,7 @@ export function derivedPartBytes(d: DerivedData): { occupancy: number; light: nu
 export function derivedTransfer(d: DerivedData, out: ArrayBuffer[] = []): ArrayBuffer[] {
   for (const a of arraysOf(d)) if (a.buffer instanceof ArrayBuffer && !out.includes(a.buffer)) out.push(a.buffer);
   if (d.relief !== undefined) reliefTransfer(d.relief, out);
-  const q = d.liquid?.quads.buffer;
-  if (q instanceof ArrayBuffer && q.byteLength > 0 && !out.includes(q)) out.push(q);
+  for (const q of [d.liquid?.quads.buffer, d.gas?.quads.buffer, d.gas?.runs.buffer]) if (q instanceof ArrayBuffer && q.byteLength > 0 && !out.includes(q)) out.push(q);
   return out;
 }
 

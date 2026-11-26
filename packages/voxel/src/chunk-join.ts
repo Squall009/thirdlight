@@ -40,6 +40,7 @@ import { shaderGridEntries, shaderGridSide, shaderSolidEntry, SHADER_BORDER_CELL
 import { sectionLocalOrigin } from './derive-assembly';
 import { packedWidth } from './packed-width';
 import type { ReliefSurface } from './relief-mesh';
+import { joinGas, type GasPart } from './derived-gas';
 import { joinLiquid, type LiquidPart } from './derived-liquid';
 
 /** What a renderer draws for one storage chunk, joined from its derive sections. */
@@ -81,6 +82,8 @@ export interface JoinedDraw {
   readonly relief?: { readonly ground: ReliefSurface; readonly base: ReliefSurface };
   /** Its sections' liquid parts joined, positions from the chunk's corner (null: no liquid face). */
   readonly liquid: LiquidPart | null;
+  /** Its sections' gas parts joined, positions from the chunk's corner (null: no gas). */
+  readonly gas: GasPart | null;
 }
 
 /** How a joined chunk's buffers came about (for measurements). */
@@ -343,7 +346,8 @@ export function joinSectionsForDraw(chunkEdge: number, sectionEdge: number, sect
     if (solid < 0) shaderGridEntries(d.shader, cells);
     if (times !== undefined) times.shaderUs += (performance.now() - t0) * 1000;
     const liquid = d.liquid != null && d.liquid.count > 0 ? d.liquid : null;
-    return { edge: chunkEdge, ground: d.ground, base: d.base, instances: d.instances, collision: d.collision, solid, side, liquid, ...(d.relief === undefined ? {} : { relief: { ground: d.relief.ground, base: d.relief.base } }) };
+    const gas = d.gas != null && d.gas.runCount > 0 ? d.gas : null;
+    return { edge: chunkEdge, ground: d.ground, base: d.base, instances: d.instances, collision: d.collision, solid, side, liquid, gas, ...(d.relief === undefined ? {} : { relief: { ground: d.relief.ground, base: d.relief.base } }) };
   }
   const t0 = performance.now();
   const ground = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.ground ?? null));
@@ -352,13 +356,14 @@ export function joinSectionsForDraw(chunkEdge: number, sectionEdge: number, sect
   const collision = joinCollision(chunkEdge, sectionEdge, sections.map((s) => s?.collision ?? null));
   const relief = joinRelief(chunkEdge, sectionEdge, sections);
   const liquid = joinLiquid(sections.map((s) => s?.liquid), (id) => sectionLocalOrigin(chunkEdge, sectionEdge, id));
+  const gas = joinGas(sections.map((s) => s?.gas), (id) => sectionLocalOrigin(chunkEdge, sectionEdge, id));
   const t1 = performance.now();
   const solid = joinShaderCells(chunkEdge, sectionEdge, sections.map((s) => s?.shader ?? null), cells);
   if (times !== undefined) {
     times.surfacesUs += (t1 - t0) * 1000;
     times.shaderUs += (performance.now() - t1) * 1000;
   }
-  return { edge: chunkEdge, ground, base, instances, collision, solid, side, liquid, ...(relief === undefined ? {} : { relief }) };
+  return { edge: chunkEdge, ground, base, instances, collision, solid, side, liquid, gas, ...(relief === undefined ? {} : { relief }) };
 }
 
 /** The sections' relief meshes joined (see {@link JoinedDraw.relief}); undefined when no section has one. */

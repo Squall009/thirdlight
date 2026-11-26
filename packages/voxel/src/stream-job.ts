@@ -34,6 +34,7 @@ import type { ChunkPayload } from './chunk-wire';
 import type { ChunkEdge, SectionEdge } from './coords';
 import type { SectionResult } from './derive-assembly';
 import type { ShaderOut } from './derived-shader';
+import type { GasPart } from './derived-gas';
 import type { LiquidPart } from './derived-liquid';
 import type { DerivedData } from './derived-data';
 import type { VoxelEditCommand } from './edit-command';
@@ -145,11 +146,11 @@ export interface DeriveInput {
   readonly rules?: AssemblyRulesRef;
   /**
    * The derived parts wanted (DERIVED_PART bits, record.ts; default all).
-   * Only `shader` and `liquid` (either or both): those parts of the chunk
-   * and its border, no assembly evaluation; R is then the border they read
-   * (`partsApronRadius`: SHADER_BORDER_CELLS, LIQUID_REACH_CELLS) and the
-   * apron that deep (a change of material or wetness, or only between air
-   * and liquid).
+   * Only `shader`, `liquid` and `gas` (any of them): those parts of the
+   * chunk and its border, no assembly evaluation; R is then the border they
+   * read (`partsApronRadius`: SHADER_BORDER_CELLS, LIQUID_REACH_CELLS,
+   * GAS_REACH_CELLS) and the apron that deep (a change of material or
+   * wetness, or only between air and a medium).
    */
   readonly parts?: number;
   /**
@@ -216,6 +217,8 @@ export interface DeriveOutput {
    * (a full derive holds it in `assembly`).
    */
   readonly liquid?: LiquidPart | null;
+  /** The gas part alone (null: no gas), as {@link liquid}. */
+  readonly gas?: GasPart | null;
   /** One result a section, in the order the input named them, when the job named sections. */
   readonly sections?: readonly SectionResult[];
 }
