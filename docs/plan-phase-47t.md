@@ -209,7 +209,7 @@ Check runs in this phase:
 | 2026-11-26 01:23, dc274ab1 (47T.3 batch A: 74 browser files and 4 unit files archived, 8 new unit tests) | 236 s | 26 s | 6 s | 179 s (946 files) | 25 s | GREEN |
 | 2026-11-26 01:49, 8d1b7f0b (47T.3 batch B: 24 more browser files archived, 14 new unit tests) | 239 s | 25 s | 8 s | 181 s (1 file failed: `memory3d`, Rapier's WASM heap shared with earlier files in a worker) | 24 s | RED |
 | 2026-11-26 01:53, `--failed` (that file isolated) | 34 s | 25 s | 2 s | 6 s (1 file) | — | GREEN |
-| 2026-11-26 02:04, aae79d14 (47T.3 batch B done: 57 browser files archived, 17 new unit tests) | 250 s | 26 s | 9 s | 188 s (1 file failed: `vertex-paint-draw`, stored WGSL digests after other files in its worker) | 27 s | RED |
+| 2026-11-26 02:04, aae79d14 (47T.3 batch B done: 57 browser files archived, 19 new unit tests and one new assertion) | 250 s | 26 s | 9 s | 188 s (1 file failed: `vertex-paint-draw`, stored WGSL digests after other files in its worker) | 27 s | RED |
 | 2026-11-26 02:08, `--failed` (that file isolated, as the other WGSL-digest files) | 33 s | 26 s | 1 s | 6 s (1 file) | — | GREEN |
 
 The phase run's one trial, 2026-11-25 23:29 at 0e511679 (`tools/gate.sh start phase`): GREEN in 946 s — build 29 s,
