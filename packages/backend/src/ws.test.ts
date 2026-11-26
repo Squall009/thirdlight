@@ -6,7 +6,9 @@
  * close that a client which never answers its close frame cannot hold up.
  */
 import { randomBytes } from 'node:crypto';
+import { rmSync } from 'node:fs';
 import { request } from 'node:http';
+import { join } from 'node:path';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
@@ -21,6 +23,7 @@ import {
   upgrade,
   type TestBackend,
 } from './test-helpers';
+import { createTestBackend } from './testing';
 import { WS_CLOSE_GRACE_MS } from './ws-channel';
 
 describe('WS upgrade + session channel', () => {
@@ -363,6 +366,36 @@ describe('commands over HTTP + mutation.applied', () => {
   });
 });
 describe('closing the backend', () => {
+  it('a graceful close ends an editor socket with 1001 server_closing, not the 1000 / detached the editor does not reconnect after; the same session re-attaches to the restarted backend at the revision it left', async () => {
+    const tb = await startBackend();
+    let second: Awaited<ReturnType<typeof createTestBackend>> | null = null;
+    try {
+      const sid = mkSessionId();
+      const est = await establish(tb, sid);
+      const ws = await upgrade(tb, sid, est.wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const r = await api(`${tb.authUrl}/api/v1/projects/demo-0001/commands`, {
+        body: { op: 'createEntity', projectId: 'demo-0001', requestId: mkRequestId(), expectedRevision: 0, args: { sceneId: 'scene-main', kind: 'box', parentId: null, name: 'box1' }, origin: { kind: 'mcp', clientId: 'harness' } },
+        token: tb.authToken,
+        origin: null,
+      });
+      expect((r.json as { revision?: number }).revision).toBe(1);
+      await tb.backend.close();
+      expect(await ws.closed).toEqual({ code: 1001, reason: 'server_closing' });
+      // The restart: a new backend over the same data root and tokens (the editor keeps its session id and token).
+      second = await createTestBackend({ dataRoot: join(tb.root, 'data'), authoringOrigin: AUTHORING_ORIGIN, previewOrigin: tb.prevUrl, authoringOrigins: [AUTHORING_ORIGIN], tokens: [{ token: tb.authToken, scope: 'authoring:demo-0001' }] });
+      const tb2: TestBackend = { ...tb, backend: second.backend, root: second.root, teardown: second.teardown, authUrl: `http://127.0.0.1:${second.backend.portAuthoring}`, prevUrl: `http://127.0.0.1:${second.backend.portPreview}` };
+      const again = await establish(tb2, sid);
+      expect(again.revision).toBe(1);
+      const ws2 = await upgrade(tb2, sid, again.wsToken);
+      expect(await ws2.waitFor((m) => (m as { type?: string }).type === 'attached')).toMatchObject({ revision: 1 });
+      ws2.close();
+    } finally {
+      if (second !== null) await second.teardown();
+      rmSync(tb.root, { recursive: true, force: true });
+    }
+  });
+
   it('drops an editor socket that never answers the close frame, so close() ends within the grace', async () => {
     const tb = await startBackend();
     const sid = mkSessionId();
