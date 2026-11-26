@@ -6,13 +6,17 @@
  *   starts it; in a fresh process a file it died with the file, in a shared
  *   worker it stayed (about 650 MB each, one per worker) and helped push a run
  *   past its memory cap. esbuild starts it again by itself on its next call.
- * - timers are real again and stubbed globals and environment variables are
- *   restored, in case a file faked or stubbed them without undoing it.
+ * - timers are real again, spies are restored (a spy on `performance.now`
+ *   reaches every later file), and stubbed globals and environment variables
+ *   are restored, in case a file faked or stubbed them without undoing it.
+ *   A global replaced by plain assignment is not seen here: tests stub
+ *   globals with vi.stubGlobal.
  */
 import { afterAll, vi } from 'vitest';
 
 afterAll(async () => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   const esbuild = await import('esbuild');

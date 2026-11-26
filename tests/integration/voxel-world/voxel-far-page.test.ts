@@ -11,7 +11,7 @@ import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
 import type { Backend } from '@thirdlight/backend/services';
 import { chunkGrid, createWorldStore, type ChunkCoord, type VoxelStreamer } from '@thirdlight/voxel';
 import { FAR_REBUILT_FOLDER, farCacheDir, writeVoxelWorld } from '@thirdlight/workspace';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { RangeWorld, type WorldChange } from '../../../packages/editor/src/voxel-world/range-world';
 import { flatGround } from '../../../tools/voxel-bench/scenes';
 
@@ -95,11 +95,12 @@ const keys = (cs: readonly ChunkCoord[]): string[] => cs.map((c) => `${c.cx},${c
 
 beforeAll(async () => {
   // The world's pool starts module workers; no derive runs here, so a stand-in answers nothing.
-  (globalThis as unknown as { Worker: unknown }).Worker = class {
+  // Stubbed (not assigned): the shared worker's setup puts the real global back for the files after this one.
+  vi.stubGlobal('Worker', class {
     postMessage(): void {}
     addEventListener(): void {}
     terminate(): void {}
-  };
+  });
   root = mkdtempSync(join(testTempBase(), 'tl-voxel-far-page-'));
   const tb = await createTestBackend({ dataRoot: join(root, 'data'), authoringOrigin: ORIGIN, previewOrigin: 'http://127.0.0.1:8514', authoringOrigins: [ORIGIN], tokens: [{ token: TOKEN, scope: `authoring:${PROJECT}` }] });
   backend = tb.backend;

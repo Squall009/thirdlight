@@ -23,15 +23,16 @@
  * backends or child processes, writes roots and signal handlers, or builds
  * bench worlds: run unisolated, those workers kept every file's worlds and
  * servers and the run reached 12 GB in 85 s. A file that fails only without
- * isolation moves to ISOLATED_FILES (named, with the reason), never to a
- * rerun.
+ * isolation is isolated, never rerun: by its kind (ISOLATED_KINDS, read from
+ * its text, so a new file of that kind is isolated too) or named
+ * (ISOLATED_FILES, with the reason).
  *
  * TL_UNIT_SET picks a part of the suite: `fast` leaves out the slow unit
  * files (tests/slow-unit-files.json; `tools/gate.sh check` runs this set),
  * `slow` runs only them, unset runs everything. Agent worktrees under
  * .claude/ are never collected.
  */
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { slowUnitFiles } from './tools/check-slow-units.mjs';
@@ -45,11 +46,29 @@ const slow: string[] = UNIT_SET === 'all' ? [] : slowUnitFiles();
 // The bench builds real-scale worlds: sharing its workers bought no time (146 s against 147 s) and kept their
 // memory, taking the run to its 12 GB cap.
 const ISOLATED_DIRS = ['tests/crash/', 'tools/voxel-bench/'];
-/** Files elsewhere that keep isolation, each with why. */
+/**
+ * Kinds of file that keep isolation by what they do, found in their text, so a file added or one archived (which
+ * changes which files share a worker before another) cannot turn the check red: each kind once failed only because
+ * of the files that ran before it in a shared worker.
+ */
+const ISOLATED_KINDS: readonly { readonly why: string; readonly is: (text: string) => boolean }[] = [
+  {
+    // three numbers its nodes from a counter the whole process shares, so the files run before change the programs' text.
+    why: 'compares node programs (WGSL) with stored digests',
+    is: (t) => /\b(SHADER_TYPE_WGSL|PLAIN_GRAPH_WGSL)\b/.test(t) || (/test-wgsl/.test(t) && /'[0-9a-f]{16}'/.test(t)),
+  },
+  {
+    // Free space the files before left in Rapier's WASM heap, or their buffers not yet collected, absorb or add to a measure.
+    why: 'measures memory the whole process shares',
+    is: (t) => /physicsMemoryBytes3D\(|process\.memoryUsage\(/.test(t),
+  },
+  {
+    why: 'vi.mock does not take on a module the worker already loaded for an earlier file',
+    is: (t) => /\bvi\.(mock|doMock)\(/.test(t),
+  },
+];
+/** Files elsewhere that keep isolation, each with why (their failure in a shared worker had no kind above). */
 const ISOLATED_FILES: string[] = [
-  // vi.mock of a module the worker has already loaded for an earlier file does not take.
-  'tests/authoring-rules.test.ts',
-  'packages/three-adapter/src/environment-nodes.test.ts',
   // Fakes `performance`, the clock wallClock() reads; the two profiler files below failed after it in one worker.
   'packages/three-adapter/src/clipped-decals.test.ts',
   // Failed only when sharing a worker (their spans lost their order and times); cause not traced further.
@@ -57,25 +76,18 @@ const ISOLATED_FILES: string[] = [
   'packages/game-host/src/profile-view.test.ts',
   // Failed only when sharing a worker (no unit marked, no bounce); old probe lighting, cause not traced.
   'packages/three-adapter/src/surface-relight.test.ts',
-  // Compare shader programs with stored digests: three numbers its nodes from a counter the whole process shares, so
-  // the files run before them change the programs' text.
-  'packages/three-adapter/src/mesh-decals.test.ts',
-  'packages/three-adapter/src/projected-decals.test.ts',
-  'packages/three-adapter/src/see-through.test.ts',
-  'packages/three-adapter/src/vertex-paint-draw.test.ts',
-  // Measures the growth of Rapier's WASM heap, one per process: free space left in it by the files before it in a
-  // shared worker absorbs part of a batch (5,848 B measured a body against 7,345 estimated once more files shared it).
-  'packages/physics-rapier/src/memory3d.test.ts',
 ];
 const TEST_NAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const EXCLUDE = ['**/node_modules/**', '**/dist/**', 'archive/**', '.claude/**', ...(UNIT_SET === 'fast' ? slow : [])];
-const isolated = (f: string): boolean => ISOLATED_DIRS.some((d) => f.startsWith(d)) || ISOLATED_FILES.includes(f);
 /** Every unit test file, listed, so each lands in exactly one project (an exclude glob cannot give one file back). */
 const allFiles: string[] = ['packages', 'tools', 'tests'].flatMap((top) =>
   (readdirSync(join(ROOT, top), { recursive: true }) as string[])
     .map((f) => `${top}/${f}`)
     .filter((f) => TEST_NAME.test(f) && !/(^|\/)(node_modules|dist)\//.test(f)),
 );
+/** Files of an isolated kind (read once a run: the text of every unit file, a few milliseconds). */
+const ofKind = new Set(allFiles.filter((f) => !ISOLATED_DIRS.some((d) => f.startsWith(d)) && ISOLATED_KINDS.some((k) => k.is(readFileSync(join(ROOT, f), 'utf8')))));
+const isolated = (f: string): boolean => ISOLATED_DIRS.some((d) => f.startsWith(d)) || ISOLATED_FILES.includes(f) || ofKind.has(f);
 const inSet = (f: string): boolean => (UNIT_SET === 'slow' ? slow.includes(f) : UNIT_SET === 'fast' ? !slow.includes(f) : true);
 
 const common = {
