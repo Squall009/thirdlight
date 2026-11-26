@@ -2,8 +2,8 @@
  * The structure mode's wiring: the Scene view's structure tool armed by the
  * mode (or by GameObject → Structure, to draw a new building), its gestures
  * sent as the existing commands — `createEntity` with a `voxelStructure`,
- * `setComponent` for the definition, `setTransform` for a turn, `editVoxels`
- * on the structure's grid for a hand-edit stroke — and what the mode reads
+ * `setComponent` for the definition, `setTransform` for a turn (a hand-edit
+ * stroke is the voxel brush's, `useVoxelBrush`) — and what the mode reads
  * back: the world's route (each grid's hand-edit count and last regenerate's
  * misfits), the tool's live readout and the last refusal; and the openings'
  * props: the project's models with their bounds (the prop picker's fit), a
@@ -200,13 +200,6 @@ export function useStructureTools(deps: Deps): StructureTools {
     place: async (entityId: string, position: readonly number[], yawRad: number): Promise<void> => {
       await run('Turn', 'setTransform', { entityId, transform: { position: [...position], rotation: yawRotation(yawRad) } });
     },
-    stroke: async (entityId: string, command: Record<string, unknown>): Promise<void> => {
-      const e = latest.current.entities.find((x) => x.id === entityId);
-      const world = (e?.components['voxelStructure'] as StructureValue | undefined)?.world;
-      if (world === undefined) return;
-      await run('Hand edit', 'editVoxels', { world, command });
-      refresh(world);
-    },
     refused: (m: string) => setRefusal(m),
     readout: (t: string | null) => setReadout(t),
     selectOpening: (id: string | null) => {
@@ -241,7 +234,7 @@ export function useStructureTools(deps: Deps): StructureTools {
     }
     setCreating(true);
     setNotice(CREATE_HINT, 'info');
-    v.voxelWorlds.structureTool({ tool: 'create', navigate: false, world, entityId: null, value: null, store: null, brushShape: 'box', voxel: null, marker: null }, {
+    v.voxelWorlds.structureTool({ tool: 'create', navigate: false, world, entityId: null, value: null, marker: null }, {
       ...callbacks,
       create: async (...args) => {
         setNotice(null);

@@ -3,7 +3,7 @@
  * 0.5 m grid (faint, turned with it, so the snapping is visible), its
  * footprint's outline at its floor, the handles (a corner, an edge's middle,
  * the storey arrow over the roof, the turn knob on its ring), the ghost of a
- * drag's new height, the hand-edit cursor's cell box and a misfit's marker.
+ * drag's new height, an opening's box and ghost and a misfit's marker.
  *
  * Everything that belongs to the structure lies in one group placed and
  * turned as its grid is (`setPlace`), so its numbers are the grid's own
@@ -122,7 +122,7 @@ export class StructureOverlay {
   }
 
   /** A box's edges in the structure's frame (grid metres): the ghost of a new height, a cursor's cells, a misfit's marker (null: gone). */
-  setBox(name: 'ghost' | 'cursor' | 'marker' | 'opening', box: { min: readonly number[]; max: readonly number[] } | null, colour?: 'ghost' | 'cursor' | 'misfit' | 'dig'): void {
+  setBox(name: 'ghost' | 'marker' | 'opening', box: { min: readonly number[]; max: readonly number[] } | null, colour?: 'ghost' | 'cursor' | 'misfit' | 'dig'): void {
     const c = colour === 'misfit' || colour === 'dig' ? this.colours.misfit : colour === 'cursor' ? this.colours.line : this.colours.ghost;
     this.setLines(name, box === null ? null : boxEdges(box.min, box.max), c, name === 'ghost' ? 0.7 : 1);
   }

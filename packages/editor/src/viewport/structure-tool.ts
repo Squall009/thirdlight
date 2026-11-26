@@ -17,10 +17,6 @@
  *   check's message is said.
  * - **Extend**: a drag on the structure's floor level draws a rectangle in
  *   its grid that becomes another polygon (an L, a T, a wing).
- * - **Dig, Add, Paint**: a stroke of the shared brush on the structure's own
- *   cells (only its grid: the world's cells under the pointer are not the
- *   structure's), the cursor snapped to its cells and turned with it; the
- *   release sends one `editVoxels` on the structure's grid.
  * - **Openings**: over a wall, a ghost of an opening of the chosen size
  *   snapped to that wall's cells at that storey (red where it is refused);
  *   a click adds it (one `setComponent`), or selects the opening clicked; the
@@ -28,25 +24,26 @@
  *   the release) and Delete removes it. A refused opening is not sent: the
  *   reason is said (structure-openings.ts).
  *
+ * The structure's hand edits (dig, add, paint on its own cells) are the
+ * voxel brush tool's (`voxel-brush-tool.ts`), armed on the structure's grid
+ * beside this tool in Navigate, which keeps drawing the grid and outline.
+ *
  * Tests read `data-structure-tool`: the tool, the handles on screen, the
  * cell under the pointer and the last gesture.
  *
  * Browser-only (three.js).
  */
 import * as THREE from 'three';
-import { BUILDING_GENERATOR, VOXEL_SIZE_M, valueRole, VOXEL_ROLE, GridFrame, type GridPlacement, type StructureDefinition } from '@thirdlight/voxel';
+import { BUILDING_GENERATOR, VOXEL_SIZE_M, GridFrame, type GridPlacement, type StructureDefinition } from '@thirdlight/voxel';
 
-import type { BrushStore } from '../session/brush';
 import { movedOpening, openingAtCell, openingBox, openingOnWall, openingProblem, openingWords, wallUnderCell, withOpening, withoutOpening, type OpeningShape } from '../session/structure-openings';
-import { addPolygon, brushCells, cellsIn, definitionOf, footprintBox, footprintMiddle, handStrokeCommand, moveCorner, moveEdge, rectPoints, snapYaw, storeysFor, structureProblem, turnedPosition, withPolygonPoints, type CellPoint, type HandStroke, type StructureValue } from '../session/structure-shape';
+import { addPolygon, cellsIn, definitionOf, footprintBox, footprintMiddle, moveCorner, moveEdge, rectPoints, snapYaw, storeysFor, structureProblem, turnedPosition, withPolygonPoints, type CellPoint, type StructureValue } from '../session/structure-shape';
 import type { ScenePickHit } from '../voxel-world/scene-voxels-wire';
-import { BrushControl } from './brush-control';
-import { BrushCursor } from './brush-cursor';
 import { aimAtPointer } from './scene-queries';
 import { StructureOverlay, type OverlayHandle } from './structure-overlay';
 import type { ToolPress } from './tool-input';
 
-export type StructureToolKind = 'create' | 'shape' | 'extend' | 'dig' | 'add' | 'paint' | 'openings';
+export type StructureToolKind = 'create' | 'shape' | 'extend' | 'openings';
 
 /** What the structure mode (or GameObject → Structure) arms the tool with. */
 export interface StructureArm {
@@ -58,11 +55,6 @@ export interface StructureArm {
   /** The structure edited (null: create). */
   readonly entityId: string | null;
   readonly value: StructureValue | null;
-  /** The hand-edit brush (its size; the shared panel and keys change it). */
-  readonly store: BrushStore | null;
-  readonly brushShape: 'box' | 'sphere';
-  /** What Add writes; Paint's material (Paint keeps each cell's role: the role of the cell the stroke starts on). */
-  readonly voxel: { readonly material: number; readonly role: number } | null;
   /** A misfit to show: its cell in the structure's grid (null: none). */
   readonly marker: readonly [number, number, number] | null;
   /** The Openings tool: the size a click places and the opening selected (absent: not the Openings tool). */
@@ -89,8 +81,6 @@ export interface StructureToolCallbacks {
   define(entityId: string, def: StructureDefinition): Promise<void>;
   /** The structure moved or turned (one `setTransform`). */
   place(entityId: string, position: readonly number[], yawRad: number): Promise<void>;
-  /** A hand-edit stroke (one `editVoxels` on the structure's grid). */
-  stroke(entityId: string, command: Record<string, unknown>): Promise<void>;
   /** Why something was not sent (the shell's status line shows it). */
   refused(message: string): void;
   /** What a drag would make, said live (null: nothing in flight). */
@@ -114,17 +104,14 @@ type Drag =
   | { kind: 'corner' | 'edge'; poly: number; k: number; start: [number, number]; points: [number, number][] | null }
   | { kind: 'storey'; start: number; anchorY: number; normal: THREE.Vector3; point: THREE.Vector3; storeys: number }
   | { kind: 'yaw'; start: number; startYaw: number; yaw: number }
-  | { kind: 'stroke'; mode: 'dig' | 'add' | 'paint'; cells: [number, number, number][]; role: number | null }
   | { kind: 'opening'; id: string; height: number; startCell: number; cells: number };
 
 export class StructureTool {
   private arming: StructureArm | null = null;
   private drag: Drag | null = null;
   private readonly overlay: StructureOverlay;
-  private readonly cursor: BrushCursor;
-  private readonly control: BrushControl;
   private readonly ray = new THREE.Raycaster();
-  /** The last voxel hit under the pointer (hand tools), and whether a pick is in flight. */
+  /** The last voxel hit under the pointer (the Openings tool), and whether a pick is in flight. */
   private hover: ScenePickHit | null = null;
   /** The pointer (client px) the hover was picked for. */
   private hoverAtPx: [number, number] | null = null;
@@ -133,14 +120,11 @@ export class StructureTool {
   private hot: string | null = null;
   private last: Record<string, unknown> | null = null;
   private stamp = '';
-  private unstore: (() => void) | null = null;
   /** The Openings tool's last readout over a wall. */
   private said: string | null = null;
 
   constructor(private readonly host: StructureToolHost, private readonly cb: StructureToolCallbacks) {
     this.overlay = new StructureOverlay(host.overlay);
-    this.cursor = new BrushCursor(host.overlay, 'structure-cursor');
-    this.control = new BrushControl({ canvas: host.canvas(), surfaceAt: () => this.hoverPoint(), ctrlChanged: () => host.requestRender() });
   }
 
   armed(): boolean {
@@ -150,18 +134,8 @@ export class StructureTool {
   /** Arm the tool (null: off; a gesture in flight is dropped). */
   arm(a: StructureArm | null): void {
     if (a?.entityId !== this.arming?.entityId || a?.tool !== this.arming?.tool) this.cancel();
-    if (a?.store !== this.arming?.store) {
-      this.unstore?.();
-      this.unstore = a?.store?.subscribe(() => this.host.requestRender()) ?? null;
-    }
     this.arming = a;
-    const hand = a !== null && !a.navigate && (a.tool === 'dig' || a.tool === 'add' || a.tool === 'paint');
-    this.control.setStore(hand ? a.store : null, ['size']);
-    this.control.arm(hand);
-    if (!hand) {
-      this.cursor.hide();
-      this.hover = null;
-    }
+    if (a === null || a.navigate || a.tool !== 'openings') this.hover = null;
     if (a === null) this.overlay.clear();
     this.host.requestRender();
   }
@@ -178,13 +152,12 @@ export class StructureTool {
       this.cb.selectOpening?.(null);
       return true;
     }
-    return this.control.key(e);
+    return false;
   }
 
   pointerDown(e: PointerEvent): ToolPress {
     const a = this.arming;
     if (a === null || a.navigate || e.button !== 0 || e.altKey) return null;
-    if (this.control.press()) return 'consume';
     if (a.tool === 'create') return this.beginCreate(e);
     const place = a.entityId === null ? null : this.host.place(a.entityId);
     if (place === null || a.value === null) return null;
@@ -196,19 +169,12 @@ export class StructureTool {
       this.drag = { kind: 'extend', from: [cellsIn(at[0]), cellsIn(at[2])], to: null };
       return 'capture';
     }
-    // A hand stroke starts on the structure's own cell under the pointer (a press elsewhere is the view's).
-    const h = this.hover;
-    if (h === null || h.grid !== a.value.grid || h.world !== a.world) return null;
-    const mode = a.tool;
-    this.drag = { kind: 'stroke', mode, cells: [this.strokeCell(h, mode)], role: h.record === null ? null : valueRole(h.record) };
-    this.drawCursor();
-    return 'capture';
+    return null;
   }
 
   pointerMove(e: PointerEvent): boolean {
     const a = this.arming;
     if (a === null || a.navigate) return false;
-    if (this.control.move(e, this.hoverPoint())) return true;
     const d = this.drag;
     const place = a.entityId === null ? null : this.host.place(a.entityId);
     if (d === null) {
@@ -219,7 +185,7 @@ export class StructureTool {
           this.host.requestRender();
         }
       }
-      if (a.tool === 'dig' || a.tool === 'add' || a.tool === 'paint' || a.tool === 'openings') this.hoverAt(e.clientX, e.clientY);
+      if (a.tool === 'openings') this.hoverAt(e.clientX, e.clientY);
       if (a.tool === 'openings' && place !== null) {
         const g = this.grab(e.clientX, e.clientY);
         if (g !== this.hot) {
@@ -260,8 +226,6 @@ export class StructureTool {
         if (p !== null) this.host.preview(a.entityId, { position: turnedPosition(p, footprintMiddle(definitionOf(a.value)), d.yaw), rotation: [0, Math.sin(d.yaw / 2), 0, Math.cos(d.yaw / 2)] });
         this.cb.readout(`Turn ${((d.yaw * 180) / Math.PI).toFixed(e.shiftKey ? 1 : 0)}°${e.shiftKey ? ' (free)' : ''}`);
       }
-    } else if (d.kind === 'stroke') {
-      this.hoverAt(e.clientX, e.clientY);
     } else if (d.kind === 'opening' && place !== null && a.value !== null) {
       const c = this.alongCell(e, place, a.value, d);
       if (c !== null) d.cells = c - d.startCell;
@@ -314,10 +278,6 @@ export class StructureTool {
           this.last = { gesture: 'move-opening', ok: false, refused: why };
         } else this.define(id, withOpening(def, o), 'move-opening');
       }
-    } else if (d.kind === 'stroke') {
-      const voxel = d.mode === 'dig' || a.voxel === null ? undefined : d.mode === 'paint' ? { material: a.voxel.material, role: d.role ?? VOXEL_ROLE.wall } : a.voxel;
-      const s: HandStroke = { grid: a.value.grid, cells: d.cells, shape: a.brushShape, across: brushCells(a.store?.get().size ?? VOXEL_SIZE_M), mode: d.mode, ...(voxel !== undefined ? { voxel } : {}) };
-      void this.send(this.cb.stroke(id, handStrokeCommand(s)), d.mode, { cells: d.cells.length });
     }
     return true;
   }
@@ -325,14 +285,11 @@ export class StructureTool {
   leave(): void {
     if (this.drag === null) {
       this.hover = null;
-      this.cursor.hide();
       this.host.requestRender();
     }
-    this.control.leave();
   }
 
   cancel(): boolean {
-    if (this.control.cancel()) return true;
     const d = this.drag;
     if (d === null) return false;
     this.drag = null;
@@ -608,22 +565,6 @@ export class StructureTool {
     return best;
   }
 
-  /** The cell a hand stroke acts on: the hit cell (dig, paint), or the cell in front of the face it entered by (add). */
-  private strokeCell(h: ScenePickHit, mode: 'dig' | 'add' | 'paint'): [number, number, number] {
-    const c = h.cell;
-    return mode === 'add' ? [c[0] + h.normal[0], c[1] + h.normal[1], c[2] + h.normal[2]] : [c[0], c[1], c[2]];
-  }
-
-  private hoverPoint(): THREE.Vector3 | null {
-    const a = this.arming;
-    const h = this.hover;
-    if (a === null || h === null || a.entityId === null) return null;
-    const place = this.host.place(a.entityId);
-    if (place === null) return null;
-    const w = new GridFrame(place).toWorld((h.cell[0] + 0.5) * VOXEL_SIZE_M, (h.cell[1] + 0.5) * VOXEL_SIZE_M, (h.cell[2] + 0.5) * VOXEL_SIZE_M);
-    return new THREE.Vector3(w[0], w[1], w[2]);
-  }
-
   /** Picks the cell under the pointer (one pick in flight; the latest position is picked next). */
   private hoverAt(x: number, y: number): void {
     if (this.picking) {
@@ -638,46 +579,12 @@ export class StructureTool {
       const a = this.arming;
       this.hover = hit;
       this.hoverAtPx = [Math.round(x), Math.round(y)];
-      const d = this.drag;
-      if (d?.kind === 'stroke' && hit !== null && a?.value != null && hit.grid === a.value.grid && hit.world === a.world) {
-        const c = this.strokeCell(hit, d.mode);
-        if (!d.cells.some((q) => q[0] === c[0] && q[1] === c[1] && q[2] === c[2])) d.cells.push(c);
-      }
-      this.drawCursor();
       if (a?.tool === 'openings' && this.drag === null) this.sayGhost(a);
       this.host.requestRender();
       const next = this.pendingPointer;
       this.pendingPointer = null;
       if (next !== null) this.hoverAt(next.x, next.y);
     });
-  }
-
-  /** The hand-edit cursor: the brush's cells as a box in the structure's grid, and the shared cursor flat on the face. */
-  private drawCursor(): void {
-    const a = this.arming;
-    const h = this.hover;
-    const on = a !== null && !a.navigate && a.value !== null && h !== null && h.grid === a.value.grid && h.world === a.world && (a.tool === 'dig' || a.tool === 'add' || a.tool === 'paint');
-    if (!on || a.entityId === null) {
-      this.overlay.setBox('cursor', null);
-      this.cursor.hide();
-      return;
-    }
-    const place = this.host.place(a.entityId);
-    if (place === null) return;
-    const mode = a.tool as 'dig' | 'add' | 'paint';
-    const c = this.strokeCell(h!, mode);
-    const n = brushCells(a.store?.get().size ?? VOXEL_SIZE_M);
-    const r = (n - 1) / 2;
-    this.overlay.setBox('cursor', { min: [(c[0] - r) * VOXEL_SIZE_M, (c[1] - r) * VOXEL_SIZE_M, (c[2] - r) * VOXEL_SIZE_M], max: [(c[0] + r + 1) * VOXEL_SIZE_M, (c[1] + r + 1) * VOXEL_SIZE_M, (c[2] + r + 1) * VOXEL_SIZE_M] }, mode === 'dig' ? 'dig' : 'cursor');
-    const f = new GridFrame(place);
-    const hc = h!.cell;
-    const nn = h!.normal;
-    const face = f.toWorld((hc[0] + 0.5 + nn[0] * 0.5) * VOXEL_SIZE_M, (hc[1] + 0.5 + nn[1] * 0.5) * VOXEL_SIZE_M, (hc[2] + 0.5 + nn[2] * 0.5) * VOXEL_SIZE_M);
-    const nw = f.toWorld(nn[0], nn[1], nn[2]);
-    const normal = new THREE.Vector3(nw[0] - place.position[0], nw[1] - place.position[1], nw[2] - place.position[2]);
-    this.cursor.setLook({ falloff: 'constant', hardness: 1, strength: 1, mask: null, state: mode === 'dig' ? 'erase' : 'paint' });
-    if (normal.lengthSq() > 0.5) this.cursor.place({ centre: new THREE.Vector3(face[0], face[1], face[2]), rx: (n * VOXEL_SIZE_M) / 2, rz: (n * VOXEL_SIZE_M) / 2, normal: normal.normalize(), fill: this.drag === null });
-    else this.cursor.hide();
   }
 
   // ---- each frame ----------------------------------------------------------------------------
@@ -753,7 +660,6 @@ export class StructureTool {
     this.overlay.setRing(shape ? [mid[0], floor, mid[2]] : null, this.ringRadius(fb));
     const m = a.marker;
     this.overlay.setBox('marker', m === null ? null : { min: [m[0] * VOXEL_SIZE_M - 0.05, m[1] * VOXEL_SIZE_M - 0.05, m[2] * VOXEL_SIZE_M - 0.05], max: [(m[0] + 1) * VOXEL_SIZE_M + 0.05, (m[1] + 1) * VOXEL_SIZE_M + 0.05, (m[2] + 1) * VOXEL_SIZE_M + 0.05] }, 'misfit');
-    if (a.tool !== 'dig' && a.tool !== 'add' && a.tool !== 'paint') this.overlay.setBox('cursor', null);
   }
 
   /** The Openings tool's drawings: the ghost under the pointer (or of the opening dragged), red where refused; the selected opening's box. */
@@ -783,9 +689,6 @@ export class StructureTool {
   }
 
   dispose(): void {
-    this.unstore?.();
-    this.control.dispose();
-    this.cursor.dispose();
     this.overlay.dispose();
   }
 }

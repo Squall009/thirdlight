@@ -105,9 +105,10 @@ function makeBlockModeHost(m: EditorModel, via?: SessionClient): BlockModeHost {
 
 /** What the edit modes read from the app. */
 function makeEditModeHost(m: EditorModel): Omit<EditModeHost, 'prefab'> {
-  const { terrainTools, vertexPaint, decalTools, decalAtlas, entities, activeScene, hierarchyFlags, blocks, tileThumbnails, materials, newMaterialId, openDocument, clientRef, structureTools, viewportRef } = m;
+  const { terrainTools, vertexPaint, decalTools, decalAtlas, entities, activeScene, hierarchyFlags, blocks, tileThumbnails, materials, newMaterialId, openDocument, clientRef, structureTools, voxelBrush, viewportRef } = m;
   return {
     structure: structureTools,
+    voxelBrush,
     frameBox: (box) => viewportRef.current?.frameBox(box),
     terrain: terrainTools,
     paint: vertexPaint,

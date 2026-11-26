@@ -14,7 +14,7 @@
  * Pure: no DOM, no three.js.
  */
 import type { VoxelMaterialUse } from '@thirdlight/project-model/voxel-materials';
-import { anchoredDefinition, BUILDING_GENERATOR, GridFrame, MATERIAL_AIR, STRUCTURE_DEFAULTS, StructureDefinitionError, VOXEL_ROLE, VOXEL_SIZE_M, valueMaterial, valueRole, type EditMode, type GridPlacement, type StructureDefinition, type StructureMaterials } from '@thirdlight/voxel';
+import { anchoredDefinition, BUILDING_GENERATOR, GridFrame, MATERIAL_AIR, STRUCTURE_DEFAULTS, StructureDefinitionError, VOXEL_ROLE, VOXEL_SIZE_M, valueMaterial, valueRole, type GridPlacement, type StructureDefinition, type StructureMaterials } from '@thirdlight/voxel';
 
 /** A footprint point or a rectangle's corner, [x, z] in cells. */
 export type CellPoint = readonly [number, number];
@@ -236,40 +236,6 @@ export function misfitWords(m: MisfitLike, name: (id: number) => string = (id) =
 /** The banner's words for `n` misfits. */
 export function misfitSummary(n: number): string {
   return `${n} edit${n === 1 ? '' : 's'} did not fit the new shape`;
-}
-
-/** A brush's size (metres, the shared brush's) as the nearest odd count of cells across, so a dab is centred on a cell. */
-export function brushCells(sizeM: number): number {
-  return Math.max(1, 2 * Math.round((sizeM / VOXEL_SIZE_M - 1) / 2) + 1);
-}
-
-/** One stroke of hand edits on a structure's grid: the cells' centres it passed, its brush, and what it does. */
-export interface HandStroke {
-  readonly grid: number;
-  /** Cells whose centres the dabs sit on ([x, y, z] each, in the grid). */
-  readonly cells: readonly (readonly [number, number, number])[];
-  readonly shape: 'box' | 'sphere';
-  /** Cells across (odd). */
-  readonly across: number;
-  readonly mode: Extract<EditMode, 'dig' | 'add' | 'paint'>;
-  /** The voxel Add writes or Paint gives (absent: dig). */
-  readonly voxel?: { readonly material: number; readonly role: number };
-}
-
-/** The stroke as one `editVoxels` command on the structure's grid (`command.grid`), the brush's half extents in cells. */
-export function handStrokeCommand(s: HandStroke): Record<string, unknown> {
-  const h = s.across / 2;
-  return {
-    v: 2,
-    grid: s.grid,
-    kind: 'brush',
-    shape: s.shape,
-    size: [h, h, h],
-    points: s.cells.flatMap((c) => [c[0] + 0.5, c[1] + 0.5, c[2] + 0.5]),
-    mode: s.mode,
-    ...(s.voxel !== undefined ? { voxel: { material: s.voxel.material, role: s.voxel.role, wetness: 0 } } : {}),
-    smooth: false,
-  };
 }
 
 /** The roles Add offers, in its palette's order. */

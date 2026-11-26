@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BUILDING_GENERATOR, MATERIAL_AIR, recordValue, SHAPE_FULL, VOXEL_ROLE, VOXEL_SIZE_M, type StructureDefinition } from '@thirdlight/voxel';
 
-import { addPolygon, brushCells, defaultMaterials, edgeMoveAxis, footprintMiddle, handStrokeCommand, misfitSummary, misfitWords, moveCorner, moveEdge, newStructure, rectPoints, removePolygon, snapYaw, storeysFor, structureProblem, turnedPosition, withPolygonPoints } from './structure-shape';
+import { addPolygon, defaultMaterials, edgeMoveAxis, footprintMiddle, misfitSummary, misfitWords, moveCorner, moveEdge, newStructure, rectPoints, removePolygon, snapYaw, storeysFor, structureProblem, turnedPosition, withPolygonPoints } from './structure-shape';
 
 const MAT = { wall: 3, floor: 3, roof: 3, foundation: 3, stair: 3 };
 const house = (): StructureDefinition => {
@@ -94,12 +94,6 @@ describe('structure shape: materials, hand edits and misfit words', () => {
   it('a new structure takes the first construction material by id on every part; none is a message, not a house', () => {
     expect(defaultMaterials([{ id: 9, name: 'b', use: 'construction' }, { id: 2, name: 'soil', use: 'terrain' }, { id: 4, name: 'a', use: 'construction' }])).toEqual({ wall: 4, floor: 4, roof: 4, foundation: 4, stair: 4 });
     expect(defaultMaterials([{ id: 2, name: 'soil', use: 'terrain' }])).toBeNull();
-  });
-
-  it('a brush is an odd count of cells across, centred on a cell; a stroke is one brush command on the grid', () => {
-    expect([0.2, 0.5, 1, 1.5, 2].map(brushCells)).toEqual([1, 1, 3, 3, 5]);
-    expect(handStrokeCommand({ grid: 4, cells: [[3, 2, 0], [4, 2, 0]], shape: 'box', across: 1, mode: 'dig' })).toEqual({ v: 2, grid: 4, kind: 'brush', shape: 'box', size: [0.5, 0.5, 0.5], points: [3.5, 2.5, 0.5, 4.5, 2.5, 0.5], mode: 'dig', smooth: false });
-    expect(handStrokeCommand({ grid: 4, cells: [[1, 1, 1]], shape: 'sphere', across: 3, mode: 'add', voxel: { material: 7, role: VOXEL_ROLE.pillar } })).toMatchObject({ size: [1.5, 1.5, 1.5], voxel: { material: 7, role: VOXEL_ROLE.pillar, wetness: 0 } });
   });
 
   it('a misfit says what the hand edit was in plain words', () => {

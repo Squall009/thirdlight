@@ -3,7 +3,7 @@
  *
  * An edit mode is a full-screen editor on the live Scene view: of one object
  * (a terrain, a model's vertex paint, a block layer) or of the scene (its
- * decals). A mode registers here, as a document kind registers in
+ * decals, a voxel world's ground). A mode registers here, as a document kind registers in
  * `workspace/kinds.tsx`: which objects it edits (an object's mode) or opens
  * on (a scene's), its rail of modes with their hints, the settings column of
  * each (which declares its docked panels over the view), the Scene view's tools its keys reach, and how the view is set up —
@@ -26,12 +26,14 @@ import type { DecalTools } from '../shell/useDecalTools';
 import type { TerrainTools } from '../shell/useTerrainTools';
 import type { VertexPaintTools } from '../shell/useVertexPaintTools';
 import type { StructureTools } from '../shell/useStructureTools';
+import type { VoxelBrushTools } from '../shell/useVoxelBrush';
 import { blockMode } from './block-mode';
 import { decalMode } from './decal-mode';
 import { prefabMode, type PrefabModeHost } from './prefab-mode';
 import { structureMode } from './structure-mode';
 import { terrainMode } from './terrain-mode';
 import { vertexPaintMode } from './vertex-paint-mode';
+import { worldMode } from './world-mode';
 import type { RailItem } from './ToolRail';
 
 /** What edit modes get from the app (as document views get a `WorkspaceHost`). */
@@ -60,6 +62,8 @@ export interface EditModeHost {
   prefab: PrefabModeHost;
   /** The structure editor's wiring: its Scene-view tool, commands, materials and the world's reports. */
   structure: StructureTools;
+  /** The voxel brush's wiring (the world mode, a structure's hand edits): its Scene-view tool, its strokes, the material palette. */
+  voxelBrush: VoxelBrushTools;
   /** Frame a box in world metres (a misfit's place). */
   frameBox(box: { min: readonly number[]; max: readonly number[] }): void;
 }
@@ -202,7 +206,7 @@ export const isSceneMode = (k: EditModeKind): k is SceneEditModeKind => k.scope 
 
 /** Every edit mode, in the order one is chosen for an object that several would edit. */
 // The prefab editor first: a prefab's root on its stage is edited as the prefab, whatever else it is.
-export const EDIT_MODES: readonly EditModeKind[] = [prefabMode, terrainMode, blockMode, structureMode, vertexPaintMode, decalMode];
+export const EDIT_MODES: readonly EditModeKind[] = [prefabMode, terrainMode, blockMode, structureMode, worldMode, vertexPaintMode, decalMode];
 
 const BY_KIND = new Map(EDIT_MODES.map((k) => [k.kind, k]));
 

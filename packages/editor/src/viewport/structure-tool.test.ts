@@ -2,15 +2,15 @@
  * The structure tool driven by pointer events as the Scene view hands them on, in Node: a camera, a canvas
  * rectangle and a host whose voxel pick answers as the view's would. What the drags send is the command the
  * structure mode stores: a rectangle on the ground makes a house of the cells it spans, an edge handle dragged 2 m
- * widens it by four cells, the storey arrow dragged up adds storeys, a dig on a cell under the pointer is one stroke
- * on the structure's grid. The overlay and the readout are drawing; only what is sent is checked here.
+ * widens it by four cells, the storey arrow dragged up adds storeys (a structure's hand edits are the voxel brush
+ * tool's: voxel-brush-tool.test.ts). The overlay and the readout are drawing; only what is sent is checked here.
  */
 import * as THREE from 'three';
 import { BUILDING_GENERATOR, VOXEL_SIZE_M, type GridPlacement, type StructureDefinition } from '@thirdlight/voxel';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { openingOnWall, wallUnderCell, withOpening } from '../session/structure-openings';
-import { definitionOf, footprintMiddle, handStrokeCommand, moveEdge, newStructure, storeysFor, withPolygonPoints } from '../session/structure-shape';
+import { definitionOf, footprintMiddle, moveEdge, newStructure, storeysFor, withPolygonPoints } from '../session/structure-shape';
 import type { ScenePickHit } from '../voxel-world/scene-voxels-wire';
 import { StructureTool, type StructureArm, type StructureToolCallbacks } from './structure-tool';
 
@@ -32,12 +32,11 @@ function rig(pick: (x: number, y: number) => ScenePickHit | null) {
   camera.position.set(4.5, 14, 22);
   camera.lookAt(4.5, 0, 3.5);
   camera.updateMatrixWorld();
-  const sent = { create: [] as unknown[][], define: [] as [string, StructureDefinition][], stroke: [] as [string, Record<string, unknown>][], refused: [] as string[], selected: [] as (string | null)[] };
+  const sent = { create: [] as unknown[][], define: [] as [string, StructureDefinition][], refused: [] as string[], selected: [] as (string | null)[] };
   const cb: StructureToolCallbacks = {
     create: async (...a) => void sent.create.push(a),
     define: async (id, def) => void sent.define.push([id, def]),
     place: async () => undefined,
-    stroke: async (id, c) => void sent.stroke.push([id, c]),
     refused: (m) => void sent.refused.push(m),
     readout: () => undefined,
     selectOpening: (id) => void sent.selected.push(id),
@@ -76,13 +75,9 @@ function rig(pick: (x: number, y: number) => ScenePickHit | null) {
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-const arm = (o: Partial<StructureArm>): StructureArm => ({ tool: 'create', navigate: false, world: 'yard', entityId: null, value: null, store: null, brushShape: 'box', voxel: null, marker: null, ...o });
+const arm = (o: Partial<StructureArm>): StructureArm => ({ tool: 'create', navigate: false, world: 'yard', entityId: null, value: null, marker: null, ...o });
 
 const house = () => ({ ...newStructure('yard', 16, 12, MAT).value, grid: 7 });
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
 
 describe('the structure tool: pointer to command', () => {
   it('a drag on the ground creates a house of the cells it spans, at the ground the pick found; too small or on a structure is refused', async () => {
@@ -152,26 +147,6 @@ describe('the structure tool: pointer to command', () => {
     const storeys = storeysFor(1, 3.5, value.storeyHeight);
     expect(storeys).toBeGreaterThan(1);
     expect(r.sent.define[1]).toEqual(['house-1', { ...def, storeys }]);
-  });
-
-  it('a dig on the cell under the pointer is one stroke on the structure\'s grid; a press on the ground is the view\'s', async () => {
-    // The hand tools listen for Ctrl on the window (the brush's size drag).
-    vi.stubGlobal('window', { addEventListener: () => undefined, removeEventListener: () => undefined });
-    const value = house();
-    let hit: ScenePickHit = { world: 'yard', grid: 7, t: 20, cell: [5, 3, 1], normal: [0, 0, -1], record: 77 };
-    const r = rig(() => hit);
-    r.tool.arm(arm({ tool: 'dig', entityId: 'house-1', value }));
-    r.tool.pointerMove(r.ev({ x: 400, y: 300 }));
-    await flush();
-    expect(r.tool.pointerDown(r.ev({ x: 400, y: 300 }))).toBe('capture');
-    r.tool.pointerUp(r.ev({ x: 400, y: 300 }));
-    expect(r.sent.stroke).toEqual([['house-1', handStrokeCommand({ grid: 7, cells: [[5, 3, 1]], shape: 'box', across: 1, mode: 'dig' })]]);
-    // The ground (grid 0) under the pointer: the press is left to the view, nothing is sent.
-    hit = { world: 'yard', grid: 0, t: 20, cell: [5, 0, 1], normal: [0, 1, 0], record: 5 };
-    r.tool.pointerMove(r.ev({ x: 420, y: 300 }));
-    await flush();
-    expect(r.tool.pointerDown(r.ev({ x: 420, y: 300 }))).toBeNull();
-    expect(r.sent.stroke).toHaveLength(1);
   });
 
   it('a click on a wall cell with the Openings tool places a door there (one define, selected); a click on no wall is refused', async () => {

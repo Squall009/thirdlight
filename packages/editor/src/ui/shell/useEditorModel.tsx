@@ -61,6 +61,7 @@ import { useDecalAtlas } from './useDecalAtlas';
 import { useDecalTools } from './useDecalTools';
 import { useVertexPaintTools } from './useVertexPaintTools';
 import { useStructureTools } from './useStructureTools';
+import { useVoxelBrush } from './useVoxelBrush';
 import type { NoticeTone, ReportFailure, SetNotice } from './commands';
 import { useKitEditor } from '../kit/useKitEditor';
 import { useSceneViewSync } from './useSceneViewSync';
@@ -410,6 +411,9 @@ export function useEditorModel() {
   // The structure editor's tool and commands; a new building opens in it.
   const structureTools = useStructureTools({ clientRef, viewportRef, materials, entities, sceneId: activeScene?.sceneId ?? null, setNotice, created: (id) => void (enterEditModeRef.current(id, 'structure') || setSelectedId(id)) });
 
+  // The voxel brush (the world edit mode, a structure's hand edits) and its palette.
+  const voxelBrush = useVoxelBrush({ clientRef, viewportRef, materials });
+
   const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo });
 
   // A rejected token is forgotten and asked for again; an unknown project
@@ -449,7 +453,7 @@ export function useEditorModel() {
 
   return {
     activate, openPrefab, prefabStage, sceneEntities,
-    activeScene, animatorTools, assetActions, assetDropActive, assetSummary, assets, bake, blockHandlersRef, blocks, bottomTab, centerTab, cfg, clientRef, closeSettings, closedScenes, content, cue, decalAtlas, decalTools, dialogs, docCmds, docState, dropAsset, editMode, effectPreview, entities, entityEditing, fieldContext, fileCheck, filePicker, gizmoMode, gizmos, groupUsage, hierarchyFlags, iconTable, inspect, inspectedItem, instanceBrush, instanceChunks, items, kitEditor, layerUsage, lightingMode, loadTextureRef, materials, modelFilesRef, modes, move, newMaterialId, notice, noticeTone, occlusionView, openDocument, play, playIframeRef, playInfo, playMode, playRenderer, playSession, playing, prefab, prefabSummaries, previewSrc, previewTextureRef, problems, projectSearch, projectSettings, registry, rename, reportFailure, resync, saveSchema, sceneAction, sceneEditing, sceneHeaders, sceneRenderer, sceneView, scripting, seeThroughPreview, selectedCopy, selectedEntity, selectedId, selection, sessionClient, setAssetDropActive, setBottomTab, setCenterTab, setEffectPreview, setFilePicker, setGizmoMode, setGizmos, setLightingMode, setNotice, setOcclusionView, setProjectSearch, setSeeThroughPreview, setSelectedCopy, setSelectedId, setSelection, setSnapSettingsState, setSnapping, setWindPreview, settings, settingsWindow, showToolWindow, sizes, snapSettings, snapping, splitter, stageRef, stop, structureKey, tagUsage, terrainTools, tileThumbnails, toolWindows, ui, uiPreviewAssets, vertexPaint, structureTools, viewFailures, viewportHostRef, viewportRef, windPreview, windowOpen, workareaRef, workspace, workspaceDispatch, gate,
+    activeScene, animatorTools, assetActions, assetDropActive, assetSummary, assets, bake, blockHandlersRef, blocks, bottomTab, centerTab, cfg, clientRef, closeSettings, closedScenes, content, cue, decalAtlas, decalTools, dialogs, docCmds, docState, dropAsset, editMode, effectPreview, entities, entityEditing, fieldContext, fileCheck, filePicker, gizmoMode, gizmos, groupUsage, hierarchyFlags, iconTable, inspect, inspectedItem, instanceBrush, instanceChunks, items, kitEditor, layerUsage, lightingMode, loadTextureRef, materials, modelFilesRef, modes, move, newMaterialId, notice, noticeTone, occlusionView, openDocument, play, playIframeRef, playInfo, playMode, playRenderer, playSession, playing, prefab, prefabSummaries, previewSrc, previewTextureRef, problems, projectSearch, projectSettings, registry, rename, reportFailure, resync, saveSchema, sceneAction, sceneEditing, sceneHeaders, sceneRenderer, sceneView, scripting, seeThroughPreview, selectedCopy, selectedEntity, selectedId, selection, sessionClient, setAssetDropActive, setBottomTab, setCenterTab, setEffectPreview, setFilePicker, setGizmoMode, setGizmos, setLightingMode, setNotice, setOcclusionView, setProjectSearch, setSeeThroughPreview, setSelectedCopy, setSelectedId, setSelection, setSnapSettingsState, setSnapping, setWindPreview, settings, settingsWindow, showToolWindow, sizes, snapSettings, snapping, splitter, stageRef, stop, structureKey, tagUsage, terrainTools, tileThumbnails, toolWindows, ui, uiPreviewAssets, vertexPaint, structureTools, voxelBrush, viewFailures, viewportHostRef, viewportRef, windPreview, windowOpen, workareaRef, workspace, workspaceDispatch, gate,
   };
 }
 

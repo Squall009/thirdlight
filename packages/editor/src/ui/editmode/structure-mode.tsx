@@ -7,16 +7,18 @@
  *   another polygon), and the structure's settings (`StructureFields`: the
  *   numbers, the roof, a material a part, what it holds and the edits the
  *   last regenerate could not keep).
- * - **Hand edits**: Dig, Add and Paint with the shared brush (its size, a
- *   box or a ball) on the structure's own cells; Add writes the role and
- *   material picked, Paint a material.
+ * - **Hand edits**: Dig, Add and Paint with the voxel brush every voxel
+ *   editor uses (`viewport/voxel-brush-tool.ts`; its size, a box or a ball)
+ *   on the structure's own cells; Add writes the role and material picked,
+ *   Paint a material, each cell keeping its role.
  * - **Openings**: a door or window size (or cells), a ghost of it on the
  *   wall under the pointer and a click to place it; a click on an opening
  *   selects it (its handle moves it along its wall, Delete removes it); the
  *   openings listed with their props, the selected one's size, prop (the
  *   project's models that fit it) and glass flag (`OpeningsPanel`).
  *
- * Every edit is an existing command (the structure tool, `useStructureTools`).
+ * Every edit is an existing command (the structure tool, `useStructureTools`;
+ * the voxel brush, `useVoxelBrush`).
  * The view draws the structure with its world's ground round it (voxel
  * worlds are not objects the isolation hides; other objects are), its own
  * grid faint under it; a misfit picked in the list is framed and marked.
@@ -26,9 +28,10 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import { BUILDING_GENERATOR, GridFrame, VOXEL_ROLE, VOXEL_SIZE_M } from '@thirdlight/voxel';
 
-import { BRUSH_BOUNDS, brushStore, DEFAULT_BRUSH, type BrushStore } from '../../session/brush';
+import { brushStore, type BrushStore } from '../../session/brush';
 import type { ProjectedEntity } from '../../session/projection';
 import { ADD_ROLES, definitionOf, misfitSummary, type StructureValue } from '../../session/structure-shape';
+import { VOXEL_BRUSH, VOXEL_BRUSH_BOUNDS, type VoxelBrushKind } from '../../session/voxel-brush';
 import type { StructureToolKind } from '../../viewport/structure-tool';
 import { useBrush } from '../brush/useBrush';
 import { StructureFields } from '../structure/StructureFields';
@@ -61,12 +64,13 @@ const OPENING_TOOLS = [
 ] as const;
 
 /** The hand-edit brush: one cell across to start (a voxel is the unit a hand edit means); size only. */
-const HAND_BRUSH = { ...DEFAULT_BRUSH, size: VOXEL_SIZE_M, falloff: 'constant' as const };
-const HAND_BOUNDS = { ...BRUSH_BOUNDS, size: [VOXEL_SIZE_M, 8] as const, heightStep: [0.5, 0.5] as const };
+const HAND_BRUSH = { ...VOXEL_BRUSH, size: VOXEL_SIZE_M };
+const HAND_BOUNDS = { ...VOXEL_BRUSH_BOUNDS, size: [VOXEL_SIZE_M, 8] as const };
 const handStore = (): BrushStore => brushStore('structure', 'hand', HAND_BRUSH, HAND_BOUNDS);
+type HandKind = Extract<VoxelBrushKind, 'dig' | 'add' | 'paint'>;
 
 /** Remembered for the page: the tool of each column, the brush's shape, Add's role and the materials picked. */
-const remembered = { shape: 'shape' as StructureToolKind, hand: 'dig' as StructureToolKind, brushShape: 'box' as 'box' | 'sphere', role: VOXEL_ROLE.wall as number, material: null as number | null, opening: { pick: 0, custom: { kind: 'window', width: 2, height: 2, sill: 2 } } as OpeningSizeChoice };
+const remembered = { shape: 'shape' as StructureToolKind, hand: 'dig' as HandKind, brushShape: 'box' as 'box' | 'sphere', role: VOXEL_ROLE.wall as number, material: null as number | null, opening: { pick: 0, custom: { kind: 'window', width: 2, height: 2, sill: 2 } } as OpeningSizeChoice };
 
 /** The marker of the picked misfit, when it is this structure's. */
 function markerOf(view: EditModeView): readonly [number, number, number] | null {
@@ -79,19 +83,19 @@ function outdatedCount(entities: readonly ProjectedEntity[]): number {
   return entities.filter((e) => (valueOf(e)?.generator ?? BUILDING_GENERATOR.version) < BUILDING_GENERATOR.version).length;
 }
 
-/** Arms the structure tool for a column while it shows (off when it goes). */
-function useArm(view: EditModeView, tool: StructureToolKind, extra: { store?: BrushStore; voxel?: { material: number; role: number } | null; brushShape?: 'box' | 'sphere'; opening?: { shape: OpeningShape; selected: string | null } }): boolean {
+/** Arms the structure tool for a column while it shows (off when it goes); `idle`: only its grid, outline and marker draw (another tool has the pointer). */
+function useArm(view: EditModeView, tool: StructureToolKind, extra: { idle?: boolean; opening?: { shape: OpeningShape; selected: string | null } }): boolean {
   const armed = useToolArmed();
   const value = valueOf(view.entity) ?? null;
   const marker = markerOf(view);
   const arm = view.host.structure.arm;
   const entityId = view.entity.id;
-  const store = extra.store ?? null;
-  const key = JSON.stringify([tool, armed, value, marker, extra.voxel ?? null, extra.brushShape ?? 'box', extra.opening ?? null]);
+  const idle = extra.idle === true;
+  const key = JSON.stringify([tool, armed, idle, value, marker, extra.opening ?? null]);
   useEffect(() => {
-    arm({ tool, navigate: !armed, entityId, value, store, brushShape: extra.brushShape ?? 'box', voxel: extra.voxel ?? null, marker, ...(extra.opening !== undefined ? { opening: extra.opening } : {}) });
+    arm({ tool, navigate: idle || !armed, entityId, value, marker, ...(extra.opening !== undefined ? { opening: extra.opening } : {}) });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- every value the arm reads is in `key` (its objects are made again each render)
-  }, [key, arm, entityId, store]);
+  }, [key, arm, entityId]);
   useEffect(() => () => arm(null), [arm]);
   return armed;
 }
@@ -151,7 +155,7 @@ function frameCell(view: EditModeView, cell: readonly [number, number, number]):
 }
 
 function HandColumn(view: EditModeView): JSX.Element {
-  const [tool, setTool] = useState<StructureToolKind>(remembered.hand);
+  const [tool, setTool] = useState<HandKind>(remembered.hand);
   const [shape, setShape] = useState(remembered.brushShape);
   const [role, setRole] = useState(remembered.role);
   const value = valueOf(view.entity)!;
@@ -159,10 +163,24 @@ function HandColumn(view: EditModeView): JSX.Element {
   const [material, setMaterial] = useState<number>(remembered.material ?? value.materials.wall);
   const store = useMemo(handStore, []);
   const settings = useBrush(store);
-  const voxel = tool === 'dig' ? null : { material, role: tool === 'paint' ? VOXEL_ROLE.wall : role };
-  useArm(view, tool, { store, voxel, brushShape: shape });
+  // The structure tool keeps drawing the grid and outline; the pointer is the voxel brush's, on the structure's own grid.
+  const armed = useArm(view, 'shape', { idle: true });
+  const brush = view.host.voxelBrush;
+  // A Paint names no role: each cell keeps its own.
+  const voxel = tool === 'dig' ? null : tool === 'paint' ? { material, wetness: 0 } : { material, role, wetness: 0 };
+  const key = JSON.stringify([tool, armed, value.world, value.grid, shape, voxel]);
+  const arm = brush.arm;
+  const entityId = view.entity.id;
+  useEffect(() => {
+    arm({ kind: tool, navigate: !armed, world: value.world, grid: value.grid, entityId, store, uses: ['size'], shape, soft: false, voxel });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- every value the arm reads is in `key` (its objects are made again each render)
+  }, [key, arm, entityId, store]);
+  useEffect(() => () => arm(null), [arm]);
   const t = HAND_TOOLS.find((x) => x.id === tool) ?? HAND_TOOLS[0];
-  useStructureStatus(view, t.label, t.hint);
+  useEditStatus({ tool: t.label, text: brush.refusal ?? brush.readout ?? t.hint, keys: [] });
+  // The hand-edit count is the world's route's: read when the column opens, then after each change the feed brings.
+  const refresh = s.refresh;
+  useEffect(() => refresh(value.world), [refresh, value.world]);
   const grid = s.grids(value.world)?.get(value.grid);
   return (
     <div className="tl-structure-mode" aria-label="structure hand edit tools">
@@ -171,8 +189,8 @@ function HandColumn(view: EditModeView): JSX.Element {
           tools={HAND_TOOLS}
           active={tool}
           onPick={(id) => {
-            remembered.hand = id as StructureToolKind;
-            setTool(id as StructureToolKind);
+            remembered.hand = id as HandKind;
+            setTool(id as HandKind);
           }}
           aria="structure hand edit tool"
           cols={3}
@@ -220,7 +238,7 @@ function HandColumn(view: EditModeView): JSX.Element {
               </option>
             ))}
           </select>
-          <p className="tl-hint">Paint gives a cell the material and keeps the role of the cell the stroke starts on.</p>
+          <p className="tl-hint">Paint gives a cell the material; each cell keeps its role.</p>
         </Section>
       )}
       <EditPanels panels={brushPanels({ settings, store, uses: ['size'], title: 'Brush', badge: 'cells of the structure' })} />
@@ -273,7 +291,7 @@ export const structureMode: ObjectEditModeKind = {
     { id: 'hand', label: 'Hand edits', glyph: 'paint', hint: 'Dig, add or paint cells of the structure; they are kept over what the definition makes.', navigate: 'A drag orbits; pick Dig (D), Add (A) or Paint (P).' },
     { id: 'openings', label: 'Openings', glyph: 'place', hint: 'Place doors and windows on the walls; give each a prop that fits it.', keys: [{ keys: ['Del'], label: 'Delete the selected opening' }], navigate: 'A drag orbits; pick Place (O) to put openings in the walls.' },
   ],
-  tools: ['structure'],
+  tools: ['structure', 'voxel-brush'],
   bounds: (e) => {
     const v = valueOf(e)!;
     try {

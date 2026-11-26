@@ -2,8 +2,8 @@
  * The Scene view's tools and the routing of pointer input to them.
  *
  * Every tool that edits in the Scene view (vertex paint, block layers and
- * their room tool, terrain, decal grips, the selection's handle grips, the
- * instance brush) is a `SceneTool`. The viewport hands each pointer event to
+ * their room tool, terrain, decal grips, structures, the voxel brush, the
+ * selection's handle grips, the instance brush) is a `SceneTool`. The viewport hands each pointer event to
  * the `ToolRouter` first; only what no tool takes reaches the viewport's own
  * behaviour (the gizmo, orbiting, click-to-pick). An armed tool owns the
  * left button, so the gizmo stands aside while any tool is armed. An
@@ -27,6 +27,7 @@ import { TerrainEditor, type TerrainEditorCallbacks, type TerrainEditorHost } fr
 import { DecalTool, type DecalArm, type DecalToolCallbacks, type DecalToolHost } from './decal-tool';
 import { VertexPaintTool, type VertexPaintArm, type VertexPaintToolCallbacks, type VertexPaintToolHost } from './vertex-paint-tool';
 import { StructureTool, type StructureArm, type StructureToolCallbacks, type StructureToolHost } from './structure-tool';
+import { VoxelBrushTool, type VoxelBrushArm, type VoxelBrushCallbacks } from './voxel-brush-tool';
 
 /** A pointer that moved less than this (px) between down and up is a click. */
 export const CLICK_SLOP_PX = 4;
@@ -201,6 +202,7 @@ export class ViewportTools {
   readonly paint: VertexPaintTool;
   readonly brush: InstanceBrushTool;
   readonly structure: StructureTool;
+  readonly voxelBrush: VoxelBrushTool;
   readonly router: ToolRouter;
   private blockEd: BlockEditor | null = null;
   private terrainEd: TerrainEditor | null = null;
@@ -208,6 +210,7 @@ export class ViewportTools {
   private decalCb: DecalToolCallbacks | null = null;
   private paintCb: VertexPaintToolCallbacks | null = null;
   private structureCb: StructureToolCallbacks | null = null;
+  private voxelBrushCb: VoxelBrushCallbacks | null = null;
   /** A handle drag is in flight (the overlay holds the previewed shape). */
   private handleDragging = false;
   /** The left button went down on a brush stroke (its release ends it, even one the brush gave up). */
@@ -234,12 +237,16 @@ export class ViewportTools {
         create: (w, c, x, z) => scb()?.create(w, c, x, z) ?? off(),
         define: (id, def) => scb()?.define(id, def) ?? off(),
         place: (id, p, yaw) => scb()?.place(id, p, yaw) ?? off(),
-        stroke: (id, c) => scb()?.stroke(id, c) ?? off(),
         refused: (m) => scb()?.refused(m),
         readout: (t) => scb()?.readout(t),
       },
     );
-    this.router = new ToolRouter({ canvas: () => host.canvas(), setOrbit: (on) => (host.orbit.enabled = on) }, [this.paintTool(), this.blockTool(), this.terrainTool(), this.decalTool(), this.structureTool(), this.handleTool(), this.brushTool()], ['structure', 'block', 'terrain', 'handles', 'brush', 'decal', 'paint']);
+    this.voxelBrush = new VoxelBrushTool(
+      { overlay: host.overlay, camera: host.camera, canvas: () => host.canvas(), requestRender: () => host.requestRender(), pick: host.structure.pick, place: (id) => host.structure.place(id) },
+      { stroke: (w, c) => this.voxelBrushCb?.stroke(w, c) ?? off(), refused: (m) => this.voxelBrushCb?.refused(m), readout: (t) => this.voxelBrushCb?.readout(t) },
+    );
+    // The voxel brush before the structure tool: a structure's hand edits arm both, the structure tool in Navigate.
+    this.router = new ToolRouter({ canvas: () => host.canvas(), setOrbit: (on) => (host.orbit.enabled = on) }, [this.paintTool(), this.blockTool(), this.terrainTool(), this.decalTool(), this.voxelBrushTool(), this.structureTool(), this.handleTool(), this.brushTool()], ['voxel-brush', 'structure', 'block', 'terrain', 'handles', 'brush', 'decal', 'paint']);
   }
 
   /** The block-layer tools (made on first use with the App's callbacks). */
@@ -289,11 +296,19 @@ export class ViewportTools {
     this.host.reselect();
   }
 
+  /** The voxel brush armed on a world's lattice or a structure's grid (null: off), its strokes sent through `cb`. */
+  setVoxelBrush(arm: VoxelBrushArm | null, cb: VoxelBrushCallbacks | null): void {
+    this.voxelBrushCb = cb;
+    this.voxelBrush.arm(arm);
+    this.host.reselect();
+  }
+
   /** Before a frame: the tools' grips and published state follow the view. */
   frame(): void {
     this.decal.frame();
     this.paint.frame();
     this.structure.frame();
+    this.voxelBrush.frame();
   }
 
   /** After a drawn frame. */
@@ -310,6 +325,7 @@ export class ViewportTools {
     this.decal.dispose();
     this.paint.dispose();
     this.structure.dispose();
+    this.voxelBrush.dispose();
   }
 
   // ---- The tools as the router sees them -----------------------------------
@@ -377,6 +393,21 @@ export class ViewportTools {
     const t = this.structure;
     return {
       name: 'structure',
+      armed: () => t.armed(),
+      pointerDown: (e) => t.pointerDown(e),
+      pointerMove: (e) => t.pointerMove(e),
+      pointerUp: (e) => (t.pointerUp(e) ? 'stop' : null),
+      leave: () => t.leave(),
+      cancel: () => t.cancel(),
+      key: (e) => t.key(e),
+    };
+  }
+
+  /** The voxel brush: armed, it owns the left button on its grid's cells (a press elsewhere still orbits). */
+  private voxelBrushTool(): SceneTool {
+    const t = this.voxelBrush;
+    return {
+      name: 'voxel-brush',
       armed: () => t.armed(),
       pointerDown: (e) => t.pointerDown(e),
       pointerMove: (e) => t.pointerMove(e),

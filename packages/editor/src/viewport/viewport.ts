@@ -74,6 +74,7 @@ import type { TerrainEditor, TerrainEditorCallbacks } from './terrain-editor';
 import { decalSurfaceOf, DECAL_PREVIEW_ID, type DecalArm, type DecalToolCallbacks } from './decal-tool';
 import type { VertexPaintArm, VertexPaintToolCallbacks } from './vertex-paint-tool';
 import type { StructureArm, StructureToolCallbacks } from './structure-tool';
+import type { VoxelBrushArm, VoxelBrushCallbacks } from './voxel-brush-tool';
 import { aimAtPointer } from './scene-queries';
 import type { BrushStore } from '../session/brush';
 import { ViewportTools } from './tool-input';
@@ -1113,6 +1114,8 @@ export class Viewport {
    *   the worlds' material tables follow;
    * - `structureTool`: the structure tool armed (null: off; the gizmo stands aside while a tool of it is in hand), its
    *   edits sent through `cb`;
+   * - `brushTool`: the voxel brush armed on a world's lattice or a structure's grid (null: off), its strokes sent
+   *   through `cb`;
    * - `info`: a world's route as the backend answers it now (null: not read);
    * - `listen`: the feed's voxel changes (the structure mode's counts and misfits); returns the unsubscribe;
    * - `waterLeaks`: where the water bodies leak (the backend's reports), marked in the view (an empty list: none);
@@ -1125,6 +1128,7 @@ export class Viewport {
       else this.voxels.changed(c);
     },
     structureTool: (arm: StructureArm | null, cb: StructureToolCallbacks | null): void => this.tools.setStructureTool(arm, cb),
+    brushTool: (arm: VoxelBrushArm | null, cb: VoxelBrushCallbacks | null): void => this.tools.setVoxelBrush(arm, cb),
     info: (world: string): Promise<Record<string, unknown> | null> => this.voxels.worldInfo(world),
     listen: (listener: (c: VoxelsChangedPayload) => void): (() => void) => this.voxels.listen(listener),
     waterLeaks: (marks: readonly WaterLeakMark[]): void => {
