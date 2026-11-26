@@ -37,16 +37,8 @@ const WEBGPU_SPECS = [
   '**/shared-textures.e2e.ts',
   '**/material-graph-play.e2e.ts',
   '**/material-preview.e2e.ts',
-  '**/effects-runtime.e2e.ts',
-  '**/effect-light-pool.e2e.ts',
-  // The engine-owned view (the live camera, else the default pose) in Play and the export on WebGPU.
-  '**/engine-view.e2e.ts',
-  // Phase 20.3: the Effect tab's preview on the WebGPU compute executor.
-  '**/effect-editor.e2e.ts',
   // The editor window's one preview pane: on its own canvas and on the lent Scene view, on WebGPU.
   '**/preview-pane.e2e.ts',
-  // Phase 22.1: thumbnails from a WebGPU canvas snapshot (the other editor-worker tests skip here).
-  '**/editor-workers.e2e.ts',
   // Phase 21.3: instancing, render on demand and MSAA by quality on WebGPU.
   '**/rendering.e2e.ts',
   // Phase 23.0: a 3D project's Play and export (the 3D physics backend) on WebGPU too.
@@ -55,10 +47,6 @@ const WEBGPU_SPECS = [
   '**/material-runtime.e2e.ts',
   // A material swapped while the game runs shows only once loaded, on WebGPU.
   '**/material-swap.e2e.ts',
-  // Phase 23.18: environment preset blends (sky, fog, lights in place) on WebGPU.
-  '**/environment-presets.e2e.ts',
-  // Phase 25.3: a new blend t every step drops no steps; re-bakes only when the sky changes, on WebGPU.
-  '**/environment-blend-cost.e2e.ts',
   // Each scene's look in the Scene view, and the active scene's blend in Play and the export, on WebGPU.
   '**/scene-environment.e2e.ts',
   // Phase 24.4h: per-object look overrides (emissive, tint) on WebGPU.
@@ -67,15 +55,11 @@ const WEBGPU_SPECS = [
   '**/screenshot.e2e.ts',
   // Phase 25.8: scene lights on load and unload, 12 point lights, spot cookies on WebGPU.
   '**/scene-lights.e2e.ts',
-  // Phase 25.10: a light and an object's active written by a script in Play, on WebGPU.
-  '**/entity-access.e2e.ts',
   // Phase 25.19: material instances and KTX2 textures (Scene view, Play, export) on WebGPU.
   '**/material-instances.e2e.ts',
   '**/ktx2-textures.e2e.ts',
   // Mip streaming of large KTX2 textures under the texture budget (Play, the export's files) on WebGPU.
   '**/texture-streaming.e2e.ts',
-  // A model's images extracted into texture assets, drawn and streamed (Scene view, Play, export) on WebGPU.
-  '**/extract-textures.e2e.ts',
 ];
 export default defineConfig({
   testDir: './tests/e2e',

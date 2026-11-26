@@ -239,6 +239,20 @@ describe('commands over HTTP + mutation.applied', () => {
     expect(typeof ev.change).toBe('object');
   });
 
+  it("another client's refused command reaches the registered browser as a problem naming the op (no_change aside)", async () => {
+    const added = ws.waitFor((m) => (m as { type?: string }).type === 'problems.added');
+    const r = await api(`${tb.authUrl}/api/v1/projects/demo-0001/commands`, {
+      body: { op: 'updateEntity', projectId: 'demo-0001', requestId: mkRequestId(), expectedRevision: 1, args: { entityId: 'cam-main', parentId: 'no-such-entity' }, origin: { kind: 'mcp', clientId: 'harness' } },
+      token: tb.authToken,
+      origin: null,
+    });
+    expect((r.json as { ok?: boolean }).ok).toBe(false);
+    const ev = (await added) as { problem: { source: string; code: string; message: string } };
+    expect(ev.problem.source).toBe('command');
+    expect(ev.problem.code).toBe((r.json as { error: { code: string } }).error.code);
+    expect(ev.problem.message).toMatch(/^updateEntity: /);
+  });
+
   it('a browser-origin command with no registered session ⇒ 403 session_required', async () => {
     // Use a second project (no session established for it) with an
     // authoring token scoped to it.

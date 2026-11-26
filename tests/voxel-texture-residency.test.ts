@@ -177,4 +177,32 @@ describe('voxel texture residency', () => {
     expect(tailOnly.observe().textures[0]!.wanted).toBe(3);
     tailOnly.dispose();
   }, 120_000);
+
+  it("the page's other textures (images inside model files) press on the plan: a budget that holds the whole chain alone keeps it below level 0 while they are loaded", async () => {
+    // As the game page passes it: the resource manager's texture bytes (the streamed ones at their resident size,
+    // kept by onResize) and the images model files carry inside them.
+    const streamed = new Map<string, number>();
+    let embedded = 0;
+    const s = createTextureStreamer({ budgetBytes: 1, decode, intervalMs: 0, textureBytes: () => [...streamed.values()].reduce((a, b) => a + b, 0) + embedded, onResize: (id, _t, bytes) => void streamed.set(id, bytes) });
+    const tex = await s.open('slots-voxel', wholeKtx2Source(ktx2)!);
+    const { scene, camera } = drawnWith(tex, 4);
+    await settle(s, scene, camera);
+    const levelBytes = (l: number): number => (EDGE >> l) ** 2 * 4 * LAYERS;
+    const whole = s.observe().residentBytes + levelBytes(2) + levelBytes(1) + levelBytes(0);
+    s.setBudget(whole + 1024);
+    // Models holding as many bytes as level 1 is: level 0 no longer fits beside them.
+    embedded = levelBytes(1);
+    await settle(s, scene, camera);
+    let o = s.observe();
+    expect(o.textures[0]!.resident).toBeGreaterThan(0);
+    expect(o.fixedBytes).toBe(embedded);
+    expect(o.residentBytes).toBeLessThanOrEqual(whole + 1024);
+    // The models gone, the same budget gives it level 0.
+    embedded = 0;
+    await settle(s, scene, camera);
+    o = s.observe();
+    expect(o.textures[0]!.resident).toBe(0);
+    expect(o.fixedBytes).toBe(0);
+    s.dispose();
+  }, 120_000);
 });
