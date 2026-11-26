@@ -148,6 +148,9 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 - From 47b.3: a strength for the smooth and flatten brushes; a smooth in three dimensions for overhangs and cave
   walls; a flood wider than one stroke's work bound (about 60 m of reach); flood, smooth and flatten on
   `ctx.voxels`; a nesting bound in the strict JSON parser (D836).
+- From 47b.4: the surface fields' two distances as a walk along the ground rather than a cone over one row a
+  column; a values-only read of the chunk the derive already holds (about half the fields job's time is reading
+  chunks); far fields for more than one node column at a time (the rings phase); sky as a share rather than yes/no.
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
