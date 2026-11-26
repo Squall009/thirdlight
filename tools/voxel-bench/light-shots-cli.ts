@@ -96,7 +96,7 @@ import { commandEnvelope } from '../../tests/support/commands';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { benchDir } from './bench-dirs';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MASK_FILE, BENCH_GLOW_MASK_FOLDER, GLOW_GROUND_CM_OFFSET, BENCH_GLOW_MATERIALS, benchMaskedLava, MANY_LAMP_CAMERAS, MANY_LAMP_SHOT_NAMES, type LightingCamera, GLOW_COMMANDS, GLOW_PROBES, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, ROOM_HOUSE, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
+import { shotCall, cellBlotch, pictureBlotch, type BenchVolumeCell, BENCH_GLOW_MASK_FILE, BENCH_GLOW_MASK_FOLDER, GLOW_GROUND_CM_OFFSET, BENCH_GLOW_MATERIALS, benchMaskedLava, MANY_LAMP_CAMERAS, MANY_LAMP_SHOT_NAMES, type LightingCamera, GLOW_COMMANDS, GLOW_PROBES, BENCH_EXTRA_LAMP_LIGHT, BENCH_LAMP_LIGHT, BENCH_LAMPS, BENCH_LIGHT_TYPES, benchExtraLamps, cacheEditTiming, caveStroke, LAMP_WALL_COMMANDS, type CacheWatchFrame, FAR_CHECK_LAMP, FAR_CHECK_LAMP_LIGHT, LIGHT_CHECK_CAMERAS, changedShare, EDIT_DIGS, ROOM_HOUSE, editShadowTiming, LIGHTING_CAMERAS, LIGHTING_PRESETS, lightShotsSource, parseLightShotsArgs, shotProblems, type WatchFrame } from './lighting-cameras';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import type { Picture } from './lighting-cameras';
 import { openPlay, type PlayGame } from './travel-page';
@@ -556,7 +556,7 @@ async function dayRuns(game: PlayGame, problems: string[]): Promise<unknown[]> {
   const speed = O.day!;
   const ref = O.dayReference === null ? null : (JSON.parse(readFileSync(O.dayReference, 'utf8')) as { variants: unknown[]; grid?: unknown });
   for (const cam of CAMERAS.filter((c) => O.dayAt.includes(c.name))) {
-    await game.debug(cam.command);
+    await game.debug(...shotCall(cam));
     await settle(game);
     const store = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.store() ?? 'off')) as string;
     // The day's first look held still first (the blend at the day's start), so the run starts settled there.
@@ -645,13 +645,13 @@ async function main(): Promise<void> {
       }, O.textureUnits);
     }
     // While the town streams in (the first camera's view, before anything settles): the regions' spans a frame.
-    await game.debug(LIGHTING_CAMERAS[0]!.command);
+    await game.debug(...shotCall(LIGHTING_CAMERAS[0]!));
     if (O.glow) {
       // The glow scene painted where the world is there to paint (its rays need level-0 chunks): at the night camera,
       // then in the room camera's room, each once streaming there has settled.
       const parts: Record<string, number> = {};
       for (const [shot, command] of [[LIGHTING_CAMERAS[3]!, GLOW_COMMANDS.night], [LIGHTING_CAMERAS[1]!, GLOW_COMMANDS.room]] as const) {
-        await game.debug(shot.command);
+        await game.debug(...shotCall(shot));
         await settle(game);
         await game.debug(command);
         for (let i = 0; i < 40 && (parts[command] ?? 0) === 0; i++) {
@@ -679,7 +679,7 @@ async function main(): Promise<void> {
     console.log(`loading: ${JSON.stringify(out['loadingSpans'])}`);
     const shotCameras = CAMERAS.filter((c) => ONLY.includes(c.name));
     for (const cam of shotCameras) {
-      await game.debug(cam.command);
+      await game.debug(...shotCall(cam));
       const arrived = Date.now();
       const arrival: Record<string, unknown>[] = [];
       if (O.arrivalShots) {
@@ -868,7 +868,7 @@ async function main(): Promise<void> {
     }
     if (O.edits > 0) {
       // Edit → screen: digs in front of the street camera, one at a time, each read from the page's edit record.
-      await game.debug(LIGHTING_CAMERAS[0]!.command);
+      await game.debug(...shotCall(LIGHTING_CAMERAS[0]!));
       await settle(game);
       const edits: unknown[] = [];
       for (const d of EDIT_DIGS.slice(0, O.edits)) {
@@ -922,7 +922,7 @@ async function main(): Promise<void> {
       const litRoom = MANY_LAMP_CAMERAS[1]!;
       const roomRuns = SCENE !== null ? ([[litRoom, 'region_dig', 'lamps-window'], [litRoom, MANY_LAMPS_COMMANDS.glowBlock, 'lamps-glow-block'], [litRoom, MANY_LAMPS_COMMANDS.lampOff, 'lamps-lamp-off']] as const) : ([[room, 'region_dig', 'window']] as const);
       for (const [cam, command, tag] of [...roomRuns, [night, LAMP_WALL_COMMANDS.build, 'lamp-wall'], [night, LAMP_WALL_COMMANDS.dig, 'lamp-unwall'], ...glowRuns] as const) {
-        await game.debug(cam.command);
+        await game.debug(...shotCall(cam));
         await settle(game);
         await storeLit(game, (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.store() ?? 'off')) as string);
         await page.waitForTimeout(CONVERGE_MS);
@@ -973,7 +973,7 @@ async function main(): Promise<void> {
     out['regions'] = (await game.sim().catch(() => null))?.['regions'] ?? null;
     const room = LIGHTING_CAMERAS.find((c) => c.name === 'room-window')!;
     if (ONLY.includes(room.name)) {
-      await game.debug(room.command);
+      await game.debug(...shotCall(room));
       await settle(game);
       const before = (await game.observe().catch(() => null))?.counters ?? {};
       const t0 = Date.now();

@@ -32,7 +32,7 @@ import { gpuMeasureOnPage, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { benchDir } from './bench-dirs';
 import { CULL_VIEWS } from './cull-views';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
-import { caveStroke, lightShotsSource, type LightingCamera } from './lighting-cameras';
+import { caveStroke, lightShotsSource, shotCall, type LightingCamera } from './lighting-cameras';
 import { openPlay, type PlayGame } from './travel-page';
 
 /**
@@ -232,7 +232,7 @@ async function main(): Promise<void> {
     for (let i = 0; i < 240 && (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: unknown }).__tlVoxelPlay !== undefined)) === false; i++) await page.waitForTimeout(250);
     await game.frame.evaluate((s) => (window as unknown as { __tlVoxelPlay: { meter: { set(x: unknown): boolean } } }).__tlVoxelPlay.meter.set(s), { renderScale: LEVEL?.renderScale ?? 1, dynamicResolution: false, hide: {} });
     for (const cam of CAMERAS) {
-      await game.debug(cam.command);
+      await game.debug(...shotCall(cam));
       const settledS = await settle(game);
       await page.waitForTimeout(1500);
       const rec: Record<string, unknown> = { name: cam.name, settledS };

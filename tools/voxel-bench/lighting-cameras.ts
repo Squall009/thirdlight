@@ -286,8 +286,14 @@ export const LIGHTING_PRESETS = Object.freeze([
   ...dayPresets(CLEAR_SKY),
 ]);
 
+/** The debug command that moves the bench camera: its `at` argument is a camera's `command` name. */
+export const SHOT_COMMAND = 'shot';
+
+/** The call that puts the bench camera at `cam` (a `PlayGame.debug` call's name and arguments). */
+export const shotCall = (cam: { readonly command: string }): readonly [string, { readonly at: string }] => [SHOT_COMMAND, { at: cam.command }];
+
 /**
- * The camera's behaviour: each shot's command puts the camera at its pose and its look on at once, every step
+ * The camera's behaviour: the shot command puts the camera at its pose and its look on at once, every step
  * after holds it there; each dig command digs its ball through `ctx.voxels` (a runtime edit: never written to
  * the world's files).
  */
@@ -308,7 +314,13 @@ export default {
   instantiate() { return { at: 0, wallDug: -1, wasEnclosed: 0, strip: null, stripWas: 0 }; },
   step(s: any, ctx: any) {
     if (ctx.phase === 'intent') {
-      SHOTS.forEach((shot: any, i: number) => { for (const _ of ctx.debug.command(shot.command)) { s.at = i; ctx.environment?.set(shot.preset); } });
+      // One command for every camera, the camera its argument: a command a camera would pass the game's limit of
+      // declared commands, and the commands declared after them (the digs, the walls) would not exist.
+      for (const call of ctx.debug.command('${SHOT_COMMAND}', { args: [{ name: 'at', type: 'string' }] })) {
+        const i = SHOTS.findIndex((shot: any) => shot.command === call.at);
+        if (i >= 0) { s.at = i; ctx.environment?.set(SHOTS[i].preset); }
+        else ctx.game.add('shot_unknown', 1);
+      }
       // The open region at the camera's eye, each step (gauges: a counter set to the value).
       const v = ctx.voxels;
       const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n));

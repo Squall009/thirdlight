@@ -8,6 +8,7 @@
  */
 import { MAT } from './world-kit';
 import { VOXEL_ROLE } from '@thirdlight/voxel';
+import { SHOT_COMMAND } from './lighting-cameras';
 
 export const ROOM_MODES = ['off', 'see-through', 'cut-away'] as const;
 export type RoomMode = (typeof ROOM_MODES)[number];
@@ -42,7 +43,7 @@ export function roomsBehaviour(subjectId: string, shots: ReadonlyArray<{ readonl
     head: `const ROOM_SUBJECT = ${JSON.stringify(subjectId)};\nconst ROOM_PLACES = ${JSON.stringify(places)};`,
     intent: `
       if (!s.subjectNamed) s.subjectNamed = ctx.camera.setSeeThrough({ subjects: [ROOM_SUBJECT] });
-      for (const p of ROOM_PLACES) for (const _ of ctx.debug.command(p.command)) ctx.entity(ROOM_SUBJECT)?.set('transform', { position: p.at });
+      for (const call of ctx.debug.command('${SHOT_COMMAND}')) for (const p of ROOM_PLACES) if (p.command === call.at) ctx.entity(ROOM_SUBJECT)?.set('transform', { position: p.at });
       for (const _ of ctx.debug.command('${L_ROOM_COMMAND}')) {
         const r = [v.set(${box(L_ROOM.shell)}, { material: ${MAT.plaster}, role: ${VOXEL_ROLE.wall} }), ${L_ROOM.parts.map((p) => `v.dig(${box(p)})`).join(', ')}, v.dig(${box(L_ROOM.notch)}), v.set(${box(L_ROOM.notchRoof)}, { material: ${MAT.brick}, role: ${VOXEL_ROLE.wall} })];
         ctx.game.add(r.every((e: any) => e.ok) ? 'lroom_built' : 'lroom_refused', 1);

@@ -194,7 +194,8 @@ export interface PlayGame {
   readonly psid: string;
   /** A play control command (retried while the preview has not presented yet). */
   control(body: unknown): Promise<void>;
-  debug(name: string): Promise<void>;
+  /** A debug command of the game's scripts, with its arguments. */
+  debug(name: string, args?: Readonly<Record<string, number | string | boolean>>): Promise<void>;
   /** The play's observation now (through the observe relay). */
   observe(): Promise<{ stepIndex?: number; counters?: Record<string, number> } | null>;
   /** The simulation's diagnostics for voxel world `world`. */
@@ -231,7 +232,7 @@ export async function openPlay(b: BenchApi, page: Page, o: { viewport: { width: 
     page,
     psid,
     control,
-    debug: (name) => control({ command: 'debugCommand', name }),
+    debug: (name, args) => control({ command: 'debugCommand', name, ...(args !== undefined ? { args } : {}) }),
     observe: async () => (await b.api(`play/${psid}/observe`, {})).json as { stepIndex?: number; counters?: Record<string, number> },
     sim: async () => ((((await b.api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { runtime?: { voxelWorlds?: Array<Record<string, unknown>> } } | undefined)?.runtime?.voxelWorlds ?? []).find((w) => w['world'] === o.world) ?? null) as Record<string, any> | null,
     screenshot: (file) => iframe.screenshot(file === undefined ? {} : { path: file }),

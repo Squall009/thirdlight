@@ -8,6 +8,11 @@
  */
 import { DAY_PRESET_IDS } from './day-cycle';
 import { describe, expect, it } from 'vitest';
+import { transformSync } from 'esbuild';
+import { DebugCommands, MAX_DEBUG_COMMANDS } from '../../packages/runtime/src/debug-commands';
+import { dayBehaviour } from './day-cycle';
+import { L_ROOM_COMMAND, roomsBehaviour } from './bench-rooms';
+import { manyLampsBehaviour, manyLampsScene } from './many-lamps';
 import { validateEnvironmentPresets, type ModelErrorV2 } from '@thirdlight/project-model';
 import { chunkGrid, createDenseChunk, localIndex, VOXEL_ROLE } from '@thirdlight/voxel';
 import { townWorld } from './town';
@@ -22,6 +27,11 @@ import {
   cacheEditTiming,
   editShadowTiming,
   LAMP_WALL,
+  EDIT_DIGS,
+  GLOW_COMMANDS,
+  LAMP_WALL_COMMANDS,
+  SHOT_COMMAND,
+  shotCall,
   LIGHT_CHECK_CAMERAS,
   LIGHT_PRESET_IDS,
   LIGHT_SHOT_NAMES,
@@ -82,6 +92,60 @@ describe('the lighting cameras', () => {
     // Every command is in the camera's behaviour.
     const src = lightShotsSource();
     for (const c of LIGHTING_CAMERAS) expect(src).toContain(`"command":"${c.command}"`);
+  });
+
+  it('declare their commands within a game\'s limit with every extra a run adds, so the commands after the cameras\' exist: one shot command, the camera its argument', () => {
+    // The fullest script a run publishes: every camera, the many-lamps scene, the day and the rooms.
+    const cameras = [...LIGHTING_CAMERAS, ...LIGHT_CHECK_CAMERAS, ...MANY_LAMP_CAMERAS];
+    expect(cameras.length, 'a command a camera alone would leave no room for the rest').toBeGreaterThan(MAX_DEBUG_COMMANDS - 8);
+    const src = lightShotsSource(cameras, [manyLampsBehaviour(manyLampsScene(128)), dayBehaviour(), roomsBehaviour('subject', cameras)]);
+    const js = transformSync(src, { loader: 'ts', format: 'cjs' }).code;
+    const module = { exports: {} as { default?: { instantiate(): Record<string, unknown>; step(s: unknown, ctx: unknown): void } } };
+    new Function('module', 'exports', js)(module, module.exports);
+    const behaviour = module.exports.default!;
+    // The game's own registry of debug commands: a declaration past its limit throws, as it does in a game.
+    const dropped: string[] = [];
+    const commands = new DebugCommands({ emitSignal: () => undefined, dropped: (problem) => void dropped.push(problem) });
+    const counters = new Map<string, number>();
+    const looks: string[] = [];
+    const ctx = {
+      phase: 'intent',
+      stepIndex: 0,
+      debug: { command: (name: string, options?: never) => commands.declare(name, options, true) },
+      game: { add: (n: string, x: number) => void counters.set(n, (counters.get(n) ?? 0) + x), counter: (n: string) => counters.get(n) ?? 0 },
+      environment: { set: (id: string) => void looks.push(id), blend: () => undefined },
+      camera: { setSeeThrough: () => true },
+      entity: () => undefined,
+      world: { find: () => undefined },
+      voxels: undefined,
+    };
+    const s = behaviour.instantiate();
+    expect(() => behaviour.step(s, ctx)).not.toThrow();
+    const declared = commands.state().registered.map((c) => c.name);
+    expect(declared.length).toBeLessThanOrEqual(MAX_DEBUG_COMMANDS);
+    // The commands the benches send after their shots: each is declared, so a call is taken.
+    for (const name of ['region_dig', L_ROOM_COMMAND, LAMP_WALL_COMMANDS.build, LAMP_WALL_COMMANDS.dig, GLOW_COMMANDS.night, ...EDIT_DIGS.map((d) => d.command)]) {
+      expect(declared, name).toContain(name);
+      expect(commands.enqueue({ name, args: {} })).toEqual({ ok: true });
+    }
+    // A camera is the shot command's argument: its call moves the camera there and puts its look on.
+    const far = cameras.find((c) => c.name === 'town-250m')!;
+    const [name, args] = shotCall(far);
+    expect(name).toBe(SHOT_COMMAND);
+    commands.take(64);
+    expect(commands.enqueue({ name, args })).toEqual({ ok: true });
+    commands.deliver({ stepIndex: 1, commands: commands.take(4) } as never);
+    behaviour.step(s, { ...ctx, stepIndex: 1 });
+    expect(s['at']).toBe(cameras.indexOf(far));
+    expect(looks).toEqual([far.preset]);
+    // A camera's own name is no command any more, and a shot without a known camera moves nothing.
+    expect(commands.enqueue({ name: far.command, args: {} }).ok).toBe(false);
+    commands.enqueue({ name, args: { at: 'nowhere' } });
+    commands.deliver({ stepIndex: 2, commands: commands.take(4) } as never);
+    behaviour.step(s, { ...ctx, stepIndex: 2 });
+    expect(s['at']).toBe(cameras.indexOf(far));
+    expect(counters.get('shot_unknown')).toBe(1);
+    expect(dropped).toEqual([]);
   });
 
   it('stand in the air of the town where their pictures have something to show', () => {
