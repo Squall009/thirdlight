@@ -71,6 +71,8 @@ export const PICTURES: readonly PictureEntry[] = Object.freeze([
   world('L20', 'ref-60m', 'day', 'Reference house at 60 m', 'the same house at 60 m: ridges, gable, front without white or dark specks'),
   world('L21', 'ref-100m', 'day', 'Reference house at 100 m', 'the same house at 100 m: ridges and roofs at the ring change, no sparkle'),
   world('L22', 'ref-150m', 'day', 'Reference house at 150 m', 'the same house at 150 m: its shape and colour kept as the levels coarsen'),
+  world('L23', 'fog-bank', 'day', 'A fog bank in a hollow', 'a dug hollow filled with mist by day, from 17 m off: the bank reads as a volume (thin at its edge on the hollow\'s sides, thick over its middle), no hard box edges, no cards, no banding by cell rows'),
+  world('L24', 'fog-inside', 'day', 'The fog bank from inside', 'the same bank from 1.7 m over the hollow\'s floor: the hollow\'s wall, its rim and the sky seen through mist, the near ground clearer than the far, no clear patches and no seam where the bank\'s surface is'),
   screen('E1', 'editor', 'The editor with a scene', 'the default editor: Scene and Game tabs, Hierarchy, Inspector, Project dock, a house selected with its gizmo, panels not overlapping'),
   screen('E2', 'structure', 'Structure mode', 'a two-storey house with a door and a window, the Shape tool\'s corner and edge handles on it, the mode\'s panel and Done button'),
   screen('E3', 'water', 'A water body', 'a lake filling a dug hollow, selected: its level handle, the Inspector\'s water state, the water surface drawn'),
@@ -78,7 +80,7 @@ export const PICTURES: readonly PictureEntry[] = Object.freeze([
   screen('E5', 'voxel-world-page', 'The voxel world page', 'the town on the voxel world page: the world drawn with its far field, the page\'s own panel readable'),
   screen('E6', 'play-profiler', 'Play with the Profiler', 'Play in the editor on the town, the Profiler tab open under it: the game drawn, the timeline and the frame\'s spans readable'),
   screen('E7', 'world-mode', 'World edit mode', 'the world mode on the yard: a hill raised and smoothed by brush strokes with a patch of another material painted on its top, the Sculpt rail\'s tools and palette, the brush panel, the brush cursor on the ground'),
-  screen('E8', 'world-fill', 'World mode: a fog fill and a leak', 'the world mode\'s Fill rail on the yard: two dug hollows, the nearer one filled with fog by a click and a drag of the level, the other breached by a trench so its fill is refused and its leak marked in red; the level ring, the Fill panel, the status line'),
+  screen('E8', 'world-fill', 'World mode: a fog fill and a leak', 'the world mode\'s Fill rail on the yard: two dug hollows, the farther one filled with fog by a click and a drag of the level (the fog drawn in it), the nearer breached by a trench so its fill is refused and its leak marked in red; the level ring, the Fill panel with its fog view switch, the status line'),
 ]);
 
 /** What is wrong with a picture list (empty: nothing): ids unique, every entry has its title and its line, every camera and screen known. */

@@ -181,4 +181,4 @@ Project materials.
 | `materials[].voxel.surfaces` | JSON: `Partial<Record<VoxelSurface, VoxelTextureSet>>` ([VoxelSurface](types-v-w.md#type-voxel-surface), [VoxelTextureSet](types-v-w.md#type-voxel-texture-set)) |  |  | **Surfaces.** Texture sets by surface: {wall?, floor?, ceiling?: {albedo?, normal?, orm?: a plain texture asset}} (role and face direction pick one; floor and ceiling fall back to wall, wall to the material's own look). |
 | `materials[].voxel.gas` | object |  |  | **Gas look.** A gas's plain look (only with the gas use): its colour and how dense it is at full density. (applies when `use` is `gas`) |
 | `materials[].voxel.gas.color` | color | `"#ffffff"` |  | **Colour.** The gas's colour (absent: #ffffff). (stored only when not the default) |
-| `materials[].voxel.gas.density` | number |  | 0 – 8, step 0.01 | **Full density.** Density per metre of a cell at full density, shape 15 (absent: 0.1); a cell of density d holds d/15 of it. |
+| `materials[].voxel.gas.density` | number |  | 0 – 8, step 0.01 | **Full density.** Density per metre of a cell at full density, shape 15 (absent: 0.5); a cell of density d holds d/15 of it. |

@@ -116,9 +116,9 @@ export const VOXEL_MATERIAL_LIMITS = Object.freeze({
   blendMetresMax: VOXEL_SIZE_M,
   /** A world that says nothing: half a cell, a soft seam that still keeps each cell's material readable. */
   blendMetresDefault: VOXEL_SIZE_M / 2,
-  /** A gas that says nothing: white, and thin enough that 10 m of it at full density lets about a third of the light through. */
+  /** A gas that says nothing: white, and 2 m of it at full density lets about a third of what is behind it through (a mist that shows in a knee-deep hollow). */
   gasColorDefault: '#ffffff',
-  gasDensityDefault: 0.1,
+  gasDensityDefault: 0.5,
   /** The thickest gas: at 8 a metre one 0.5 m cell at full density passes under 2 % (opaque to the eye). */
   gasDensityMax: 8,
 });

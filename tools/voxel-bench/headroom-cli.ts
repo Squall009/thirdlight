@@ -50,6 +50,10 @@
  *   --props N            N lit props (bench-props.ts: indoors and in the streets, every fifth cart moving) placed before
  *                        Play and taken out after (the simulation's stamping and walk packing are among `spans.sim`);
  *                        `--props-unlit`: the same objects not marked to affect lighting (what drawing and moving them costs)
+ *   --fog                the bench fog (bench-fog.ts: a hollow in the town's empty lot filled with mist) placed before Play
+ *                        and taken out after, the camera orbiting the hollow 10 m out and 7 m up, looking down into it
+ *                        (the bank in view all the way round); `--query '&voxelGas=off'` is the same run with the
+ *                        gas not drawn
  *   --viewport WxH       (default 1280x720)   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/headroom/<quality>-<tag>.json)
  *
  * How to (staging running, the 8 km world in it, nothing else on the GPU):
@@ -77,7 +81,8 @@ import type { GpuMeasurement } from '@thirdlight/game-host';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { spanMeans, type SpanFrame } from './travel';
 import { FarSettle, frameCap, frameWindow, misses, searchLimit, spread, type FrameWindow, type LimitResult } from './headroom';
-import { BENCH_GLOW_MATERIALS } from './lighting-cameras';
+import { placeBenchFog } from './bench-fog';
+import { BENCH_GLOW_MATERIALS, FOG_HOLLOW } from './lighting-cameras';
 import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, parseLampsOption, placeManyLamps } from './many-lamps';
 import { benchProps, parsePropsOption, placeBenchProps } from './bench-props';
 import { BENCH_SMOKE_EFFECT, particleEntities, placeBenchParticles, smokePlaces } from './bench-particles';
@@ -137,7 +142,11 @@ const SCENE = LAMPS === 0 ? null : manyLampsScene(LAMPS);
 const ML = SCENE === null ? null : manyLampsBehaviour(SCENE);
 const PROPS = parsePropsOption(process.argv);
 const PARTICLES = Number(arg('particles', '0'));
-const ORBIT_ID = `${ORBIT_R === 12 && ORBIT_W === 0.15 ? 'headroom-orbit' : `headroom-orbit-${ORBIT_R}-${String(ORBIT_W).replace('.', 'p')}`}${LAMPS === 0 ? '' : `-lamps${LAMPS}`}`;
+/** `--fog`: the bench fog placed, and the orbit round its hollow. */
+const FOG = process.argv.includes('--fog');
+const ORBIT_ID = `${ORBIT_R === 12 && ORBIT_W === 0.15 ? 'headroom-orbit' : `headroom-orbit-${ORBIT_R}-${String(ORBIT_W).replace('.', 'p')}`}${LAMPS === 0 ? '' : `-lamps${LAMPS}`}${FOG ? '-fog' : ''}`;
+/** The orbit's middle (x, z), its eye's height at no pitch, its pitch and its distance: the town square's, or round the fog's hollow. */
+const ORBIT_AT = FOG ? { x: FOG_HOLLOW.seed[0], z: FOG_HOLLOW.seed[2], y: 7 - Math.sin(0.64) * 12.5, pitch: 0.64, d: 12.5 } : { x: 0, z: 0, y: 20, pitch: 0.03, d: ORBIT_R };
 const ORBIT = `
 ${ML?.head ?? ''}
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
@@ -148,8 +157,8 @@ export default {
     ${ML === null ? '' : `if (ctx.phase === 'intent') { const v = ctx.voxels; const put = (n: string, x: number) => ctx.game.add(n, x - ctx.game.counter(n)); void put; ${ML.intent} return; }`}
     if (ctx.phase !== 'transform') return;
     s.yaw += ${ORBIT_W} / 120;
-    const pitch = 0.03, d = ${ORBIT_R}, c = Math.cos(pitch);
-    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: Math.sin(s.yaw) * c * d, y: 20 + Math.sin(pitch) * d, z: Math.cos(s.yaw) * c * d }, quaternion: quat(s.yaw, pitch) });
+    const pitch = ${ORBIT_AT.pitch}, d = ${ORBIT_AT.d}, c = Math.cos(pitch);
+    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: ${ORBIT_AT.x} + Math.sin(s.yaw) * c * d, y: ${ORBIT_AT.y} + Math.sin(pitch) * d, z: ${ORBIT_AT.z} + Math.cos(s.yaw) * c * d }, quaternion: quat(s.yaw, pitch) });
   },
   dispose() {},
 };
@@ -187,7 +196,7 @@ interface MeterSettings {
 }
 interface Hook {
   meter: { set(s: MeterSettings): boolean; state(): { copyCpuMs: number; lightsHidden: number; frames: number; size: number[]; completions?: unknown } | null; record(seconds: number, clock?: 'presented' | 'gpu'): Promise<number[]> };
-  stats(): { worlds: Record<string, { far: { nodes: number; bricks: number } ; chunks: number }> };
+  stats(): { worlds: Record<string, { far: { nodes: number; bricks: number } ; chunks: number; gas?: { triangles: number; program: boolean; eyeInside: boolean } }> };
 }
 
 async function openPlay(page: Page): Promise<{ canvas: Locator; psid: string; control: (body: unknown) => Promise<void> }> {
@@ -244,8 +253,10 @@ async function main(): Promise<void> {
   const unprop = PROPS === 0 ? null : await placeBenchProps(benchProps(PROPS), join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT), command as (op: string, args: Record<string, unknown>) => Promise<void>, sceneEntities, !process.argv.includes('--props-unlit'));
   const unparticle = PARTICLES > 0 ? await placeBenchParticles(particleEntities(BENCH_SMOKE_EFFECT, smokePlaces(PARTICLES), 'smoke'), command as (op: string, args: Record<string, unknown>) => Promise<void>, sceneEntities) : null;
   await orbitCamera();
+  // The bench fog, placed last and taken out first (its strokes are then the project's newest undo steps).
+  const fog = !FOG ? null : await placeBenchFog({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw: async (op, args) => (await api('commands', { op, projectId: PROJECT, ...(op === 'editVoxels' ? {} : { expectedRevision: await revision() }), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'voxel-bench-headroom' }, args })).json }, WORLD);
   const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });
-  const out: Record<string, unknown> = { bench: 'headroom', lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, props: PROPS, propsUnlit: process.argv.includes('--props-unlit'), particles: PARTICLES, quality: QUALITY, renderer: 'webgpu', viewport: VIEWPORT, tierScale: TIER_SCALE, cap: CAP, window: WINDOW_S, world: WORLD, start: host(), rounds: [] as unknown[] };
+  const out: Record<string, unknown> = { bench: 'headroom', lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, props: PROPS, propsUnlit: process.argv.includes('--props-unlit'), particles: PARTICLES, fog: fog?.facts ?? null, quality: QUALITY, renderer: 'webgpu', viewport: VIEWPORT, tierScale: TIER_SCALE, cap: CAP, window: WINDOW_S, world: WORLD, start: host(), rounds: [] as unknown[] };
   const browser = await launchGpuBrowser({ vsync: true });
   const T0 = Date.now();
   try {
@@ -354,6 +365,8 @@ async function main(): Promise<void> {
     // Programs built once for every kind of load before anything is timed.
     for (const s of [{ ballast: 1 }, ...COPIES.map((p) => ({ copies: 1, copy: p }))] as MeterSettings[]) await probe(s);
 
+    // The world's gas as drawn after the fill (with `--fog`: the bank's hull; none with the gas not drawn).
+    out['gas'] = (await stats())?.gas ?? null;
     for (let round = 0; round < ROUNDS; round++) {
       const r: Record<string, unknown> = { round, start: host() };
       r['noLoad'] = await probe({});
@@ -413,6 +426,7 @@ async function main(): Promise<void> {
     console.error(out['error']);
   } finally {
     await browser.close().catch(() => undefined);
+    await fog?.undo().catch((e: unknown) => console.error(`bench fog not taken out: ${String(e)}`));
     await unplace?.().catch((e: unknown) => console.error(`many lamps not taken out: ${String(e)}`));
     await unprop?.().catch((e: unknown) => console.error(`bench props not taken out: ${String(e)}`));
     await unparticle?.().catch((e: unknown) => console.error(`bench particles not taken out: ${String(e)}`));

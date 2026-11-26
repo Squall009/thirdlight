@@ -16,7 +16,7 @@ import { dayPresets } from './day-cycle';
 /** The pictures' names, fixed (a later item compares files of the same name). */
 export const LIGHT_SHOT_NAMES = ['street-noon', 'room-window', 'cave', 'night-lamps', 'far-view'] as const;
 /** Checks beside the five, taken only when named (`--only`): a far lamp from two places, two cameras moved 1 m, the lit props' two readings (bench-props.ts). */
-export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m', 'props-cart', 'props-table', 'house-60m', 'house-above', 'lroom-above', 'town-100m', 'town-150m', 'town-250m', 'town-600m', 'town-2km', 'ref-30m', 'ref-60m', 'ref-100m', 'ref-150m'] as const;
+export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m', 'props-cart', 'props-table', 'house-60m', 'house-above', 'lroom-above', 'town-100m', 'town-150m', 'town-250m', 'town-600m', 'town-2km', 'ref-30m', 'ref-60m', 'ref-100m', 'ref-150m', 'fog-bank', 'fog-inside'] as const;
 /** The many-lamps scene's cameras (`--lamps N`, many-lamps.ts): a street with many lamps at night, a lamp-lit room, a high view over the lit town. */
 export const MANY_LAMP_SHOT_NAMES = ['lamps-street', 'lamps-room', 'lamps-high'] as const;
 export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number] | (typeof LIGHT_CHECK_NAMES)[number] | (typeof MANY_LAMP_SHOT_NAMES)[number];
@@ -75,6 +75,24 @@ export function caveStroke(): { v: 2; grid: 0; kind: 'brush'; shape: 'sphere'; s
   const d = CAVE.diameter * 2;
   return { v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [d, d, d], points, mode: 'dig', smooth: false };
 }
+
+/**
+ * The fog bank: a hollow dug into the town's one empty lot beside the room camera's house (lot (5, 6): x −28 … −8 m,
+ * z −8 … 12 m, flat grass with no house, fence or pond) by three overlapping balls 12 m across, their middles a metre
+ * or more over the ground (a bowl about 13 m wide and 5 m deep with an uneven rim), filled with the bench's mist by
+ * one `flood` stroke from its floor to half a metre under the lot's ground, thinning over the top 1.5 m. Bench data:
+ * placed for the fog cameras and taken out after (bench-fog.ts).
+ */
+export const FOG_HOLLOW = Object.freeze({
+  /** The balls' middles (metres) and their diameter (metres). */
+  dabs: Object.freeze([[-20.5, 1, 1.5], [-16, 1, 3.5], [-18.5, 1.5, -1.5]] as const),
+  diameter: 12,
+  /** Where the flood starts (metres: an open cell near the floor), its level (metres), reach (metres) and fade (metres). */
+  seed: Object.freeze([-18.5, -2.5, 1] as const),
+  level: -0.5,
+  reach: 10,
+  fade: 1.5,
+});
 
 /**
  * The town's streets used here: the gap between the house rows of lots j = 4 and j = 5 (town.ts: 20 m lots,
@@ -225,6 +243,10 @@ export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   // house there (100 m and 150 m: the mesh rings; past them the far field's bricks).
   ...([['town-100m', 'shot20', 100], ['town-150m', 'shot21', 150], ['town-250m', 'shot22', 250], ['town-600m', 'shot23', 600], ['town-2km', 'shot24', 2000]] as const).map(([name, command, d]): LightingCamera => ({ name, command, eye: [d, 4 + d * 0.35, 0], yaw: yawOf(-1, 0), pitch: Math.atan2(d * 0.35, d), preset: 'bench-noon', near: d <= 150, shows: `at noon, the town's middle from ${d} m east and ${Math.round(d * 0.35)} m up: its houses as the ${d <= 150 ? 'mesh rings' : 'far field'} draw them` })),
   ...REF_CAMERAS,
+  // The fog bank (FOG_HOLLOW) at noon: from 17 m south-east of the hollow and 6 m up, looking down into it; and from
+  // inside it, 1.7 m over its floor and 2.8 m under the fog's top, looking east and a little up at its wall and rim.
+  { name: 'fog-bank', command: 'shot29', eye: [-6.5, 6, 14], yaw: yawOf(-12, -13), pitch: Math.atan2(6.5, Math.hypot(12, 13)), preset: 'bench-noon', near: true, shows: 'at noon, a hollow in an empty lot filled with mist to just under its rim, from 17 m off and 6 m up: the bank\'s surface, where it meets the hollow\'s sides, the grass and houses round it' },
+  { name: 'fog-inside', command: 'shot30', eye: [-18.5, -3.3, 1], yaw: yawOf(1, 0.2), pitch: -0.25, preset: 'bench-noon', near: true, shows: 'at noon, from inside the same bank, 1.7 m over the hollow\'s floor: the hollow\'s wall and rim and the sky through the mist' },
   { name: 'props-table', command: 'shot16', eye: [0.5, 1.9, 3.5], yaw: yawOf(-3.9, -2.7), pitch: 0.3, preset: 'bench-noon', near: true, shows: 'at noon, the bench table under the room camera’s window wall and the floor under it' },
 ]);
 

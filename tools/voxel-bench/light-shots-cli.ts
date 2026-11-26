@@ -105,6 +105,7 @@ import { settleAfter, type CountSample } from './travel';
 import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, MANY_LAMPS_COMMANDS, parseLampsOption, placeManyLamps } from './many-lamps';
 import { dayBehaviour, DAY_ARC_DEG, DAY_COMMANDS, DAY_SPEEDS } from './day-cycle';
 import { crackGlowMask, placeholderPng, withAlpha } from './texture-sets';
+import { placeBenchFog } from './bench-fog';
 import { benchProps, parsePropsOption, placeBenchProps, PROP_READINGS, volumeBoxLight } from './bench-props';
 import { L_ROOM_COMMAND, parseRoomsOption, placeBenchRooms, roomsBehaviour } from './bench-rooms';
 import { BENCH_PANEL_EFFECT, BENCH_RED_LAMP, middleColour, panelPlace, particleEntities, placeBenchParticles } from './bench-particles';
@@ -164,6 +165,7 @@ const AFTER_GPU_SHARE = 0.005;
 const AFTER_GPU_LATER_MS = 10_000;
 
 interface WorldStats {
+  gas?: { triangles: number; program: boolean; eyeInside: boolean; overlay: boolean };
   chunks: number;
   levels: number[];
   kitInstances: number;
@@ -396,6 +398,16 @@ async function prepareGlowMask(b: ReturnType<typeof benchApi>): Promise<() => Pr
   };
 }
 
+/** What the bench fog wrote (null: not placed). */
+let benchFog: Record<string, unknown> | null = null;
+
+/** With the bench fog placed: the world's gas as drawn at this camera (the hull's triangles, whether the eye stood in it) and what the bench wrote. */
+async function gasFacts(game: PlayGame): Promise<Record<string, unknown>> {
+  if (benchFog === null) return {};
+  const gas = await game.frame.evaluate((world) => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.stats().worlds[world]?.gas ?? null, O.world).catch(() => null);
+  return gas === null ? {} : { gas, benchFog };
+}
+
 async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<void>> {
   // The project's content lists its presets by id; setting the list replaces it, so a project with presets of its own is refused.
   const content = JSON.parse(readFileSync(join(PROJECT_DIR, 'content.json'), 'utf8')) as { content: { environment?: { presets?: unknown[] } } };
@@ -427,7 +439,12 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   const camEntity = sceneEntities().find((e) => e.name === 'Perf far camera') as { id: string; components?: { virtualCamera?: Record<string, unknown> } } | undefined;
   const camWas = camEntity?.components?.virtualCamera ?? null;
   if (O.autoExposure && camEntity !== undefined && camWas !== null) await b.command('setComponent', { entityId: camEntity.id, component: 'virtualCamera', value: { ...camWas, autoExposure: true } });
+  // The fog bank (the fog cameras' bench data), placed last and taken out first: its strokes are then the project's
+  // newest undo steps when it is taken out.
+  const fog = !ONLY.some((n) => n.startsWith('fog-')) ? null : await placeBenchFog({ command: (op, args) => b.command(op, args), raw: async (op, args) => (await b.api('commands', commandEnvelope(op, O.project, op === 'editVoxels' ? undefined : await b.revision(), args, 'voxel-bench-light-shots'))).json }, O.world);
+  benchFog = fog?.facts ?? null;
   return async () => {
+    await fog?.undo().catch((err: unknown) => console.error(`bench fog not taken out: ${String(err)}`));
     if (O.autoExposure && camEntity !== undefined && camWas !== null) await b.command('setComponent', { entityId: camEntity.id, component: 'virtualCamera', value: camWas }).catch((err: unknown) => console.error(`camera not set back: ${String(err)}`));
     for (const lamp of lamps) {
       const e = sceneEntities().find((x) => x.name === lamp.name);
@@ -818,6 +835,7 @@ async function main(): Promise<void> {
       const counters = (await game.observe().catch(() => null))?.counters ?? {};
       const region = Object.fromEntries(['known', 'enclosed', 'volume', 'sky', 'portals', 'id'].map((k) => [k, counters[`region_${k}`] ?? 0]));
       (out['shots'] as unknown[]).push({
+        ...(await gasFacts(game)),
         ...(cellsAt.length > 0 ? { cellsAt } : {}),
         ...(walkCheck !== null ? { walkCheck } : {}),
         region,

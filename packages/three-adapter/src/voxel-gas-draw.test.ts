@@ -6,6 +6,7 @@
  * density overlay is a switch; what the view made is let go with it.
  */
 import * as THREE from 'three';
+import { VOXEL_MATERIAL_LIMITS } from '@thirdlight/project-model';
 import { describe, expect, it } from 'vitest';
 import {
   ALL_DERIVED_PARTS,
@@ -177,7 +178,7 @@ describe('the plain gas draw', () => {
     expect(look[0]).toBeCloseTo(new THREE.Color().setHex(0x808080).r, 6);
     for (const id of [SMOKE, 77]) {
       expect(surface.tableEntry(id).gas.slice(0, 3), `material ${id}`).toEqual([1, 1, 1]);
-      expect(surface.tableEntry(id).gas[3], `material ${id}`).toBeCloseTo(0.1, 6);
+      expect(surface.tableEntry(id).gas[3], `material ${id}`).toBeCloseTo(VOXEL_MATERIAL_LIMITS.gasDensityDefault, 6);
     }
     expect(parts.get('0,0,0:mesh')).toBeGreaterThan(dry);
     // The eye's layer came with the first gas: one triangle over the screen, never culled, drawn after everything.

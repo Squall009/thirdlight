@@ -17,7 +17,7 @@
  * within its timeout is saved but reported "did not settle: <what>".
  */
 import { join } from 'node:path';
-import type { Browser, Page } from '@playwright/test';
+import type { Browser, Locator, Page } from '@playwright/test';
 import { chunkGrid, createWorldStore, VOXEL_ROLE } from '@thirdlight/voxel';
 import { VOXEL_WORLDS_FOLDER, writeVoxelWorld } from '@thirdlight/workspace';
 import { voxelStrokeCommand, type VoxelStroke } from '../../packages/editor/src/session/voxel-brush';
@@ -57,7 +57,7 @@ async function until(page: Page, ready: () => Promise<string | null>, ms = SETTL
 }
 
 interface SceneVoxels {
-  readonly worlds: Record<string, { chunks: number }>;
+  readonly worlds: Record<string, { chunks: number; gas?: { triangles: number; program: boolean; eyeInside: boolean; overlay: boolean } }>;
   readonly states: Record<string, { settled: boolean; revision?: number; grids?: Record<string, { settled: boolean }> }>;
   readonly problems: Record<string, string>;
 }
@@ -76,6 +76,23 @@ async function sceneSettled(page: Page): Promise<string | null> {
   if ((v?.worlds[YARD]?.chunks ?? 0) === 0) return 'no yard chunk drawn';
   if ((await page.locator('canvas.tl-viewport').getAttribute('data-frame-wanted')) !== '0') return 'the Scene view still drawing';
   return null;
+}
+
+/**
+ * The world mode's fog view switched to Density (the overlay), a picture of it taken into `file`, and switched back:
+ * what the Scene view says it draws (`data-gas-overlay`) and its gas as drawn then.
+ */
+async function densityView(page: Page, mode: Locator, file: string): Promise<Record<string, unknown>> {
+  const group = mode.getByRole('radiogroup', { name: 'world fog view', exact: true });
+  if ((await group.count()) === 0) return { switched: false, why: 'no fog view switch on the panel' };
+  const drawn = async (): Promise<string | null> => page.locator('[data-gas-overlay]').first().getAttribute('data-gas-overlay').catch(() => null);
+  await group.getByRole('radio', { name: 'Density', exact: true }).click();
+  const on = await until(page, async () => ((await drawn()) === 'density' ? sceneSettled(page) : 'the Scene view not drawing fog by density'), 20_000);
+  await page.screenshot({ path: file });
+  const gas = (await sceneVoxels(page))?.worlds[YARD]?.gas ?? null;
+  await group.getByRole('radio', { name: 'As drawn', exact: true }).click();
+  const off = await until(page, async () => ((await drawn()) === 'off' ? sceneSettled(page) : 'the Scene view still drawing fog by density'), 20_000);
+  return { switched: on.ok, file, gas, back: off.ok };
 }
 
 async function shoot(page: Page, file: string, wait: Wait, facts: Record<string, unknown>, id: string, waited: string): Promise<PictureResult> {
@@ -524,7 +541,10 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
         return sceneSettled(page);
       });
       const status = await page.locator('.tl-hints__text').first().textContent().catch(() => null);
-      out.set('world-fill', await shoot(page, files('world-fill'), armed.ok ? w : armed, facts('world-fill', { tool: 'Fog', reachField: reach, fogBrushStroke: fog, wholeHollow: whole, breachedHollow: breached, revisionBefore: before, revisionAfterTheFogStroke: afterFog, revisionAfterTheFirstFill: afterWhole, revisionAtTheEnd: await revision(), status: status?.slice(0, 300) ?? null, note: 'nothing draws gas yet (the gas part is the next item\'s): the filled hollow looks empty; what shows a fill here is the command\'s answer and the world\'s revision' }), idOf('world-fill'), 'world mode\'s Fill rail open, the Fog tool armed, a leak marked, the level ring on the ground, the Scene view settled'));
+      const gasDrawn = (await sceneVoxels(page))?.worlds[YARD]?.gas ?? null;
+      // The fog view switched to Density for a second picture kept beside this one (the raw folder), then back.
+      const density = armed.ok ? await densityView(page, mode, files('world-fill').replace(/\.png$/, '-density.png')) : { switched: false, why: 'the mode did not open' };
+      out.set('world-fill', await shoot(page, files('world-fill'), armed.ok ? w : armed, facts('world-fill', { gasDrawn, densityView: density, tool: 'Fog', reachField: reach, fogBrushStroke: fog, wholeHollow: whole, breachedHollow: breached, revisionBefore: before, revisionAfterTheFogStroke: afterFog, revisionAfterTheFirstFill: afterWhole, revisionAtTheEnd: await revision(), status: status?.slice(0, 300) ?? null, note: 'the far hollow\'s fill and the fog brush\'s stroke in the near one are drawn as fog (gasDrawn: the Scene view\'s gas triangles); densityView: the same view with the fog view switched to Density, kept beside this picture' }), idOf('world-fill'), 'world mode\'s Fill rail open, the Fog tool armed, a leak marked, the level ring on the ground, the Scene view settled'));
       await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
     }
     await context.close();
