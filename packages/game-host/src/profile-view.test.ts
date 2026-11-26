@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { SpanRecorder, threadProfiler, wallClock } from '@thirdlight/shared';
 import { PageProfile } from './page-profile';
-import { makeProfileCapture, parseProfileCapture, profileCaptureFileName, profileCaptureText, ProfileAccumulator, PROFILE_CAPTURE_VERSION } from './profile-capture';
+import { fitProfileReport, makeProfileCapture, parseProfileCapture, profileCaptureFileName, profileCaptureText, ProfileAccumulator, PROFILE_CAPTURE_VERSION } from './profile-capture';
 import { profileBar, profileBreakdown, profileColumnAt, profileColumns, profileDigest, profileOverlayLines, PROFILE_DIGEST_MAX_BYTES } from './profile-view';
 import { createStatsOverlay } from './stats-overlay';
 
@@ -153,6 +153,60 @@ describe('reads since a cursor and their sum', () => {
     // Nothing new: an empty cut.
     const none = p.read(whole.seq);
     expect([none.threads.page.length, none.threads.sim.length, none.threads.jobs.length, none.spikes.length]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('a read over an answer\'s bound is cut to its newest frames, and its spikes come over the next reads: none lost, the cursor set', () => {
+    const p = new PageProfile();
+    p.follow(30, 'low');
+    const worker = new SpanRecorder('sim');
+    let at = clock + 1000;
+    // 60 frames, every tenth 150 ms late: six long frames kept as spikes.
+    for (let i = 0; i < 60; i++) {
+      pageFrame(p, at);
+      simTick(p, worker, i, at + 5);
+      at += i % 10 === 9 ? 150 : 33.3;
+    }
+    clock = at + 2000;
+    const whole = p.read();
+    expect(whole.spikes.length).toBeGreaterThanOrEqual(4);
+    const size = (v: unknown): number => JSON.stringify(v).length;
+    // A read that fits is not touched.
+    expect(fitProfileReport(whole, size(whole))).toBe(whole);
+    // An answer with room for five spikes' worth beside the fixed parts: half of it is the spikes' (two a read).
+    const max = size({ ...whole, threads: { page: [], sim: [], jobs: [] }, spikes: [] }) + 5 * (size(whole.spikes[0]) + 1);
+    expect(max).toBeLessThan(size(whole));
+    const cut = fitProfileReport(whole, max);
+    expect(size(cut)).toBeLessThanOrEqual(max);
+    // The newest frames of every thread, without a gap: the end of what the page keeps.
+    const key = (f: { thread: string; frame: number; start: number }): string => `${f.thread}:${f.frame}:${f.start}`;
+    for (const thread of ['page', 'sim', 'jobs'] as const) {
+      const kept = cut.threads[thread].map(key);
+      expect(kept.length).toBeGreaterThan(0);
+      expect(kept.length).toBeLessThan(whole.threads[thread].length);
+      expect(kept).toEqual(whole.threads[thread].map(key).slice(-kept.length));
+    }
+    // The frames' cursor is now; the spikes' stops at the last one sent (the oldest first).
+    expect([cut.seq.page, cut.seq.sim]).toEqual([whole.seq.page, whole.seq.sim]);
+    expect(cut.spikes.length).toBeGreaterThan(0);
+    expect(cut.spikes.length).toBeLessThan(whole.spikes.length);
+    expect(cut.spikes.map((x) => x.at)).toEqual(whole.spikes.map((x) => x.at).slice(0, cut.spikes.length));
+    expect(cut.seq.spikes).toBe(whole.seq.spikes - (whole.spikes.length - cut.spikes.length));
+    // A viewer that keeps reading from the cursor it was given ends with every spike the page keeps.
+    const acc = new ProfileAccumulator();
+    acc.add(cut);
+    let reads = 1;
+    for (; reads < 10 && acc.report()!.spikes.length < whole.spikes.length; reads++) {
+      const next = fitProfileReport(p.read(acc.cursor!), max);
+      expect(size(next)).toBeLessThanOrEqual(max);
+      acc.add(next);
+    }
+    expect(reads).toBeGreaterThan(1);
+    expect(acc.report()!.spikes.map((x) => x.at)).toEqual(whole.spikes.map((x) => x.at));
+    expect(acc.cursor).toEqual(whole.seq);
+    // A spike no answer can hold is left out and counted as sent: it does not hold the others back.
+    const tiny = fitProfileReport(whole, size({ ...whole, threads: { page: [], sim: [], jobs: [] }, spikes: [] }) + 8);
+    expect(tiny.spikes.length + tiny.threads.page.length).toBe(0);
+    expect(tiny.seq.spikes).toBe(whole.seq.spikes);
   });
 
   it('a capture file round trips with its header and version; another version or kind is refused with the reason', () => {

@@ -260,8 +260,6 @@ export async function stagingScreens(browser: Browser, want: readonly ScreenName
       const w0 = await editorOpen(page, `${s.origin}/?project=${s.project}&renderer=webgpu#token=${s.token}`);
       let w: Wait = w0;
       if (w0.ok) {
-        // The Profiler open before Play starts: opened on a Play already running on this world it does not answer.
-        await page.locator('.tl-dock--bottom > [role=tablist] [role=tab]', { hasText: 'Profiler' }).click();
         await page.getByTitle('Start an isolated play preview').click();
         const game = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
         type Play = { stats(): { worlds: Record<string, { chunks: number; far: { bricks: number } }> }; light?: { progress(): { settled?: boolean; waiting: number } | null } };
@@ -285,6 +283,9 @@ export async function stagingScreens(browser: Browser, want: readonly ScreenName
           if (r.lit === false) return 'the light volume settling';
           return null;
         });
+        // The Profiler opened on a Play that has run for a while: its first read is then the page's full rings, the
+        // largest answer the panel ever asks for.
+        await page.locator('.tl-dock--bottom > [role=tablist] [role=tab]', { hasText: 'Profiler' }).click();
         const panel = page.getByTestId('profiler-timeline');
         const p = await until(page, async () => ((await panel.count()) > 0 && (await panel.isVisible()) ? null : 'the Profiler timeline not shown'), 30_000);
         if (w.ok && !p.ok) w = p;

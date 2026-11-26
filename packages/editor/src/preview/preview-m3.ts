@@ -44,6 +44,7 @@ import type { InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { playVoxelPorts } from './voxel-ports';
 import { answerScreenshotRequest } from './screenshot-answer';
+import { profileAnswer } from './profile-answer';
 import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
 import { fitGameObservation, fitPlayDiagnostics, GAME_OBSERVATION_HEADER, pickPlaySections, type GameControlCommand } from '@thirdlight/protocol';
@@ -430,7 +431,7 @@ export function bootstrapPreviewM3(): void {
       bridge.sendProfileResult(playId, body.relayId, notReady);
       return;
     }
-    bridge.sendProfileResult(playId, body.relayId, { ok: true, result: { report, build: h.identity.buildId, renderer: rendererOf(h.adapter) } });
+    bridge.sendProfileResult(playId, body.relayId, { ok: true, result: profileAnswer(report, h.identity.buildId, rendererOf(h.adapter)) });
   });
 
   bridge.on('tl.input.request', (m) => {

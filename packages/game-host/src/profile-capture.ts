@@ -106,6 +106,59 @@ export function parseProfileCapture(text: string): { ok: true; capture: ProfileC
   return { ok: true, capture: v as unknown as ProfileCapture };
 }
 
+/** A value's size as an answer counts it (its JSON's characters). */
+const jsonSize = (v: unknown): number => JSON.stringify(v).length;
+
+/**
+ * A read cut to `maxBytes` of JSON, for an answer with a size bound (the
+ * editor's bridge refuses a larger one, and a reader whose first answer is
+ * refused never gets a cursor, so it asks for everything again for ever).
+ * A read that fits is returned as it is. From one that does not:
+ *
+ * - **Frames**: the newest of all threads that fit, a run without gaps back
+ *   from now. The older ones are left out for good (the cursor is still
+ *   "now"); a viewer's timeline starts shorter and fills as frames arrive.
+ * - **Spikes**: the oldest first, in at most half the room, and the cursor's
+ *   spike count stops at the last one sent, so the next reads bring the
+ *   rest: none is lost while the page keeps it. A spike too large for any
+ *   answer is left out and counted as sent (it would hold back the others).
+ *
+ * Everything else of the report is kept (a few KiB).
+ */
+export function fitProfileReport(r: ProfileReport, maxBytes: number): ProfileReport {
+  if (jsonSize(r) <= maxBytes) return r;
+  const room = maxBytes - jsonSize({ ...r, threads: { page: [], sim: [], jobs: [] }, spikes: [] });
+  // An array's entries cost their JSON and a comma.
+  const cost = (v: unknown): number => jsonSize(v) + 1;
+  const spikes: ProfileSpike[] = [];
+  let spikeBytes = 0;
+  let sent = 0;
+  for (const s of r.spikes) {
+    const n = cost(s);
+    if (n > room) {
+      if (spikes.length > 0) break;
+      sent++;
+      continue;
+    }
+    // The first spike may take more than half: one that never fits the half would never be sent.
+    if (spikes.length > 0 && spikeBytes + n > room / 2) break;
+    spikes.push(s);
+    spikeBytes += n;
+    sent++;
+  }
+  let left = room - spikeBytes;
+  const newestFirst = [...r.threads.page, ...r.threads.sim, ...r.threads.jobs].sort((a, b) => b.start - a.start);
+  const kept = new Set<ProfileFrame>();
+  for (const f of newestFirst) {
+    const n = cost(f);
+    if (n > left) break;
+    kept.add(f);
+    left -= n;
+  }
+  const of = (frames: readonly ProfileFrame[]): ProfileFrame[] => frames.filter((f) => kept.has(f));
+  return { ...r, threads: { page: of(r.threads.page), sim: of(r.threads.sim), jobs: of(r.threads.jobs) }, spikes, seq: { ...r.seq, spikes: r.seq.spikes - (r.spikes.length - sent) } };
+}
+
 const frameKey = (f: ProfileFrame): string => `${f.thread}:${f.frame}:${f.start}`;
 
 /**
