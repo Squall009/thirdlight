@@ -137,6 +137,11 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 - A general unification of structure grids, props and splines into one authoring workflow (they already share
   "a definition generates voxels, hand edits are overrides"; storage differs because a turned building keeps its
   own lattice).
+- From 47b (2026-11-26), not built: the level-0 derive carries light stop, walkers and collision apart from "drawn
+  as a body", so a role can differ per column (47p's plan needs it for the `prop` row); the role check also scans
+  `tools/voxel-bench`; a roof kit with wall-top fill for the bench town, or the owner's word on that default (D829);
+  why Play in the editor takes about 95 s to settle on the town (D835); a script that declares more than 32 debug
+  commands gets an error, not a log line.
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
