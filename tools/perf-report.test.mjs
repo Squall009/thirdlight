@@ -1,6 +1,10 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
-import { perfNumbers, perfReport } from './perf-report.mjs';
+import { latestReport, perfNumbers, perfReport } from './perf-report.mjs';
 
 /** A headroom result trimmed to the fields the report reads. */
 const headroom = (meanMs, gpuMs) => ({
@@ -29,5 +33,21 @@ describe('the phase performance report', () => {
     expect(perfReport(post, null)).toContain('| GPU post | not readable (-6.15 ms) | — |');
     expect(md).toContain('never a gate');
     expect(perfReport(perfNumbers({ error: 'world not settled' }), null)).toContain('The bench reported an error: world not settled');
+  });
+
+  it('reads the newest kept report beside the one kept before it, and nothing when none is kept', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'perf-reports-'));
+    try {
+      expect(latestReport(join(dir, 'none'))).toBeNull();
+      writeFileSync(join(dir, '2026-11-25T00-00-00-000Z-aaaa.json'), JSON.stringify(perfNumbers(headroom(40, 11))));
+      expect(latestReport(dir)).toContain('| GPU frame | 11 ms | — |');
+      writeFileSync(join(dir, '2026-11-26T00-00-00-000Z-bbbb.json'), JSON.stringify(perfNumbers(headroom(33.42, 9.14))));
+      const md = latestReport(dir);
+      expect(md).toContain('(2026-11-26T00-00-00-000Z-bbbb)');
+      expect(md).toContain('| GPU frame | 9.14 ms | 11 ms |');
+      expect(md).toContain('previous (2026-11-25T00-00-00-000Z-aaaa)');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

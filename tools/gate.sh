@@ -11,13 +11,18 @@
 #                                  A red step does not stop the run (only a red build does): one run shows every
 #                                  failure.
 #   tools/gate.sh phase            once, at a phase's close: the full build, full lint (no cache), every unit test
-#                                  (the slow list too), the boot check, the picture set, then the performance
-#                                  report (frame rate, frame time, GPU time, memory beside the previous phase
-#                                  run's; recorded, never gating).
-#   tools/gate.sh start check|phase [--failed]
+#                                  (the slow list too), the boot check, the performance report (frame rate, frame
+#                                  time, GPU time, memory beside the previous phase run's; recorded, never gating),
+#                                  then the picture set.
+#   tools/gate.sh pictures         the picture set alone (docs/pictures.md): the fixed list's world pictures and
+#                                  editor screens, settled, as a pack for an agent's read in
+#                                  ~/.cache/thirdlight-pictures/<run>/ (TL_PICTURES_DIR in place of the first part).
+#                                  RED when a picture could not be taken or did not settle; what a picture shows
+#                                  never turns it red. About 15 minutes: start it detached.
+#   tools/gate.sh start check|phase|pictures [--failed]
 #                                  the same, detached as the systemd unit thirdlight-gate (a caller that ends no
-#                                  longer kills it halfway); prints its log folder. For `phase`, which can pass
-#                                  10 minutes.
+#                                  longer kills it halfway); prints its log folder. For `phase` and `pictures`,
+#                                  which pass 10 minutes.
 #   tools/gate.sh wait             blocks until the detached run ends; prints its summary. A unit the cap's OOM
 #                                  killer (or a signal) ended is RED, whatever its summary got to say.
 #
@@ -48,12 +53,12 @@ enough_memory() {
   [ "$avail" -ge "$need" ] || { echo "not started: only ${avail} GB available (the cap is $MEM)"; exit 1; }
 }
 # The environment a capped run gets (the inner sudo -u keeps the GPU groups).
-capped_env() { echo env HOME="$HOME" PATH="$PATH" NODE_OPTIONS=--max-old-space-size=4096 TL_GATE_CAPPED=1 TL_VITEST_WORKERS="$WORKERS" "$@"; }
+capped_env() { echo env HOME="$HOME" PATH="$PATH" NODE_OPTIONS=--max-old-space-size=4096 TL_GATE_CAPPED=1 TL_VITEST_WORKERS="$WORKERS" ${TL_PICTURES_DIR:+TL_PICTURES_DIR="$TL_PICTURES_DIR"} "$@"; }
 
 case "$mode" in
-  check | phase) ;;
+  check | phase | pictures) ;;
   start)
-    sub=${1:-}; case "$sub" in check | phase) ;; *) usage ;; esac
+    sub=${1:-}; case "$sub" in check | phase | pictures) ;; *) usage ;; esac
     shift
     if systemctl is-active --quiet "$UNIT"; then echo "a gate is already running ($UNIT); tools/gate.sh wait"; exit 1; fi
     enough_memory
@@ -197,12 +202,23 @@ boot() { # boot [--last-failed]
   if [ $rc -eq 0 ]; then say "$line"; else grep -E '✘' "$L/boot.log" | head -10; fail boot "$line (boot.log)" last-failed; fi
 }
 
-# The picture set is a later step of the phase run: until its command exists, say so rather than show nothing.
-pictures() { say "pictures: skipped (the picture command does not exist yet; nothing was taken)"; }
+# The picture set (tools/voxel-bench/pictures-cli.ts): its pack, named after the run's log folder, holds the
+# pictures, their settle states and the newest performance report beside the one before. A picture that could not
+# be taken or did not settle is RED: the run did not do its job. What a picture shows is the agent's read, never
+# the gate's.
+pictures() {
+  local t=$(date +%s) out=${TL_PICTURES_DIR:-$HOME/.cache/thirdlight-pictures}/${L##*/}
+  if node tools/voxel-bench/run.mjs pictures --out "$out" > "$L/pictures.log" 2>&1; then
+    say "$(grep '^pictures: ' "$L/pictures.log" | tail -1) ($(secs "$t"))"
+  else
+    grep '^pictures: ' "$L/pictures.log" | tail -12
+    fail pictures "$(tail -1 "$L/pictures.log") (pictures.log; $(secs "$t"))"
+  fi
+}
 
 # Frame rate, frame time, GPU time and memory from the headroom bench on staging's 8 km world (low tier, at its cap),
-# after everything else so it runs alone; written beside the previous phase run's. Never gating: whatever happens
-# here, the run's result is the steps' above.
+# after the tests so it runs alone (the pictures come after it, so their pack carries this run's report); written
+# beside the previous phase run's. Never gating: whatever happens here, the run's result is the other steps'.
 perf() {
   local t=$(date +%s) started='' reports=$LOGS/perf-reports
   if ! node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
@@ -234,6 +250,10 @@ case "$mode" in
     verdict ;;
   phase)
     say "phase run at $(git rev-parse --short HEAD)"
-    build; lint; unit all; boot; pictures; perf
+    build; lint; unit all; boot; perf; pictures
+    verdict ;;
+  pictures)
+    say "pictures at $(git rev-parse --short HEAD)"
+    pictures
     verdict ;;
 esac

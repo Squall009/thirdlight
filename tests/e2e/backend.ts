@@ -158,7 +158,7 @@ export async function publishBytes(be: E2EBackend, bytes: Uint8Array, kind: stri
   const headers = { authorization: `Bearer ${be.token}`, origin: be.origin };
   const base = `${be.origin}/api/v1/projects/${be.projectId}/content/stages`;
   const stage = (await (await fetch(base, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}' })).json()) as { stageId: string };
-  const put = await fetch(`${base}/${stage.stageId}/bytes`, { method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) }, body: bytes });
+  const put = await fetch(`${base}/${stage.stageId}/bytes`, { method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) }, body: bytes as Uint8Array<ArrayBuffer> });
   if (!put.ok) throw new Error(`publish ${assetId} upload: ${put.status}`);
   const inspected = (await (await fetch(`${base}/${stage.stageId}/inspect`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...inspect, kind }) })).json()) as { proposal?: Record<string, unknown>; convertedFrom?: Record<string, unknown> };
   const p = inspected.proposal;

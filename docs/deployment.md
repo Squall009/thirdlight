@@ -251,6 +251,7 @@ action, `ctx.shell`); a game loads its levels with `ctx.scenes.load` /
 tools/gate.sh check                         # every green commit: build, lint (cached), the fast unit set, the boot check; under 5 min
 tools/gate.sh check --failed                # after a real fix: build, lint and only what failed in the last check
 tools/gate.sh start phase; tools/gate.sh wait   # a phase's close: everything, the picture set, the performance report
+tools/gate.sh start pictures; tools/gate.sh wait   # the picture set alone, for an agent's read (docs/pictures.md)
 npm test                                    # every unit test (vitest; TL_UNIT_SET=fast leaves out tests/slow-unit-files.json's)
 npm run build && npx playwright test tests/e2e/boot.e2e.ts   # the boot check alone: real backend + Chromium
 node tools/perf/run.mjs                     # the performance harness (long; see manual/features/performance.md)

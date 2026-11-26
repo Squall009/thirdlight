@@ -31,6 +31,7 @@
  *   node tools/voxel-bench/run.mjs cull-page [options]  # occlusion culling at the connectivity views in Play: draws kept by the pyramid, seen by the oracle, a perfect pre-filter's page and GPU ms (cull-page-cli.ts)
  *   node tools/voxel-bench/run.mjs connectivity [options]  # connectivity culling measured: the flood's units and chunks against the frustum, rays and the page's lists (connectivity-cli.ts)
  *   node tools/voxel-bench/run.mjs town-grids --variant w|g0|g30|g45|restore  # the 8 km world's town houses in the world grid or each in its own grid at 0°, 30°, 45°: bench data, staging stopped (town-grids-cli.ts)
+ *   node tools/voxel-bench/run.mjs pictures [--out DIR] # the phase's picture set: the fixed list's world pictures and editor screens, settled, as a pack an agent reads (pictures-cli.ts; docs/pictures.md)
  *   node tools/voxel-bench/run.mjs paths [--play]  # the walk graph: build ms a chunk, bytes, the fixed path queries three ways, 100 queued, an edit to its answer; in Play the path-finding span (paths-cli.ts)
  *
  * Refuses to start outside a memory-capped cgroup (tools/perf/memory-cap.mjs):
@@ -55,7 +56,7 @@ if (why !== null) {
   console.error(`voxel-bench: not started: ${why}. Start it in a capped scope:\n  ${CAPPED_COMMAND.replace('tools/perf/run.mjs', 'tools/voxel-bench/run.mjs')}\nor pass ${NO_MEMORY_CAP_FLAG} on a host where nothing else runs.`);
   process.exit(2);
 }
-const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'join', 'collision', 'mesher', 'cases', 'mips', 'seams', 'relief', 'slice-world', 'far-world', 'slice', 'kits', 'textures', 'headroom', 'coverage', 'export-memory', 'light-shots', 'walk', 'props', 'connectivity', 'cull-page', 'paths', 'town-grids'].includes(args[0]) ? args[0] : null;
+const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'join', 'collision', 'mesher', 'cases', 'mips', 'seams', 'relief', 'slice-world', 'far-world', 'slice', 'kits', 'textures', 'headroom', 'coverage', 'export-memory', 'light-shots', 'walk', 'props', 'connectivity', 'cull-page', 'paths', 'town-grids', 'pictures'].includes(args[0]) ? args[0] : null;
 const entry = mode === null ? 'cli' : `${mode}-cli`;
 const rest = (mode === null ? args : args.slice(1)).filter((a) => a !== NO_MEMORY_CAP_FLAG);
 const out = join(REPO, 'dist', 'voxel-bench', `${entry}.mjs`);

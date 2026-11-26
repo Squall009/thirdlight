@@ -15,7 +15,8 @@ YOU WORK still holds where the TESTS AND GATES section below does not replace it
 TESTS AND GATES (from 47T on; AGENTS.md "Tests and the gate" is the rule, and it replaces every older gate, e2e and rerun
 line of this brief): unit tests prove behaviour (commands over HTTP in Node count); the boot check
 (tests/e2e/boot.e2e.ts, five tests) is the only browser test, and no other is written; looks are judged from pictures
-by an agent's written read and then the owner; performance is recorded, never gating. `tools/gate.sh check` (one
+by an agent's written read and then the owner (docs/pictures.md: the list, `tools/gate.sh pictures`, the read's
+fixed form, publishing); performance is recorded, never gating. `tools/gate.sh check` (one
 blocking call, under 5 min) for every commit you call green; `tools/gate.sh check --failed` after a real fix; the
 lead runs `tools/gate.sh phase` once at the close. A red is fixed or the test goes (archived): no rerun to see whether
 it passes, no placing, no watch rows for tests. About one hour of test time a phase.

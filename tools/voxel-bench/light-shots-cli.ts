@@ -5,7 +5,7 @@
  * own (dynamic resolution off, as the headroom meter pins it, so a picture is drawn the same every run). The
  * project's "Perf far camera" goes to each of the five fixed cameras (lighting-cameras.ts) in turn; at each,
  * once streaming has settled (the page's near and far counts still for `--hold` s, the simulation's job queue
- * and far work at zero), it saves `<name>.png` and counts its white, green and black specks (`blotch.specks`, specks.ts),
+ * and far work at zero, no texture level loading), it saves `<name>.png` and counts its white, green and black specks (`blotch.specks`, specks.ts),
  * then a second picture with the voxel draws hidden: a shot whose
  * picture barely changes with them hidden, that drew no voxels, or that never settled is refused (listed in the
  * report's `problems`, exit code 1). With each shot: the frame profile's page and simulation ms a frame and its
@@ -185,14 +185,18 @@ type VolumeStats = Record<string, unknown>;
 
 /**
  * Waits until the light volume has settled (every block looked at, every kept brick updated to its settle count, cell
- * faces written), held a second; how long it took and its diagnostics then.
+ * faces written), held a second; how long it took and its diagnostics then. A volume whose windows keep no brick
+ * (a camera hundreds of metres over the ground) has nothing to light: nothing stale or waiting and no brick kept
+ * counts as settled, though its own `settled` asks for a brick.
  */
 async function volumeLit(game: PlayGame): Promise<{ litS: number | null; state: VolumeStats | null }> {
   const t0 = Date.now();
   let calm = 0;
   for (;;) {
     const p = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.progress() ?? null).catch(() => null);
-    calm = p !== null && p.settled === true && p.texelsWritten > 0 && p.waiting === 0 ? calm + 1 : 0;
+    const idle = p !== null && p.waiting === 0 && p.staleUnits === 0;
+    const empty = idle && p.settled !== true && (await game.frame.evaluate(() => ((window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.volume?.() as { kept?: number } | null)?.kept ?? null).catch(() => null)) === 0;
+    calm = p !== null && ((p.settled === true && p.texelsWritten > 0 && p.waiting === 0) || empty) ? calm + 1 : 0;
     const done = calm >= 4 || Date.now() - t0 > LIT_TIMEOUT_MS;
     if (done) {
       const v = (await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: Hook }).__tlVoxelPlay?.light?.volume?.() ?? null).catch(() => null)) as VolumeStats | null;
@@ -311,11 +315,12 @@ async function counts(game: PlayGame): Promise<Record<(typeof COUNTS)[number], n
  * timeout. `waiting` says what it still waited for at the end: the simulation's state not read, pending work, or the
  * counts that moved over the last hold (each with its least and most), so a shot refused as unsettled names its cause.
  */
-async function settle(game: PlayGame): Promise<{ settledS: number | null; counts: Record<string, number> | null; pending: number[]; waiting: string[] }> {
+async function settle(game: PlayGame): Promise<{ settledS: number | null; counts: Record<string, number> | null; pending: number[]; waiting: string[]; texturesLoading: number | null }> {
   const t0 = Date.now();
   const series: CountSample[] = [];
   let last: Record<(typeof COUNTS)[number], number> | null = null;
   let pending: number[] = [];
+  let texturesLoading: number | null = null;
   const stillness = COUNTS.map((k) => (k.startsWith('far') ? FAR_STILL : NEAR_STILL));
   for (;;) {
     const t = (Date.now() - t0) / 1000;
@@ -323,13 +328,17 @@ async function settle(game: PlayGame): Promise<{ settledS: number | null; counts
     const sim = await game.sim().catch(() => null);
     pending = [Number(sim?.['pool']?.queued ?? 0), Number(sim?.['pool']?.inFlight ?? 0), Number(sim?.['far']?.pending ?? 0), Number(sim?.['far']?.jobs ?? 0)];
     if (last !== null) series.push({ t, v: COUNTS.map((k) => last![k]) });
+    // Texture levels still loading (the page's streamer, in its observation): a picture before they arrive shows blurred or missing surfaces.
+    const loading = (await game.observe().catch(() => null) as { resources?: { textures?: { loading?: unknown } } } | null)?.resources?.textures?.loading;
+    texturesLoading = typeof loading === 'number' ? loading : null;
     const still = settleAfter(series, 0, stillness, O.holdS);
-    if (still !== null && sim !== null && pending.every((x) => x === 0)) return { settledS: Number(t.toFixed(1)), counts: last, pending, waiting: [] };
+    if (still !== null && sim !== null && pending.every((x) => x === 0) && (texturesLoading === null || texturesLoading === 0)) return { settledS: Number(t.toFixed(1)), counts: last, pending, waiting: [], texturesLoading };
     if (t > O.timeoutS) {
       const waiting: string[] = [];
       if (sim === null) waiting.push('simulation state not read');
       if (pending.some((x) => x !== 0)) waiting.push(`pending ${pending.join('/')}`);
       if (last === null) waiting.push('draw counts not read');
+      if (texturesLoading !== null && texturesLoading > 0) waiting.push(`textures loading ${texturesLoading}`);
       const recent = series.filter((x) => x.t >= t - O.holdS);
       COUNTS.forEach((k, i) => {
         const v = recent.map((x) => x.v[i]!);
@@ -337,7 +346,7 @@ async function settle(game: PlayGame): Promise<{ settledS: number | null; counts
         const lo = Math.min(...v), hi = Math.max(...v);
         if (hi - lo > Math.max(stillness[i]!.abs, stillness[i]!.share * hi)) waiting.push(`${k} ${lo}–${hi}`);
       });
-      return { settledS: null, counts: last, pending, waiting };
+      return { settledS: null, counts: last, pending, waiting, texturesLoading };
     }
     await game.page.waitForTimeout(250);
   }
@@ -825,6 +834,7 @@ async function main(): Promise<void> {
         settledS: s.settledS,
         pending: s.pending,
         waiting: s.waiting,
+        texturesLoading: s.texturesLoading,
         counts: s.counts,
         voxelShare: Number(voxelShare.toFixed(3)),
         secondShare: Number(secondShare.toFixed(4)),

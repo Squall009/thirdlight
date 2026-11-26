@@ -5,6 +5,7 @@
  * tier, at its cap), written beside the previous phase run's numbers.
  *
  *   node tools/perf-report.mjs <headroom.json> <reports dir> [label]
+ *   node tools/perf-report.mjs --latest <reports dir>    the newest kept report beside the one before it (the picture set's copy)
  *
  * Prints the report (Markdown) and keeps this run's numbers in the reports
  * folder as `<time>-<label>.json`; the previous numbers are the newest file
@@ -12,7 +13,7 @@
  * shared box whose load moves them, so nothing here passes or fails, and the
  * exit code is 0 whenever a report could be written.
  */
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -76,7 +77,26 @@ export function perfReport(now, prev, meta = {}) {
   ].join('\n');
 }
 
+/** The newest report kept in `dir` beside the one kept before it, as Markdown; null when none is kept. Writes nothing. */
+export function latestReport(dir) {
+  const names = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.json')).sort() : [];
+  const last = names.at(-1);
+  if (last === undefined) return null;
+  const prev = names.at(-2);
+  const read = (n) => JSON.parse(readFileSync(join(dir, n), 'utf8'));
+  return perfReport(read(last), prev === undefined ? null : read(prev), { label: last.replace(/\.json$/, ''), previous: prev?.replace(/\.json$/, '') });
+}
+
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (process.argv[2] === '--latest') {
+    const md = latestReport(process.argv[3] ?? '');
+    if (md === null) {
+      console.error(`no performance report kept in ${process.argv[3]}`);
+      process.exit(3);
+    }
+    process.stdout.write(md);
+    process.exit(0);
+  }
   const [input, dir, label = 'phase'] = process.argv.slice(2);
   if (input === undefined || dir === undefined) {
     console.error('usage: node tools/perf-report.mjs <headroom.json> <reports dir> [label]');
