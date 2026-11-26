@@ -154,6 +154,7 @@ export class SceneVoxels {
   /** Picks waiting for the worker's answer, by id. */
   private readonly picks = new Map<number, (hit: ScenePickHit | null) => void>();
   private pickSeq = 0;
+  private readonly cellReads = new Map<number, (values: Uint32Array | null) => void>();
   /** Structure draws moved to their objects (a move, a turn, a drag's frame) and the ms it took in all (diagnostics). */
   private readonly moved = { count: 0, ms: 0, lastMs: 0 };
 
@@ -324,6 +325,9 @@ export class SceneVoxels {
       } else if (m.t === 'picked') {
         this.picks.get(m.id)?.(m.hit);
         this.picks.delete(m.id);
+      } else if (m.t === 'cells') {
+        this.cellReads.get(m.id)?.(m.values);
+        this.cellReads.delete(m.id);
       } else if (m.t === 'state') {
         this.states.set(m.world, m);
         this.problems.delete(m.world);
@@ -472,6 +476,19 @@ export class SceneVoxels {
     return answer;
   }
 
+  /**
+   * The record values of a box of a world's own cells (both corners inclusive) as the view's worker holds them now:
+   * x outermost, then z, then y, `CELL_NOT_LOADED` where it holds none (null: the world is not open; null at once
+   * with no worker). What a stroke that names its cells reads before it is sent.
+   */
+  cells(world: string, box: { readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number] }): Promise<Uint32Array | null> | null {
+    if (this.worker === null) return null;
+    const id = ++this.pickSeq;
+    const answer = new Promise<Uint32Array | null>((ok) => this.cellReads.set(id, ok));
+    this.post({ t: 'cells', id, world, min: box.min, max: box.max });
+    return answer;
+  }
+
   /** A world's route as the backend answers it now (its manifest, its grids' files, places, last regenerate reports and hand-edit counts); null: no source or not read. */
   async worldInfo(world: string): Promise<Record<string, unknown> | null> {
     const source = this.host.source;
@@ -561,6 +578,8 @@ export class SceneVoxels {
     this.splineCells?.dispose();
     for (const answer of this.picks.values()) answer(null);
     this.picks.clear();
+    for (const answer of this.cellReads.values()) answer(null);
+    this.cellReads.clear();
     this.worker?.terminate();
     this.worker = null;
     this.draws.dispose();

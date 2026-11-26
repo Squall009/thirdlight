@@ -26,7 +26,7 @@
 import { ChunkDrawBatcher, chunkDrawBatchTransfer, chunkKey, streamerWalkSource, VOXEL_SIZE_M, walkRay, walkWithGrids, worldPieceTable, worldStreamer, type ChunkCoord, type GridPlacement, type PieceKitSource, type VoxelStreamer, type WalkSource } from '@thirdlight/voxel';
 import { RangeWorld, type WorldChange } from './range-world';
 import { SceneGridStream } from './scene-voxels-grids';
-import type { SceneVoxelsIn, SceneVoxelsOut } from './scene-voxels-wire';
+import { CELL_NOT_LOADED, type SceneVoxelsIn, type SceneVoxelsOut } from './scene-voxels-wire';
 
 interface Streamed {
   readonly name: string;
@@ -209,6 +209,18 @@ function pick(m: Extract<SceneVoxelsIn, { t: 'pick' }>): Extract<SceneVoxelsOut,
   return best;
 }
 
+/** A box of a world's own cells as the pick's walk reads them (null: the world is not open here). */
+function cells(m: Extract<SceneVoxelsIn, { t: 'cells' }>): Uint32Array | null {
+  const record = worlds.get(m.world)?.walk?.record;
+  if (record === undefined) return null;
+  const [x0, y0, z0] = m.min;
+  const [x1, y1, z1] = m.max;
+  const out = new Uint32Array(Math.max(0, x1 - x0 + 1) * Math.max(0, y1 - y0 + 1) * Math.max(0, z1 - z0 + 1));
+  let i = 0;
+  for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) out[i++] = record(x, y, z) ?? CELL_NOT_LOADED;
+  return out;
+}
+
 scope.onmessage = (e) => {
   const m = e.data;
   switch (m.t) {
@@ -240,6 +252,11 @@ scope.onmessage = (e) => {
     case 'pick':
       post({ t: 'picked', id: m.id, hit: pick(m) });
       break;
+    case 'cells': {
+      const values = cells(m);
+      post({ t: 'cells', id: m.id, values }, values === null ? [] : [values.buffer]);
+      break;
+    }
     case 'changed': {
       const w = worlds.get(m.world);
       if (w === undefined) break;

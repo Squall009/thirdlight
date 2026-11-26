@@ -17,6 +17,7 @@
 import { useState, type JSX } from 'react';
 
 import type { ProjectedEntity } from '../../session/projection';
+import { splineStartVoxels } from '../../session/voxel-fill';
 import { CommitField } from '../CommitField';
 import type { SplineVoxelsValue, SplineVoxelTools } from '../shell/useSplineVoxelTools';
 
@@ -30,9 +31,7 @@ const where = (at: readonly number[]): string => `(${at.map((v) => v.toFixed(1))
 
 /** What a new section starts as: a road of the first solid material on a metre of bed, or a river of the first liquid. */
 function fresh(kind: SplineVoxelsValue['kind'], tools: SplineVoxelTools): SplineVoxelsValue | null {
-  const m = (kind === 'river' ? tools.liquids : tools.solids)[0];
-  if (m === undefined) return null;
-  return kind === 'river' ? { kind, material: m.id } : { kind, material: m.id, bed: { material: m.id, depth: 1 } };
+  return splineStartVoxels(kind, tools.solids[0]?.id ?? null, tools.liquids[0]?.id ?? null);
 }
 
 export function SplineVoxelFields({ entity, tools }: SplineVoxelFieldsProps): JSX.Element {

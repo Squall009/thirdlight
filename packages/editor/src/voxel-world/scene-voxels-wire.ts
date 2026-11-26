@@ -23,7 +23,9 @@ export type SceneVoxelsIn =
   /** Where the open scenes' structure objects of `world` place its grids (every one; a grid left out is not drawn). */
   | { readonly t: 'grids'; readonly world: string; readonly places: readonly GridPlacement[] }
   /** What a ray (world metres) meets first within `maxM` in every world and its drawn grids, each grid in its own frame. */
-  | { readonly t: 'pick'; readonly id: number; readonly origin: readonly [number, number, number]; readonly dir: readonly [number, number, number]; readonly maxM: number };
+  | { readonly t: 'pick'; readonly id: number; readonly origin: readonly [number, number, number]; readonly dir: readonly [number, number, number]; readonly maxM: number }
+  /** The record values of a box of `world`'s own cells (both corners inclusive), as the view holds them now. */
+  | { readonly t: 'cells'; readonly id: number; readonly world: string; readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number] };
 
 /** Worker → page. */
 export type SceneVoxelsOut =
@@ -35,7 +37,12 @@ export type SceneVoxelsOut =
   /** What a world holds (after it settles; tests and the status read it). */
   | { readonly t: 'state'; readonly world: string; readonly revision: number; readonly resident: number; readonly settled: boolean; readonly bytes: number; readonly grids?: Readonly<Record<string, { readonly resident: number; readonly settled: boolean }>> }
   /** A pick's answer: the nearest stop (metres along the ray), its world and grid (0: the world grid), or none. */
-  | { readonly t: 'picked'; readonly id: number; readonly hit: ScenePickHit | null };
+  | { readonly t: 'picked'; readonly id: number; readonly hit: ScenePickHit | null }
+  /** A box's record values, x outermost, then z, then y (`CELL_NOT_LOADED` where the view holds none); null: the world is not open. */
+  | { readonly t: 'cells'; readonly id: number; readonly values: Uint32Array | null };
+
+/** A cell the view has not loaded, in a `cells` answer (no record value is it: a value's reserved bits are never all set). */
+export const CELL_NOT_LOADED = 0xffffffff;
 
 /**
  * Where a pick's ray stopped: metres along it, the world and grid (0: the world grid), the cell in that grid and the

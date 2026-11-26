@@ -24,6 +24,16 @@
  * Flatten's plane is the surface under the stroke's first dab. Esc drops a
  * stroke in flight; nothing is sent.
  *
+ * Two more things ride the same pointer, pick and grid:
+ * - the **fog brush** (fog painted at a density, erased, its density
+ *   smoothed): a painted or erased stroke names its cells, so the cells
+ *   under its dabs are read from the view's worker at the release and the
+ *   one command lists the open ones, or the gas ones
+ *   (`session/voxel-fill.ts`);
+ * - a **fill** (`voxel-fill-gesture.ts`): armed with one, a press is a
+ *   seed, the drag its level, the release one flood stroke or one object
+ *   made; the brush's cursor and trail are off.
+ *
  * Tests read `data-voxel-brush`: the tool, the cell under the pointer, the
  * stroke in flight and the last one sent.
  *
@@ -31,14 +41,16 @@
  */
 import * as THREE from 'three';
 import { grownCapacity } from '@thirdlight/shared';
-import { GridFrame, VOXEL_SIZE_M, type BrushShape, type GridPlacement } from '@thirdlight/voxel';
+import { GridFrame, SHAPE_FULL, VOXEL_SIZE_M, type BrushShape, type GridPlacement } from '@thirdlight/voxel';
 
 import { strokeMask, type BrushStore, type BrushUse } from '../session/brush';
 import { brushCells, dabCell, dabSpacingCells, DabTrail, surfaceHeightCells, voxelStrokeCommand, type VoxelBrushKind, type VoxelBrushVoxel } from '../session/voxel-brush';
+import { dabsBox, fogCells, fogCellsCommand, gasValue, type CellBoxRead } from '../session/voxel-fill';
 import type { ScenePickHit } from '../voxel-world/scene-voxels-wire';
 import { BrushControl } from './brush-control';
 import { BrushCursor, tokenColour } from './brush-cursor';
 import type { ToolPress } from './tool-input';
+import { VoxelFillGesture, type VoxelFillArm, type VoxelFillCallbacks } from './voxel-fill-gesture';
 
 /** What an edit mode arms the brush with. */
 export interface VoxelBrushArm {
@@ -57,8 +69,12 @@ export interface VoxelBrushArm {
   readonly shape: BrushShape;
   /** A soft rim (Add, Dig, Smooth, Flatten). */
   readonly soft: boolean;
-  /** What Add writes and Paint gives (null: none picked; Add and Paint then say so and send nothing). */
+  /** What Add writes and Paint gives, the gas of a fog brush (null: none picked; they then say so and send nothing). */
   readonly voxel: VoxelBrushVoxel | null;
+  /** A fog paint's density, in the levels a cell holds (1 … the shape's full level). */
+  readonly density?: number;
+  /** A fill has the tool in place of the brush: a press is a seed, the drag its level. */
+  readonly fill?: VoxelFillArm;
 }
 
 export interface VoxelBrushHost {
@@ -70,6 +86,8 @@ export interface VoxelBrushHost {
   pick(clientX: number, clientY: number): Promise<ScenePickHit | null> | null;
   /** Where a structure object's grid is drawn now (null: not drawn yet). */
   place(entityId: string): GridPlacement | null;
+  /** The record values of a box of a world's own cells as the view holds them (null: not known); absent: the view reads none. */
+  cells?(world: string, box: CellBoxRead): Promise<Uint32Array | null> | null;
 }
 
 export interface VoxelBrushCallbacks {
@@ -79,6 +97,10 @@ export interface VoxelBrushCallbacks {
   refused(message: string): void;
   /** What the stroke in flight holds, said live (null: none). */
   readout(text: string | null): void;
+  /** A fill's command (`editVoxels`, `createEntity`) with its answer read; absent: the mode arms no fill. */
+  send?: VoxelFillCallbacks['send'];
+  depth?: VoxelFillCallbacks['depth'];
+  made?: VoxelFillCallbacks['made'];
 }
 
 /** Where a lattice stands: its cell 0's corner and its turn about the vertical. */
@@ -100,6 +122,9 @@ interface Stroke {
   /** The release came while a pick was in flight: the stroke is sent when the pick answers. */
   ended: boolean;
 }
+
+/** What a stroke becomes while the brush inverts. */
+const SWAPS: Readonly<Partial<Record<VoxelBrushKind, VoxelBrushKind>>> = Object.freeze({ add: 'dig', dig: 'add', fog: 'fog-erase', 'fog-erase': 'fog' });
 
 const BOX_EDGES = ((): number[] => {
   const c = [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1], [0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]];
@@ -124,8 +149,16 @@ export class VoxelBrushTool {
   private last: Record<string, unknown> | null = null;
   private stamp = '';
   private unstore: (() => void) | null = null;
+  private readonly fill: VoxelFillGesture;
 
   constructor(private readonly host: VoxelBrushHost, private readonly cb: VoxelBrushCallbacks) {
+    this.fill = new VoxelFillGesture(host, () => ({
+      send: (op, args) => cb.send?.(op, args) ?? Promise.resolve({ ok: false, code: 'no_sender', message: 'nothing takes the command here' }),
+      refused: (m) => cb.refused(m),
+      readout: (t) => cb.readout(t),
+      depth: (m) => cb.depth?.(m),
+      made: (what, id) => cb.made?.(what, id),
+    }));
     this.cursor = new BrushCursor(host.overlay, 'voxel-brush-cursor');
     this.control = new BrushControl({ canvas: host.canvas(), surfaceAt: () => this.hoverPoint(), ctrlChanged: () => this.redraw() });
     const line = (): THREE.LineBasicMaterial => new THREE.LineBasicMaterial({ color: tokenColour('--brush'), depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 });
@@ -151,34 +184,37 @@ export class VoxelBrushTool {
   /** Arm the brush (null: off; a stroke in flight is dropped). */
   arm(a: VoxelBrushArm | null): void {
     const was = this.arming;
-    if (a?.kind !== was?.kind || a?.grid !== was?.grid || a?.world !== was?.world || a?.navigate !== was?.navigate) this.cancel();
+    if (a?.kind !== was?.kind || a?.grid !== was?.grid || a?.world !== was?.world || a?.navigate !== was?.navigate || a?.fill?.kind !== was?.fill?.kind) this.cancel();
+    // A refused flood's marks stay while the fill tools are in hand, and go with them.
+    if (a?.fill === undefined || a.navigate || a.world !== was?.world) this.fill.reset();
     if (a?.store !== was?.store) {
       this.unstore?.();
       this.unstore = a?.store.subscribe(() => this.redraw()) ?? null;
     }
     this.arming = a;
     const on = a !== null && !a.navigate;
-    this.control.setStore(on ? a.store : null, on ? this.controlUses(a) : []);
-    this.control.arm(on);
+    // A fill has no brush: its keys and in-view drags are off.
+    const brush = on && a.fill === undefined;
+    this.control.setStore(brush ? a.store : null, brush ? this.controlUses(a) : []);
+    this.control.arm(brush);
     if (!on) this.hover = null;
     this.redraw();
   }
 
-  /** The keys the brush takes: its own uses; invert only where it means something (Add and Dig swap). */
+  /** The keys the brush takes: its own uses; invert only where it means something (Add and Dig swap, fog paint and erase swap). */
   private controlUses(a: VoxelBrushArm): BrushUse[] {
-    return a.uses.filter((u) => u !== 'invert' || a.kind === 'add' || a.kind === 'dig');
+    return a.uses.filter((u) => u !== 'invert' || SWAPS[a.kind] !== undefined);
   }
 
-  /** What a stroke begun now does: Add and Dig swap while the brush inverts (its setting, or Ctrl held). */
+  /** What a stroke begun now does: Add and Dig, fog paint and erase, swap while the brush inverts (its setting, or Ctrl held). */
   private kindNow(a: VoxelBrushArm): VoxelBrushKind {
-    if (!this.control.inverted()) return a.kind;
-    return a.kind === 'add' ? 'dig' : a.kind === 'dig' ? 'add' : a.kind;
+    return this.control.inverted() ? (SWAPS[a.kind] ?? a.kind) : a.kind;
   }
 
   // ---- input ---------------------------------------------------------------------------------
 
   key(e: KeyboardEvent): boolean {
-    if (!this.armed() || this.stroke !== null) return false;
+    if (!this.armed() || this.stroke !== null || this.arming?.fill !== undefined) return false;
     return this.control.key(e);
   }
 
@@ -189,9 +225,14 @@ export class VoxelBrushTool {
     // A stroke starts on a cell of the armed grid under the pointer (a press elsewhere is the view's).
     const h = this.hover;
     if (h === null || !this.mine(a, h)) return null;
+    if (a.fill !== undefined) {
+      const took = this.fill.press(a.fill, h, e);
+      this.redraw();
+      return took;
+    }
     const kind = this.kindNow(a);
-    if ((kind === 'add' || kind === 'paint') && a.voxel === null) {
-      this.cb.refused(kind === 'add' ? 'Add needs a material: pick one in the palette.' : 'Paint needs a material: pick one in the palette.');
+    if ((kind === 'add' || kind === 'paint' || kind === 'fog' || kind === 'fog-smooth') && a.voxel === null) {
+      this.cb.refused(kind === 'add' ? 'Add needs a material: pick one in the palette.' : kind === 'paint' ? 'Paint needs a material: pick one in the palette.' : 'Fog needs a gas material: pick one in the palette.');
       return 'consume';
     }
     const across = brushCells(a.store.get().size);
@@ -208,12 +249,24 @@ export class VoxelBrushTool {
     if (a === null || a.navigate) return false;
     if (this.control.move(e, this.hoverPoint())) return true;
     this.hoverAt(e.clientX, e.clientY);
+    if (this.fill.active()) {
+      this.fill.move(e);
+      this.redraw();
+      return true;
+    }
     if (this.stroke === null) return false;
     this.host.requestRender();
     return true;
   }
 
   pointerUp(_e: PointerEvent): boolean {
+    if (this.fill.active()) {
+      const a = this.arming;
+      if (a?.fill === undefined) this.fill.cancel();
+      else this.fill.release(a.fill, a.world, a.grid);
+      this.redraw();
+      return true;
+    }
     const s = this.stroke;
     if (s === null || this.arming === null) return false;
     // The cell under the release is still being picked: the stroke ends with it.
@@ -223,7 +276,7 @@ export class VoxelBrushTool {
   }
 
   leave(): void {
-    if (this.stroke === null) {
+    if (this.stroke === null && !this.fill.active()) {
       this.hover = null;
       this.redraw();
     }
@@ -233,6 +286,10 @@ export class VoxelBrushTool {
   /** Esc: an F drag's value put back, else the stroke in flight dropped (nothing is sent). */
   cancel(): boolean {
     if (this.control.cancel()) return true;
+    if (this.fill.cancel()) {
+      this.redraw();
+      return true;
+    }
     if (this.stroke === null) return false;
     this.stroke = null;
     this.last = { stroke: 'cancelled', ok: false };
@@ -260,6 +317,7 @@ export class VoxelBrushTool {
     this.redraw();
     if (a === null) return;
     const b = a.store.get();
+    if (s.kind === 'fog' || s.kind === 'fog-erase') return void this.finishFog(a, s.kind, s.trail.cells, brushCells(b.size));
     const command = voxelStrokeCommand({
       grid: a.grid,
       kind: s.kind,
@@ -276,10 +334,44 @@ export class VoxelBrushTool {
       this.last = { stroke: s.kind, ok: false, refused: 'mask' };
       return;
     }
-    const t0 = performance.now();
-    const entry: Record<string, unknown> = { stroke: s.kind, dabs: s.trail.cells.length, sentAt: Math.round(t0), ok: null };
+    this.send(a.world, command, s.kind, s.trail.cells.length);
+  }
+
+  /**
+   * A fog paint or erase: the cells under the dabs read as the view holds
+   * them, then one command naming those the stroke may change (open cells
+   * for paint, gas cells for erase), so ground, built cells and liquids are
+   * never written.
+   */
+  private finishFog(a: VoxelBrushArm, kind: 'fog' | 'fog-erase', dabs: readonly (readonly [number, number, number])[], across: number): void {
+    const box = dabsBox(dabs, across);
+    const read = box === null ? null : (this.host.cells?.(a.world, box) ?? null);
+    const entry: Record<string, unknown> = { stroke: kind, dabs: dabs.length, ok: null };
     this.last = entry;
-    void this.cb.stroke(a.world, command).then(
+    const refuse = (why: string, message: string): void => {
+      entry['ok'] = false;
+      entry['refused'] = why;
+      this.cb.refused(message);
+    };
+    if (box === null || read === null) return refuse('unread', 'The world\'s cells are not read yet: try again when the view has settled.');
+    void read.then((values) => {
+      if (values === null) return refuse('unread', 'The world\'s cells are not read yet: try again when the view has settled.');
+      const material = a.voxel?.material ?? 0;
+      const density = a.density ?? SHAPE_FULL;
+      const cells = fogCells({ kind, shape: a.shape, across, dabs, box, values, value: gasValue(material, density) });
+      const command = fogCellsCommand({ grid: a.grid, kind, cells, material, density });
+      if (command === null) return refuse('nothing', kind === 'fog' ? 'No open cell under the brush that is not already this fog.' : 'No fog under the brush.');
+      entry['cells'] = cells.length / 3;
+      this.send(a.world, command, kind, dabs.length, entry);
+    });
+  }
+
+  /** A stroke's one command, sent; its answer and its time are kept for tests and measurements. */
+  private send(world: string, command: Record<string, unknown>, kind: VoxelBrushKind, dabs: number, entry: Record<string, unknown> = { stroke: kind, dabs, ok: null }): void {
+    const t0 = performance.now();
+    entry['sentAt'] = Math.round(t0);
+    this.last = entry;
+    void this.cb.stroke(world, command).then(
       () => {
         entry['ok'] = true;
         entry['ms'] = Math.round(performance.now() - t0);
@@ -306,6 +398,7 @@ export class VoxelBrushTool {
       this.hover = hit;
       this.hoverAtPx = [Math.round(x), Math.round(y)];
       const s = this.stroke;
+      if (a !== null) this.fill.hover(hit !== null && this.mine(a, hit) ? hit : null);
       if (s !== null && a !== null && hit !== null && this.mine(a, hit) && s.trail.add(dabCell(s.kind, hit.cell, hit.normal)) > 0) this.say();
       const next = this.pendingPointer;
       this.pendingPointer = null;
@@ -357,6 +450,7 @@ export class VoxelBrushTool {
     this.frameGroup.visible = on;
     if (!on) {
       this.cursor.hide();
+      this.fill.draw(null, null);
       return;
     }
     const { place, toWorld } = at;
@@ -364,6 +458,13 @@ export class VoxelBrushTool {
     this.frameGroup.rotation.set(0, place.yawRad, 0);
     this.drawTrail();
     const over = h !== null && this.mine(a, h);
+    if (a.fill !== undefined) {
+      this.box.visible = false;
+      this.cursor.hide();
+      this.fill.draw(a.fill, over ? h : null);
+      return;
+    }
+    this.fill.draw(null, null);
     this.box.visible = over && a.shape === 'box';
     if (!over) {
       this.cursor.hide();
@@ -380,7 +481,7 @@ export class VoxelBrushTool {
     const nw = toWorld(h.normal[0], h.normal[1], h.normal[2]);
     const normal = new THREE.Vector3(nw[0] - place.position[0], nw[1] - place.position[1], nw[2] - place.position[2]);
     const mask = kind === 'paint' ? strokeMask(b, a.uses) : null;
-    this.cursor.setLook({ falloff: a.soft && kind !== 'paint' ? 'smooth' : 'constant', hardness: 1, strength: 1, mask, state: kind === 'dig' ? 'erase' : (kind === 'add' || kind === 'paint') && a.voxel === null ? 'off' : 'paint' });
+    this.cursor.setLook({ falloff: a.soft && kind !== 'paint' ? 'smooth' : 'constant', hardness: 1, strength: 1, mask, state: kind === 'dig' || kind === 'fog-erase' ? 'erase' : (kind === 'add' || kind === 'paint' || kind === 'fog' || kind === 'fog-smooth') && a.voxel === null ? 'off' : 'paint' });
     const radius = (n * VOXEL_SIZE_M) / 2;
     const fill = this.stroke === null;
     // On the world's lattice the ring is the brush's footprint from above, level, round the dab's own cell (the mask
@@ -423,7 +524,7 @@ export class VoxelBrushTool {
     }
     this.draw();
     const h = this.hover;
-    const mark = JSON.stringify({ kind: a.kind, navigate: a.navigate, world: a.world, grid: a.grid, shape: a.shape, across: brushCells(a.store.get().size), stroke: this.stroke === null ? null : { kind: this.stroke.kind, dabs: this.stroke.trail.cells.length }, hover: h === null ? null : { grid: h.grid, cell: h.cell, normal: h.normal, at: this.hoverAtPx, mine: this.mine(a, h) }, cursor: this.cursor.visible(), last: this.last });
+    const mark = JSON.stringify({ kind: a.kind, navigate: a.navigate, world: a.world, grid: a.grid, shape: a.shape, across: brushCells(a.store.get().size), stroke: this.stroke === null ? null : { kind: this.stroke.kind, dabs: this.stroke.trail.cells.length }, hover: h === null ? null : { grid: h.grid, cell: h.cell, normal: h.normal, at: this.hoverAtPx, mine: this.mine(a, h) }, cursor: this.cursor.visible(), last: this.last, ...(a.fill !== undefined ? { fill: this.fill.mark(a.fill) } : {}) });
     if (mark !== this.stamp) {
       this.stamp = mark;
       root.setAttribute('data-voxel-brush', mark);
@@ -432,6 +533,7 @@ export class VoxelBrushTool {
 
   dispose(): void {
     this.unstore?.();
+    this.fill.dispose();
     this.control.dispose();
     this.cursor.dispose();
     this.frameGroup.removeFromParent();

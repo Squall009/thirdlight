@@ -360,6 +360,7 @@ export class Viewport {
         blockLayers: () => this.blocks.surfaces.layers(),
       },
       brushStroke: (entityId, stroke) => this.cb.onBrushStroke?.(entityId, stroke) ?? Promise.resolve(false),
+      voxelCells: (world, box) => this.voxels.cells(world, box),
       structure: {
         pick: (x, y) => {
           const r = new THREE.Raycaster();

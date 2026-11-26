@@ -66,6 +66,8 @@ export interface EditModeHost {
   voxelBrush: VoxelBrushTools;
   /** Frame a box in world metres (a misfit's place). */
   frameBox(box: { min: readonly number[]; max: readonly number[] }): void;
+  /** Close the mode with an object selected: what the mode made is edited from there with its own handles and Inspector. */
+  handOver(entityId: string): void;
 }
 
 /** One mode of an editor's rail. */

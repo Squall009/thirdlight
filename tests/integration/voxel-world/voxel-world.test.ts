@@ -29,7 +29,10 @@
  * a damaged world; and the strokes of command version 3 (a flood with
  * liquid, a fading gas and a drain, a leak refused with its places, smooth,
  * flatten, a paint that keeps each cell's role), each against the oracle
- * and taken back and applied again on the project's one undo line.
+ * and taken back and applied again on the project's one undo line; the
+ * editor's voxel brush tool driven against the route (its drags, then its
+ * fog brush and its fills: fog never written over ground or water, a
+ * breached fill refused and marked).
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
@@ -58,7 +61,10 @@ import {
   RegionChunkSource,
   sameDenseChunk,
   SHAPE_FULL,
+  isGasRole,
+  isMediumRole,
   valueOf,
+  valueRole,
   VOXEL_ROLE,
   VOXEL_SIZE_M,
   type BrushEdit,
@@ -78,7 +84,7 @@ import * as THREE from 'three';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { brushStore, resetBrushStores } from '../../../packages/editor/src/session/brush';
-import { surfaceHeightCells, VOXEL_BRUSH, VOXEL_BRUSH_BOUNDS } from '../../../packages/editor/src/session/voxel-brush';
+import { FOG_BRUSH, FOG_BRUSH_BOUNDS, surfaceHeightCells, VOXEL_BRUSH, VOXEL_BRUSH_BOUNDS } from '../../../packages/editor/src/session/voxel-brush';
 import { VoxelBrushTool, type VoxelBrushArm } from '../../../packages/editor/src/viewport/voxel-brush-tool';
 import { BackendClient } from '../../../packages/mcp-adapter/src/backend-client';
 import { createMcpServer } from '../../../packages/mcp-adapter/src/server';
@@ -1304,6 +1310,242 @@ describe('voxel world routes', () => {
       // Each stroke was one step of the project's undo line: five undos give the first voxels back.
       for (let i = 0; i < 5; i++) expect((await step('undo')).voxels, `undo ${i}`).toMatchObject({ ok: true, op: 'undo' });
       expectSame(await readChunks(CHUNKS, BRUSHED), first, CHUNKS);
+    } finally {
+      tool.dispose();
+      vi.unstubAllGlobals();
+    }
+  }, 120_000);
+
+  it('the fill tools and the fog brush over the command route: fog painted, erased and smoothed leaves ground, a wall and water byte for byte, a fog fill and a drain are one flood each, a breached fill is refused with its places marked, and five undos give the first voxels back', async () => {
+    const FOGGED = 'fogged';
+    const ROCK = recordValue(7, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
+    const WALL = recordValue(5, VOXEL_ROLE.wall, SHAPE_FULL, 0);
+    const WATER = recordValue(30, VOXEL_ROLE.liquid, SHAPE_FULL, 0);
+    const inPond = (x: number, y: number, z: number): boolean => x >= 34 && x <= 40 && z >= 10 && z <= 16 && y >= -1 && y <= 0;
+    const inBasin = (x: number, y: number, z: number): boolean => x >= 4 && x <= 12 && z >= 24 && z <= 32 && y >= -3 && y <= 0;
+    // Rock with its top at cell 1 (y ≤ 0); a pond two cells deep, a wall block on the rock, a basin four cells deep.
+    const made = (): PaletteStore => {
+      const st = createWorldStore(grid);
+      const r = { material: 0, role: 0, shape: 0, wetness: 0 };
+      for (let x = -8; x <= 56; x++) for (let z = -8; z <= 40; z++) for (let y = -6; y <= 0; y++) {
+        if (inBasin(x, y, z)) continue;
+        st.setVoxel(x, y, z, readValue(inPond(x, y, z) ? WATER : ROCK, r));
+      }
+      st.setVoxel(30, 1, 13, readValue(WALL, r));
+      return st;
+    };
+    const first = made();
+    const oracle = made();
+    writeVoxelWorld(join(backend._test.service.projectDir(PROJECT)!, 'voxels', FOGGED), { worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512 }, made());
+    const CHUNKS: ChunkCoord[] = [-1, 0, 1].flatMap((cx) => [-1, 0].flatMap((cy) => [-1, 0, 1].map((cz) => ({ cx, cy, cz }))));
+    const rec = { material: 0, role: 0, shape: 0, wetness: 0 };
+    const at = (x: number, y: number, z: number): number => valueOf(oracle.voxelAt(x, y, z, rec));
+    /** The highest cell of a column the view's pick stops on: a body (fog and water are passed). */
+    const top = (x: number, z: number): number => {
+      for (let y = 24; y >= -6; y--) {
+        const v = at(x, y, z);
+        if (v !== 0 && !isMediumRole(valueRole(v))) return y;
+      }
+      return -7;
+    };
+    /** Every cell of the made box by what it holds: how many are ground or wall, water, gas. */
+    const census = (st: PaletteStore): { body: number; water: number; gas: number; hash: string } => {
+      let body = 0;
+      let water = 0;
+      let gas = 0;
+      const h = createHash('sha256');
+      for (let x = -8; x <= 56; x++) for (let z = -8; z <= 40; z++) for (let y = -6; y <= 12; y++) {
+        const v = valueOf(st.voxelAt(x, y, z, rec));
+        if (v === 0) continue;
+        const role = valueRole(v);
+        if (isGasRole(role)) gas++;
+        else {
+          // What is not gas, where it is and what it is: ground, the wall and the water.
+          h.update(`${x},${y},${z}:${v};`);
+          if (isMediumRole(role)) water++;
+          else body++;
+        }
+      }
+      return { body, water, gas, hash: h.digest('hex') };
+    };
+    const before = census(first);
+    expect(before).toMatchObject({ water: 7 * 7 * 2, gas: 0 });
+
+    const RECT = { left: 0, top: 0, width: 800, height: 600, x: 0, y: 0, right: 800, bottom: 600 };
+    const camera = new THREE.PerspectiveCamera(50, RECT.width / RECT.height, 0.1, 500);
+    camera.position.set(12, 40, 30);
+    camera.lookAt(12, 0, 8);
+    camera.updateMatrixWorld();
+    const overlay = new THREE.Group();
+    const answers: Array<{ status: number; json: Record<string, unknown> }> = [];
+    const sent: Record<string, unknown>[] = [];
+    const refusals: string[] = [];
+    let pending: Promise<unknown> = Promise.resolve();
+    vi.stubGlobal('window', { addEventListener: () => undefined, removeEventListener: () => undefined });
+    resetBrushStores();
+    const store = brushStore('http', 'fog', FOG_BRUSH, FOG_BRUSH_BOUNDS, null);
+    const attrs = new Map<string, string>();
+    const canvas = { getBoundingClientRect: () => RECT, setAttribute: (k: string, v: string) => void attrs.set(k, v), removeAttribute: () => undefined, parentElement: null } as unknown as HTMLCanvasElement;
+    const run = (cmd: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => {
+      sent.push(cmd);
+      const p = command({ op: 'editVoxels', projectId: PROJECT, args: { world: FOGGED, command: cmd } }).then((r) => {
+        answers.push(r);
+        return r;
+      });
+      pending = p;
+      return p;
+    };
+    const tool = new VoxelBrushTool(
+      {
+        overlay,
+        camera,
+        canvas: () => canvas,
+        requestRender: () => undefined,
+        pick: (x, y) => {
+          const r = new THREE.Raycaster();
+          r.setFromCamera(new THREE.Vector2((x / RECT.width) * 2 - 1, -(y / RECT.height) * 2 + 1), camera);
+          const p = r.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+          if (p === null) return Promise.resolve(null);
+          const cx = Math.floor(p.x / VOXEL_SIZE_M);
+          const cz = Math.floor(p.z / VOXEL_SIZE_M);
+          return Promise.resolve({ world: FOGGED, grid: 0, t: 1, cell: [cx, top(cx, cz), cz] as const, normal: [0, 1, 0] as const, record: at(cx, top(cx, cz), cz) });
+        },
+        place: () => null,
+        // The view's cells, as its worker would answer them: the voxels as they are.
+        cells: (_w, box) => {
+          const out = new Uint32Array((box.max[0] - box.min[0] + 1) * (box.max[1] - box.min[1] + 1) * (box.max[2] - box.min[2] + 1));
+          let i = 0;
+          for (let x = box.min[0]; x <= box.max[0]; x++) for (let z = box.min[2]; z <= box.max[2]; z++) for (let y = box.min[1]; y <= box.max[1]; y++) out[i++] = at(x, y, z);
+          return Promise.resolve(out);
+        },
+      },
+      {
+        stroke: async (_world, cmd) => void (await run(cmd)),
+        refused: (m) => void refusals.push(m),
+        readout: () => undefined,
+        send: async (op, args) => {
+          expect(op).toBe('editVoxels');
+          const r = await run(args['command'] as Record<string, unknown>);
+          const e = r.json.error as { code: string; message: string; leaks?: Array<{ at: [number, number, number]; kind: 'reach' | 'world'; cells: number }> } | undefined;
+          return r.status === 200 ? { ok: true } : { ok: false, code: e!.code, message: e!.message, ...(e!.leaks !== undefined ? { leaks: e!.leaks } : {}) };
+        },
+      },
+    );
+    const ev = (xm: number, zm: number, upPx = 0): PointerEvent => {
+      const p = new THREE.Vector3(xm, 0, zm).project(camera);
+      return { clientX: ((p.x + 1) / 2) * RECT.width, clientY: ((1 - p.y) / 2) * RECT.height - upPx, button: 0, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false, pointerId: 1 } as unknown as PointerEvent;
+    };
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+    const armed = { navigate: false, world: FOGGED, grid: 0, entityId: null, store, shape: 'sphere', soft: false } as const;
+    const GAS = { material: 50, role: VOXEL_ROLE.gas, wetness: 0 };
+    /** The last command answered 200 with what the same command does to the oracle, the files equal to it. */
+    const applied = async (parts: number): Promise<{ cmd: ReturnType<typeof canonicalEditCommand>; cells: number }> => {
+      for (let i = 0; i < 4; i++) await tick();
+      await pending;
+      await tick();
+      const cmd = canonicalEditCommand(sent.at(-1));
+      const out = applyEdit({ store: () => oracle }, cmd);
+      const r = answers.at(-1)!;
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+      expect(r.json).toMatchObject({ ok: true, op: 'editVoxels', cells: out.cells, parts });
+      expect(out.cells).toBeGreaterThan(0);
+      expectSame(await readChunks(CHUNKS, FOGGED), oracle, CHUNKS);
+      return { cmd, cells: out.cells };
+    };
+    /** A brush drag over the ground along x (metres) at z, a move every 0.5 m. */
+    const drag = async (arm: Partial<VoxelBrushArm>, x0: number, x1: number, zm: number): Promise<void> => {
+      tool.arm({ ...armed, kind: 'fog', uses: ['size', 'spacing', 'invert'], voxel: GAS, ...arm });
+      tool.pointerMove(ev(x0, zm));
+      await tick();
+      expect(tool.pointerDown(ev(x0, zm))).toBe('capture');
+      for (let x = x0 + 0.5; x <= x1; x += 0.5) {
+        tool.pointerMove(ev(x, zm));
+        await tick();
+      }
+      tool.pointerUp(ev(x1, zm));
+    };
+    /** A fill's click on the ground at (x, z) metres, with no drag: the level is the set depth over the point. */
+    const fill = async (kind: 'fog' | 'drain', depthM: number, xm: number, zm: number): Promise<void> => {
+      tool.arm({ ...armed, kind: 'fog', uses: [], voxel: null, fill: { kind, material: kind === 'fog' ? 50 : null, depthM, reachM: 8, fadeM: 0, sceneId: null } });
+      tool.pointerMove(ev(xm, zm));
+      await tick();
+      expect(tool.pointerDown(ev(xm, zm))).toBe('capture');
+      tool.pointerUp(ev(xm, zm));
+    };
+    try {
+      // Fog painted from the rock, past the wall block, onto the pond: a set of the open cells, the gas part alone.
+      store.set({ size: 3 });
+      await drag({ density: 6 }, 13.25, 19.25, 6.75);
+      const paint = await applied(DERIVED_PART.gas);
+      expect(paint.cmd).toMatchObject({ kind: 'set', voxel: { material: 50, role: VOXEL_ROLE.gas, wetness: 0, shape: 6 } });
+      const painted = census(oracle);
+      expect(painted.gas).toBe(paint.cells);
+      // Ground, the wall and the water: every cell where and what it was.
+      expect({ ...painted, gas: 0 }).toEqual(before);
+      expect(readValue(at(30, 1, 13), { ...rec })).toMatchObject({ material: 5, role: VOXEL_ROLE.wall });
+      // Fog stands over the pond and beside the wall.
+      expect(valueRole(at(36, 1, 13))).toBe(VOXEL_ROLE.gas);
+      expect(valueRole(at(29, 1, 13))).toBe(VOXEL_ROLE.gas);
+
+      // Erase over the first metres of it: a dig of gas cells alone.
+      await drag({ kind: 'fog-erase' }, 13.25, 15.25, 6.75);
+      const erase = await applied(DERIVED_PART.gas);
+      expect(erase.cmd.kind).toBe('dig');
+      const erased = census(oracle);
+      expect(erased.gas).toBe(painted.gas - erase.cells);
+      expect(erased.gas).toBeGreaterThan(0);
+      expect({ ...erased, gas: 0 }).toEqual(before);
+      // An eraser dragged over bare rock and the pond with no fog left there sends nothing.
+      const n = sent.length;
+      await drag({ kind: 'fog-erase' }, 2.25, 4.25, 2.25);
+      for (let i = 0; i < 4; i++) await tick();
+      expect(sent.length).toBe(n);
+      expect(refusals.at(-1)).toBe('No fog under the brush.');
+
+      // Smooth the bank's end: the brush's smooth with the gas, the gas part alone.
+      await drag({ kind: 'fog-smooth', soft: true, uses: ['size', 'spacing'] }, 17.25, 19.25, 6.75);
+      const smooth = await applied(DERIVED_PART.gas);
+      expect(smooth.cmd).toMatchObject({ kind: 'brush', mode: 'smooth', voxel: GAS });
+      expect({ ...census(oracle), gas: 0 }).toEqual(before);
+
+      // A fog fill in the basin, to the rock's top: one flood, its three rows of nine by nine cells under the level.
+      const revisionOf = async (): Promise<number> => ((await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${FOGGED}`, { headers: auth })).json()) as { manifest: { revision: number } }).manifest.revision;
+      await fill('fog', 1.5, 4.25, 14.25);
+      const flooded = await applied(DERIVED_PART.gas);
+      expect(flooded.cmd).toMatchObject({ kind: 'flood', seed: [8, -3, 28], level: 0, value: { material: 50, role: VOXEL_ROLE.gas }, reach: 16 });
+      expect(flooded.cells).toBe(9 * 9 * 3);
+
+      // The same click to a level over the rock: the fog would spread over open ground, past its reach. Refused, marked, nothing written.
+      const revision = await revisionOf();
+      await fill('fog', 2.5, 4.25, 14.25);
+      for (let i = 0; i < 4; i++) await tick();
+      await pending;
+      await tick();
+      const leak = answers.at(-1)!;
+      expect(leak.status, JSON.stringify(leak.json)).toBe(400);
+      const leaks = (leak.json.error as { code: string; leaks: Array<{ at: [number, number, number] }> }).leaks;
+      expect((leak.json.error as { code: string }).code).toBe('flood_leaks');
+      expect(leaks.length).toBeGreaterThan(0);
+      tool.frame();
+      const mark = JSON.parse(attrs.get('data-voxel-brush')!) as { fill: { leaks: number[][]; last: Record<string, unknown> } };
+      expect(mark.fill.leaks).toEqual(leaks.map((l) => l.at));
+      expect(mark.fill.last).toMatchObject({ fill: 'fog', ok: false, error: 'flood_leaks', leaks: leaks.length });
+      expect((overlay.getObjectByName('flood-leaks-marks') as THREE.LineSegments).userData['marks']).toBe(leaks.length);
+      expect(refusals.at(-1)).toMatch(/^The fog leaks past its reach at \d+ places?, first at \(/);
+      expect(await revisionOf()).toBe(revision);
+      expectSame(await readChunks(CHUNKS, FOGGED), oracle, CHUNKS);
+
+      // Drain the basin: the same flood with air; its fog is gone, the marks with it.
+      await fill('drain', 1.5, 4.25, 14.25);
+      const drained = await applied(DERIVED_PART.gas);
+      expect(drained.cmd).toMatchObject({ kind: 'flood', value: { material: 0, role: 0 } });
+      expect(drained.cells).toBe(9 * 9 * 3);
+      expect(overlay.getObjectByName('flood-leaks-marks')).toBeUndefined();
+      expect({ ...census(oracle), gas: 0 }).toEqual(before);
+
+      // Five steps on the project's undo line (paint, erase, smooth, fill, drain): back to the first voxels.
+      for (let i = 0; i < 5; i++) expect((await step('undo')).voxels, `undo ${i}`).toMatchObject({ ok: true, op: 'undo' });
+      expectSame(await readChunks(CHUNKS, FOGGED), first, CHUNKS);
     } finally {
       tool.dispose();
       vi.unstubAllGlobals();

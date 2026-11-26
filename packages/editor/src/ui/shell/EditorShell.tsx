@@ -105,11 +105,16 @@ function makeBlockModeHost(m: EditorModel, via?: SessionClient): BlockModeHost {
 
 /** What the edit modes read from the app. */
 function makeEditModeHost(m: EditorModel): Omit<EditModeHost, 'prefab'> {
-  const { terrainTools, vertexPaint, decalTools, decalAtlas, entities, activeScene, hierarchyFlags, blocks, tileThumbnails, materials, newMaterialId, openDocument, clientRef, structureTools, voxelBrush, viewportRef } = m;
+  const { terrainTools, vertexPaint, decalTools, decalAtlas, entities, activeScene, hierarchyFlags, blocks, tileThumbnails, materials, newMaterialId, openDocument, clientRef, structureTools, voxelBrush, viewportRef, editMode, setSelection } = m;
   return {
     structure: structureTools,
     voxelBrush,
     frameBox: (box) => viewportRef.current?.frameBox(box),
+    handOver: (entityId) => {
+      // Leaving puts back the selection from before the mode; the object made is selected after it.
+      editMode.leave();
+      setSelection({ ids: [entityId], primary: entityId });
+    },
     terrain: terrainTools,
     paint: vertexPaint,
     decals: decalTools,

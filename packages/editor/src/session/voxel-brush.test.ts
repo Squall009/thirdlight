@@ -135,18 +135,19 @@ describe('the world mode: its palette and what each rail arms', () => {
   });
 
   it('Sculpt arms its tool with the picked material as what Add writes; Paint arms a role-less paint with the wetness', () => {
+    const palettes = { solid: palette, paint: palette, gas: [], liquid: [] };
     expect(pickedEntry(palette, null)?.id).toBe(20);
     expect(pickedEntry(palette, 4)?.name).toBe('Brick');
     // A picked material that is gone falls back to the first.
     expect(pickedEntry(palette, 99)?.id).toBe(20);
     expect(pickedEntry([], 2)).toBeNull();
-    expect(worldBrushArming('sculpt', WORLD_BRUSH_START, palette)).toEqual({ kind: 'add', shape: 'sphere', soft: true, voxel: { material: 20, role: VOXEL_ROLE.terrain, wetness: 0 }, uses: ['size', 'spacing', 'invert'] });
-    for (const sculpt of ['dig', 'smooth', 'flatten'] as const) expect(worldBrushArming('sculpt', { ...WORLD_BRUSH_START, sculpt, shape: 'box', soft: false }, palette)).toMatchObject({ kind: sculpt, shape: 'box', soft: false });
-    expect(worldBrushArming('sculpt', { ...WORLD_BRUSH_START, material: 4 }, palette).voxel).toEqual({ material: 4, role: addRoleOf('construction'), wetness: 0 });
+    expect(worldBrushArming('sculpt', WORLD_BRUSH_START, palettes)).toEqual({ kind: 'add', shape: 'sphere', soft: true, voxel: { material: 20, role: VOXEL_ROLE.terrain, wetness: 0 }, uses: ['size', 'spacing', 'invert'] });
+    for (const sculpt of ['dig', 'smooth', 'flatten'] as const) expect(worldBrushArming('sculpt', { ...WORLD_BRUSH_START, sculpt, shape: 'box', soft: false }, palettes)).toMatchObject({ kind: sculpt, shape: 'box', soft: false });
+    expect(worldBrushArming('sculpt', { ...WORLD_BRUSH_START, material: 4 }, palettes).voxel).toEqual({ material: 4, role: addRoleOf('construction'), wetness: 0 });
     expect(addRoleOf('construction')).toBe(VOXEL_ROLE.wall);
-    const paint = worldBrushArming('paint', { ...WORLD_BRUSH_START, material: 12, wetness: 5 }, palette);
+    const paint = worldBrushArming('paint', { ...WORLD_BRUSH_START, material: 12, wetness: 5 }, palettes);
     expect(paint).toEqual({ kind: 'paint', shape: 'sphere', soft: false, voxel: { material: 12, wetness: 5 }, uses: ['size', 'spacing', 'mask'] });
-    expect(worldBrushArming('paint', { ...WORLD_BRUSH_START, wetness: 40 }, palette).voxel?.wetness).toBe(7);
-    expect(worldBrushArming('paint', WORLD_BRUSH_START, []).voxel).toBeNull();
+    expect(worldBrushArming('paint', { ...WORLD_BRUSH_START, wetness: 40 }, palettes).voxel?.wetness).toBe(7);
+    expect(worldBrushArming('paint', WORLD_BRUSH_START, { solid: [], paint: [], gas: [], liquid: [] }).voxel).toBeNull();
   });
 });

@@ -101,4 +101,10 @@ describe('envelope — a refusal as the panels read it', () => {
     const limits = refusalResponse({ code: 'limits_exceeded', cls: 'validation', message: 'too many', limit: 'x', current: 3, max: 2, details: [{ message: 'first', path: '/a' }, { message: 'second' }] } as never);
     expect(limits).toMatchObject({ limit: 'x', current: 3, max: 2, details: [{ message: 'first', path: '/a' }], detailCount: 2 });
   });
+
+  it('keeps the places a refused flood names (the Scene view marks them)', () => {
+    const leaks = [{ at: [5.25, 0.75, -3], kind: 'reach', cells: 4 }];
+    expect(refusalResponse({ code: 'flood_leaks', cls: 'validation', message: 'the flood leaks in 1 place', leaks } as never)).toEqual({ ok: false, code: 'flood_leaks', message: 'the flood leaks in 1 place', leaks });
+    expect(refusalResponse({ code: 'flood_blocked', cls: 'validation', message: 'blocked' } as never)).not.toHaveProperty('leaks');
+  });
 });

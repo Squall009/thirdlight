@@ -31,6 +31,13 @@ export interface CommandEnvelope {
   origin: Origin;
 }
 
+/** A place a refused flood would leave its bound (metres in the scene), as the backend's error names it. */
+export interface FloodLeakPlace {
+  readonly at: readonly [number, number, number];
+  readonly kind: 'reach' | 'world';
+  readonly cells: number;
+}
+
 /**
  * The backend's mutation response — the fields the
  * browser needs to advance its projection and decide retries.
@@ -44,6 +51,8 @@ export type MutationResponse =
       /** A folder import: what its folder held besides the refusal. */
       folderImport?: import('./folder-upload').FolderImportView;
       currentRevision?: number;
+      /** `flood_leaks`: the places a refused flood would leave its bound, metres in the scene. */
+      leaks?: FloodLeakPlace[];
       /** `limits_exceeded` detail: the declared bound that was exceeded. */
       limit?: string;
       current?: number;
@@ -90,6 +99,8 @@ export function refusalResponse(error: CommandError, folderImport?: import('./fo
     // A whole-document check's rules: the first one (what and where) and how many there are, for the panels.
     ...(error.details !== undefined ? ruleDetails(error.details, error.detailCount) : {}),
     ...(typeof error.path === 'string' ? { path: error.path } : {}),
+    // A refused flood: where it would leave its bound (the Scene view marks the places).
+    ...(Array.isArray((error as { leaks?: unknown }).leaks) ? { leaks: (error as unknown as { leaks: FloodLeakPlace[] }).leaks } : {}),
     ...(error.found !== undefined ? { found: error.found } : {}),
     ...(folderImport !== undefined ? { folderImport } : {}),
   };

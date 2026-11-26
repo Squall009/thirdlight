@@ -10,7 +10,9 @@
  * body and flags the leak (nothing written past the bound, the world's
  * route reporting where), and closing it fills it again and clears the
  * flag; a deleted body takes its water with it (undo brings it back); and
- * an export ships the liquid voxels without the record.
+ * an export ships the liquid voxels without the record; and the objects the
+ * editor's world mode makes (a water body at a click, a road started by a
+ * drag) are taken as the tool sends them.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -21,6 +23,7 @@ import { chunkGrid, createWorldStore, DERIVED_PART, SHAPE_FULL, valueMaterial, v
 import { hexToBytes } from '@thirdlight/shared';
 import { RegionWorld, readVoxelWorldManifest, writeVoxelWorld } from '@thirdlight/workspace';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { splineCreate, splineStartVoxels, waterBodyCreate } from '../../../packages/editor/src/session/voxel-fill';
 import { flatGround } from '../../../tools/voxel-bench/scenes';
 import { commandEnvelope } from '../../support/commands';
 
@@ -295,5 +298,32 @@ describe('water bodies through the commands', () => {
     expect((await liquid()).size, "the lake is in the files that shipped").toBeGreaterThan(6000);
     rmSync(out, { recursive: true, force: true });
   });
-});
 
+  it("the world mode's Water and spline entries: the tool's own createEntity args make a body that fills its hollow and a road that is written, each one undo step", async () => {
+    // A hollow of 7 × 7 cells, three deep, outside the lake's reach.
+    expect((await dig([30, -3, 30], [36, -1, 36])).status).toBe(200);
+    const before = folderState();
+    // The click's seed is the open cell over the hollow's floor; the level half a metre under the ground's top.
+    const water = await cmd('createEntity', waterBodyCreate({ sceneId: 'scene-main', world: WORLD, seed: [33, -3, 33], levelM: -0.5, material: WATER }));
+    expect(water.status, JSON.stringify(water.json)).toBe(200);
+    const pond = water.json['createdId'] as string;
+    expect((water.json['voxels'] as Array<{ op: string }>).map((v) => v.op)).toEqual(['writeWater']);
+    // Rows -3 and -2 lie under the level (-1 in cells): 7 × 7 × 2 cells, and the reach is the component's default.
+    expect((await info()).bodies.find((b) => b.entityId === pond)).toMatchObject({ status: 'filled', cells: 98 });
+    expect(((await query('queryEntity', { entityId: pond }))['entity'] as { components: { waterBody: Record<string, unknown> } }).components.waterBody).toEqual({ world: WORLD, level: -0.5, material: WATER, reach: 256 });
+    expect((await lineStep('undo')).status).toBe(200);
+    expect(folderState()).toEqual(before);
+    expect((await query('queryEntity', { entityId: pond }))['entity']).toBeUndefined();
+
+    // A road started by a drag of 8 m on the ground beside the pit.
+    const args = splineCreate({ sceneId: 'scene-main', from: [-22, 0, 15], to: [-14, 0, 15], voxels: splineStartVoxels('road', ROCK, WATER)! })!;
+    const road = await cmd('createEntity', args);
+    expect(road.status, JSON.stringify(road.json)).toBe(200);
+    expect((road.json['voxels'] as Array<{ op: string }>).map((v) => v.op)).toContain('writeSplines');
+    const spline = ((await query('queryEntity', { entityId: road.json['createdId'] }))['entity'] as { components: { spline: { points: unknown[]; voxels: Record<string, unknown> } } }).components.spline;
+    expect(spline.voxels).toMatchObject({ kind: 'road', material: ROCK });
+    expect(spline.points.length).toBe(2);
+    expect((await lineStep('undo')).status).toBe(200);
+    expect(folderState()).toEqual(before);
+  });
+});

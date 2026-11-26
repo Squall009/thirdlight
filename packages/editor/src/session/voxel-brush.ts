@@ -26,8 +26,17 @@ import type { VoxelMaterialUse } from '@thirdlight/project-model/voxel-materials
 
 import { BRUSH_BOUNDS, DEFAULT_BRUSH, type BrushBounds, type BrushSettings } from './brush';
 
-/** What the voxel brush does: the edit command's brush modes the editor offers. */
-export type VoxelBrushKind = 'add' | 'dig' | 'smooth' | 'flatten' | 'paint';
+/**
+ * What the voxel brush does: the edit command's brush modes the editor
+ * offers, and the fog brush's three (fog painted into open cells at a
+ * density, fog erased, a fog's density smoothed: `session/voxel-fill.ts`).
+ */
+export type VoxelBrushKind = 'add' | 'dig' | 'smooth' | 'flatten' | 'paint' | 'fog' | 'fog-erase' | 'fog-smooth';
+
+/** The fog brush's kinds: they act on the open cells over the ground, never on the ground. */
+export function isFogKind(kind: VoxelBrushKind): kind is 'fog' | 'fog-erase' | 'fog-smooth' {
+  return kind === 'fog' || kind === 'fog-erase' || kind === 'fog-smooth';
+}
 
 export type VoxelCell = readonly [number, number, number];
 
@@ -56,9 +65,9 @@ export function dabSpacingCells(across: number, spacing: number): number {
   return Math.max(1, Math.round(across * spacing));
 }
 
-/** The cell a dab sits on for a hit: the cell met, or for Add the cell in front of the face it was entered by. */
+/** The cell a dab sits on for a hit: the cell met, or for Add and the fog brush (which act in the open) the cell in front of the face it was entered by. */
 export function dabCell(kind: VoxelBrushKind, cell: VoxelCell, normal: VoxelCell): [number, number, number] {
-  return kind === 'add' ? [cell[0] + normal[0], cell[1] + normal[1], cell[2] + normal[2]] : [cell[0], cell[1], cell[2]];
+  return kind === 'add' || isFogKind(kind) ? [cell[0] + normal[0], cell[1] + normal[1], cell[2] + normal[2]] : [cell[0], cell[1], cell[2]];
 }
 
 /** The height of the surface a hit cell holds, in cells: its row plus its fill (a block: the whole cell; not read: the whole cell). */
@@ -120,7 +129,7 @@ export interface VoxelStroke {
   /** A soft rim (Add, Dig, Smooth, Flatten; a Paint has none). */
   readonly soft: boolean;
   readonly cells: readonly VoxelCell[];
-  /** What Add writes or Paint gives (absent: Dig, Smooth, Flatten). */
+  /** What Add writes or Paint gives, or the gas a fog smooth relaxes (absent: Dig, Smooth, Flatten). */
   readonly voxel?: VoxelBrushVoxel;
   /** Flatten's plane, in cells. */
   readonly height?: number;
@@ -161,12 +170,14 @@ export function maskedColumns(s: Pick<VoxelStroke, 'shape' | 'across' | 'cells'>
 
 /**
  * The stroke as one `editVoxels` brush command (null: nothing to send, a
- * stroke with no dab or a mask that let nothing through). Sizes are the
- * brush's half extents in cells; a Paint is hard-rimmed and names no role
- * unless its voxel does.
+ * stroke with no dab or a mask that let nothing through, or a fog paint or
+ * erase, which name their cells: `fogCellsCommand`). Sizes are the brush's
+ * half extents in cells; a Paint is hard-rimmed and names no role unless
+ * its voxel does; a fog smooth is the brush's `smooth` with its gas.
  */
 export function voxelStrokeCommand(s: VoxelStroke): Record<string, unknown> | null {
-  if (s.cells.length === 0) return null;
+  if (s.cells.length === 0 || s.kind === 'fog' || s.kind === 'fog-erase') return null;
+  if (s.kind === 'fog-smooth' && s.voxel?.role === undefined) return null;
   const h = s.across / 2;
   const voxel = s.voxel === undefined || s.kind === 'dig' || s.kind === 'smooth' || s.kind === 'flatten' ? undefined : { material: s.voxel.material, ...(s.voxel.role !== undefined ? { role: s.voxel.role } : {}), wetness: s.voxel.wetness };
   const masked = s.kind === 'paint' && s.mask != null ? maskedColumns(s, s.mask) : null;
@@ -178,7 +189,7 @@ export function voxelStrokeCommand(s: VoxelStroke): Record<string, unknown> | nu
     shape: masked !== null ? 'box' : s.shape,
     size: masked !== null ? [0.5, h, 0.5] : [h, h, h],
     points: masked ?? s.cells.flatMap((c) => [c[0] + 0.5, c[1] + 0.5, c[2] + 0.5]),
-    mode: s.kind,
+    mode: s.kind === 'fog-smooth' ? 'smooth' : s.kind,
     ...(voxel !== undefined ? { voxel } : {}),
     smooth: s.kind === 'paint' ? false : s.soft,
     ...(s.kind === 'flatten' ? { height: s.height ?? 0 } : {}),
@@ -213,6 +224,19 @@ interface PaletteMaterial {
 
 /** The uses a brush on the ground or on construction offers. A gas is painted as fog and a liquid is a water body's: neither is a ground material. */
 export const SOLID_PALETTE_USES: readonly VoxelMaterialUse[] = Object.freeze(['terrain', 'construction']);
+/** What the world mode's Paint offers: the ground and construction materials, then the gases (a gas picked makes the brush a fog brush). */
+export const PAINT_PALETTE_USES: readonly VoxelMaterialUse[] = Object.freeze(['terrain', 'construction', 'gas']);
+/** The Fill rail's groups: the gases a fog fill writes, the liquids a water body holds. */
+export const GAS_PALETTE_USES: readonly VoxelMaterialUse[] = Object.freeze(['gas']);
+export const LIQUID_PALETTE_USES: readonly VoxelMaterialUse[] = Object.freeze(['liquid']);
+
+/**
+ * A fog brush as it starts, and its bounds: at most 8 m across. A painted
+ * or erased fog stroke names its cells one by one, so a wide brush would
+ * make a command of megabytes; a bank wider than this is a fill's.
+ */
+export const FOG_BRUSH: BrushSettings = Object.freeze({ ...DEFAULT_BRUSH, size: 4, spacing: 0.25 }) as BrushSettings;
+export const FOG_BRUSH_BOUNDS: BrushBounds = Object.freeze({ ...BRUSH_BOUNDS, size: [VOXEL_SIZE_M, 8] as const, heightStep: [0.5, 0.5] as const });
 
 /**
  * The project's voxel materials of `uses` as palette entries, in the order

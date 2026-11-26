@@ -38,8 +38,8 @@ export const DIRECTION_LENGTH_M = 2;
 export const CONE_DISPLAY_M = 3;
 /** Where a zero radius's grip sits (m) — off the object's own gizmo. */
 const MIN_GRIP_RADIUS_M = 0.25;
-/** The ring a height in the scene (a water level) draws round the object, metres: wide enough to see on the water and grab. */
-const SCENE_HEIGHT_RING_M = 2;
+/** The ring a height in the scene (a water level, a fill's level) draws round its seed, metres: wide enough to see on the water and grab. */
+export const SCENE_HEIGHT_RING_M = 2;
 
 export type Frame = 'world' | 'position' | 'rotationZ' | 'rotation' | 'transform';
 
@@ -658,6 +658,16 @@ export function commitValue(s: HandleShape): { ok: true; component: string; valu
 const circle = (cx: number, cy: number, r: number, n = 48): P3[] => Array.from({ length: n + 1 }, (_, i) => p3(cx + r * Math.cos((i / n) * 2 * Math.PI), cy + r * Math.sin((i / n) * 2 * Math.PI)));
 const rect = (x0: number, y0: number, x1: number, y1: number, z = 0): P3[] => [p3(x0, y0, z), p3(x1, y0, z), p3(x1, y1, z), p3(x0, y1, z), p3(x0, y0, z)];
 
+/**
+ * A height drawn round a point: a level ring of radius `r` at `h` over `base`, and a post from `base` up to it (a
+ * capsule's height, a water body's level, the level a fill is dragged to).
+ */
+export function heightRingLines(base: P3, h: number, r: number): P3[][] {
+  const y = base.y + h;
+  const ring = Array.from({ length: 33 }, (_, i) => p3(base.x + r * Math.cos((i / 32) * 2 * Math.PI), y, base.z + r * Math.sin((i / 32) * 2 * Math.PI)));
+  return [ring, [p3(base.x + r, base.y, base.z), p3(base.x + r, y, base.z)]];
+}
+
 /** The shape's outline as polylines (frame coordinates) — the drag preview. */
 export function linesOf(s: HandleShape): P3[][] {
   const m = s.model;
@@ -706,10 +716,7 @@ export function linesOf(s: HandleShape): P3[][] {
     case 'point':
       return [[p3(m.p.x - 0.2, m.p.y, m.p.z), p3(m.p.x + 0.2, m.p.y, m.p.z)], [p3(m.p.x, m.p.y - 0.2, m.p.z), p3(m.p.x, m.p.y + 0.2, m.p.z)]];
     case 'height': {
-      // A ring around the capsule at the height, and a post from the feet up to it.
-      const y = m.base.y + m.h;
-      const ring = Array.from({ length: 33 }, (_, i) => p3(m.base.x + m.r * Math.cos((i / 32) * 2 * Math.PI), y, m.base.z + m.r * Math.sin((i / 32) * 2 * Math.PI)));
-      return [ring, [p3(m.base.x + m.r, m.base.y, m.base.z), p3(m.base.x + m.r, y, m.base.z)]];
+      return heightRingLines(m.base, m.h, m.r);
     }
     case 'bounds': {
       const { min: a, max: b } = m;

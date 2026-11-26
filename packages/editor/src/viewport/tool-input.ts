@@ -27,7 +27,7 @@ import { TerrainEditor, type TerrainEditorCallbacks, type TerrainEditorHost } fr
 import { DecalTool, type DecalArm, type DecalToolCallbacks, type DecalToolHost } from './decal-tool';
 import { VertexPaintTool, type VertexPaintArm, type VertexPaintToolCallbacks, type VertexPaintToolHost } from './vertex-paint-tool';
 import { StructureTool, type StructureArm, type StructureToolCallbacks, type StructureToolHost } from './structure-tool';
-import { VoxelBrushTool, type VoxelBrushArm, type VoxelBrushCallbacks } from './voxel-brush-tool';
+import { VoxelBrushTool, type VoxelBrushArm, type VoxelBrushCallbacks, type VoxelBrushHost } from './voxel-brush-tool';
 
 /** A pointer that moved less than this (px) between down and up is a click. */
 export const CLICK_SLOP_PX = 4;
@@ -188,6 +188,8 @@ export interface ViewportToolsHost {
   paint: VertexPaintToolHost;
   /** The structure tool's view: the voxel pick, where structures are drawn, a turn's preview. */
   structure: Pick<StructureToolHost, 'pick' | 'place' | 'preview'>;
+  /** A box of a voxel world's own cells as the view holds them (what a fog stroke reads before it names its cells). */
+  voxelCells: NonNullable<VoxelBrushHost['cells']>;
   brush: Omit<InstanceBrushDeps, 'refused'>;
   brushStroke(entityId: string, stroke: InstanceStroke): Promise<boolean>;
 }
@@ -242,8 +244,15 @@ export class ViewportTools {
       },
     );
     this.voxelBrush = new VoxelBrushTool(
-      { overlay: host.overlay, camera: host.camera, canvas: () => host.canvas(), requestRender: () => host.requestRender(), pick: host.structure.pick, place: (id) => host.structure.place(id) },
-      { stroke: (w, c) => this.voxelBrushCb?.stroke(w, c) ?? off(), refused: (m) => this.voxelBrushCb?.refused(m), readout: (t) => this.voxelBrushCb?.readout(t) },
+      { overlay: host.overlay, camera: host.camera, canvas: () => host.canvas(), requestRender: () => host.requestRender(), pick: host.structure.pick, place: (id) => host.structure.place(id), cells: (w, box) => host.voxelCells(w, box) },
+      {
+        stroke: (w, c) => this.voxelBrushCb?.stroke(w, c) ?? off(),
+        refused: (m) => this.voxelBrushCb?.refused(m),
+        readout: (t) => this.voxelBrushCb?.readout(t),
+        send: (op, args) => this.voxelBrushCb?.send?.(op, args) ?? Promise.resolve({ ok: false, code: 'no_sender', message: 'the mode sends no fill' }),
+        depth: (m) => this.voxelBrushCb?.depth?.(m),
+        made: (what, id) => this.voxelBrushCb?.made?.(what, id),
+      },
     );
     // The voxel brush before the structure tool: a structure's hand edits arm both, the structure tool in Navigate.
     this.router = new ToolRouter({ canvas: () => host.canvas(), setOrbit: (on) => (host.orbit.enabled = on) }, [this.paintTool(), this.blockTool(), this.terrainTool(), this.decalTool(), this.voxelBrushTool(), this.structureTool(), this.handleTool(), this.brushTool()], ['voxel-brush', 'structure', 'block', 'terrain', 'handles', 'brush', 'decal', 'paint']);
