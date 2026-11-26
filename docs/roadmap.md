@@ -158,6 +158,9 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
   media only (D838: painted fog has one density, a hard edge and an 8 m brush until then; a command field); a fog
   body that follows ground edits, as a water body does; a preview of what a fill would cover before the release;
   a starter voxel material set a kit can carry (voxel ids given when the kit is added).
+- From 47b.7: a far side for free-standing fog (D841: a second depth for the hull, or 51's march); a fog colour
+  that follows the scene's light or exposure; a density view of a bank's inner cells; the fog's and the eye
+  layer's cost measured on a quiet machine.
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
