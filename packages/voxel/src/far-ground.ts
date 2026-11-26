@@ -22,15 +22,15 @@
  *   {@link FAR_GROUND_CACHE_BYTES} are kept, least recently used dropped
  *   first (read again when wanted).
  */
-import { decodeDenseChunk } from './cell-delta';
 import { chunkGrid, VOXEL_SIZE_M, type ChunkCoord, type ChunkEdge, type ChunkGrid } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import type { FarNodeSource } from './far-field';
 import type { FarNodeIndex } from './far-tree';
 import { fillLevel, SHAPE_FULL } from './record';
 import { isMediumRole } from './role-traits';
-import { regionChunkCodecBytes, type RegionChunkRead } from './region-file';
 import type { StoredChunk } from './stream-job';
+import { decodeStoredChunk, surfaceFieldsOfColumn, type SurfaceFieldsChunk } from './surface-fields-job';
+import type { SurfaceFieldColumns } from './surface-fields';
 import type { WorkerPool } from './worker-pool';
 
 /** The far cache level the floor is made of: its finest kept level (2 m cells), what the far field draws nearest. */
@@ -68,11 +68,7 @@ export function farGroundTops(input: FarGroundInput, decompress: (b: Uint8Array)
   const nodes = [...input.nodes].sort((a, b) => b.ny - a.ny);
   for (const n of nodes) {
     if (left === 0) break;
-    const b = n.bytes;
-    const read: RegionChunkRead = 'uniform' in b ? (b.uniform === 0 ? { cx: 0, cy: n.ny, cz: 0, kind: 'air' } : { cx: 0, cy: n.ny, cz: 0, kind: 'uniform', value: b.uniform }) : { cx: 0, cy: n.ny, cz: 0, kind: 'stored', bytes: b.stored, raw: b.raw };
-    const codec = regionChunkCodecBytes(g, read, decompress);
-    if (codec === null) continue;
-    decodeDenseChunk(g, codec, d);
+    if (!decodeStoredChunk(g, n.ny, n.bytes, decompress, d)) continue;
     for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) {
       const k = x * e + z;
       if (!Number.isNaN(tops[k]!)) continue;
@@ -86,6 +82,29 @@ export function farGroundTops(input: FarGroundInput, decompress: (b: Uint8Array)
     }
   }
   return { tops };
+}
+
+/** A far node column and the eight round it as stored, for the surface fields of its ground. */
+export interface FarGroundFieldsInput {
+  readonly edge: ChunkEdge;
+  readonly level: number;
+  /** The node column answered. */
+  readonly nx: number;
+  readonly nz: number;
+  /** The nodes holding anything: which column (−1 … 1 from the one answered), its row, its bytes. */
+  readonly nodes: ReadonlyArray<{ readonly dx: number; readonly dz: number; readonly ny: number; readonly bytes: StoredChunk }>;
+}
+
+/**
+ * The floor's decode read for every surface field: a far node column's
+ * ground as the block form of surface-fields.ts gives it, a value a coarse
+ * cell column (2 m at the far cache's finest level), from the same stored
+ * nodes the tops are read from and the nodes round them. For placing past
+ * the detail ring; nothing draws from it yet, so it is run when asked.
+ */
+export function farGroundFields(input: FarGroundFieldsInput, decompress: (b: Uint8Array) => Uint8Array): SurfaceFieldColumns {
+  const chunks: SurfaceFieldsChunk[] = input.nodes.map((n) => ({ dx: n.dx, dz: n.dz, cy: n.ny, cells: n.bytes }));
+  return surfaceFieldsOfColumn({ edge: input.edge, level: input.level, cx: input.nx, cz: input.nz, chunks }, decompress);
 }
 
 /** What the floor reads the far cache and runs its jobs through. */

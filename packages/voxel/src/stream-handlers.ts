@@ -36,7 +36,9 @@ import { farBricksTransfer } from './far-bricks';
 import { bakedFarBricks } from './far-bricks-baked';
 import { brickFarNodeBy } from './far-bricks-faces';
 import { farMeshTransfer, meshFarNode, type FarMeshInput } from './far-mesh';
-import { farGroundTops, type FarGroundInput } from './far-ground';
+import { farGroundFields, farGroundTops, type FarGroundFieldsInput, type FarGroundInput } from './far-ground';
+import { surfaceFieldsTransfer, type SurfaceFieldColumns } from './surface-fields';
+import { surfaceFieldsOfColumn, type SurfaceFieldsInput } from './surface-fields-job';
 import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, MipInput, MipOutput, StoredChunk } from './stream-job';
 
 export interface StreamHandlerOptions {
@@ -407,6 +409,23 @@ function farGround(opts: StreamHandlerOptions, raw: unknown): JobResult {
   return { output, transfer: [output.tops.buffer as ArrayBuffer] };
 }
 
+/** A chunk column's surface fields (surface-fields-job.ts), at any level of the chunk tree. */
+function surfaceFieldsJob(opts: StreamHandlerOptions, raw: unknown): JobResult {
+  const output = surfaceFieldsOfColumn(raw as SurfaceFieldsInput, opts.decompress);
+  return { output, transfer: surfaceFieldsTransfer(output) };
+}
+
+/** A far node column's surface fields (far-ground.ts), from its stored nodes. */
+function farGroundFieldsJob(opts: StreamHandlerOptions, raw: unknown): JobResult {
+  const output = farGroundFields(raw as FarGroundFieldsInput, opts.decompress);
+  return { output, transfer: surfaceFieldsTransfer(output) };
+}
+
+/** A surface fields job run in the calling thread: what a worker answers, from the same function. */
+export function surfaceFieldsNow(input: SurfaceFieldsInput, decompress: (b: Uint8Array) => Uint8Array = (b) => b): SurfaceFieldColumns {
+  return surfaceFieldsJob({ decompress }, input).output as SurfaceFieldColumns;
+}
+
 /** The stream job handlers ({@link serveJobs} serves them). */
 export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
   return {
@@ -419,6 +438,8 @@ export function streamJobHandlers(opts: StreamHandlerOptions): JobHandlers {
     'far-mesh': (input) => farMesh(opts, input),
     'far-bricks': (input) => farBricks(opts, input),
     'far-ground': (input) => farGround(opts, input),
+    'far-ground-fields': (input) => farGroundFieldsJob(opts, input),
+    'surface-fields': (input) => surfaceFieldsJob(opts, input),
   };
 }
 

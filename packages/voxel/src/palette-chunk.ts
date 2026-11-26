@@ -139,6 +139,15 @@ export class RecordChunk implements PaletteChunk {
     }
   }
 
+  /** Every cell's record value into `out` (local index order): what a reader of whole values takes, with no planes between. */
+  toValues(out: Uint32Array): void {
+    const img = scratchImage(this.grid);
+    const ids = img.planes[0].ids;
+    this.plane.layout.unpack(ids);
+    const values = this.plane.values;
+    for (let i = 0; i < ids.length; i++) out[i] = values[ids[i]!]!;
+  }
+
   toImage(img: ChunkImage): void {
     img.kind = 'record';
     canonicalPlane(this.plane, img.planes[0]);

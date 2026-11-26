@@ -237,13 +237,47 @@ export {
   type StreamJobOutputs,
 } from './stream-job';
 export { serveJobs, type JobEndpoint, type JobHandler, type JobHandlers, type JobResult } from './job-worker';
-export { deriveNow, jobRelief, streamJobHandlers, type StreamHandlerOptions } from './stream-handlers';
+export { deriveNow, jobRelief, streamJobHandlers, surfaceFieldsNow, type StreamHandlerOptions } from './stream-handlers';
 export { JobQueue } from './job-queue';
 export { defaultVoxelWorkers, eventTargetWorker, livePoolQueues, POOL_END_GRACE_MS, poolWorkersEnded, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolQueues, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
 export { GRID_EXTENT_MARGIN_CHUNKS, GridFrame, gridChunkExtent, gridDrawName, gridPlacementProblem, gridPlacementsText, grownChunkBox, parseGridPlacements, VOXEL_GRIDS_URL_PARAM, type ChunkBox, type GridPlacement, type GridPlaceWire } from './grid-place';
 export { StreamDetail } from './stream-detail';
-export { FAR_GROUND_CACHE_BYTES, FAR_GROUND_LEVEL, FarGround, farGroundTops, type FarGroundField, type FarGroundHost, type FarGroundInput, type FarGroundOutput } from './far-ground';
+export { FAR_GROUND_CACHE_BYTES, FAR_GROUND_LEVEL, FarGround, farGroundFields, farGroundTops, type FarGroundField, type FarGroundFieldsInput, type FarGroundHost, type FarGroundInput, type FarGroundOutput } from './far-ground';
+export {
+  gatherSurfaceCells,
+  SURFACE_DISTANCE_CAP_M,
+  SURFACE_FIELD_NAMES,
+  SURFACE_FIELDS_FED_BY,
+  SURFACE_NO_ROW,
+  SURFACE_PAD_CELLS,
+  SURFACE_SHEET_RISE,
+  SURFACE_SLOPE_ROWS,
+  SURFACE_SNAP_CELLS,
+  SURFACE_UNKNOWN,
+  SURFACE_WALL_M,
+  surfaceCellsSource,
+  surfaceDistanceCells,
+  surfaceFields,
+  surfaceFieldsFed,
+  surfaceFieldsOf,
+  surfaceFieldsTransfer,
+  surfacePoint,
+  surfacePointOut,
+  surfaceRows,
+  surfaceRowUnder,
+  surfaceTable,
+  surfaceTop,
+  surfaceWallRows,
+  type SurfaceCells,
+  type SurfaceFieldColumns,
+  type SurfaceFieldName,
+  type SurfaceFootprint,
+  type SurfacePoint,
+  type SurfaceSource,
+  type SurfaceTable,
+} from './surface-fields';
+export { decodeStoredChunk, surfaceFieldsCells, surfaceFieldsInputOf, surfaceFieldsOfColumn, surfaceFieldsPad, type SurfaceFieldsChunk, type SurfaceFieldsInput } from './surface-fields-job';
 export { COLLISION_ALONE_PART, CollisionDerives, type CollisionDeriveHost, type CollisionEvent } from './stream-collision';
 export { DEFAULT_STREAM_READS, FocusMotion, motionDistance2, readOrder, STREAM_PREFETCH_SECONDS, STREAM_STOPPED_MS, STREAM_WIDEN_AFTER_MS, type WantedChunk } from './stream-reads';
 export { checkRing, chunkDistance2, readRing, DEFAULT_COLLISION_RING, DEFAULT_LEVEL_RINGS, DEFAULT_MIP_LEVELS, DEFAULT_MIP_RINGS, DEFAULT_STREAM_RING, inLoadRing, inNearRing, MIP_RING_HYSTERESIS_CELLS, mipRingsFor, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, speedRing, STREAM_DETAIL_SPEED, STREAM_FULL_RING_SPEED, STREAM_MIN_SPEED_RADIUS, VOXEL_REACH_SCALES, VOXEL_RING_SCALES, VOXEL_STREAM_BUDGET_BYTES, type Focus, type MipRing, type StreamRing, type StreamTier } from './stream-ring';
