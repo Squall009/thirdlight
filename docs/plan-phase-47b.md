@@ -1163,6 +1163,11 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
   resolved**: the difference is under the spread between samples, and two runs alike differ by more (the room 60
   copies and none; frame GPU 17.0 and 14.5 ms). The eye's layer (the camera inside a bank) was not measured.
   Medium and high: unverified on target hardware. `perf-recommendations.md` row 47.
+- **Gate:** before it, the generators (reference, typings, graph API: nothing changed, 6 s), `npm run build`
+  (24 s), `npm run lint` (97 s, uncached) and the manual's links test (1 s) green. `tools/gate.sh check` once:
+  GREEN in 258 s (build 26 s, lint 10 s, unit 195 s: 976 files passed; boot 5 passed, 27 s). No second call. The
+  three new unit files take about 8 s together; `liquid.test.ts` (slow list) was run once, 45 s. Picture time
+  240 s over three takes; the cost runs 574 s.
 - **Unverified:** anything in motion (walking into and out of a bank, the layer coming in, the temporal upscale
   on the hull and the layer); fog by night and under lamps; fog beside glass, particles or water in one view; a
   structure grid's gas; an exported game's fog (the boot check's export holds none; the batches and the material
