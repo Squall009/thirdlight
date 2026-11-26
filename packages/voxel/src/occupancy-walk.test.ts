@@ -89,10 +89,27 @@ function blobWorld(seed: number): (x: number, y: number, z: number) => boolean {
   const r = rng(seed);
   const balls = Array.from({ length: 40 }, () => [r() * 120 - 60, r() * 60 - 20, r() * 120 - 60, 1 + r() * 6] as const);
   const walls = Array.from({ length: 12 }, () => [Math.floor(r() * 100 - 50), Math.floor(r() * 3)] as const);
+  // Each ball listed in the 8-cell buckets its box overlaps, so a cell tests only the balls that can hold it (the
+  // same world as testing all 40; most of this file's time was that loop).
+  const B = 8;
+  const bucketKey = (i: number, j: number, k: number): number => ((i + 512) * 1024 + (j + 512)) * 1024 + (k + 512);
+  const buckets = new Map<number, Array<readonly [number, number, number, number]>>();
+  for (const ball of balls) {
+    const [bx, by, bz, br] = ball;
+    for (let i = Math.floor((bx - br - 1) / B); i <= Math.floor((bx + br) / B); i++)
+      for (let j = Math.floor((by - br - 1) / B); j <= Math.floor((by + br) / B); j++)
+        for (let k = Math.floor((bz - br - 1) / B); k <= Math.floor((bz + br) / B); k++) {
+          const key = bucketKey(i, j, k);
+          const list = buckets.get(key);
+          if (list === undefined) buckets.set(key, [ball]);
+          else list.push(ball);
+        }
+  }
   return (x, y, z) => {
     if (y < -16 + Math.floor(4 * Math.sin(x / 9) + 3 * Math.cos(z / 7))) return true;
     for (const [w, axis] of walls) if ((axis === 0 ? x : axis === 1 ? z : x + z) === w && y < 20 && Math.abs(axis === 0 ? z : x) < 40) return true;
-    for (const [bx, by, bz, br] of balls) if ((x + 0.5 - bx) ** 2 + (y + 0.5 - by) ** 2 + (z + 0.5 - bz) ** 2 < br * br) return true;
+    const near = buckets.get(bucketKey(Math.floor(x / B), Math.floor(y / B), Math.floor(z / B)));
+    if (near !== undefined) for (const [bx, by, bz, br] of near) if ((x + 0.5 - bx) ** 2 + (y + 0.5 - by) ** 2 + (z + 0.5 - bz) ** 2 < br * br) return true;
     return false;
   };
 }

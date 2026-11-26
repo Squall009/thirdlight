@@ -135,8 +135,20 @@ class Brute {
     readonly span = DEFAULT_WALK_AGENT.span,
   ) {}
 
+  /** Clearances seen during one search (the world is not edited while it runs), else null. */
+  private memo: Map<number, number> | null = null;
+
   /** The footprint's clearance at a standable cell (its own column's for one cell). */
   wclear(x: number, y: number, z: number): number {
+    const key = ((x + 4096) * 8192 + (y + 4096)) * 8192 + (z + 4096);
+    const seen = this.memo?.get(key);
+    if (seen !== undefined) return seen;
+    const least = this.wclearOf(x, y, z);
+    this.memo?.set(key, least);
+    return least;
+  }
+
+  private wclearOf(x: number, y: number, z: number): number {
     let least = this.clear(x, y, z);
     for (let ox = -((this.span - 1) >> 1); ox <= this.span >> 1; ox++) for (let oz = -((this.span - 1) >> 1); oz <= this.span >> 1; oz++) {
       if (ox === 0 && oz === 0) continue;
@@ -204,12 +216,45 @@ class Brute {
 
   /** Every cell's cost from `from` (by key). */
   dijkstra(from: P3): Map<string, number> {
+    this.memo = new Map();
+    try {
+      return this.search(from);
+    } finally {
+      this.memo = null;
+    }
+  }
+
+  private search(from: P3): Map<string, number> {
     const dist = new Map<string, number>([[from.join(','), 0]]);
+    // A binary min-heap on cost: sorting the whole open list for every pop was most of this file's time.
     const open: Array<[number, P3]> = [[0, from]];
+    const push = (e: [number, P3]): void => {
+      let i = open.push(e) - 1;
+      while (i > 0) {
+        const p = (i - 1) >> 1;
+        if (open[p]![0] <= open[i]![0]) break;
+        [open[p], open[i]] = [open[i]!, open[p]!];
+        i = p;
+      }
+    };
+    const pop = (): [number, P3] => {
+      const top = open[0]!;
+      const last = open.pop()!;
+      if (open.length > 0) {
+        open[0] = last;
+        for (let i = 0; ; ) {
+          const l = 2 * i + 1;
+          const m = l + 1 < open.length && open[l + 1]![0] < open[l]![0] ? l + 1 : l;
+          if (l >= open.length || open[i]![0] <= open[m]![0]) break;
+          [open[m], open[i]] = [open[i]!, open[m]!];
+          i = m;
+        }
+      }
+      return top;
+    };
     const done = new Set<string>();
     while (open.length > 0) {
-      open.sort((p, q) => p[0] - q[0]);
-      const [d, a] = open.shift()!;
+      const [d, a] = pop();
       const k = a.join(',');
       if (done.has(k)) continue;
       done.add(k);
@@ -217,7 +262,7 @@ class Brute {
         const kb = b.join(',');
         if ((dist.get(kb) ?? Infinity) <= d + c + 1e-12) continue;
         dist.set(kb, d + c);
-        open.push([d + c, b]);
+        push([d + c, b]);
       }
     }
     return dist;
@@ -463,8 +508,7 @@ describe('walk graph against the brute force', () => {
     expect(pairs).toBeGreaterThan(40);
     expect(unreachable).toBeGreaterThan(0);
     expect(worst).toBeLessThanOrEqual(1.08);
-    // About 28 s of brute force on a loaded host: the suite's 30 s limit (it only catches a hang) is too close.
-  }, 120_000);
+  });
 
   it('reaches the brute force’s cells within a cost', () => {
     const w = scrap(21);
