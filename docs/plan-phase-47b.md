@@ -995,7 +995,11 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
     (flood ok, revision 8 → 9); a press and release on the near hollow's floor (400 `flood_leaks`, one place
     marked, revision unmoved); the Reach typed into its field. Drain, Water, the spline entry, Erase and Smooth
     were not driven in a browser.
-- **Gate:** GATE_PLACEHOLDER
+- **Gate:** before it, the generators (reference, typings: nothing changed, 6 s), `npm run build` (24 s), `npm run
+  lint` (96 s, uncached) and the manual's links test (1 s) green. `tools/gate.sh check` once: GREEN in 253 s (build
+  26 s, lint 8 s, unit 191 s: 973 files passed; boot 5 passed, 28 s). No second call. The two new unit files take
+  about 4 s together; the two HTTP files grew by about 3 s. Picture time: 464 s over four takes of E8 (a take is
+  about 22 s now).
 - **Unverified:** the fog and what any fill looks like (nothing draws gas); Drain, Water, Erase, Smooth and the
   three spline kinds with a real pointer; the hand-over to a spline's handles and the Make a material buttons in a
   browser; the keys G, R, L and P, E, S, V; Ctrl+Z in the editor after a fill; a fog stroke right after another
