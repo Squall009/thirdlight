@@ -154,6 +154,10 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 - From 47b.5: the ground changing while a brush is dragged (joined undo steps or a local preview: today one
   command at the release); a wetness-only paint and a noise mask on the command (each a command field); a brush
   cursor that follows the ground's height; a menu or toolbar entry for the world mode.
+- From 47b.6: a brush mode of the edit command that writes a medium into open cells at a density and erases
+  media only (D838: painted fog has one density, a hard edge and an 8 m brush until then; a command field); a fog
+  body that follows ground edits, as a water body does; a preview of what a fill would cover before the release;
+  a starter voxel material set a kit can carry (voxel ids given when the kit is added).
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
