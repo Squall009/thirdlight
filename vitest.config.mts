@@ -62,6 +62,7 @@ const ISOLATED_FILES: string[] = [
   'packages/three-adapter/src/mesh-decals.test.ts',
   'packages/three-adapter/src/projected-decals.test.ts',
   'packages/three-adapter/src/see-through.test.ts',
+  'packages/three-adapter/src/vertex-paint-draw.test.ts',
   // Measures the growth of Rapier's WASM heap, one per process: free space left in it by the files before it in a
   // shared worker absorbs part of a batch (5,848 B measured a body against 7,345 estimated once more files shared it).
   'packages/physics-rapier/src/memory3d.test.ts',
