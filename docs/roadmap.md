@@ -106,7 +106,7 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
    path and river splines; **water bodies** as definitions (seed, level, liquid material) whose liquid voxels
    are regenerated when the ground in their reach is edited, in the editor only, bounded and flagged when
    breached, with a plain liquid look; the regenerate step is what a later run-time settle calls.
-4. **47b World edit mode**: one mode on the brush kit in the Scene view; fields derived from voxels; the
+4. **47b World edit mode** (`docs/plan-phase-47b.md`): one mode on the brush kit in the Scene view; fields derived from voxels; the
    height-based fill for water and fog; the fog role and fog painting with a plain look; material dressing,
    scatter rules and vegetation rules as one item.
 5. **47c**: the world map as the far field seen from above; MCP; manual.
