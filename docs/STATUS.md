@@ -5,7 +5,7 @@ What the engine is now:
 `docs/architecture/voxel-engine.md`; owner decisions: `docs/decisions/owner-decisions.md`; order: `docs/roadmap.md`.
 
 Defects: open rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
-On 2026-11-26: 298 open (M 64, L 234; no C or H), 57 watch; closed 477 (432 fixed, 34 superseded, 11 won't fix); next free D833.
+On 2026-11-26 (after 47T.5): 210 open (M 29, L 181; no C or H); closed 622 (434 fixed, 177 superseded, 11 won't fix); next free D833.
 
 Done: an item works in a real browser and has an automated test at the boundary it fixes (Playwright for the editor).
 Visual and audible results no test observes in pixels are marked "owner look pending": that is the normal done state.
@@ -70,7 +70,7 @@ The owner reviews by building in the game folders; a problem comes back as a gam
 | 46e | Lighting, regions and the walk graph: GPU time per pass, one occupancy walk, open regions, voxel shadows, the lighting storage A/B (46e-a); the choice built out, rooms, culling, walk graph (46e-b) — `docs/plan-phase-46e.md` | 46e-a done 2026-11-16: owner chose the volume. 46e-b done 2026-11-20 (volume on per tier; props; rooms; walk graph; D740 open): `docs/briefs/acceptance-46e-b.md` |
 | 47a | Structures and water bodies: regenerated structures (buildings on their own grids, road, path and river splines), doors and windows as props with portal state, water bodies that follow ground edits, a plain liquid look — `docs/plan-phase-47a.md` | done 2026-11-24 (47a.0–47a.11, close 47a.13; 47a.12 not built, D741 open); owner look pending: `acc47a`, five questions |
 | 47L | The lighting pass (owner 2026-11-24, before 47b): mid-distance specks and missing house parts dated and fixed, light through walls, corners and shut doors, patchy indirect light, partial cells (D741), the 128-lamp scene (D740) — `docs/plan-phase-47l.md` | done; accepted 2026-11-25 (`acc47l`; D810 fixed, WebGL 2 unchecked, D692/D808 accepted, costs on `docs/perf-recommendations.md`) |
-| 47T | The test suite reset (owner 2026-11-26, before 47b): unit tests first, a five-test boot check, looks from pictures, performance recorded not gating, cached worlds, a check under 5 min, about one hour of test time a phase — `docs/plan-phase-47t.md` | in progress: 47T.0–47T.4 done (check 342 → 244 s; 180 browser files archived, 42 new unit tests; 28 pictures, page `pic47t`); next 47T.5 |
+| 47T | The test suite reset (owner 2026-11-26, before 47b): unit tests first, a five-test boot check, looks from pictures, performance recorded not gating, cached worlds, a check under 5 min, about one hour of test time a phase — `docs/plan-phase-47t.md` | in progress: 47T.0–47T.5 done (check 342 → 243 s; 180 browser files archived; 28 pictures, `pic47t`; 355 → 210 open defects); next 47T.6 |
 | — | Engine verdict (owner request) — `docs/verdict-2026-10-04.md` | 2026-10-04: keep; the owner resumed feature phases with 28b; open D153, D156 |
 
 Phases 0–43 are owner look pending where visual or audible (see above). A row's open D-rows are the ones it named;

@@ -87,7 +87,7 @@ on the new check.
 | 47T.2 | done 2026-11-26: shared vitest workers (isolate off where no state leaks; 10 files and the bench keep isolation, with why), bench worlds cached in `~/.cache/thirdlight-voxel-bench/worlds` (code-digest key), two oracles made fast, slow list 43 → 29 (real scale only). Check GREEN 204–225 s (unit 146–171 s: over the 2 min target); phase units 418 s. |
 | 47T.3 | done 2026-11-26: 180 browser files archived (logic 148, retire 17, dropped 8, looks 5, boot 2), 4 retiring unit files, 23 helpers; 42 new unit tests where the inventory's "covered" was wrong (one logic file in four); `tests/e2e` = the boot check; unit files isolated by kind (stored WGSL digests, process-wide memory, vi.mock). Ledger: `docs/inventory-47t-ledger.md`. Check GREEN 244 s. |
 | 47T.4 | done 2026-11-26: `tools/gate.sh pictures` (also in `phase`, after perf): 22 world pictures (two light-shots runs on staging's 8 km town) and 6 editor screens, each settled on the engine's own signals, as a pack with the perf report and the read (`docs/pictures.md`). First run 28 of 28 settled in 868 s, 16.9 MB, published `pic47t`; something seen wrong in 25; D825–D832. |
-| 47T.5 | not started |
+| 47T.5 | done 2026-11-26: every open and watch row read. 355 → 210 open (M 66 → 29, L 289 → 181), watch 57 → 0 (the status is gone): 61 retire in 48, 39 test rows (26 tests, 3 bounds to stats, 10 merged), 45 measured costs to the perf page (rows 20–44), 19 restated as product questions. 16 wall-clock bounds out of the unit suite. Check GREEN 243 s. |
 | 47T.6 | not started |
 | 47T.7 | not started |
 
@@ -105,6 +105,57 @@ on the new check.
 ## 7. Results
 
 (one section an item)
+
+### 47T.5
+
+- **Every open and watch row read** (355 at 6140057c; the census's keyword kinds were a start, not the verdict). Closed rows
+  moved byte for byte to `docs/audit-closed.md` in number order, their status cell the closing note (`superseded (47T.5: …)`,
+  the old status kept after "was:" where it said more than a word); nothing renumbered or deleted. Work folder
+  `~/.cache/thirdlight-phase47t/work/47T.5/` (`apply.py` holds every row's fate; `class.txt` the reading notes).
+- **Counts** (open file; the census's kinds are its keyword script's, re-run on both):
+
+| | Before | After |
+|---|---|---|
+| open M / open L | 64 / 234 | 29 / 181 |
+| watch (M / L) | 57 (2 / 55) | 0 (the status is gone) |
+| census kinds: retiring / other main / owner / voxel / watch | 74 / 48 / 3 / 173 / 57 | 21 / 37 / 3 / 149 / 0 |
+| closed file (fixed / superseded / won't fix) | 477 (432 / 34 / 11) | 622 (434 / 177 / 11) |
+
+  The 21 rows the census's script still calls "retiring" were read and survive 48 (decals, the decal store, culling,
+  manual numbers, the run start's rebuild, a trimmed D188 and D271).
+- **Closed, retires in 48 (61)**: D173–D178, D180, D185, D186, D197, D198, D202, D203, D207, D208, D210–D217, D254, D265,
+  D266, D269, D273, D276, D278, D292, D293, D334–D338, D341, D344, D345, D347–D350, D355, D357, D358, D365, D366, D374,
+  D396, D397, D412, D419, D427, D428, D437, D452, D650, D655, D739. Trimmed to the part that survives, left open: D188
+  (one sky dome for two looks), D271 (group undo, a pack add's redo, a released session's watch).
+- **Closed, test rows (26)**: browser test archived — D88, D189, D320, D425, D472, D567, D639, D645, D648, D710, D732, D760,
+  D777, D798, D813; a live unit test's old 5 s timeout or load red, not seen since (green in every check or phase run since
+  47T.1) — D416, D431, D454, D470, D471, D484, D517, D579, D807; fixed — D411 (776dc7be), D610 (4eadd022).
+- **Closed, bound demoted to a stat (3)**: D643 (nothing records the impostor ratio; terrain retires), D659 (the perf report
+  records the capped rate; the uncapped one nothing), D824 (the perf report records GPU per-pass ms; the Profiler's measured
+  gain nothing). D817's 40 px bound went with its test; the row stays as a product question.
+- **Merged (10)**: D331 → D410; D417, D453 → D815; D460 → D439; D477, D642 → D319; D653 → D816; D785 → D817; D788 → D774;
+  D805 → D828.
+- **Moved to `docs/perf-recommendations.md` (45)**: already its sources — D705, D722, D724, D728, D733, D740, D743, D745,
+  D747, D778, D786, D787, D789, D797, D822; new rows 20–44 — D160, D161, D282, D285, D297, D305, D328, D354, D361, D400,
+  D405, D458, D468, D497, D502, D544, D546, D547, D583, D587, D601, D604, D646, D652, D656, D657, D667, D672, D675, D690.
+  Rule used: a frame, GPU, CPU or memory cost with a number moves; a latency, settle or fill time against a behaviour
+  target (D233, D261, D275, D457, D596, D620, D632) stays open.
+- **Restated as product questions, open (19)**: from watch rows D277, D352, D439, D533, D566, D688, D729, D768, D801, D806,
+  D815, D816, D817, D820; open rows whose subject was a test failure D319, D410, D774, D799, D823. None closed on the
+  code's evidence (none was read to a proof). D760, named a product observation by the census, closed as a test bound (1.4 %
+  off its bound once, nothing in a picture).
+- **The status key** loses `watch`: a row is a product's defect or question, never a test's; a measured cost goes to the
+  perf page. `tools/check-docs.mjs` refuses `watch` (its test says so); AGENTS.md, the agents' brief and STATUS follow.
+- **Wall-clock bounds out of the unit suite (16 assertions, 15 files)**: replaced by the rule — `playtest.test.ts` (an
+  observation count, 1 before / 2 during), `decal-index.test.ts` (no rebuild on a move), `m22-worker/parity.test.ts` (the
+  worker's `disposed` answer seen), `worker-pool-end.test.ts` (the ended wait wins against a zero timer); removed with the
+  number printed or recorded (a runaway hits the test timeout) — `ws.test.ts`, `terrain.test.ts`, `texture-budget.test.ts`,
+  `tracer.test.ts`, `architecture-floor-plans.test.ts` (2), `decal-clip.test.ts`, `voxel-world.test.ts`, `edits.test.ts`,
+  `decal-projectors.test.ts` (`updateMs`), `surface-cache.test.ts`; `far-world.test.ts` reads its inside-the-window value
+  only while the window lasts. Kept, and why: lower bounds a load can only lengthen (`screenshot-answer` ≥ 55 ms,
+  `worker-pool-end` ≥ the grace), ratios (`type-check-runner`'s stalls, `far-cache-runner`'s ticks against its time), the
+  opt-in `TL_PERF` benches (`tests/perf/`). No unit test asserts a rendered picture's pixel share; the CPU encoders' colour
+  bounds (KTX2, paint) are deterministic and stay.
 
 ### 47T.4
 
@@ -287,6 +338,7 @@ Check runs in this phase:
 | 2026-11-26 03:45, e88f6056 + 47T.4's command (→ edf78d54) | 241 s | 27 s | 2 s | 183 s (1 file failed: `tools/voxel-bench/thirdlight-demo-local.test.ts`, not of this repo, there at collection and gone at run) | 29 s | RED |
 | 2026-11-26 03:50, `--failed` (the file gone: nothing to run) | 40 s | 37 s | 3 s | — | — | GREEN |
 | 2026-11-26 04:11, edf78d54 + 47T.4's read, D-rows and docs (47T.4 done) | 239 s | 26 s | 1 s | 186 s (956 files) | 26 s | GREEN |
+| 2026-11-26 04:33, a50ed1e9 + 47T.5's unit-test bounds (→ c55215c0) | 243 s | 25 s | 8 s | 184 s (956 files) | 26 s | GREEN |
 
 The phase run's one trial, 2026-11-25 23:29 at 0e511679 (`tools/gate.sh start phase`): GREEN in 946 s — build 29 s,
 full lint 110 s, every unit test 603 s (972 files passed, 13 skipped), boot 25 s, pictures skipped, perf 179 s
@@ -323,6 +375,12 @@ run's "previous".
   seen as they are); the Profiler screen opens the tab before Play (D825); a picture that could not be taken or did not
   settle turns the phase run red; the set takes about 15 minutes, mostly the light volume settling, so it is started
   detached and is not part of `check`.
+
+- **2026-11-26 — the defect list's defaults** (47T.5; default chosen, owner to confirm): `watch` is removed as a status
+  altogether rather than kept as a narrow "observe" (one kind of row fewer, and an observation is a question an owner
+  or a picture can answer); a measured frame, GPU, CPU or memory cost goes to the perf page, a latency or settle time
+  against a behaviour target stays an open row; a watch row that pointed at the product became an open row saying what
+  might be wrong and how one would notice, not closed.
 
 ## 9. Open questions for the owner (each with the default that stands if unanswered)
 
