@@ -5126,7 +5126,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     {
       "name": "use",
       "kind": "property",
-      "detail": "'construction' | 'terrain' | 'liquid'"
+      "detail": "'construction' | 'terrain' | 'liquid' | 'gas'"
     },
     {
       "name": "kit",

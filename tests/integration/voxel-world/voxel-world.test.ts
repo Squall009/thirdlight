@@ -39,7 +39,6 @@ import { fileURLToPath } from 'node:url';
 import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
 import type { Backend } from '@thirdlight/backend/services';
 import {
-  ALL_DERIVED_PARTS,
   applyEdit,
   canonicalEditCommand,
   chunkGrid,
@@ -73,6 +72,9 @@ import { caseAt } from '../../../tools/voxel-bench/case-probe';
 import { flatGround, placeWallBeamBanister } from '../../../tools/voxel-bench/scenes';
 import { placeholderLook, placeholderPng, placeholderSet } from '../../../tools/voxel-bench/texture-sets';
 import { transcodeKtx2Levels } from '../../../tools/voxel-bench/three-basis';
+
+/** Every derived part there is (a geometry change feeds them all, the gas part too, which no derive builds yet). */
+const EVERY_PART = Object.values(DERIVED_PART).reduce((m, bit) => m | bit, 0);
 
 const ORIGIN = 'http://127.0.0.1:8501';
 const TOKEN = 'voxel-authoring-token';
@@ -439,22 +441,30 @@ describe('voxel world routes', () => {
     // Every answer names the derived parts its change makes stale: a geometry change all of them, a change of only
     // wetness or only material the shader data alone (and their undos the same). The material changes ride along
     // (from << 12 | to), turned round by an undo: what tells a client whether a paint moves cells to another kit.
-    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...SET, cells: [0, 13, 0] } } })).json).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...SET, cells: [0, 13, 0] } } })).json).toMatchObject({ ok: true, parts: EVERY_PART });
     const WET = { v: 2, grid: 0, kind: 'fill', min: [0, 12, 0], max: [1, 12, 0], mode: 'paint', voxel: { material: 3, role: 3, wetness: 6 } };
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: WET } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader, materialSwaps: [] });
     const MATERIAL = { ...WET, voxel: { ...WET.voxel, material: 4 } };
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: MATERIAL } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader, materialSwaps: [materialSwap(3, 4)] });
     expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.shader, materialSwaps: [materialSwap(4, 3)] });
     expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.shader, materialSwaps: [] });
-    expect((await step()).voxels).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: EVERY_PART });
+    expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
+    // A change only between air and gas (role 10, its shape a density), or of a gas's density or material, feeds the
+    // gas part alone, and so do their undos.
+    const MIST = { v: 2, grid: 0, kind: 'set', cells: [0, 14, 0, 1, 14, 0], voxel: { material: 6, role: 10, wetness: 0, shape: 9 } };
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: MIST } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.gas });
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...MIST, voxel: { ...MIST.voxel, material: 7, shape: 3 } } } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.gas, materialSwaps: [materialSwap(6, 7)] });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.gas });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.gas });
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
     // A change only between air and liquid, or of a liquid's fill or material, feeds the liquid part alone (every other
     // part reads liquid as air), and so do their undos; liquid written into a built cell feeds every part.
     const WATER = { v: 2, grid: 0, kind: 'set', cells: [0, 14, 0, 1, 14, 0], voxel: { material: 3, role: 2, wetness: 0, shape: 15 } };
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: WATER } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.liquid });
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...WATER, voxel: { ...WATER.voxel, material: 4, shape: 6 } } } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.liquid, materialSwaps: [materialSwap(3, 4)] });
-    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...WATER, cells: [0, 12, 0] } } })).json).toMatchObject({ ok: true, cells: 1, parts: ALL_DERIVED_PARTS });
-    expect((await step()).voxels).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...WATER, cells: [0, 12, 0] } } })).json).toMatchObject({ ok: true, cells: 1, parts: EVERY_PART });
+    expect((await step()).voxels).toMatchObject({ ok: true, parts: EVERY_PART });
     expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.liquid });
     expect((await step()).voxels).toMatchObject({ ok: true, parts: DERIVED_PART.liquid });
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
