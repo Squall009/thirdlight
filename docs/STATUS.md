@@ -5,7 +5,7 @@ What the engine is now:
 `docs/architecture/voxel-engine.md`; owner decisions: `docs/decisions/owner-decisions.md`; order: `docs/roadmap.md`.
 
 Defects: open rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
-On 2026-11-26 (after 47T.5): 210 open (M 29, L 181; no C or H); closed 622 (434 fixed, 177 superseded, 11 won't fix); next free D833.
+On 2026-11-26 (after 47T.7's review fixes): 211 open (M 29, L 182; no C or H); closed 622 (434 fixed, 177 superseded, 11 won't fix); next free D834.
 
 Done: its unit tests prove the behaviour, `tools/gate.sh check` is green, and anything visual was looked at in a picture
 opened by the agent (else it is "unverified"); the owner then looks and uses the editor by hand (`AGENTS.md`).

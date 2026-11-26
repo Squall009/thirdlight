@@ -10,7 +10,7 @@ import { rmSync } from 'node:fs';
 import { request, type IncomingMessage } from 'node:http';
 import { join } from 'node:path';
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import {
   api,
   AUTHORING_ORIGIN,
@@ -69,12 +69,15 @@ describe('WS upgrade + session channel', () => {
     try {
       const s2 = mkSessionId();
       const e = await establish(tb2, s2);
-      await sleep(1100);
+      // The backend's clock (Date.now) moved past the token's one-second life; the sockets and timers stay real.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() + 1100);
       const ws = await upgrade(tb2, s2, e.wsToken);
       const close = await ws.closed;
       expect(close.code).toBe(1008);
       expect(close.reason).toBe('ws_token_invalid');
     } finally {
+      vi.useRealTimers();
       await tb2.teardown();
     }
   });

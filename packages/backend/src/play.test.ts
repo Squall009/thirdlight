@@ -26,6 +26,10 @@ import {
 } from './test-helpers';
 import { FakeEditor } from './test-editor';
 
+/** Waits for the backend's state to say what a step waits on (the test's timeout is the only bound). */
+async function until(done: () => boolean): Promise<void> {
+  while (!done()) await new Promise((r) => setTimeout(r, 5));
+}
 
 async function playStart(tb: TestBackend, body?: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await api(`${tb.authUrl}/api/v1/projects/demo-0001/play`, { body: body ?? {}, token: tb.authToken });
@@ -194,8 +198,8 @@ describe('play start', () => {
       const ws1 = await upgrade(tb, sid, est1.wsToken);
       await ws1.waitFor((m) => (m as { type?: string }).type === 'attached');
       ws1.close(); // the owner's connection drops before the play starts
-      // give the detach bookkeeping a tick
-      await sleep(50);
+      // the backend has seen the detach
+      await until(() => tb.backend._test.sessions.sessionForSessionId(sid)?.connected === false);
 
       const r = await playStart(tb);
       expect(r.status).toBe(200); // the registered (detached) session owns the play
@@ -207,7 +211,7 @@ describe('play start', () => {
       expect(started.playSessionId).toBe(r.json.playSessionId);
       // one-shot: the second re-attach does not re-deliver
       ws2.close();
-      await sleep(50);
+      await until(() => tb.backend._test.sessions.sessionForSessionId(sid)?.connected === false);
       const est3 = await establish(tb, sid);
       const ws3 = await upgrade(tb, sid, est3.wsToken);
       const attached = ws3.waitFor((m) => (m as { type?: string }).type === 'attached');
@@ -392,7 +396,7 @@ describe('stop paths', () => {
       const editor = new FakeEditor(ws);
       editor.ackStops = false;
       const r = await playStart(tb);
-      await sleep(100);
+      await until(() => tb.backend._test.plays.get(r.json.playSessionId as string)?.presented === true);
       const s = await api(`${tb.authUrl}/api/v1/projects/demo-0001/play/${r.json.playSessionId}/stop`, {
         body: {},
         token: tb.authToken,
@@ -416,9 +420,9 @@ describe('stop paths', () => {
       await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
       const editor = new FakeEditor(ws);
       const r = await playStart(tb);
-      await sleep(100);
+      await until(() => tb.backend._test.plays.get(r.json.playSessionId as string)?.presented === true);
       editor.close();
-      await sleep(100); // let the session_lost path run…
+      await until(() => tb.backend._test.plays.get(r.json.playSessionId as string)?.state === 'stopped'); // the session_lost path ran
 
       // NOTE: the owner disconnect routes the play to `session_lost`
       // (direct stopped). So an explicit stop now ⇒ play_not_found.
@@ -522,7 +526,7 @@ describe('stop paths', () => {
       const editor = new FakeEditor(ws);
       editor.presentOnStart = false;
       const r = await playStart(tb);
-      await sleep(100);
+      await editor.waitForEvent('play.started');
       ws.send({ type: 'play.preview.failed', playSessionId: r.json.playSessionId, code: 'snapshot_invalid', message: 'bad' });
       const stopped = await editor.waitForEvent('play.stopped');
       expect(stopped.reason).toBe('preview_failed');
@@ -544,7 +548,7 @@ describe('stop paths', () => {
       await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
       const editor = new FakeEditor(ws);
       const r = await playStart(tb);
-      await sleep(100);
+      await until(() => tb.backend._test.plays.get(r.json.playSessionId as string)?.presented === true);
       const s1 = await api(`${tb.authUrl}/api/v1/projects/demo-0001/play/${r.json.playSessionId}/stop`, {
         body: {},
         token: tb.authToken,
@@ -618,7 +622,7 @@ describe('an ended play says why', () => {
       const psid = r.json.playSessionId as string;
       await editor.waitForEvent('play.started');
       ws.close();
-      await sleep(100);
+      await until(() => tb.backend._test.plays.get(psid)?.state === 'stopped');
       const res = await post(tb, psid, 'diagnostics');
       expect(res.status).toBe(404);
       expect(res.json.error.ended).toMatchObject({ reason: 'session_lost', presented: false });
@@ -661,7 +665,7 @@ describe('an ended play says why', () => {
       const editor = new FakeEditor(ws);
       editor.presentOnStart = false;
       const r1 = await playStart(tb);
-      await sleep(100);
+      await editor.waitForEvent('play.started');
       ws.send({ type: 'play.preview.failed', playSessionId: r1.json.playSessionId, code: 'snapshot_invalid', message: 'the scene has no camera' });
       await editor.waitForEvent('play.stopped');
       const failed = await post(tb, r1.json.playSessionId as string, 'observe');
@@ -826,10 +830,10 @@ describe('screenshot / diagnostics relay', () => {
       await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
       const editor = new FakeEditor(ws);
       const r = await playStart(tb);
-      await sleep(150);
+      await until(() => tb.backend._test.plays.get(r.json.playSessionId as string)?.presented === true);
       // stop the present-timeout pressure, then detach the owner
       editor.close();
-      await sleep(150); // session_lost stopped the play…
+      await until(() => tb.backend._test.plays.get(r.json.playSessionId as string)?.state === 'stopped'); // session_lost stopped the play
       const rec = tb.backend._test.plays.get(r.json.playSessionId as string);
       expect(rec?.state).toBe('stopped');
       // screenshot on the stopped play ⇒ play_not_found (structured)
