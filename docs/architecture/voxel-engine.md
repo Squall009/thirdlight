@@ -335,4 +335,6 @@ queries and buoyancy come in 49, extending the liquid part. Fog is a new non-sol
 and the material id as fog type, painted with the voxel brushes and one height-based fill shared with water
 (47b); lit fog and an interactive ground fog on the interaction field (51). Vegetation is rules hanging off the
 material record as a dressing; a hand-placed tree is an ordinary prop; density by material variations (47b),
-LODs, impostors and canopy in bricks (50).
+cover on voxel chunks (47b); large plants and every large static object stamped into the voxel data under a `prop`
+role, read by light, paths, collision and the far bricks, drawn near as their own models (47p); LODs (50); draw
+rings and fades between model, mesh ring and brick (after 51).

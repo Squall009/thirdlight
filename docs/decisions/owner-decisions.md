@@ -40,6 +40,13 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | 2026-11-25 | (3) "This does look better and I don't think it will be as obvious in a real scene with textures and detail geometry.": the blotchy indirect light (D692) and the specks without the temporal upscale (D808) are accepted for now. | `plan-phase-47l.md` §9 |
 | 2026-11-25 | (4) "Agreed.": a shut portal casts the sun's shadow over its opening whatever its model draws (the sun follows the portal's state, plan-47l §9's default). | `plan-phase-47l.md` §9 (47L.4) |
 | 2026-11-25 | (5) "We have such a huge list of tests and defect rows. I think this needs a cleanup so it isn't so massive. Have we archived any of them? seems like we have a lot of flaky rows and I think that says more about the testing and criteria than it does the engine changes.": the closed defect rows are archived to `audit-closed.md`; the test suite and the open rows get a cleanup, its options measured for the lead. | `plan-phase-47l.md` §9 |
+| 2026-11-26 | 47T accepted, all five defaults: 28 pictures and a phase run of about half an hour; the check stays at about 4 minutes; the list of what nothing checks any more; D825–D832 placed by 47b's plan; retiring systems untested until 48. | `briefs/acceptance-47t.md`, `plan-phase-47t.md` §8 |
+| 2026-11-26 | 47b approved with its format entries G1–G6 (the `gas` role as value 10 of the existing role bits, its mip rule, the `gas` material use, edit command v3 with `flood`, `smooth`, `flatten`, `voxel.dressing` and the dressing asset, the derived list). 47b ends at ground cover. | `plan-phase-47b.md` §4, §8 |
+| 2026-11-26 | Large static objects (trees, rocks, props) are stamped into the voxel data under a `prop` role: the near mesher skips those cells and the object's model is drawn; light, paths, collision and the far bricks read them; included in the bake. Its own phase, 47p, after 47b. Collision from the voxels, rough, is accepted for now; mesh colliders for a forest are measured later. A prop's far colour is its cells' material ids, as terrain's. | `plan-phase-47b.md` §8, `roadmap.md` |
+| 2026-11-26 | A role traits table: consumers ask one table what a role does, so a role added later costs a row. | `plan-phase-47b.md` 47b.0 |
+| 2026-11-26 | Overlays: props' voxels are a generated overlay over the base world, flattened at export; splines move onto it in 48; structure grids keep their own lattice. A general layer workflow for grids, props and splines is noted for after the merge. | `plan-phase-47b.md` §8, `roadmap.md` |
+| 2026-11-26 | Draw rings, LOD stages and fades are a phase of their own after 51, tuned on the demo scene's assets. Until then: props turn to voxels where the bricks begin, ground cover ends at the detail ring. | `roadmap.md` |
+| 2026-11-26 | The order sticks through 48 and the merge to main, the priority; nothing more is inserted before it; what comes up is noted for after the merge. The demo's scenes and rules wait for the merged version (its assets are made ahead). | `roadmap.md` |
 
 ## Dropped, superseded or deferred (do not rebuild without the owner's word)
 
@@ -66,7 +73,8 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 ## Format proposals waiting for the owner's note
 
 Each is a hard stop when its phase arrives: a `gas` role (value 10) with shape as density and a mip rule like
-liquid's (47b); a fill stroke kind in the edit command (47b); narrowed feeds for liquid edits (47a: approved as F7
+liquid's, and a fill stroke kind in the edit command (both **approved 2026-11-26** as 47b's G1, G2 and G4); a
+`prop` role, stamps voxelized from models and the overlay's files (47p); narrowed feeds for liquid edits (47a: approved as F7
 2026-11-20, **built 47a.9**: `changeFeeds`, derived data 33); a liquid derived part per chunk (49: its plain first
 form built with F7 in 47a.9, a part per derive section; 49 extends it); a medium channel (liquid and fog) on
 far-cache nodes (49).

@@ -109,16 +109,34 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 4. **47b World edit mode** (`docs/plan-phase-47b.md`): one mode on the brush kit in the Scene view; fields derived from voxels; the
    height-based fill for water and fog; the fog role and fog painting with a plain look; material dressing,
    scatter rules and vegetation rules as one item.
-5. **47c**: the world map as the far field seen from above; MCP; manual.
-6. **48**: converters, retirement of block layers, heightfield terrain and generated architecture, the merge to
-   main. The owner's demo project (real art, the stress scene) comes in here.
-7. **49 Water**: the liquid derive, surface shader, flow, falls, queries and buoyancy; far-node side channels.
-8. **50 Vegetation rendering**: LODs, offline impostors, forest canopy in the far bricks.
-9. **51 Fog**: lit fog in the fog node, the slab march, the interactive ground fog on the interaction field;
-   froxels last.
-10. **Post-stack performance**, then the performance pass over the whole voxel world from the numbers every
+5. **47p Props in the world** (owner, 2026-11-26; its plan is written when 47b closes): a `prop` role as one more
+   row of the role traits table; stamps voxelized from models at import; a prop's voxels as a generated overlay
+   over the base world (composed where the editor reads chunks, flattened at export, never authored voxels);
+   rule-placed large plants (the dressing's large class) and hand-placed large static objects stamped alike; the
+   near mesher skips prop cells and the object's own model is drawn, while light, paths and collision read the
+   cells and the far bake includes them, so forests and rocks show in the far bricks. Collision from the voxels,
+   rough, for now. No fade between model and brick: a known limitation until the rings phase.
+6. **47c**: the world map as the far field seen from above; MCP; manual.
+7. **48**: converters, retirement of block layers, heightfield terrain and generated architecture, the merge to
+   main; voxel splines move onto 47p's overlay as the old terrain splines go. The owner's demo project (real
+   art, the stress scene) comes in here, built on the merged version.
+8. **49 Water**: the liquid derive, surface shader, flow, falls, queries and buoyancy; far-node side channels.
+9. **50 Vegetation rendering**: LODs; impostors only if 47p's bricks do not carry the middle distance (decided
+   from pictures of the demo scene).
+10. **51 Fog**: lit fog in the fog node, the slab march, the interactive ground fog on the interaction field;
+    painted fog seen at distance (the far channel of 49); froxels last.
+11. **Draw rings and LODs** (owner, 2026-11-26): the ring radii, LOD stages and smooth fades between model,
+    mesh ring and brick for terrain, props and plants; ground cover past the detail ring; tuned on the demo
+    scene's real assets.
+12. **Post-stack performance**, then the performance pass over the whole voxel world from the numbers every
     phase recorded (it also revisits occlusion culling on WebGPU: D282, D286), starting from the measured
     list in `docs/perf-recommendations.md`.
+
+**The order sticks through 48 and the merge to main, which is the priority; nothing is inserted before it**
+(owner, 2026-11-26). Noted for after the merge (add a line here, do not start it):
+- A general unification of structure grids, props and splines into one authoring workflow (they already share
+  "a definition generates voxels, hand edits are overrides"; storage differs because a turned building keeps its
+  own lattice).
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
