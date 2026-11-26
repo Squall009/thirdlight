@@ -28,7 +28,7 @@ import { deepFreeze, threadProfiler } from '@thirdlight/shared';
 import { frameBudgetMs, levelFrameBudget, qualityLevelsOf, resolveVoxelWorld, voxelMaterialInfos, voxelPortalOf, type VoxelPortalComponent, type EntityV3, type QualityLevelConfig, type VoxelMaterialInfo, type VoxelWorldComponent } from '@thirdlight/project-model';
 import { PROP_SAMPLES_PER_AXIS, VOXEL_SIZE_M, type PropShape } from '@thirdlight/voxel';
 import type { PhysicsPort3D } from './ports';
-import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelPathAnswer, VoxelRayOptions, VoxelReachAnswer, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelWaitAnswer, VoxelWalkOptions } from './voxel-api';
+import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelPathAnswer, VoxelRayOptions, VoxelReachAnswer, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelSurfaceOptions, VoxelWaitAnswer, VoxelWalkOptions } from './voxel-api';
 import { noPathAnswer, noReachAnswer } from './voxel-paths';
 import { VoxelWorldHost, type VoxelWorldPorts } from './voxel-world-host';
 import type { PortalProp } from './voxel-portals';
@@ -165,6 +165,7 @@ export class RuntimeVoxels {
       raycast: (origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions) => first()?.raycast(origin, direction, maxDistance, options) ?? null,
       regionAt: (x: number, y: number, z: number) => first()?.regionAt(x, y, z) ?? null,
       portalsOf: (id: number) => first()?.portalsOf(id) ?? [],
+      surfaceAt: (x: number, y: number, z: number, options?: VoxelSurfaceOptions) => first()?.surfaceAt(x, y, z, options) ?? null,
       findPath: (from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions) => {
         const w = first();
         if (w !== null) return w.findPath(from, to, options);

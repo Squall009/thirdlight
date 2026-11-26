@@ -566,6 +566,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'voxels.set',
       'voxels.setRings',
       'voxels.setSavedFields',
+      // A surface is an object of fields: not a graph output yet.
+      'voxels.surfaceAt',
       'voxels.whenResident',
       'voxels.world',
     ]);

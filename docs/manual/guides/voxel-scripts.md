@@ -248,6 +248,45 @@ for (const a of ctx.voxels.paths) if (a.path === state.asked) {
 }
 ```
 
+## Surfaces: `surfaceAt`
+
+`surfaceAt(x, y, z)` answers what the surface under a point is, from the
+voxels alone: a [`VoxelSurface`](../reference/script-types-behavior-camera-state.md#script-type-voxel-surface),
+or `null` where there is no surface there or the world is not loaded there.
+The surface is the one the point is on, in, or up to 2 m over; water and gas
+are passed whatever their depth, so a swimmer's position reads the lake's
+bed. A cave's floor, each storey's floor and a roof are surfaces of their
+own: the answer is for the one under the point, never the top of its column.
+A structure's surface under the point answers before the world's own
+(`grid` names it).
+
+| Field | What it is |
+|---|---|
+| `at` | the surface voxel's centre (metres); `get` at it reads that voxel |
+| `height` | the surface's height (metres): the voxel's floor plus its fill |
+| `slope` | degrees, 0 level to 90, from the ground in the four columns beside it; a wall standing beside it is left out |
+| `material`, `role`, `wetness` | the surface voxel's own |
+| `sky` | nothing solid over it, as far up as the world is loaded |
+| `water` | the water standing on it: `top`, `depth`, `material`; `null` with none |
+| `gas` | the lowest bank of fog or smoke over it: `bottom`, `top`, `density` (0 to 1), `material`; `null` with none |
+| `materialEdge` | metres to the nearest ground of another material on the same surface; 8 with none within 8 m |
+| `construction` | metres to the nearest wall, floor or structure standing on the same surface, 0 on one; 8 with none within 8 m |
+
+The two distances are answered only when asked for
+(`surfaceAt(x, y, z, { distances: true })`, else `null`): they search every
+column within 8 m, about a hundred times the voxels the other fields read,
+so ask where a decision needs them, not every step. Nothing is kept between
+calls, and an edit made earlier in the same step is already in the answer.
+
+```ts
+const s = ctx.voxels.surfaceAt(feet.x, feet.y, feet.z);
+if (s !== null && s.water !== null && s.water.depth > 1.2) startSwimming();
+if (s !== null && s.slope > 40) slide();
+```
+
+These are the fields a material's dressing rules are decided on, by the same
+arithmetic: what a script reads here is what a rule reads.
+
 ## Materials: `materialAt`, `materialOf`
 
 `materialAt(x, y, z)` gives the material record of the voxel at a point,

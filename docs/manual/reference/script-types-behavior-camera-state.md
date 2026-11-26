@@ -1,8 +1,33 @@
-# Script API types (from `SaveMeta`)
+# Script API types (from `BehaviorCameraState`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-camera-state"></a>
+## `BehaviorCameraState`
+
+```ts
+/** A virtual camera's live rig values (`ctx.camera.get`). */
+export interface BehaviorCameraState {
+  readonly rig: 'follow' | 'orbitPoint' | 'topDown' | 'fixed' | 'rail';
+  readonly enabled: boolean;
+  readonly priority: number;
+  /** It is the live camera. */
+  readonly live: boolean;
+  /** The target entity ('' for none). */
+  readonly target: string;
+  readonly distance: number;
+  /** Degrees (a snapped rig: the step it turns to). */
+  readonly yaw: number;
+  readonly pitch: number;
+  /** A rail camera's place along its path (0–1). */
+  readonly progress: number;
+  readonly railSpeed: number;
+  readonly fovY: number;
+  readonly letterbox: number;
+}
+```
 
 <a id="script-type-save-meta"></a>
 ## `SaveMeta`
@@ -744,6 +769,65 @@ export interface VoxelWalkOptions {
 }
 ```
 
+<a id="script-type-voxel-surface-options"></a>
+## `VoxelSurfaceOptions`
+
+```ts
+/** What `surfaceAt` reads besides the fields that cost nothing more. */
+export interface VoxelSurfaceOptions {
+  /**
+   * Also the two distances (`materialEdge`, `construction`): they search every column within 8 m of the point, about a
+   * hundred times the cells the other fields read, so ask for them where a decision needs them, not every step.
+   */
+  readonly distances?: boolean;
+}
+```
+
+<a id="script-type-voxel-surface"></a>
+## `VoxelSurface`
+
+```ts
+/**
+ * A surface of the world (`surfaceAt`): a voxel drawn as a body with open space over it (open ground, a cave's
+ * floor, a storey's floor, a roof) and what the voxels say of it. The same fields, by the same arithmetic, a
+ * material's dressing rules are decided on.
+ */
+export interface VoxelSurface {
+  /** Whose cells: 0 the world's own, else the structure's grid id. */
+  readonly grid: number;
+  /** The surface voxel's centre (world metres): `get` at it reads that voxel. */
+  readonly at: readonly [number, number, number];
+  /** The surface's height (world metres): the voxel's floor plus its fill (a block: its top). */
+  readonly height: number;
+  /**
+   * Its slope in degrees, 0 (level) to 90: from the heights of the ground in the four columns beside it. A wall
+   * standing beside it is left out (ground at a wall's foot is as level as the ground), a cliff of ground is not.
+   */
+  readonly slope: number;
+  /** The surface voxel's material id, role and wetness (0 dry … 7). */
+  readonly material: number;
+  readonly role: number;
+  readonly wetness: number;
+  /** Nothing solid over it in its column, as far up as the world is loaded: under open sky. */
+  readonly sky: boolean;
+  /** The water standing on it (null: none). A point in a lake reads the lake's bed and the water over it. */
+  readonly water: VoxelSurfaceWater | null;
+  /** The lowest bank of gas over it (null: none). */
+  readonly gas: VoxelSurfaceGas | null;
+  /**
+   * The distance (metres, between column centres) to the nearest ground of another material on the same surface: not
+   * the storey under it, nor the meadow over a cave. 8 where there is none within 8 m. Null unless asked for
+   * (`distances`).
+   */
+  readonly materialEdge: number | null;
+  /**
+   * The distance (metres) to the nearest voxel of a construction role standing on the same surface (a wall, a
+   * floor, a structure), 0 on one; 8 where there is none within 8 m. Null unless asked for (`distances`).
+   */
+  readonly construction: number | null;
+}
+```
+
 <a id="script-type-voxel-material-info"></a>
 ## `VoxelMaterialInfo`
 
@@ -1041,6 +1125,37 @@ export type CellMetaValue = boolean | number | string;
  * `unknown` (it reaches space not loaded yet, or the world's edge: not a room, not known to be outdoors).
  */
 export type VoxelRegionKind = 'room' | 'outdoors' | 'portal' | 'unknown';
+```
+
+<a id="script-type-voxel-surface-water"></a>
+## `VoxelSurfaceWater`
+
+```ts
+/** The water standing on a surface (`surfaceAt`). */
+export interface VoxelSurfaceWater {
+  /** The water's top (world metres). */
+  readonly top: number;
+  /** The top less the surface's height (metres). */
+  readonly depth: number;
+  /** The liquid's material id. */
+  readonly material: number;
+}
+```
+
+<a id="script-type-voxel-surface-gas"></a>
+## `VoxelSurfaceGas`
+
+```ts
+/** The lowest bank of gas (fog, smoke) in the open space over a surface (`surfaceAt`). */
+export interface VoxelSurfaceGas {
+  /** Its lowest cell's floor and its highest cell's top (world metres). */
+  readonly bottom: number;
+  readonly top: number;
+  /** The mean density of its cells, 0 … 1 of its material's full density. */
+  readonly density: number;
+  /** The gas's material id. */
+  readonly material: number;
+}
 ```
 
 <a id="script-type-voxel-material-use"></a>

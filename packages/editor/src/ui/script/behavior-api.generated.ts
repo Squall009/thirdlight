@@ -3219,6 +3219,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "Asks for every place a walker can stand within `maxDistance` metres walked from `from`, structures' rooms through their doors included. Returns the query's id, answered in `ctx.voxels.reaches` at a later step: how many, their box and floor "
     },
     {
+      "name": "surfaceAt",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number, options?: VoxelSurfaceOptions | undefined): VoxelSurface | null",
+      "returns": "VoxelSurface",
+      "doc": "The surface at a world position and what the voxels say of it: the surface the point is on, in or up to 2 m over (open air; any depth of water or gas, so a swimmer reads the bed). A structure's surface under the point answers before the wor"
+    },
+    {
       "name": "materialAt",
       "kind": "method",
       "detail": "(x: number, y: number, z: number): VoxelMaterialInfo | null",
@@ -3388,6 +3395,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(from: readonly [number, number, number], maxDistance: number, options?: (VoxelWalkOptions & { readonly points?: boolean | undefined; }) | undefined): number",
       "doc": "Asks for every place a walker can stand within `maxDistance` metres walked from `from`, structures' rooms through their doors included. Returns the query's id, answered in `ctx.voxels.reaches` at a later step: how many, their box and floor "
+    },
+    {
+      "name": "surfaceAt",
+      "kind": "method",
+      "detail": "(x: number, y: number, z: number, options?: VoxelSurfaceOptions | undefined): VoxelSurface | null",
+      "returns": "VoxelSurface",
+      "doc": "The surface at a world position and what the voxels say of it: the surface the point is on, in or up to 2 m over (open air; any depth of water or gas, so a swimmer reads the bed). A structure's surface under the point answers before the wor"
     },
     {
       "name": "materialAt",
@@ -5366,6 +5380,125 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "unloadHeight",
       "kind": "property",
       "detail": "number"
+    }
+  ],
+  "VoxelSurface": [
+    {
+      "name": "grid",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Whose cells: 0 the world's own, else the structure's grid id."
+    },
+    {
+      "name": "at",
+      "kind": "property",
+      "detail": "readonly [number, number, number]",
+      "doc": "The surface voxel's centre (world metres): `get` at it reads that voxel."
+    },
+    {
+      "name": "height",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The surface's height (world metres): the voxel's floor plus its fill (a block: its top)."
+    },
+    {
+      "name": "slope",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Its slope in degrees, 0 (level) to 90: from the heights of the ground in the four columns beside it. A wall standing beside it is left out (ground at a wall's foot is as level as the ground), a cliff of ground is not."
+    },
+    {
+      "name": "material",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The surface voxel's material id, role and wetness (0 dry … 7)."
+    },
+    {
+      "name": "role",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "wetness",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "sky",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "Nothing solid over it in its column, as far up as the world is loaded: under open sky."
+    },
+    {
+      "name": "water",
+      "kind": "property",
+      "detail": "VoxelSurfaceWater | null",
+      "type": "VoxelSurfaceWater",
+      "doc": "The water standing on it (null: none). A point in a lake reads the lake's bed and the water over it."
+    },
+    {
+      "name": "gas",
+      "kind": "property",
+      "detail": "VoxelSurfaceGas | null",
+      "type": "VoxelSurfaceGas",
+      "doc": "The lowest bank of gas over it (null: none)."
+    },
+    {
+      "name": "materialEdge",
+      "kind": "property",
+      "detail": "number | null",
+      "doc": "The distance (metres, between column centres) to the nearest ground of another material on the same surface: not the storey under it, nor the meadow over a cave. 8 where there is none within 8 m. Null unless asked for (`distances`)."
+    },
+    {
+      "name": "construction",
+      "kind": "property",
+      "detail": "number | null",
+      "doc": "The distance (metres) to the nearest voxel of a construction role standing on the same surface (a wall, a floor, a structure), 0 on one; 8 where there is none within 8 m. Null unless asked for (`distances`)."
+    }
+  ],
+  "VoxelSurfaceGas": [
+    {
+      "name": "bottom",
+      "kind": "property",
+      "detail": "number",
+      "doc": "Its lowest cell's floor and its highest cell's top (world metres)."
+    },
+    {
+      "name": "top",
+      "kind": "property",
+      "detail": "number"
+    },
+    {
+      "name": "density",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The mean density of its cells, 0 … 1 of its material's full density."
+    },
+    {
+      "name": "material",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The gas's material id."
+    }
+  ],
+  "VoxelSurfaceWater": [
+    {
+      "name": "top",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The water's top (world metres)."
+    },
+    {
+      "name": "depth",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The top less the surface's height (metres)."
+    },
+    {
+      "name": "material",
+      "kind": "property",
+      "detail": "number",
+      "doc": "The liquid's material id."
     }
   ],
   "VoxelValue": [

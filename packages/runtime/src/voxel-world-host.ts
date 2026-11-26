@@ -118,6 +118,7 @@ import { gridStats, streamerCollisionFeed, VoxelGridHost, type VoxelGridConnecti
 import { floorColumns, VoxelFloors } from './voxel-floor';
 import { noPathAnswer, noReachAnswer, walkCellAt, walkOptionsOf } from './voxel-paths';
 import { WorldPaths } from './voxel-world-paths';
+import { surfaceAt } from './voxel-surface-read';
 import { cellCoverage, gridCellsIn, gridChunkBox, gridResident, raycastWithGrids, structureAt, structureBoxAt, VoxelChanges } from './voxel-grid-access';
 import {
   regionCellList,
@@ -148,6 +149,8 @@ import {
   type VoxelRings,
   type VoxelRingsResult,
   type VoxelSaveAnswer,
+  type VoxelSurface,
+  type VoxelSurfaceOptions,
   type VoxelValue,
   type VoxelPathAnswer,
   type VoxelReachAnswer,
@@ -440,6 +443,12 @@ export class VoxelWorldHost {
       raycast: (origin: readonly [number, number, number], direction: readonly [number, number, number], maxDistance: number, options?: VoxelRayOptions) => this.raycast(origin, direction, maxDistance, options),
       regionAt: (x: number, y: number, z: number) => this.regionAt(x, y, z),
       portalsOf: (id: number) => this.portalsOf(id),
+      // The surface under a point and its fields (voxel-surface-read.ts): the world's stamps are read only where structures stand.
+      surfaceAt: (x: number, y: number, z: number, options?: VoxelSurfaceOptions): VoxelSurface | null => {
+        const s = this.streamer;
+        if (s === null || ![x, y, z].every(Number.isFinite)) return null;
+        return surfaceAt(s, this.grids.length === 0 ? null : this.channel, this.grids, x, y, z, options?.distances === true);
+      },
       findPath: (from: readonly [number, number, number], to: readonly [number, number, number], options?: VoxelWalkOptions) => this.findPath(from, to, options),
       reach: (from: readonly [number, number, number], maxDistance: number, options?: VoxelWalkOptions & { readonly points?: boolean }) => this.reach(from, maxDistance, options),
       materialAt: (x: number, y: number, z: number) => {

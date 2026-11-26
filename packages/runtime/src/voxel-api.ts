@@ -72,6 +72,14 @@
  * not in the walk (a shut door's portal is: `doors`); a game steers round
  * its moving obstacles itself.
  *
+ * Surfaces: `surfaceAt` answers what the surface under a point is, by the
+ * same fields a material's dressing rules read: its height and slope, its
+ * material, role and wetness, whether it lies under open sky, the water
+ * standing on it and the gas over it, and (when asked) how far it is to
+ * another material and to anything built. A cave's floor, a storey's floor
+ * and a roof are each a surface of their own. It reads the voxels as they
+ * are at that step and keeps nothing.
+ *
  * Materials: a voxel names its material by id; `materialOf(id)` and
  * `materialAt(x, y, z)` answer with the material record that id is (its name,
  * use and kit, its physics resolved against its profile, and the game's own
@@ -240,6 +248,76 @@ export interface VoxelPortalInfo {
   readonly prop?: string;
   readonly open?: boolean;
   readonly stops?: { readonly light: boolean; readonly sight: boolean; readonly walk: boolean };
+}
+
+/** What `surfaceAt` reads besides the fields that cost nothing more. */
+export interface VoxelSurfaceOptions {
+  /**
+   * Also the two distances (`materialEdge`, `construction`): they search every column within 8 m of the point, about a
+   * hundred times the cells the other fields read, so ask for them where a decision needs them, not every step.
+   */
+  readonly distances?: boolean;
+}
+
+/** The water standing on a surface (`surfaceAt`). */
+export interface VoxelSurfaceWater {
+  /** The water's top (world metres). */
+  readonly top: number;
+  /** The top less the surface's height (metres). */
+  readonly depth: number;
+  /** The liquid's material id. */
+  readonly material: number;
+}
+
+/** The lowest bank of gas (fog, smoke) in the open space over a surface (`surfaceAt`). */
+export interface VoxelSurfaceGas {
+  /** Its lowest cell's floor and its highest cell's top (world metres). */
+  readonly bottom: number;
+  readonly top: number;
+  /** The mean density of its cells, 0 … 1 of its material's full density. */
+  readonly density: number;
+  /** The gas's material id. */
+  readonly material: number;
+}
+
+/**
+ * A surface of the world (`surfaceAt`): a voxel drawn as a body with open space over it (open ground, a cave's
+ * floor, a storey's floor, a roof) and what the voxels say of it. The same fields, by the same arithmetic, a
+ * material's dressing rules are decided on.
+ */
+export interface VoxelSurface {
+  /** Whose cells: 0 the world's own, else the structure's grid id. */
+  readonly grid: number;
+  /** The surface voxel's centre (world metres): `get` at it reads that voxel. */
+  readonly at: readonly [number, number, number];
+  /** The surface's height (world metres): the voxel's floor plus its fill (a block: its top). */
+  readonly height: number;
+  /**
+   * Its slope in degrees, 0 (level) to 90: from the heights of the ground in the four columns beside it. A wall
+   * standing beside it is left out (ground at a wall's foot is as level as the ground), a cliff of ground is not.
+   */
+  readonly slope: number;
+  /** The surface voxel's material id, role and wetness (0 dry … 7). */
+  readonly material: number;
+  readonly role: number;
+  readonly wetness: number;
+  /** Nothing solid over it in its column, as far up as the world is loaded: under open sky. */
+  readonly sky: boolean;
+  /** The water standing on it (null: none). A point in a lake reads the lake's bed and the water over it. */
+  readonly water: VoxelSurfaceWater | null;
+  /** The lowest bank of gas over it (null: none). */
+  readonly gas: VoxelSurfaceGas | null;
+  /**
+   * The distance (metres, between column centres) to the nearest ground of another material on the same surface: not
+   * the storey under it, nor the meadow over a cave. 8 where there is none within 8 m. Null unless asked for
+   * (`distances`).
+   */
+  readonly materialEdge: number | null;
+  /**
+   * The distance (metres) to the nearest voxel of a construction role standing on the same surface (a wall, a
+   * floor, a structure), 0 on one; 8 where there is none within 8 m. Null unless asked for (`distances`).
+   */
+  readonly construction: number | null;
 }
 
 /** A walk's hit as scripts read it. */
@@ -463,6 +541,14 @@ export interface BehaviorVoxelWorld {
    * @graphNode skip a reach's answer is an object, which a graph output cannot take yet
    */
   reach(from: readonly [number, number, number], maxDistance: number, options?: VoxelWalkOptions & { readonly points?: boolean }): number;
+  /**
+   * The surface at a world position and what the voxels say of it: the surface the point is on, in or up to 2 m over
+   * (open air; any depth of water or gas, so a swimmer reads the bed). A structure's surface under the point answers
+   * before the world's own (`grid`). Null where there is no surface there, or the world is not loaded there (with
+   * `distances`, anywhere within 8 m).
+   * @graphNode skip a surface is an object, which a graph output cannot take yet
+   */
+  surfaceAt(x: number, y: number, z: number, options?: VoxelSurfaceOptions): VoxelSurface | null;
   /**
    * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
    * or its id has no material record in the build).

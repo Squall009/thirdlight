@@ -817,6 +817,14 @@ export interface BehaviorVoxelWorld {
    */
   reach(from: readonly [number, number, number], maxDistance: number, options?: VoxelWalkOptions & { readonly points?: boolean }): number;
   /**
+   * The surface at a world position and what the voxels say of it: the surface the point is on, in or up to 2 m over
+   * (open air; any depth of water or gas, so a swimmer reads the bed). A structure's surface under the point answers
+   * before the world's own (`grid`). Null where there is no surface there, or the world is not loaded there (with
+   * `distances`, anywhere within 8 m).
+   * @graphNode skip a surface is an object, which a graph output cannot take yet
+   */
+  surfaceAt(x: number, y: number, z: number, options?: VoxelSurfaceOptions): VoxelSurface | null;
+  /**
    * The material record of the voxel at a world position (null where the world is not loaded there, the cell is air,
    * or its id has no material record in the build).
    * @graphNode skip a material record is an object, which a graph output cannot take yet
@@ -1255,30 +1263,5 @@ export interface CameraBlendOptions {
   blend?: 'cut' | 'linear' | 'eased';
   /** Seconds (0–30). */
   time?: number;
-}
-```
-
-<a id="script-type-behavior-camera-state"></a>
-## `BehaviorCameraState`
-
-```ts
-/** A virtual camera's live rig values (`ctx.camera.get`). */
-export interface BehaviorCameraState {
-  readonly rig: 'follow' | 'orbitPoint' | 'topDown' | 'fixed' | 'rail';
-  readonly enabled: boolean;
-  readonly priority: number;
-  /** It is the live camera. */
-  readonly live: boolean;
-  /** The target entity ('' for none). */
-  readonly target: string;
-  readonly distance: number;
-  /** Degrees (a snapped rig: the step it turns to). */
-  readonly yaw: number;
-  readonly pitch: number;
-  /** A rail camera's place along its path (0–1). */
-  readonly progress: number;
-  readonly railSpeed: number;
-  readonly fovY: number;
-  readonly letterbox: number;
 }
 ```

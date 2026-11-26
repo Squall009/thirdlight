@@ -541,3 +541,69 @@ describe('ctx.voxels in a world with structure grids', () => {
     expect(await rebuilt.inStep((v) => v.get(...hole), 'the hole')).toMatchObject({ material: 0 });
   }, 240_000);
 });
+
+describe('ctx.voxels.surfaceAt', () => {
+  it('answers the surface under a point with the fields derived from the voxels: open ground, a room’s floor and its roof in the structure’s own grid, the ground beside a wall through the stamp, water, gas and wetness the same step they are written', async () => {
+    const g = await game(ALL);
+    await g.inStep(ready, 'the houses loaded and derived');
+    const LIQUID = 20;
+    const MIST = 40;
+    // House 1 stands square to the world: its east wall's cells are the world columns x −9.5 … −9.
+    const beside: [number, number, number] = [-8.25, 0.2, -6];
+    const out = await g.inStep((v) => {
+      const wall = v.surfaceAt(...beside, { distances: true });
+      // The houses' stamps land over steps in the derive slice: the ground reads the wall once its stamp is in.
+      if (wall === null || wall.construction !== 1) return undefined;
+      const open: [number, number, number] = [0.25, 0.3, 2.25];
+      const before = v.surfaceAt(...open, { distances: true });
+      // A pit two cells deep filled with a liquid, mist over it, wet ground and another material near the open point.
+      const dug = v.dig({ min: [4, -1, 2], max: [5, 0, 3] });
+      const filled = v.set({ min: [4, -1, 2], max: [5, 0, 3] }, { material: LIQUID, role: VOXEL_ROLE.liquid, shape: 15 });
+      const fog = v.set({ min: [4, 0.5, 2], max: [5, 1.5, 3] }, { material: MIST, role: VOXEL_ROLE.gas, shape: 9 });
+      const wet = v.paint({ at: [0.25, -0.25, 2.25] }, { wetness: 4 });
+      const other = v.paint({ at: [1.75, -0.25, 2.25] }, { material: OTHER });
+      return {
+        wall,
+        before,
+        edits: [dug, filled, fog, wet, other].map((e) => e.ok),
+        after: v.surfaceAt(...open, { distances: true }),
+        plain: v.surfaceAt(...open),
+        named: v.world('a')!.surfaceAt(...open),
+        pond: v.surfaceAt(4.25, 0.3, 2.25),
+        swimmer: v.surfaceAt(4.25, -0.6, 2.25),
+        room: HOUSES.map((h) => v.surfaceAt(...cellAt(h.id, 6, 2, 5), { distances: true })),
+        roof: HOUSES.map((h) => v.surfaceAt(...cellAt(h.id, 6, 9, 5))),
+        floors: HOUSES.map((h) => cellAt(h.id, 6, 0, 5)),
+        under: v.surfaceAt(-12, -0.2, -6),
+        high: v.surfaceAt(0.25, 2.3, 2.25),
+        far: v.surfaceAt(1000, 0, 1000),
+        bad: v.surfaceAt(Number.NaN, 0, 0),
+      };
+    }, 'the ground beside house 1 reading its wall');
+    expect(out.wall).toMatchObject({ grid: 0, material: GROUND, role: VOXEL_ROLE.terrain, height: 0, slope: 0, sky: true, construction: 1, water: null, gas: null });
+    // Open ground: nothing built or of another material within 8 m.
+    expect(out.before).toEqual({ grid: 0, at: [0.25, -0.25, 2.25], height: 0, slope: 0, material: GROUND, role: VOXEL_ROLE.terrain, wetness: 0, sky: true, water: null, gas: null, materialEdge: 8, construction: 8 });
+    expect(out.edits).toEqual([true, true, true, true, true]);
+    // The same step: the wetness painted, the other material three columns off.
+    expect(out.after).toMatchObject({ wetness: 4, material: GROUND, materialEdge: 1.5, construction: 8 });
+    expect(out.plain).toMatchObject({ wetness: 4, materialEdge: null, construction: null });
+    expect(out.named).toEqual(out.plain);
+    // The pit's bed a metre under the ground, the liquid to the ground's level, the mist a cell over it.
+    const pond = { grid: 0, at: [4.25, -1.25, 2.25], height: -1, sky: true, water: { top: 0, depth: 1, material: LIQUID }, gas: { bottom: 0.5, top: 1.5, density: 0.6, material: MIST } };
+    expect(out.pond).toMatchObject(pond);
+    expect(out.swimmer).toMatchObject(pond);
+    // The pit's walls stand a metre over the bed either side: the bed between them reads steep.
+    expect(out.pond!.slope).toBeGreaterThan(45);
+    HOUSES.forEach((h, i) => {
+      const room = out.room[i]!;
+      // The floor is row 0 of the house's own grid (the generator's slab, its top 0.5 m up), a block: construction 0, whatever its yaw.
+      expect(room, `house ${h.id}`).toMatchObject({ grid: h.id, material: STONE, role: VOXEL_ROLE.foundation, slope: 0, sky: false, construction: 0, water: null, gas: null });
+      expect(room.height).toBeCloseTo(0.5, 9);
+      room.at.forEach((c, a) => expect(c, `house ${h.id} at ${a}`).toBeCloseTo(out.floors[i]![a]!, 9));
+      expect(out.roof[i], `house ${h.id} roof`).toMatchObject({ grid: h.id, role: VOXEL_ROLE.roof, sky: true });
+      expect(out.roof[i]!.height).toBeCloseTo(4, 9);
+    });
+    // The ground under a house's floor is no surface; nor is there one within reach 2 m over the open ground, nor where nothing is loaded.
+    expect([out.under, out.high, out.far, out.bad]).toEqual([null, null, null, null]);
+  });
+});

@@ -413,6 +413,7 @@ export const BEHAVIOR_API_SKIPPED: readonly { path: string; reason: string }[] =
   {"path":"voxels.portalsOf","reason":"a portal list is a list of objects, which a graph output cannot take yet"},
   {"path":"voxels.findPath","reason":"a path's points are a list, which a graph output cannot take yet"},
   {"path":"voxels.reach","reason":"a reach's answer is an object, which a graph output cannot take yet"},
+  {"path":"voxels.surfaceAt","reason":"a surface is an object, which a graph output cannot take yet"},
   {"path":"voxels.materialAt","reason":"a material record is an object, which a graph output cannot take yet"},
   {"path":"voxels.materialOf","reason":"a material record is an object, which a graph output cannot take yet"},
   {"path":"voxels.set","reason":"a region is a point, a box or a ball, which a graph input cannot take yet"},
