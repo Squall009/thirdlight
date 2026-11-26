@@ -244,6 +244,27 @@ export function locomotionController(controllerId: string, assetId: string, clip
 }
 
 /**
+ * The controller the project window's Create makes for a model's clips (its `name` given): character locomotion
+ * from the clips' names, else one looping state playing the first clip, with a `speed` parameter to drive later.
+ * A string says why none can be made.
+ */
+export function newAnimatorController(locomotion: boolean, controllerId: string, name: string, assetId: string, clips: readonly ClipInfo[]): AnimatorController | string {
+  if (clips.length === 0) return 'the chosen model has no animation clips (choose one that has in the project window)';
+  const made: AnimatorController | string = locomotion
+    ? locomotionController(controllerId, assetId, clips)
+    : {
+        controllerId,
+        name,
+        parameters: [{ name: 'speed', type: 'float', default: 0 }],
+        states: [{ id: 'state-01', name: clips[0]!.name, motion: { kind: 'clip', clip: { assetId, clip: clips[0]!.name, duration: Math.max(0.001, clips[0]!.duration) } }, speed: 1, loop: true, position: [180, 40] }],
+        transitions: [],
+        entry: 'state-01',
+        events: [],
+      };
+  return typeof made === 'string' ? made : { ...made, name };
+}
+
+/**
  * An override layer's name, weight (and weight parameter) and its
  * bone mask, picked from the model's skeleton. A bone's checkbox toggles that
  * bone; "+ children" sets the bone and every bone under it. An empty mask

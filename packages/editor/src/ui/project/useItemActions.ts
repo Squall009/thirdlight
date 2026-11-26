@@ -12,7 +12,7 @@
  * Browser-only (React).
  */
 import { useCallback, useMemo, useState, type Dispatch } from 'react';
-import type { AnimatorController, KitDef, MaterialDef } from '@thirdlight/project-model';
+import type { KitDef, MaterialDef } from '@thirdlight/project-model';
 import { DIALOGUE_LIMITS, NAME_MAX, RESOURCE_KIND_TABLE, SCRIPT_LIBRARY_LIMITS, TIMELINE_LIMITS, UI_LIMITS } from '@thirdlight/project-model/limits';
 import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
 import { materialBadges } from '@thirdlight/project-model/voxel-materials';
@@ -26,7 +26,7 @@ import { newMaterialGraph, templateMaterial } from '../../session/material-graph
 import { documentOfItem, freeItemId, isAssetKind, type ProjectItem } from '../../session/project-items';
 import { newLibraryFiles } from '../../session/script-sources';
 import { newUiDocument, newUiTheme } from '../../session/ui-edit';
-import { locomotionController, type ClipInfo } from '../animator/parts';
+import { newAnimatorController, type ClipInfo } from '../animator/parts';
 import { newTimeline } from '../timeline/TimelineDocument';
 import { MODEL_KINDS } from '../catalog/RefPicker';
 import { refusal, type ClientRef } from '../shell/commands';
@@ -187,22 +187,9 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
           // The model chosen in the project window, else the project's first.
           const model = chosenModel() ?? (await c.catalog.page({ kinds: MODEL_KINDS }, 0, 1)).entries[0]?.id ?? null;
           if (model === null) return 'import a model with animation clips first';
-          const clips = await clipsOf(model);
-          if (clips.length === 0) return 'the chosen model has no animation clips (choose one that has in the project window)';
-          const made: AnimatorController | string =
-            head === 'animator-locomotion'
-              ? locomotionController(id, model, clips)
-              : {
-                  controllerId: id,
-                  name,
-                  parameters: [{ name: 'speed', type: 'float', default: 0 }],
-                  states: [{ id: 'state-01', name: clips[0]!.name, motion: { kind: 'clip', clip: { assetId: model, clip: clips[0]!.name, duration: Math.max(0.001, clips[0]!.duration) } }, speed: 1, loop: true, position: [180, 40] }],
-                  transitions: [],
-                  entry: 'state-01',
-                  events: [],
-                };
+          const made = newAnimatorController(head === 'animator-locomotion', id, name, model, await clipsOf(model));
           if (typeof made === 'string') return made;
-          err = await run('setAnimator', { controller: { ...made, name } });
+          err = await run('setAnimator', { controller: made });
           break;
         }
         case 'graph':

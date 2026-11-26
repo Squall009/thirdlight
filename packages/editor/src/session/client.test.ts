@@ -180,3 +180,64 @@ describe('SessionClient.grouped', () => {
     expect(last.save).toBe('saved');
   });
 });
+
+describe('SessionClient reconnect', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** A client whose establish request always gets `answer`; counts the requests. */
+  function failing(answer: () => Promise<Response>) {
+    vi.useFakeTimers();
+    // The client schedules through `window` (a page); in Node the timers faked above are the global object's.
+    vi.stubGlobal('window', globalThis);
+    const fetchStub = vi.fn(answer);
+    vi.stubGlobal('fetch', fetchStub);
+    const states: string[] = [];
+    const c = new SessionClient(
+      { projectId: 'p', authoringOrigin: 'http://authoring.test', previewOrigin: 'http://preview.test', authoringToken: 't' },
+      { onState: (s) => states.push(s.connection), onSceneChanged: () => undefined, onPlayStarted: () => undefined, onPlayStopped: () => undefined },
+      'sess-' + '0'.repeat(32),
+    );
+    return { c, fetchStub, states };
+  }
+  const unreachable = (): Promise<Response> => Promise.reject(new TypeError('fetch failed'));
+
+  it('an unreachable backend is tried again 2 s later, not before, once per wait', async () => {
+    const { c, fetchStub, states } = failing(unreachable);
+    await c.connect();
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(c.connectionStatus).toBe('disconnected');
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetchStub).toHaveBeenCalledTimes(3);
+    expect(states).toContain('connecting');
+    // One timer at a time: a connect called while a retry waits does not add a second.
+    await c.connect();
+    expect(fetchStub).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetchStub).toHaveBeenCalledTimes(5);
+    c.dispose();
+  });
+
+  it('a refused token or an unknown project is not retried; dispose cancels a waiting retry', async () => {
+    for (const code of ['unauthorized', 'project_not_found']) {
+      const { c, fetchStub } = failing(async () => new Response(JSON.stringify({ ok: false, error: { code, cls: 'auth', message: code } }), { status: code === 'unauthorized' ? 401 : 404 }));
+      await c.connect();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(fetchStub, code).toHaveBeenCalledTimes(1);
+      c.dispose();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+    const { c, fetchStub } = failing(unreachable);
+    await c.connect();
+    c.dispose();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+});
