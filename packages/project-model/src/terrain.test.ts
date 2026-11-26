@@ -6,7 +6,7 @@
  * made here) laid onto tiles, a corner-height block layer converted, and the
  * field a game asks for heights. Neutral fixtures only.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { applyBlockEdits, BlockGrid } from './block-grid';
 import type { BlockLayerComponent, BlockType } from './block-layers';
@@ -372,14 +372,28 @@ describe('terrain field', () => {
     expect(field.memory()).toEqual({ tiles: 4, bytes: 4 * 17 * 17 * 2 + 32 });
   });
 
-  it('marches a ray only through the tiles: an unbounded ray that misses returns at once, one that hits finds the same point', () => {
+  it('marches a ray only through the tiles: an unbounded ray that misses reads no more heights than one bounded far past them, one that hits finds the same point', () => {
     const field = new TerrainField(COMP, [100, 5, -50], flat());
     const ground = 5 + terrainHeightOf(COMP.heightRange, terrainFlatStep(COMP.heightRange));
     const norm = (v: number[]): number[] => v.map((c) => c / Math.hypot(...v));
     // Into the sky, along the ground beside the tiles, and away from them: none, with no end to the ray.
     const misses: [number[], number[]][] = [[[116, 20, -34], norm([1, 0.3, 0.2])], [[90, ground + 1, -60], norm([-1, 0, 0])], [[0, 30, 0], norm([-1, -0.1, -1])]];
-    // A ray that marched on past the tiles would never return: the test's timeout catches it, no wall-clock bound.
-    for (const [o, d] of misses) expect(field.raycast(o, d, Infinity)).toBeNull();
+    // The march is clamped to the tiles' box: the heights read are the same whether the ray ends 10 km out or never
+    // (a march on past the tiles would read 10 km / a quarter sample more, or never return).
+    const reads = (o: number[], d: number[], far: number): number => {
+      const spy = vi.spyOn(field, 'heightAt');
+      try {
+        expect(field.raycast(o, d, far)).toBeNull();
+        return spy.mock.calls.length;
+      } finally {
+        spy.mockRestore();
+      }
+    };
+    for (const [o, d] of misses) expect(reads(o, d, Infinity)).toBe(reads(o, d, 10_000));
+    // Across the tiles 3 m over the flat ground: it marches through their box (heights read), and still the same count.
+    const across: [number[], number[]] = [[90, ground + 3, -40], [1, 0, 0]];
+    expect(reads(...across, Infinity)).toBeGreaterThan(0);
+    expect(reads(...across, Infinity)).toBe(reads(...across, 10_000));
     // From far off the tiles down onto them: the distance of a bounded ray, and the ground's height.
     const o = [60, 40, -70];
     const d = norm([116 - 60, ground - 40, -34 + 70]);

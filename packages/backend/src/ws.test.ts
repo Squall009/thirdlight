@@ -7,7 +7,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
-import { request } from 'node:http';
+import { request, type IncomingMessage } from 'node:http';
 import { join } from 'node:path';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -422,23 +422,46 @@ describe('closing the backend', () => {
     }
   });
 
-  it('drops an editor socket that never answers the close frame, so close() ends within the grace', async () => {
+  it('sends an editor socket that never answers the close frame a 1001 server_closing, then drops it, so close() ends', async () => {
     const tb = await startBackend();
     const sid = mkSessionId();
     const est = await establish(tb, sid);
-    // A raw upgraded socket that reads nothing back: like a page too busy (a loaded host) to answer the close.
+    // A raw upgraded socket that reads its frames but never answers one: like a page too busy (a loaded host) to answer the close.
     const q = new URLSearchParams({ sessionId: sid, wsToken: est.wsToken }).toString();
-    const sock = await new Promise<{ destroy(): void }>((ok, fail) => {
+    type Socket = IncomingMessage['socket'];
+    const sock = await new Promise<Socket>((ok, fail) => {
       const req = request({ host: '127.0.0.1', port: tb.backend.portAuthoring, path: `/api/v1/ws?${q}`, headers: { Upgrade: 'websocket', Connection: 'Upgrade', 'Sec-WebSocket-Key': randomBytes(16).toString('base64'), 'Sec-WebSocket-Version': '13', Origin: AUTHORING_ORIGIN } });
-      req.once('upgrade', (_res, socket) => ok(socket));
+      req.once('upgrade', (_res, socket) => ok(socket as Socket));
       req.once('error', fail);
       req.end();
     });
+    const received: Buffer[] = [];
+    sock.on('data', (d: Buffer) => received.push(d));
+    const droppedByServer = new Promise<boolean>((r) => sock.once('close', () => r(true)));
     try {
-      const t0 = Date.now();
       // Teardown ends (the test's timeout is the bound on a hang); how long it took is printed, not asserted: it reads the host's load.
+      const t0 = Date.now();
       await tb.teardown();
       console.log(`teardown with a socket that never answers its close: ${Date.now() - t0} ms (grace ${WS_CLOSE_GRACE_MS} ms)`);
+      // The server, not this test, ended the connection.
+      expect(await droppedByServer).toBe(true);
+      // Its last frame was the close (opcode 8, unmasked from a server) with code 1001 and the reason.
+      const bytes = Buffer.concat(received);
+      let at = 0;
+      let close: { code: number; reason: string } | null = null;
+      while (at + 2 <= bytes.length) {
+        const opcode = bytes[at]! & 0x0f;
+        let len = bytes[at + 1]! & 0x7f;
+        let head = 2;
+        if (len === 126) {
+          len = bytes.readUInt16BE(at + 2);
+          head = 4;
+        }
+        const body = bytes.subarray(at + head, at + head + len);
+        if (opcode === 8) close = { code: body.readUInt16BE(0), reason: body.subarray(2).toString('utf8') };
+        at += head + len;
+      }
+      expect(close).toEqual({ code: 1001, reason: 'server_closing' });
     } finally {
       sock.destroy();
     }

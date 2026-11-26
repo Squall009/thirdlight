@@ -73,12 +73,23 @@ describe('texture budget: which mips fit', () => {
     expect(plan.target.get('a')).toBe(a.tail);
   });
 
-  it('a thousand textures plan in well under a frame', () => {
+  it('a thousand textures plan within the budget: each keeps its tail, none finer than it asks for, the input order changes nothing', () => {
     const many = Array.from({ length: 1000 }, (_, i) => tex(`t${i}`, 2048, { wanted: i % 5, weight: i }));
     const t0 = performance.now();
     const plan = planMipLevels(many, 256 * MiB);
     // Printed, not asserted: a wall-clock bound reads the host's load.
     console.log(`texture budget: 1,000 textures planned in ${(performance.now() - t0).toFixed(1)} ms`);
     expect(plan.bytes).toBeLessThanOrEqual(256 * MiB);
+    expect(plan.over).toBe(false);
+    for (const c of many) {
+      const level = plan.target.get(c.id)!;
+      expect(level).toBeLessThanOrEqual(c.tail);
+      expect(level).toBeGreaterThanOrEqual(c.wanted);
+    }
+    // The budget is spent where it is needed: some textures got finer levels than their tail.
+    expect(many.some((c) => plan.target.get(c.id)! < c.tail)).toBe(true);
+    const reversed = planMipLevels([...many].reverse(), 256 * MiB);
+    expect([...reversed.target].sort()).toEqual([...plan.target].sort());
+    expect(reversed.bytes).toBe(plan.bytes);
   });
 });
