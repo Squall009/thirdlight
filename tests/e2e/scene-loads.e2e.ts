@@ -23,7 +23,7 @@
  * sends the preview's load progress to the backend before it is ready (the
  * present timeout counts from the last). Runs on the product's own renderer
  * (renderer-variants.ts PRODUCT_RENDERER_VARIANTS): a scene load waiting for
- * its precompile on WebGL 2 is play-start-cache.e2e's.
+ * its precompile is the precompile gate's unit test (ta/precompile-gate).
  *
  * With ambient occlusion on (the scene pass draws colour and normals), a
  * scene loaded at run time is not held back by its precompile: the

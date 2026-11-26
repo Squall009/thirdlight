@@ -360,6 +360,8 @@ describe('M3 export bundle re-measurement + production parity', () => {
       expect(b.inputs.some((p) => p.includes('packages/game-host/src/'))).toBe(true);
       // One physics backend: the 2D controller package is linked by no build.
       expect(b.inputs.some((p) => p.includes('packages/character/src/'))).toBe(false);
+      // The physics engine ships as its own script (js/physics-3d.js beside its WASM): the page and the worker carry none.
+      expect(b.sources.filter((s) => s.includes('@dimforge/') || s.includes('physics-rapier/'))).toEqual([]);
       // No editor/exporter-internal/behavior source in the runtime bundle.
       expect(b.inputs.some((p) => p.includes('packages/editor/src/'))).toBe(false);
       expect(b.inputs.some((p) => p.includes('packages/backend/src/'))).toBe(false);

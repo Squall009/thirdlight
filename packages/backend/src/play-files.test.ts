@@ -316,6 +316,33 @@ describe('the folder watch and the check before Play', () => {
     }
   }, 120_000);
 
+  it("a Play start's answer lists the files its check imported again (old and new digest), the problems say so in words; a quiet start lists none", async () => {
+    const { tb, h, editor, check } = await setUp();
+    try {
+      await check();
+      const start = async (): Promise<{ psid: string; reimported: unknown[]; failed: unknown[] }> => {
+        const r = await api(`${tb.authUrl}/api/v1/projects/${PID}/play`, { body: {}, token: tb.authToken });
+        expect(r.status, JSON.stringify(r.json)).toBe(200);
+        const j = r.json as { playSessionId: string; check?: { reimported: unknown[]; failed: unknown[] } };
+        await editor.waitUntil(() => tb.backend._test.plays.get(j.playSessionId)?.state === 'presented');
+        await api(`${tb.authUrl}/api/v1/projects/${PID}/play/${j.playSessionId}/stop`, { body: {}, token: tb.authToken });
+        await editor.waitForEvent('play.stopped');
+        return { psid: j.playSessionId, reimported: j.check?.reimported ?? [], failed: j.check?.failed ?? [] };
+      };
+      const before = sha(variant(31));
+      h.put('assets/sfx/a.wav', variant(35));
+      const changed = await start();
+      expect(changed.reimported).toEqual([{ assetId: 'a', file: 'assets/sfx/a.wav', version: 2, reason: 'file_changed', oldDigest: before, newDigest: sha(variant(35)) }]);
+      expect(changed.failed).toEqual([]);
+      const problems = (await api(`${tb.authUrl}/api/v1/projects/${PID}/problems`, { method: 'GET', token: tb.authToken, origin: null })).json as { problems: { code: string; message: string }[] };
+      expect(problems.problems).toContainEqual(expect.objectContaining({ code: 'asset_reimported', message: expect.stringMatching(/^assets\/sfx\/a\.wav changed on disk and was imported again \(a, version 2\): /) }));
+      expect((await start()).reimported).toEqual([]);
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  }, 120_000);
+
   it('when the watch may have missed events (more at once than the kernel queues) the check before Play looks at every file', async () => {
     const { tb, h, editor, play, check, watch } = await setUp({ maxEventsPerTurn: 32 });
     try {

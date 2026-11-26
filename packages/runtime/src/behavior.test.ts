@@ -347,6 +347,20 @@ describe('validated intents', () => {
     }
   });
 
+  it('a refused call answers false on every step and is logged once; the run goes on', () => {
+    const answers: unknown[] = [];
+    const art = artifact('behavior-0001', (_s, ctx) => {
+      const c = ctx as { phase: string; emit: (i: unknown) => unknown };
+      if (c.phase === 'intent') answers.push(c.emit({ kind: 'control_move', value: 42 }));
+    });
+    const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
+    h.boot();
+    for (let i = 1; i <= 60; i += 1) h.tick(i * DT);
+    expect(answers.length).toBeGreaterThan(30);
+    expect(new Set(answers)).toEqual(new Set([false]));
+    expect(refusalLine(h.diag(), 'behavior_intent_invalid', 'value')).toContain('behavior "behavior-0001"');
+  });
+
   it('refuses a transform intent for an entity the module does not own', () => {
     const art = artifact('behavior-0001', (_s, ctx) => {
       const c = ctx as { phase: string; emit: (i: unknown) => void };

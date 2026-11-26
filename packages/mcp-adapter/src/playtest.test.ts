@@ -3,8 +3,8 @@
  * an input script into relay exercises (between frames, at every requested
  * observation step, within the relay's steps, frames and body bounds), and
  * the run loop over a backend (a restart first, hold on every exercise, one
- * play per threading mode, runs compared by their digests). The real
- * backend, editor and game are exercised by tests/e2e/playtest.e2e.ts.
+ * play per threading mode, runs compared by their digests), against a
+ * backend stand-in; a real run needs the headless editor (a browser).
  */
 import { describe, expect, it } from 'vitest';
 

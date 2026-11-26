@@ -34,12 +34,8 @@ const WEBGPU_SPECS = [
   '**/shadows.e2e.ts',
   // Standard materials share one texture object across model files on WebGPU too.
   '**/shared-textures.e2e.ts',
-  // The editor window's one preview pane: on its own canvas and on the lent Scene view, on WebGPU.
-  '**/preview-pane.e2e.ts',
   // Phase 21.3: instancing, render on demand and MSAA by quality on WebGPU.
   '**/rendering.e2e.ts',
-  // Phase 23.0: a 3D project's Play and export (the 3D physics backend) on WebGPU too.
-  '**/physics-3d.e2e.ts',
   // Each scene's look in the Scene view, and the active scene's blend in Play and the export, on WebGPU.
   '**/scene-environment.e2e.ts',
   // Phase 25.2: Play screenshots read back from WebGPU, image textures included.

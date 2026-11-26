@@ -14,4 +14,4 @@ is that last command, which must replay its recorded result.
 
 Used by `packages/backend/src/format-upgrade.test.ts` (each scene's look in the
 queries, the replay, the file check, the export and new scenes; the base
-project of the open-time upgrades) and `tests/e2e/project-upgrade.e2e.ts`.
+project of the open-time upgrades).
