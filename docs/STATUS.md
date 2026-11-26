@@ -7,8 +7,8 @@ What the engine is now:
 Defects: open rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
 On 2026-11-26 (after 47T.5): 210 open (M 29, L 181; no C or H); closed 622 (434 fixed, 177 superseded, 11 won't fix); next free D833.
 
-Done: an item works in a real browser and has an automated test at the boundary it fixes (Playwright for the editor).
-Visual and audible results no test observes in pixels are marked "owner look pending": that is the normal done state.
+Done: its unit tests prove the behaviour, `tools/gate.sh check` is green, and anything visual was looked at in a picture
+opened by the agent (else it is "unverified"); the owner then looks and uses the editor by hand (`AGENTS.md`).
 The owner reviews by building in the game folders; a problem comes back as a game request or a D-row.
 
 ## Phases
