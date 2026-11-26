@@ -206,6 +206,7 @@ Check runs in this phase:
 | 2026-11-26 00:35, 0582452d + 47T.2 (uncommitted) | 204 s | 28 s | 4 s | 145 s (1 file failed: a WGSL digest test in a shared worker) | 27 s | RED |
 | 2026-11-26 00:39, the same, that file isolated (→ 5aa08fd5) | 204 s | 27 s | 2 s | 146 s (932 files) | 28 s | GREEN |
 | 2026-11-26 00:46, 5aa08fd5 + 11 files back from the slow list (→ 9899be4e) | 225 s | 25 s | 4 s | 171 s (944 files) | 25 s | GREEN |
+| 2026-11-26 01:23, dc274ab1 (47T.3 batch A: 74 browser files and 4 unit files archived, 8 new unit tests) | 236 s | 26 s | 6 s | 179 s (946 files) | 25 s | GREEN |
 
 The phase run's one trial, 2026-11-25 23:29 at 0e511679 (`tools/gate.sh start phase`): GREEN in 946 s — build 29 s,
 full lint 110 s, every unit test 603 s (972 files passed, 13 skipped), boot 25 s, pictures skipped, perf 179 s
