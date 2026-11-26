@@ -393,6 +393,7 @@ Check runs in this phase:
 | 2026-11-26 04:11, edf78d54 + 47T.4's read, D-rows and docs (47T.4 done) | 239 s | 26 s | 1 s | 186 s (956 files) | 26 s | GREEN |
 | 2026-11-26 04:33, a50ed1e9 + 47T.5's unit-test bounds (→ c55215c0) | 243 s | 25 s | 8 s | 184 s (956 files) | 26 s | GREEN |
 | 2026-11-26 04:48, 26df3296 + 47T.6 (the review tool and its test) | 235 s | 25 s | 2 s | 183 s (957 files) | 25 s | GREEN |
+| 2026-11-26 05:29, dfb815fc (the review's fixes: 3 new unit files, 15 new tests) | 245 s | 26 s | 6 s | 185 s (960 files) | 28 s | GREEN |
 
 The phase run's one trial, 2026-11-25 23:29 at 0e511679 (`tools/gate.sh start phase`): GREEN in 946 s — build 29 s,
 full lint 110 s, every unit test 603 s (972 files passed, 13 skipped), boot 25 s, pictures skipped, perf 179 s
