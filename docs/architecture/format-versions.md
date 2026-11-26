@@ -10,7 +10,7 @@ where the format is an owner hard stop (the voxel formats: `voxel-format-spec.md
 
 | Format | Constant (package/file) | Value | Last raised for |
 |---|---|---|---|
-| Voxel world record | `VOXEL_WORLD_FORMAT` (workspace/voxel-worlds.ts) | 3 | structure grids listed in the manifest, F2 (47a.1; owner 2026-11-20) |
+| Voxel world record | `VOXEL_WORLD_FORMAT` (workspace/voxel-world-manifest.ts) | 3 | structure grids listed in the manifest, F2 (47a.1; owner 2026-11-20) |
 | Region file | `REGION_FORMAT_VERSION` (voxel/region-file.ts) | 2 | — |
 | Palette codec | `PALETTE_CODEC_VERSION` (voxel/palette-codec.ts) | 2 | value v2 (45.10a) |
 | Edit command | `VOXEL_EDIT_VERSION` (voxel/edit-command.ts) | 2 | — |

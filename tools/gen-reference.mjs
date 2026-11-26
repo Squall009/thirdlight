@@ -47,7 +47,7 @@ const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
 export const OUTPUT_DIR = join(ROOT, 'docs', 'manual', 'reference');
 export const REGENERATE = 'node tools/gen-reference.mjs';
 /** The voxel world ops' arguments: the workspace's voxel worlds read them, not the project validator. */
-const VOXEL_OP_UNION = { file: 'packages/workspace/src/voxel-worlds.ts', union: 'VoxelWorldOpArgs' };
+const VOXEL_OP_UNION = { file: 'packages/workspace/src/voxel-world-answers.ts', union: 'VoxelWorldOpArgs' };
 /** The structure ops' arguments: the workspace's structure commands read them and compose the project command they run. */
 const STRUCTURE_OP_UNION = { file: 'packages/workspace/src/structure-commands.ts', union: 'StructureOpArgs' };
 
