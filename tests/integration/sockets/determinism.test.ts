@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { readModelRig } from '@thirdlight/project-model';
 import { physics3DConfigOf } from '@thirdlight/runtime';
 
-import { socketGlb } from '../../e2e/socket-glb';
+import { socketGlb } from '../../support/socket-glb';
 import { FakeNode, behaviorModule, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
 type Any = any;

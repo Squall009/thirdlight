@@ -30,7 +30,7 @@
 import { mulberry32 } from '@thirdlight/shared';
 import { equalTrimRows, LAYERED_TEXTURES, TRIM_STARTER_LAYOUT, layeredMaterial, TEMPLATE_LAYERS, UV_SOURCES, type MaterialDef, type TrimSheet } from '@thirdlight/project-model';
 
-import { makePng } from '../../tests/e2e/png-make';
+import { makePng } from '../../tests/support/png-make';
 import { type EntityValue } from './generate';
 
 /** The layer counts a variant can have. */

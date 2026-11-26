@@ -39,8 +39,8 @@ import { audioLoadOf, PROJECT_SCHEMA_VERSION, RECORDED_SCHEMA_8_STEPS } from '@t
 import { CONTENT_STORAGE_VERSION, defaultResourcePath, RESOURCE_KINDS, resourceFileBytes, SIDECAR_FORMAT } from '@thirdlight/workspace';
 
 import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
-import { makePng } from '../../tests/e2e/png-make';
-import { makeTwoColourWebp } from '../../tests/e2e/webp-make';
+import { makePng } from '../../tests/support/png-make';
+import { makeTwoColourWebp } from './webp-make';
 import { sphereGlb, sphereGlbWith } from './assets';
 
 import { opusVoice, pcmWav, scalePng } from './scale-media';

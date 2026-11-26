@@ -7,7 +7,7 @@
  * for timing, not art.
  */
 import { glbBytes, mulberry32 } from '@thirdlight/shared';
-import { makePng } from '../../tests/e2e/png-make';
+import { makePng } from '../../tests/support/png-make';
 
 /** An RGBA noise PNG (`size` × `size`), tinted by the seed. */
 export function noisePng(seed: number, size: number): Buffer {

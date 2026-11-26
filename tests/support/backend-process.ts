@@ -1,7 +1,7 @@
 /**
  * The real backend deployment bundle (dist/backend/backend.mjs) as a child
  * process on free ports over a given data root: the one launcher behind the
- * browser tests' backend (tests/e2e/backend.ts) and the benchmarks'
+ * boot check's backend (tests/e2e/backend.ts) and the benchmarks'
  * (tools/perf/backend.ts). The ports are fixed for the process's life: the
  * backend's origins are in its environment before it binds, and a restart
  * binds the same ports again (a page's URL names them).

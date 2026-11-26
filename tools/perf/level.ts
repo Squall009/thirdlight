@@ -90,7 +90,7 @@ import { mulberry32 } from '@thirdlight/shared';
 import { DEFAULT_FIXED_STEP_HZ, FOLIAGE_NEAR_METRES, INSTANCE_DENSITY_MIN_NEW, INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { layeredMaterial, riverMaterial } from '../../packages/editor/src/session/material-graph';
-import { makePng } from '../../tests/e2e/png-make';
+import { makePng } from '../../tests/support/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
 import { EYE_HEIGHT_M, type BehaviorPlan, type EntityValue } from './generate';

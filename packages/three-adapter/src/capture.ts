@@ -76,8 +76,8 @@ export function createFrameCapture({ canvas, drawFrame, skipped }: FrameCaptureD
       // that drew it. WebGL 2: the drawing buffer is valid until the task ends (no
       // preserveDrawingBuffer needed). WebGPU: the canvas' current texture is
       // the drawing buffer until the browser presents it after this task, so the canvas
-      // copy (and the downscale's drawImage) read this frame; checked pixel by pixel in
-      // tests/e2e/screenshot.e2e.ts on a GPU and on headless (SwiftShader) WebGPU.
+      // copy (and the downscale's drawImage) read this frame (the boot check takes a
+      // Play screenshot on headless WebGPU).
       dataUrl = canvas.toDataURL('image/png');
       w = Math.max(1, Math.floor(canvas.width ?? 0));
       h = Math.max(1, Math.floor(canvas.height ?? 0));

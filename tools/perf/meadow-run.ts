@@ -61,7 +61,7 @@ import { LEVEL_LOOK, publishTerrainMaterial, STARTER_REMOVED } from './level';
 import { MEADOW_KIT, MEADOW_SEED, MEADOW_SIDE, MEADOW_SPEC, MEADOW_VERSION, meadowCamera, meadowHeight, meadowCoverRule, meadowHeights, meadowOrigin, meadowPaint, meadowSamples, meadowTerrainRaw, proposeSweepBudget, SWEEP_CONFIGS, sweepLoad, type SweepRow } from './meadow';
 import { EYE_HEIGHT_M, type BehaviorPlan } from './generate';
 import { CLUMP_LEVELS, clumpKitGlb } from './village-assets';
-import { multiPieceGlb } from '../../tests/e2e/multi-piece-glb';
+import { multiPieceGlb } from '../../tests/support/multi-piece-glb';
 import { frameLine } from './village-run';
 
 const flagOf = (argv: readonly string[]) => (name: string): string | undefined => {

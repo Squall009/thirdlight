@@ -765,7 +765,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
         // The sky image goes through a canvas: WebGL ignores flipY for an
         // ImageBitmap but applies it to a canvas, and the equirect lookup
         // wants the image flipped (v = 1 at the top row) like any three
-        // texture (tests/e2e/sky-texture.e2e.ts pins it in Play).
+        // texture.
         let image: unknown = t.image;
         const src = image as { width?: number; height?: number };
         if (typeof document !== 'undefined' && src.width !== undefined && src.height !== undefined && typeof HTMLCanvasElement !== 'undefined' && !(image instanceof HTMLCanvasElement)) {

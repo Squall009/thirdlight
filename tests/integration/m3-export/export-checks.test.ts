@@ -27,7 +27,7 @@ import { encodeRgbaPng } from '../../../packages/backend/src/image-thumbnail';
 import { api, startBackend, type TestBackend } from '../../../packages/backend/src/test-helpers';
 import { encodeKtx2 } from '../../../packages/backend/src/texture-encode';
 import { mustCommand, type CommandRoute } from '../../support/commands';
-import { multiPieceGlb } from '../../e2e/multi-piece-glb';
+import { multiPieceGlb } from '../../support/multi-piece-glb';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const PID = 'demo-0001';

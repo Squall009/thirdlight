@@ -7,7 +7,7 @@
  * `then` port). A wire dropped on a node body connects to the best port
  * there, or says why none fits (the editor refuses it, nothing is sent).
  * (A native drag of a leftover text selection would cancel the wire
- * gesture; the stage blocks that, pinned in tests/e2e/effect-graph.e2e.ts.)
+ * gesture; the stage blocks that, in the browser only.)
  */
 import { describe, expect, it } from 'vitest';
 

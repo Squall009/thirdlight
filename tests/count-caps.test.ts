@@ -5,9 +5,8 @@
  * limit the engine defines names how many assets or resources a project may
  * hold, found by name and by shape (a project-wide list or map of the
  * content descriptor with a most-items bound, and the validators taking far
- * more than any old cap). The other half (tests/e2e/count-caps.e2e.ts)
- * opens, edits, plays and exports a project above every cap the engine once
- * had.
+ * more than any old cap). The other half (tests/integration/count-caps)
+ * edits and exports a project above every cap the engine once had over HTTP.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';

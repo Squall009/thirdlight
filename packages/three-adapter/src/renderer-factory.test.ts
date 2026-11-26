@@ -1,7 +1,7 @@
 /**
  * The renderer factory's backend choice, async readiness and
  * loss handling, with stubbed renderers and a stubbed `navigator.gpu` (Node
- * has no WebGPU; the real backends are covered by tests/e2e/renderer.e2e.ts).
+ * has no WebGPU; the real backend is drawn by the boot check and the phase's pictures).
  */
 import { describe, expect, it, vi } from 'vitest';
 import {

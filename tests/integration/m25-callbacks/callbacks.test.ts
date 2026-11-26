@@ -28,7 +28,7 @@ import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { compileBehaviorGraph, createBehaviorCompiler } from '../../../packages/behavior-build/src/index';
 
-import { socketGlb } from '../../e2e/socket-glb';
+import { socketGlb } from '../../support/socket-glb';
 import { FakeNode, behaviorModule, startHarness, type Mode } from '../m22-worker/harness';
 import { MODULES_3D } from '../3d/character-kit';
 

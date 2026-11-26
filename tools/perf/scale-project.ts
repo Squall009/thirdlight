@@ -5,8 +5,8 @@
  * pasted into the new folder in one command, then both undone so the steps
  * after this one see the project as generated.
  *
- * Used by the scale bench's `editor` step (scale.ts) and its end-to-end test
- * (tests/e2e/editor-scale.e2e.ts). Only the page's public DOM is driven.
+ * Used by the scale bench's `editor` step (scale.ts). Only the page's public
+ * DOM is driven.
  */
 import type { Page } from '@playwright/test';
 

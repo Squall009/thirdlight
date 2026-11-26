@@ -200,3 +200,18 @@ tests/integration, `ex/` packages/exporter/src, …).
 | packages/three-adapter/src/surface-bake.test.ts | phase-42 surface cache bake (block layers, generated buildings) | 18 |
 | packages/three-adapter/src/block-mesh-worker.test.ts | block layers (mesh workers) | 13 |
 | tests/integration/m42-bake/bake-lighting.test.ts | phase-42 lighting bake through MCP, backend, export | 12 |
+
+## Helper modules of `tests/e2e` (the sweep, 47T.3c-4)
+
+| Helper | Fate | Why |
+|---|---|---|
+| backend.ts, browser-env.mjs, browser-env.d.mts, global-setup.ts, png.ts, pw.ts, package.json | stay in `tests/e2e` | the boot check's (browser-env and png also feed `tools/gate.sh`, `tools/perf`, `tools/voxel-bench` and `tools/icons`) |
+| png-make.ts, multi-piece-glb.ts, socket-glb.ts | moved to `tests/support/` | imported by unit tests and bench tools both (`tests/integration` sockets, callbacks, export-checks, m30-terrain; `tools/perf`) |
+| webp-make.ts, trim-strips.ts | moved to `tools/perf/` | only the perf benches import them |
+| view-match.ts | archived; its one function a bench used (`keepThreeScenes`) moved into `tools/voxel-bench/cull-page-cli.ts` | the rest (settled shots, occlusion shot diffs) only archived tests used |
+| console-errors, ui, buildings, floor-plans, frame-reading, layered-walls-scene, memory-probe, painted-layers, parity, projected-decals-scene, renderer-variants, rooms-drawing, rooms-lighting, skinned-glb, terrain-cdlod-steps, texture-settle, vertex-paint-drive, voxel-grid-house, voxel-liquid, voxel-play-script, voxel-scene-structures, voxel-shadows | archived to `archive/tests-e2e/` | nothing outside the archive imports them (the boot check writes its own world and reads console errors itself) |
+
+`playwright.config.mts` keeps one project (`default`): the GPU where usable, else SwiftShader with its WebGPU adapter;
+the `webgpu` project and its spec list went. Fixture folders: every fixture an archived browser test names is still read
+by a unit test (none is used only by archived tests); `fixtures/m2/course`, `m4/audit`, `m4/distribution`,
+`m4/reliability` (492 KB) are read by nothing live and were so before this phase.

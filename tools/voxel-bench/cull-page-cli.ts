@@ -27,7 +27,6 @@ import { join } from 'node:path';
 import { DEFAULT_QUALITY_LEVELS } from '@thirdlight/project-model';
 import { profileSummary, type ProfileReport } from '@thirdlight/game-host';
 import { commandEnvelope } from '../../tests/support/commands';
-import { keepThreeScenes } from '../../tests/e2e/view-match';
 import { launchGpuBrowser } from '../perf/frame-run';
 import { gpuMeasureOnPage, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { benchDir } from './bench-dirs';
@@ -35,6 +34,24 @@ import { CULL_VIEWS } from './cull-views';
 import { benchApi, cameraBehaviour, publishCameraBehaviour } from './flight-camera';
 import { caveStroke, lightShotsSource, type LightingCamera } from './lighting-cameras';
 import { openPlay, type PlayGame } from './travel-page';
+
+/**
+ * In a page, before its scripts (`addInitScript`): keep the scenes three
+ * makes (its devtools channel announces each), so the bench reaches the game
+ * scene's occlusion switch (`scene.userData.tlOcclusion`).
+ */
+function keepThreeScenes(): void {
+  const w = window as unknown as { __tlScenes?: object[]; __THREE_DEVTOOLS__?: EventTarget };
+  if (w.__tlScenes !== undefined) return;
+  const scenes: object[] = [];
+  w.__tlScenes = scenes;
+  const hub = w.__THREE_DEVTOOLS__ ?? new EventTarget();
+  w.__THREE_DEVTOOLS__ = hub;
+  hub.addEventListener('observe', (ev) => {
+    const d = (ev as CustomEvent).detail as { isScene?: boolean } | null;
+    if (d?.isScene === true) scenes.push(d);
+  });
+}
 
 function arg(name: string, fallback: string | null): string | null {
   const i = process.argv.indexOf(`--${name}`);

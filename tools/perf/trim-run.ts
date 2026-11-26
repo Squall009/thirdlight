@@ -2,7 +2,7 @@
  * The trim material's cost against the standard material on the same mesh
  * (`node tools/perf/run.mjs trim [--renderers webgpu,webgl2] [--record-ms N] [--gpu-ms N]`).
  *
- * One mesh of trim strips (`tests/e2e/trim-strips.ts`: 30 patches of strips
+ * One mesh of trim strips (`tools/perf/trim-strips.ts`: 30 patches of strips
  * 0.25 m deep, 40 m long, the four rows of the neutral test sheet) fills the
  * view from a camera looking down at it — most of the 1920 × 1080 frame is
  * the material, near and at a grazing angle. Two projects differ only in the
@@ -20,8 +20,8 @@ import { PERF_ROOT, startPerfBackend } from './backend';
 import { publishFileVia } from './build';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
 import { frameLine } from './village-run';
-import { makePng } from '../../tests/e2e/png-make';
-import { STRIP_PATCH_GAP, STRIP_PATCH_WIDTH, TEST_TRIM_SHEET, testTrimSheetPng, trimStripsGlb } from '../../tests/e2e/trim-strips';
+import { makePng } from '../../tests/support/png-make';
+import { STRIP_PATCH_GAP, STRIP_PATCH_WIDTH, TEST_TRIM_SHEET, testTrimSheetPng, trimStripsGlb } from './trim-strips';
 
 /** The patches across the view, each strip patch this long (metres). */
 const PATCHES = 30;

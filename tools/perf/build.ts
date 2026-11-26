@@ -6,7 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { multiPieceGlb } from '../../tests/e2e/multi-piece-glb';
+import { multiPieceGlb } from '../../tests/support/multi-piece-glb';
 import { noisePng, sphereGlb } from './assets';
 import type { BehaviorPlan, BenchPlan, EntityValue } from './generate';
 import type { PerfBackend, ProjectClient } from './backend';

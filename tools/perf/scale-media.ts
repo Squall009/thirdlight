@@ -9,7 +9,7 @@ import { mulberry32 } from '@thirdlight/shared';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { makePng } from '../../tests/e2e/png-make';
+import { makePng } from '../../tests/support/png-make';
 import { REPO } from './backend';
 
 /** Opus always counts 48 kHz samples; one pool packet is 20 ms. */

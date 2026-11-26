@@ -68,7 +68,7 @@ export interface BenchPlan {
   effects: Record<string, unknown>[];
   behaviors: BehaviorPlan[];
   buffers: BufferPlan[];
-  /** The model kit: pieces with LODs and collision boxes (tests/e2e/multi-piece-glb.ts builds the GLB). */
+  /** The model kit: pieces with LODs and collision boxes (tests/support/multi-piece-glb.ts builds the GLB). */
   model: { assetId: string; displayName: string; pieces: { name: string; lods: [number, number, number][]; col?: [number, number, number] }[] };
   /** The class's own model and texture files (tools/perf/assets.ts makes them from the seeds). */
   files: { models: FilePlan[]; textures: FilePlan[] };

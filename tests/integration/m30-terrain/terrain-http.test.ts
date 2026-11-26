@@ -20,7 +20,7 @@ import { testTempBase } from '@thirdlight/backend/testing';
 
 import { loadTerrainField } from '../../../packages/game-host/src/terrain-tiles';
 import { terrainOverviewOf, terrainTileOf } from '../../../packages/runtime/src/terrain-blob';
-import { makePng } from '../../e2e/png-make';
+import { makePng } from '../../support/png-make';
 import { api, mkRequestId, startBackend, type TestBackend } from '../../../packages/backend/src/test-helpers';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');

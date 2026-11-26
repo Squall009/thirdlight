@@ -15,7 +15,7 @@
  * cost run (tools/perf/trim-run.ts).
  */
 import { glbBytes } from '@thirdlight/shared';
-import { makePng } from './png-make';
+import { makePng } from '../../tests/support/png-make';
 import { trimRowOf, writeTrimStripUvs, type TrimSheet } from '../../packages/project-model/src/trim-sheet';
 
 /** The test sheet's rows: unequal heights, 4 px of padding filled with the row's own colour. */

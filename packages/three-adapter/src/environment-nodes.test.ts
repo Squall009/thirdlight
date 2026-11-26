@@ -1,8 +1,8 @@
 /**
  * The environment renderer on WebGPURenderer (no GPU: the node
  * construction and the decisions — which sky, which post plan, when the
- * pipeline is rebuilt). The pixels are checked by the environment parity e2e
- * (`tests/e2e/env-parity.e2e.ts`) on WebGL 2 and WebGPU. three's node PMREM
+ * pipeline is rebuilt). The pixels are judged from the phase's pictures, not
+ * here. three's node PMREM
  * generator and the pipeline itself need a live renderer, so they are
  * replaced by recorders here.
  */

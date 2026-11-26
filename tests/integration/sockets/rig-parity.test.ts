@@ -19,7 +19,7 @@ import { mat4 } from '@thirdlight/shared';
 import { RigPoser, type AnimatorPose } from '@thirdlight/runtime';
 import { createAnimatorPlayer } from '@thirdlight/three-adapter';
 
-import { socketGlb } from '../../e2e/socket-glb';
+import { socketGlb } from '../../support/socket-glb';
 
 async function load(bytes: Uint8Array): Promise<{ scene: THREE.Object3D; animations: THREE.AnimationClip[] }> {
   const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;

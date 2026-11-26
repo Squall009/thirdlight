@@ -126,7 +126,7 @@ import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from 
 import { FRAME_VIEWPORT } from './frame-run';
 import type { PerfBackend } from './backend';
 import { publishBehaviorVia, publishFileVia } from './build';
-import { makePng } from '../../tests/e2e/png-make';
+import { makePng } from '../../tests/support/png-make';
 
 /** The corner shading `--vertex-ao` gives the layer. */
 const LEVEL_VERTEX_AO = 0.6;

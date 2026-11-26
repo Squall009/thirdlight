@@ -7,8 +7,7 @@
  * structured-clones every message and moves the transferred buffers (as a
  * real worker boundary does), so a job that returned a detached or shared
  * buffer, or a message that cannot be cloned, fails here too. The browser
- * bundle and the PNG encoder are covered by tests/e2e/editor-workers.e2e.ts
- * in Chromium.
+ * bundle and the PNG encoder in a real page are not checked here.
  */
 import { describe, expect, it } from 'vitest';
 

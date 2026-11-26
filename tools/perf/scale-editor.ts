@@ -5,8 +5,8 @@
  * fetched), a search in a reference picker, placing an asset from far down
  * the list, and giving a dialogue line a voice through its picker.
  *
- * Used by the scale bench's `editor` step (scale.ts) and its end-to-end test
- * (tests/e2e/editor-scale.e2e.ts). Only the page's public DOM is driven.
+ * Used by the scale bench's `editor` step (scale.ts). Only the page's public
+ * DOM is driven.
  */
 import type { Page } from '@playwright/test';
 
