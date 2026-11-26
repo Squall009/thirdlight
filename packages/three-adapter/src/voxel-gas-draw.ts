@@ -43,7 +43,7 @@
  *   per pixel.
  * - **The density overlay** (an editor's switch): the hull drawn nearly
  *   opaque, each face in a colour for its own cell's density (blue the
- *   thinnest, green half, red the full density), so thin fog can be found
+ *   thinnest, magenta half, yellow the full density), so thin fog can be found
  *   and erased; the eye's layer is off under it.
  * - **Cost.** One draw a chunk that shows gas and the eye's layer (three
  *   vertices, no pixels while the eye is outside). Its programs, and the
@@ -82,14 +82,15 @@ export const GAS_EYE_FADE_M = 1;
 const GAS_GRAZE_COS = 0.05;
 
 /**
- * The overlay's opacity, and its colours from the thinnest density through half to the full one: blue, green, red
- * (the blends between them stay coloured: teal, then olive; blue to yellow would pass through grey).
+ * The overlay's opacity, and its colours from the thinnest density through half to the full one: blue, magenta,
+ * yellow. The blends between them stay coloured (purple, then orange: blue straight to yellow passes through grey),
+ * and none is a colour of grass, earth or stone.
  */
 const GAS_OVERLAY_ALPHA = 0.85;
 const GAS_OVERLAY_RAMP: ReadonlyArray<readonly [number, number, number]> = [
-  [0.05, 0.25, 1],
-  [0.1, 0.85, 0.15],
-  [1, 0.1, 0.05],
+  [0.05, 0.2, 1],
+  [0.9, 0.08, 0.65],
+  [1, 0.9, 0.1],
 ];
 
 /** How many chunks up or down a run is followed across chunk and section borders (far more than a detail ring is tall). */

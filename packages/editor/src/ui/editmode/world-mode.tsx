@@ -187,7 +187,7 @@ function FogViewSection({ state, set }: { state: WorldBrushState; set: (p: Parti
       <Segmented
         aria="world fog view"
         small
-        options={[{ id: 'look', label: 'As drawn', hint: 'Fog as a game draws it: see-through by how much of it lies behind each pixel' }, { id: 'density', label: 'Density', hint: 'Every fog face in a colour for its density (blue the thinnest, green half, red the full density), nearly opaque: thin fog shows' }]}
+        options={[{ id: 'look', label: 'As drawn', hint: 'Fog as a game draws it: see-through by how much of it lies behind each pixel' }, { id: 'density', label: 'Density', hint: 'Every fog face in a colour for its density (blue the thinnest, magenta half, yellow the full density), nearly opaque: thin fog shows' }]}
         value={state.overlay ? 'density' : 'look'}
         onChange={(v) => set({ overlay: v === 'density' })}
       />
