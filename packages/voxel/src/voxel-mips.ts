@@ -8,7 +8,7 @@
  *
  * - **shape** is the share of the parent that is solid: the mean of the 8
  *   cells' fill levels, counting only solid roles (open roles, {@link OPEN_ROLE}:
- *   air, liquid, openings, add nothing), rounded to the 16 levels. A
+ *   air, liquid, gas, openings, add nothing), rounded to the 16 levels. A
  *   construction cell's shape is its integrity, so it counts as full at any
  *   integrity ({@link fillLevel}), and a parent of a construction role is
  *   intact ({@link SHAPE_FULL}): damage stages show at level 0 only;
@@ -26,7 +26,9 @@
  *   takes the first body role among those cells;
  *   terrain, drawn from its fill, holds it with any fill. A parent with no
  *   solid role is liquid when its liquid cells fill it to at least one level
- *   (the shape is then the liquid's share), else air;
+ *   (the shape is then the liquid's share); else an opening when it holds
+ *   one (below); else gas when the mean density of its 8 cells rounds to a
+ *   level (the shape is then that mean); else air;
  * - **material** is what the surface shows, so a coarse level wears the
  *   skin level 0 wears and not what lies under it (grass one cell thick over
  *   earth stays grass): among the counted cells nearest the surface (partly
@@ -52,7 +54,7 @@
  * ({@link MipStaleSet}); the editor rebuilds them in the background, a
  * running game only the low levels near the edit.
  */
-import { mipBodyRoles, mipMediumRoles, OPEN_ROLE, PORTAL_ROLES, roleLookup } from './role-traits';
+import { mipBodyRoles, mipMediumRoles, mipOpenRoles, OPEN_ROLE, PORTAL_ROLES, roleLookup } from './role-traits';
 import { localIndex, type ChunkGrid } from './coords';
 import { copyDenseChunk, createDenseChunk, type DenseChunk } from './dense-chunk';
 import { OCCUPANCY } from './derived-data';
@@ -68,8 +70,16 @@ import { isRoofRole, roofReading, ROOF_WORD, type RoofProbe } from './roof-words
  */
 export const MIP_ROLE_PRIORITY: readonly number[] = Object.freeze(mipBodyRoles());
 
-/** The media a parent with no body may be (a liquid), first wins: one whose share of the 8 cells rounds to a level. */
+/** The media a parent with no body may be (a liquid, a gas), first wins: one whose share of the 8 cells rounds to a level. */
 export const MIP_MEDIUM_ROLES: readonly number[] = Object.freeze(mipMediumRoles());
+
+/**
+ * What a parent with no body may be, first wins: a liquid by its share, an
+ * opening by any cell of it, a gas by its share. The gas comes last, so it
+ * takes a parent only where the same cells without it give air: nothing a
+ * coarser level draws, closes or stands on changes with the gas.
+ */
+export const MIP_OPEN_ROLES: readonly number[] = Object.freeze(mipOpenRoles());
 
 /** A node of the chunk tree: level (0 = a chunk) and its coordinates at that level. */
 export interface MipNode {
@@ -706,8 +716,14 @@ export function downsampleMip(grid: ChunkGrid, given: ReadonlyArray<DenseChunk |
       let shape = role < 0 ? 0 : Math.round(solid / 8);
       let counts = solidRole;
       if (shape === 0) {
-        // No body holds it: the first medium whose share rounds to a level.
-        for (const m of MIP_MEDIUM_ROLES) {
+        // No body holds it: the first open role that does, a medium by its share, an opening by any cell of it.
+        let opening = -1;
+        for (const m of MIP_OPEN_ROLES) {
+          if (GAP_ROLE[m] === 1) {
+            for (let c = 0; c < 8 && opening < 0; c++) if (roles[cells[c]!] === m && material[cells[c]!] !== MATERIAL_AIR) opening = cells[c]!;
+            if (opening >= 0) break;
+            continue;
+          }
           const share = Math.round(roleFill[m]! / 8);
           if (share === 0) continue;
           shape = share;
@@ -715,20 +731,18 @@ export function downsampleMip(grid: ChunkGrid, given: ReadonlyArray<DenseChunk |
           counts = (r: number): boolean => r === m;
           break;
         }
-      }
-      if (shape === 0) {
-        // An opening stays an opening (drawn as open space), so the levels above still see how wide it is.
-        let opening = -1;
-        for (let c = 0; c < 8 && opening < 0; c++) if (GAP_ROLE[roles[cells[c]!]!] === 1 && material[cells[c]!] !== MATERIAL_AIR) opening = cells[c]!;
-        if (opening < 0) {
-          air(pi);
+        if (opening >= 0) {
+          // An opening stays an opening (drawn as open space), so the levels above still see how wide it is.
+          out.material[pi] = material[opening]!;
+          out.role[pi] = roles[opening]!;
+          out.shape[pi] = SHAPE_FULL;
+          out.wetness[pi] = wetness[opening]!;
+          any = true;
           continue;
         }
-        out.material[pi] = material[opening]!;
-        out.role[pi] = roles[opening]!;
-        out.shape[pi] = SHAPE_FULL;
-        out.wetness[pi] = wetness[opening]!;
-        any = true;
+      }
+      if (shape === 0) {
+        air(pi);
         continue;
       }
       // A construction shape is integrity, not fill: a parent block is intact (damage shows at the finest level only).

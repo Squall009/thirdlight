@@ -1,4 +1,4 @@
-# Content documents (materials to animators)
+# Content documents (materials to materials)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -173,111 +173,12 @@ Project materials.
 | `materials[].gameData` | JSON |  |  | **Game data.** The game's own data for the material (sounds, break tags …): JSON nested at most 32 deep, shipped as it is, never read by the engine. An instance's keys override its parent's. |
 | `materials[].voxel` | object |  |  | **Voxel use.** It is also a voxel material: its voxel id, what it is used for, its kit and its texture sets on walls, floors and ceilings. An instance with its own (and its own id) is a voxel variant. |
 | `materials[].voxel.id` | int | `1` | 1 – 4095, step 1 | **Voxel id.** Its voxel material id (1-4095), unique in the project; every world shares it. (required) |
-| `materials[].voxel.use` | enum: `construction`, `terrain`, `liquid` | `"construction"` |  | **Use.** Construction (grid-anchored tiles), terrain (triplanar) or liquid. An instance may leave it to its parent. (required) |
-| `materials[].voxel.kit` | string, id, 1–64 chars |  |  | **Kit.** The voxel kit whose detail pieces its edges draw (absent: plain voxel edges; never with liquid). (format id) |
+| `materials[].voxel.use` | enum: `construction`, `terrain`, `liquid`, `gas` | `"construction"` |  | **Use.** Construction (grid-anchored tiles), terrain (triplanar), liquid or gas (fog, smoke: cells of the gas role). An instance may leave it to its parent. (required) |
+| `materials[].voxel.kit` | string, id, 1–64 chars |  |  | **Kit.** The voxel kit whose detail pieces its edges draw (absent: plain voxel edges; never with liquid or gas). (format id) |
 | `materials[].voxel.tileMetres` | number |  | 0.5 – 64, step 0.5, m | **Tile.** Metres one texture repeat covers (absent: 4 construction, 2 terrain and liquid). |
 | `materials[].voxel.heightDepth` | number |  | 0 – 0.25, step 0.005, m | **Height depth.** Metres between its height map's 1 (the surface) and 0 (absent: 0.02): sand shallow, rock deep. |
 | `materials[].voxel.blendMetres` | number |  | 0 – 0.5, step 0.05, m | **Blend.** Metres over which it blends into a neighbouring voxel material (0: a hard cell line; absent: its world's blend, else 0.25); where two meet, the smaller wins. |
 | `materials[].voxel.surfaces` | JSON: `Partial<Record<VoxelSurface, VoxelTextureSet>>` ([VoxelSurface](types-s-w.md#type-voxel-surface), [VoxelTextureSet](types-s-w.md#type-voxel-texture-set)) |  |  | **Surfaces.** Texture sets by surface: {wall?, floor?, ceiling?: {albedo?, normal?, orm?: a plain texture asset}} (role and face direction pick one; floor and ceiling fall back to wall, wall to the material's own look). |
-
-<a id="content-animators"></a>
-## animators — Animator controllers
-
-State machines for model animation.
-
-- In every project: no
-- Written by: [`setAnimator`](ops-detail.md#op-setAnimator), [`deleteAnimator`](ops-detail.md#op-deleteAnimator)
-
-| Field | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `animators` | list of objects | `[]` |  | **Animator controllers.** The project's controllers (each its own file). |
-| `animators[]` | object |  |  | **Animator controller.** A state machine for model animation. (rules: Parameter names and state ids are unique; references name parameters and states of this controller.) |
-| `animators[].controllerId` | string, id, 1–64 chars |  |  | **Id.** The stable controller id. (required; format id) |
-| `animators[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in pickers. (required; format name) |
-| `animators[].parameters` | list of objects, ≤ 32 items | `[]` |  | **Parameters.** Up to 32 parameters (speed and grounded are set for the player automatically). (required) |
-| `animators[].parameters[].name` | string, identifier, 1–64 chars |  |  | **Name.** A letter or _, then letters, digits or _. (required; format identifier) |
-| `animators[].parameters[].type` | enum: `float`, `int`, `bool`, `trigger` | `"float"` |  | **Type.** Float, int, bool or trigger. (required) |
-| `animators[].parameters[].default` | number | `0` | -1000000 – 1000000, step 0.1 | **Default.** The starting value. (applies when `type` is `float`) |
-| `animators[].parameters[].default` | int | `0` | -1000000 – 1000000, step 1 | **Default.** The starting value. (applies when `type` is `int`) |
-| `animators[].parameters[].default` | bool | `false` |  | **Default.** The starting value. (applies when `type` is `bool`) |
-| `animators[].states` | list of objects, 1–64 items |  |  | **States.** 1–64 states. (required) |
-| `animators[].states[].id` | string, id, 1–64 chars |  |  | **Id.** The stable state id (unique across layers). (required; format id) |
-| `animators[].states[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the graph. (required; format name) |
-| `animators[].states[].motion` | object |  |  | **Motion.** A clip or a blend tree. (required) |
-| `animators[].states[].motion.kind` | enum: `clip`, `blend1d` | `"clip"` |  | **Motion.** What plays. (required; choices: `clip` = Clip, `blend1d` = Blend tree (1D)) |
-| `animators[].states[].motion.clip` | object |  |  | **Clip.** A named clip of a model asset. (required; applies when `kind` is `clip`) |
-| `animators[].states[].motion.clip.assetId` | asset id (model) |  |  | **Model.** The model the clip is in. (required) |
-| `animators[].states[].motion.clip.clip` | clip id |  |  | **Clip.** The clip name. (required) |
-| `animators[].states[].motion.clip.duration` | number |  | 0.001 – 600, s | **Length.** The clip length (read from the file). (required; written by a tool) |
-| `animators[].states[].motion.parameter` | animatorParameter id (float, int) |  |  | **Parameter.** The float or int parameter the tree blends by. (required; applies when `kind` is `blend1d`) |
-| `animators[].states[].motion.children` | list of objects, 2–16 items |  |  | **Clips.** 2–16 clips by threshold (increasing). (required; applies when `kind` is `blend1d`) |
-| `animators[].states[].motion.children[].threshold` | number |  | -1000000 – 1000000, step 0.1 | **Threshold.** The parameter value where this clip plays fully. (required) |
-| `animators[].states[].motion.children[].clip` | object |  |  | **Clip.** A named clip of a model asset. (required) |
-| `animators[].states[].motion.children[].clip.assetId` | asset id (model) |  |  | **Model.** The model the clip is in. (required) |
-| `animators[].states[].motion.children[].clip.clip` | clip id |  |  | **Clip.** The clip name. (required) |
-| `animators[].states[].motion.children[].clip.duration` | number |  | 0.001 – 600, s | **Length.** The clip length (read from the file). (required; written by a tool) |
-| `animators[].states[].motion.children[].speed` | number |  | 0 – 1000, step 0.1, m/s | **Ground speed.** The ground speed the clip was authored for. Set on every clip, the tree reads its parameter as a ground speed and scales time so the blended speed matches it (feet stay planted between the thresholds). |
-| `animators[].states[].motion.children[].position` | vec2 [x, y] |  | -1000000 – 1000000, step 1 | **Graph position.** Where the blend tree graph draws the clip (editor only). |
-| `animators[].states[].speed` | number | `1` | 0 – 10, step 0.05, × | **Speed.** Playback speed (× the speed parameter when set). (required) |
-| `animators[].states[].speedParameter` | animatorParameter id (float) |  |  | **Speed parameter.** A float parameter the speed is multiplied by. |
-| `animators[].states[].loop` | bool | `true` |  | **Loop.** Loops (else holds the last frame). (required) |
-| `animators[].states[].position` | vec2 [x, y] |  | -1000000 – 1000000, step 1 | **Graph position.** Where the editor draws the state. |
-| `animators[].transitions` | list of objects, ≤ 256 items | `[]` |  | **Transitions.** Up to 256 transitions. (required) |
-| `animators[].transitions[]` | object |  |  | **Transition.** From a state (or any state) to a state, on conditions or at an exit time. (rules: A transition needs a condition or an exit time.) |
-| `animators[].transitions[].from` | animatorState id or `*` |  |  | **From.** A state of this layer, or * (any state). (required) |
-| `animators[].transitions[].to` | animatorState id |  |  | **To.** A state of this layer. (required) |
-| `animators[].transitions[].conditions` | list of objects, ≤ 8 items | `[]` |  | **Conditions.** Up to 8; all must hold. (required) |
-| `animators[].transitions[].conditions[].parameter` | animatorParameter id |  |  | **Parameter.** The parameter tested. (required) |
-| `animators[].transitions[].conditions[].op` | enum: `greater`, `less`, `equals`, `notEquals`, `true`, `false`, `trigger` | `"greater"` |  | **Test.** Numbers: greater/less/equals/not equals; bools: true/false; triggers: trigger. (required; choices: `greater` = Greater, `less` = Less, `equals` = Equals, `notEquals` = Not equals, `true` = True, `false` = False, `trigger` = Trigger) |
-| `animators[].transitions[].conditions[].value` | number | `0` | -1000000 – 1000000, step 0.1 | **Value.** Compared with. (required; applies when `op` is `greater` or `less` or `equals` or `notEquals`) |
-| `animators[].transitions[].duration` | number | `0.2` | 0 – 10, step 0.05, s | **Crossfade.** Blend time. (required) |
-| `animators[].transitions[].exitTime` | number |  | 0 – 100, step 0.05 | **Exit time.** Only after this normalized time of the source state (absent: any time). |
-| `animators[].transitions[].interruption` | enum: `none`, `source` | `"none"` |  | **Interruption.** None, or a newer transition from the current state may cut in. |
-| `animators[].entry` | animatorState id |  |  | **Entry state.** The state the base layer starts in. (required) |
-| `animators[].events` | list of objects, ≤ 64 items | `[]` |  | **Events.** Up to 64 named events at clip times (scripts hear them). (required) |
-| `animators[].events[].assetId` | asset id (model) |  |  | **Model.** The model the clip is in. (required) |
-| `animators[].events[].clip` | clip id |  |  | **Clip.** The clip name. (required) |
-| `animators[].events[].time` | number | `0` | 0 – 600, step 0.01, s | **Time.** Seconds into the clip. (required) |
-| `animators[].events[].name` | string, identifier, 1–64 chars |  |  | **Name.** A letter or _, then letters, digits or _. (required; format identifier) |
-| `animators[].morphs` | list of objects, ≤ 32 items |  |  | **Morph targets.** Up to 32 morph targets (blend shapes) whose weight follows a float parameter (clamped to 0–1); scripts may set others. |
-| `animators[].morphs[].target` | string, name, 1–128 chars |  |  | **Target.** The morph target's name in the model. (required; format name) |
-| `animators[].morphs[].parameter` | animatorParameter id (float) |  |  | **Parameter.** The float parameter whose value (0–1) is the weight. (required) |
-| `animators[].layers` | list of objects, 1–3 items |  |  | **Layers.** 1–3 override layers over the base layer (absent: the base layer only). |
-| `animators[].layers[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the editor. (required; format name) |
-| `animators[].layers[].mask` | list of string, boneName, 1–128 chars, ≤ 128 items, distinct | `[]` |  | **Bones.** The bones this layer drives (up to 128; empty: every bone). (required) |
-| `animators[].layers[].weight` | number | `1` | 0 – 1, step 0.05 | **Weight.** How much the layer replaces the ones under it. (required) |
-| `animators[].layers[].weightParameter` | animatorParameter id (float) |  |  | **Weight parameter.** A float parameter (0–1) the weight is multiplied by. |
-| `animators[].layers[].states` | list of objects, 1–64 items |  |  | **States.** 1–64 states. (required) |
-| `animators[].layers[].states[].id` | string, id, 1–64 chars |  |  | **Id.** The stable state id (unique across layers). (required; format id) |
-| `animators[].layers[].states[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the graph. (required; format name) |
-| `animators[].layers[].states[].motion` | object |  |  | **Motion.** A clip, a blend tree, or nothing (the layers under it show through). (required) |
-| `animators[].layers[].states[].motion.kind` | enum: `clip`, `blend1d`, `empty` | `"clip"` |  | **Motion.** What plays. (required; choices: `clip` = Clip, `blend1d` = Blend tree (1D), `empty` = Empty) |
-| `animators[].layers[].states[].motion.clip` | object |  |  | **Clip.** A named clip of a model asset. (required; applies when `kind` is `clip`) |
-| `animators[].layers[].states[].motion.clip.assetId` | asset id (model) |  |  | **Model.** The model the clip is in. (required) |
-| `animators[].layers[].states[].motion.clip.clip` | clip id |  |  | **Clip.** The clip name. (required) |
-| `animators[].layers[].states[].motion.clip.duration` | number |  | 0.001 – 600, s | **Length.** The clip length (read from the file). (required; written by a tool) |
-| `animators[].layers[].states[].motion.parameter` | animatorParameter id (float, int) |  |  | **Parameter.** The float or int parameter the tree blends by. (required; applies when `kind` is `blend1d`) |
-| `animators[].layers[].states[].motion.children` | list of objects, 2–16 items |  |  | **Clips.** 2–16 clips by threshold (increasing). (required; applies when `kind` is `blend1d`) |
-| `animators[].layers[].states[].motion.children[].threshold` | number |  | -1000000 – 1000000, step 0.1 | **Threshold.** The parameter value where this clip plays fully. (required) |
-| `animators[].layers[].states[].motion.children[].clip` | object |  |  | **Clip.** A named clip of a model asset. (required) |
-| `animators[].layers[].states[].motion.children[].clip.assetId` | asset id (model) |  |  | **Model.** The model the clip is in. (required) |
-| `animators[].layers[].states[].motion.children[].clip.clip` | clip id |  |  | **Clip.** The clip name. (required) |
-| `animators[].layers[].states[].motion.children[].clip.duration` | number |  | 0.001 – 600, s | **Length.** The clip length (read from the file). (required; written by a tool) |
-| `animators[].layers[].states[].motion.children[].speed` | number |  | 0 – 1000, step 0.1, m/s | **Ground speed.** The ground speed the clip was authored for. Set on every clip, the tree reads its parameter as a ground speed and scales time so the blended speed matches it (feet stay planted between the thresholds). |
-| `animators[].layers[].states[].motion.children[].position` | vec2 [x, y] |  | -1000000 – 1000000, step 1 | **Graph position.** Where the blend tree graph draws the clip (editor only). |
-| `animators[].layers[].states[].speed` | number | `1` | 0 – 10, step 0.05, × | **Speed.** Playback speed (× the speed parameter when set). (required) |
-| `animators[].layers[].states[].speedParameter` | animatorParameter id (float) |  |  | **Speed parameter.** A float parameter the speed is multiplied by. |
-| `animators[].layers[].states[].loop` | bool | `true` |  | **Loop.** Loops (else holds the last frame). (required) |
-| `animators[].layers[].states[].position` | vec2 [x, y] |  | -1000000 – 1000000, step 1 | **Graph position.** Where the editor draws the state. |
-| `animators[].layers[].transitions` | list of objects, ≤ 256 items | `[]` |  | **Transitions.** Up to 256 transitions. (required) |
-| `animators[].layers[].transitions[]` | object |  |  | **Transition.** From a state (or any state) to a state, on conditions or at an exit time. (rules: A transition needs a condition or an exit time.) |
-| `animators[].layers[].transitions[].from` | animatorState id or `*` |  |  | **From.** A state of this layer, or * (any state). (required) |
-| `animators[].layers[].transitions[].to` | animatorState id |  |  | **To.** A state of this layer. (required) |
-| `animators[].layers[].transitions[].conditions` | list of objects, ≤ 8 items | `[]` |  | **Conditions.** Up to 8; all must hold. (required) |
-| `animators[].layers[].transitions[].conditions[].parameter` | animatorParameter id |  |  | **Parameter.** The parameter tested. (required) |
-| `animators[].layers[].transitions[].conditions[].op` | enum: `greater`, `less`, `equals`, `notEquals`, `true`, `false`, `trigger` | `"greater"` |  | **Test.** Numbers: greater/less/equals/not equals; bools: true/false; triggers: trigger. (required; choices: `greater` = Greater, `less` = Less, `equals` = Equals, `notEquals` = Not equals, `true` = True, `false` = False, `trigger` = Trigger) |
-| `animators[].layers[].transitions[].conditions[].value` | number | `0` | -1000000 – 1000000, step 0.1 | **Value.** Compared with. (required; applies when `op` is `greater` or `less` or `equals` or `notEquals`) |
-| `animators[].layers[].transitions[].duration` | number | `0.2` | 0 – 10, step 0.05, s | **Crossfade.** Blend time. (required) |
-| `animators[].layers[].transitions[].exitTime` | number |  | 0 – 100, step 0.05 | **Exit time.** Only after this normalized time of the source state (absent: any time). |
-| `animators[].layers[].transitions[].interruption` | enum: `none`, `source` | `"none"` |  | **Interruption.** None, or a newer transition from the current state may cut in. |
-| `animators[].layers[].entry` | animatorState id |  |  | **Entry state.** The state the layer starts in. (required) |
+| `materials[].voxel.gas` | object |  |  | **Gas look.** A gas's plain look (only with the gas use): its colour and how dense it is at full density. (applies when `use` is `gas`) |
+| `materials[].voxel.gas.color` | color | `"#ffffff"` |  | **Colour.** The gas's colour (absent: #ffffff). (stored only when not the default) |
+| `materials[].voxel.gas.density` | number |  | 0 – 8, step 0.01 | **Full density.** Density per metre of a cell at full density, shape 15 (absent: 0.1); a cell of density d holds d/15 of it. |

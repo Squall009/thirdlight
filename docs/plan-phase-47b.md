@@ -136,7 +136,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 |---|---|
 | 47b.0 | done 2026-11-26: three.js still 0.187.0 (nothing newer); the three files split (1,909 → 1,347, 1,879 → 1,303, 1,857 → 1,730 lines); the role traits table (`role-traits.ts`, 16 rows) asked by every consumer, `tools/check-role-traits.mjs` in the build (10 owner files); 688 derived digests equal before and after. Results §9 |
 | 47b.1 | done 2026-11-26: D827 (the far march wrote the edge ring's pushed depth into its own target), D825 (the first profile read over the bridge's 1 MiB bound, no cursor), D831 (the Scene view's grid 1 cm under the floor), D832 (33 debug commands declared, a game holds 32) found and fixed with tests; D829 restated: wall-top fill is off by design. L16, E1, E6 clean. D835 opened. Results §9 |
-| 47b.2 | not started |
+| 47b.2 | done 2026-11-26: role `gas` = 10 (11 roles), its mip rule, material use `gas` (`voxel.gas`: colour, full density), the gas feed (`DERIVED_PART.gas`), spec text, derived 34. Town and hard-case row with gas in 224,397 open cells derive byte for byte as without. Besides the row: 6 places named liquid alone or assumed two media. Results §9 |
 | 47b.3 | not started |
 | 47b.4 | not started |
 | 47b.5 | not started |
@@ -224,6 +224,23 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   (4) **Picture E6 now opens the Profiler on the settled Play** (the case that failed), not before Play starts.
   (5) **The bench's cameras are one debug command with an argument**; the engine's limit of 32 declared commands a
   game stands (a declaration past it is a log line, as before).
+- **2026-11-26 — 47b.2, defaults chosen, owner to confirm** (item agent): (1) **G2 read as: a coarse cell is gas when
+  the mean density of its 8 cells (a cell that is not gas counting 0) rounds to at least 1, its shape that mean; and
+  an opening holds a coarse cell before a gas does.** G2 names "no solid and no liquid"; with openings left out, mist
+  in a doorway made the coarser cell gas, and the levels above no longer closed or measured that doorway, so the far
+  field differed with the gas. With the opening first, a gas takes a coarse cell only where the same cells without it
+  give air. (2) **A gas with wetness is refused wherever a value is checked** (as air with other fields is), and the
+  writers that keep a role keep it dry; G1 says the bits are 0, this makes a reader hold it to that. (3) **No stored
+  version moves**: record value form 2 stands (the fog note proposed a form bump; G1 says worlds before it stay
+  valid, and a form bump would refuse them or need a read of both); derived data 33 → 34 (never stored). An older
+  build refuses a world holding a gas cell. (4) **G3's two fields are one optional block** `voxel.gas: {color?,
+  density?}` ("#rrggbb"; per metre, 0–8), white and 0.1 a metre when left out, refused on a material whose use is
+  not gas; a gas names no kit; no project schema bump (add-only inside schema 8, as F1, F4 and F6 were). The range
+  and the defaults are guesses nobody has seen drawn: 47b.7 may change them. (5) **The gas part is a feed bit with no
+  builder yet** (`DERIVED_PART.gas` = 64; `ALL_DERIVED_PARTS` stays 63 until 47b.7): a gas-only change reads the
+  changed chunks and derives nothing. (6) **Water takes fog's cells**: the level fill passes gas as air, and one
+  medium written over the other feeds both parts. (7) The reference's materials page passed its size bound and the
+  pages after it were renamed by the generator; 13 manual links were repointed.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -374,6 +391,92 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
   street, in the picture before the fix too (`diag1/`); 47T's L15 read does not name it. Not traced.
 - **Unverified:** nothing was seen in motion; the Profiler on a Play paused past four seconds and resumed (the unit
   test covers its read); the grid from under the ground or in a view at a render scale under 1; `?farPass=direct`.
+
+### 47b.2
+
+- **Where each entry's text went.** G1: format spec §1 (the summary's role list), §2.2 (the value table's role, shape
+  and wetness rows, the role table's row 10, the bullet *Role `gas`, value 10*), the role spec §1 (its table's row
+  and its solid/open lines; no case, slot or rule of that page changes), `format-versions.md` (the paragraph *The
+  voxel value's roles*). G2: format spec §3.7 *Voxel mips* (the bullet *Gas*) and the render spec §4's line on
+  openings at the coarser levels. G3: render spec §1 (the `voxel?` field list, `use`, `kit`, `gas`, the owner note),
+  `format-versions.md` (the project schema's cell). G6: format spec §2.2 (the feeds table's row and the bullet *The
+  gas rule*), §3.7 (the history's row 33 → 34 and the paragraph *Derived data 33 → 34* with the derived list's three
+  entries: the surface fields a column, the gas part a derive section, cover points a chunk; each entry's layout is
+  written by the item that builds it), §3.8's derived data version (it still said 32).
+- **The schema step:** none. `voxel.use: "gas"` and `voxel.gas` are add-only inside project schema 8; nothing else
+  stored changed (no record bit, no manifest key, no far-cache channel, no stored version). Staging's worlds stay
+  valid: no regeneration.
+- **The row** (`role-traits.ts`): `gas`, value 10: not a body, stops no light, blocks no walker, collides with
+  nothing, medium `gas`, shape `density`, mip `share`. `VOXEL_ROLE.gas`, `VOXEL_ROLE_COUNT` 11; decoders take 10 and
+  refuse 11–15 as before.
+- **What reads gas as open by the row alone, untouched** (each asked the table since 47b.0): the placeholder,
+  terrain, edge and world rule sets and the terrain mesher, kit cases and pieces, case forms, the roof words,
+  collision, light coverage and occupancy, navigation and so the walk graph, open regions, face connectivity and sky
+  columns, the shader data, the liquid part (a liquid's face toward gas is its face toward air), structure stamps,
+  the grid resample, the far faces, the far ground, the far tree's uniform test, an `add` stroke (it fills gas as
+  it fills air), the spline and world writers.
+- **Places outside the table that had to change** (the findings the item asks for):
+  1. **The change feed** (`record.ts` `changeFeeds`): it asked "air or a medium" and answered the liquid part,
+     whichever medium. Converted: each medium's part comes from the row's `medium`, so air ↔ gas feeds the gas part,
+     liquid ↔ gas both. `FIELD_FEEDS` (a role, shape or material change) names the gas part beside the liquid's.
+  2. **The coarser levels' order** (`voxel-mips.ts`): media were tried before openings, so a gas took a parent an
+     opening would have kept. Converted to one order from the rows' ranks over media and openings
+     (`MIP_OPEN_ROLES`: liquid 7, opening 8, gas 9; the opening's rank was −1, and `checkRoleTraits` now asks a
+     rank of every role that can hold a coarser cell).
+  3. **A flag on the new part's bit** (`stream-sections.ts`): `PIECES_AT_CELLS` was `1 << 6`, the value
+     `DERIVED_PART.gas` took, so a gas-only stroke read as "these cells' pieces moved" and derived its four
+     sections whole. Found by the real-worker test, not by reading. The flag is `1 << 16` and the module refuses to
+     load if it meets a part's bit. `SectionDerives.invalidate` also returns early for parts no derive builds.
+  4. **The level fill** (`water/level-fill.ts` `fillPasses`): air or the fill's own liquid; fog in a basin was a
+     wall to a lake's regenerate. It passes a gas (asked of the table) and takes its cells.
+  5. **Wetness** (`record.ts`): a new cross-field rule (`heldWetness`), checked in `checkVoxel` and
+     `checkRecordValue` (so in every decoder), applied in `savedValue`, the edit command's voxel parser, and the
+     runtime's `set` and `paint` (`voxel-api.ts`, `voxel-world-host.ts`).
+  6. **Material uses** (project-model `voxel-materials.ts`; editor): three `use === 'liquid'` tests (the rules, the
+     kit badge, the kit binding), the spline tool's list of solid materials (`use !== 'liquid'`), the material
+     section's kit field and a hand-written union of the three uses in `structure-shape.ts`. Converted to
+     `voxelUseTakesKit` and `VoxelMaterialUse`.
+  Also renamed, no behaviour: `world-writer.ts` `airOrLiquid` → `airOrMedium`.
+- **The material use** (`voxel-materials.ts`): `VOXEL_MATERIAL_USES` gains `gas`; `voxel.gas` validated, canonical
+  (last, colour then density, an empty look left out), merged along an instance chain field by field;
+  `voxelGasLook` fills in the defaults; the descriptor (so the reference and MCP's text) and the material's Voxel
+  use section in the editor (a colour and a number field, shown for a gas) carry it.
+- **Tests** (new: `tools/voxel-bench/gas.test.ts`, 11; `voxel-materials.test.ts` +2; changed: `format-rules.test.ts`,
+  `role-traits.test.ts`, `descriptors.test.ts`, `liquid.test.ts`):
+  - conformance: the row; values 10 held and 11–15, a wet gas and a reserved bit refused (values, voxels, palette
+    bytes packed and uniform, commands); a chunk of gas through the codec, the store and a `set`; a save's kept gas
+    dry on a wet base; the mip cases (eight cells, half, densities 1–8 → 5, a summed density of 3 → air and of 4 →
+    1, two materials; ground, a thin wall, a floor, water, a little water and a doorway each as without the gas;
+    ground or water too thin to hold → gas); the feeds (air ↔ gas, density, material, liquid ↔ gas, ground dug
+    beside gas; six stroke kinds on a made bank); the level fill through fog; the material use (round trip,
+    inheritance, defaults, eight refusals).
+  - **the proof the row names** (5.8 s): the town (96 cells square: ground, ponds, houses to their upper floors)
+    and the hard-case row's arch and cave, gas written into 224,397 open cells (106,673 and 117,724; banks 4 cells
+    across with gaps, a density a cell, two materials; 4,848 + 6,770 on ground, 163 over water, 2,486 against
+    walls, 16,771 + 2,028 under cover). The same bytes with and without: 208 derive sections by consumer (mesh and
+    pieces, collision, navigation, light stop, occupancy, open regions and sky columns, shader data, liquid faces),
+    the walk graph made from them (15,922 + 8,688 standable cells, pieces, exits), 10 mesh-ring nodes at levels 1
+    and 2, the far faces at 2 m and at one 1 m corner, 1,024 far ground columns (read from stored node bytes as the
+    worker reads them; the last three for the town only). The coarser levels: every cell that is anything without
+    the gas is the same with it; a cell that is air is air or gas, a gas cell's density the rounded mean of the gas
+    under it (kept: 12,183 + 13,893 cells at 1 m, 1,247 + 1,758 at 2 m, 126 + 212 at 4 m).
+  - **with real workers and region files** (`liquid.test.ts`, slow list, run once here: 40 s, green): a gas stroke
+    over a lake across four chunks answers the gas part alone, derives nothing (no event, no counter moves), and
+    every section standing equals a fresh derive of the world with the gas.
+  - **Broken on purpose, each run once:** the gas ranked before the opening → the doorway case red; the shader
+    data keeping a gas's material → 108 sections' shader data differ; the far faces not skipping gas → far faces
+    differ; the far ground standing on gas → far ground differs; the flag on the part's bit (as found) → four
+    sections derived.
+- **Not built, and why:** the gas part's faces (47b.7), the surface fields (47b.4), cover points (47b.9): their
+  entries are in the spec's list only. No stroke kind (47b.3): gas is written with `set`, `place`, `add`, `dig`.
+- **Left as it is, to know:** (1) a gas-only edit leaves the coarser levels and the backend's far cache as a
+  liquid-only one does (D782, D783, both rows extended). (2) No command checks a stroke's material use against the
+  role it writes (none does for liquid): a gas material can be written as a wall, and the structure and spline
+  panels list it among materials as they list liquids. (3) A gas material's shader family reads `standard`, and
+  `ctx.voxels.materialOf` answers its use but not its look: 47b.7's. (4) The descriptor size ledger's bound rose
+  389,600 → 390,200 with its line (the gas look, 0.6 KB), as each field before it.
+- **Unverified:** the material section's two gas fields were not looked at in a browser. Nothing draws gas, so
+  there is no picture.
 
 ## 10. The proposed plan's questions and how each stands
 

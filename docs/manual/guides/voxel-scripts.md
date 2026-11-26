@@ -36,7 +36,7 @@ if (v === null) {
 } else if (v.material === 0) {
   // air
 } else {
-  // v.material 1–4095, v.role 0–9, v.shape 0–15 (15 full), v.wetness 0–7
+  // v.material 1–4095, v.role 0–10, v.shape 0–15 (15 full), v.wetness 0–7
 }
 ```
 
@@ -55,7 +55,8 @@ when the world unloaded first (or no world was loaded to ask).
 
 - `set(region, {material, role, shape?, wetness?})` writes one voxel into
   every cell (shape absent: full; wetness absent: dry). Writing material 0
-  or shape 0 is a dig.
+  or shape 0 is a dig. A gas (role 10) takes its density as its shape and
+  no wetness (a wet gas is refused as `invalid`).
 - `dig(region)` empties every cell to air.
 - **Damage** is a building cell's shape: for walls, floors, roofs,
   foundations, stairs and pillars the shape is their integrity (15 intact).
@@ -65,7 +66,8 @@ when the world unloaded first (or no world was loaded to ask).
   a cell takes, and when, is the game's.
 - `paint(region, {material?, wetness?})` changes only material (1 or more)
   and wetness of the solid cells, keeping their shape and role: only the
-  surface's shading is rebuilt, no mesh or collider.
+  surface's shading is rebuilt, no mesh or collider. A gas cell in the
+  region stays dry.
 
 Each answers `{ok: true, edit, cells}` (`cells` 0: nothing changed) or
 `{ok: false, reason, message}` with `reason` `not_resident` (some cell is

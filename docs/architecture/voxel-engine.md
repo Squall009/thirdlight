@@ -22,21 +22,27 @@ page in the same commit.
 ## 2. Data
 
 - **Cell** 0.5 m; **chunk** 32³ cells (16 m), derived in 16³ sections; region files in 256 m tiles.
-- **Record** (32 bits): material 12 bits, role 4 bits (10 of 16 assigned: air, terrain, liquid, wall, floor,
-  roof, foundation, stair, pillar, opening), shape 4 bits (the fill for terrain, the fill level for liquid, the
-  integrity for construction roles), wetness 3 bits, 9 reserved bits (two are held, unspent, for a vegetation
-  density value).
+- **Record** (32 bits): material 12 bits, role 4 bits (11 of 16 assigned: air, terrain, liquid, wall, floor,
+  roof, foundation, stair, pillar, opening, gas), shape 4 bits (the fill for terrain, the fill level for liquid, the
+  integrity for construction roles, the density for gas: 15 its material's full density), wetness 3 bits (0 for a
+  gas: a gas with wetness is refused), 9 reserved bits (two are held, unspent, for a vegetation density value).
+  A material's voxel use is construction, terrain, liquid or gas; a gas material carries its plain look's two
+  fields, a colour and a full density per metre (`voxel.gas`).
 - **What a role does is one row of the role traits table** (`@thirdlight/voxel` `role-traits.ts`, a row for each of
-  the 16 values of the role bits; the six unassigned read as plain open space): drawn as a body, stops light, blocks
-  walkers, collides, the medium it holds (liquid; gas when it comes), what its shape bits mean (none, fill, level,
+  the 16 values of the role bits; the five unassigned read as plain open space): drawn as a body, stops light, blocks
+  walkers, collides, the medium it holds (liquid, gas), what its shape bits mean (none, fill, level,
   integrity, density), a portal's gap, whether the placeholder rules read beams and rails from it, and how it holds a
-  cell of a coarser level (by its cells, by any fill, by its share, as a gap, never) with its rank. Every consumer asks
+  cell of a coarser level (by its cells, by any fill, by its share, as a gap, never) with its rank (bodies first; where
+  no body holds, a liquid, then an opening, then a gas: `MIP_OPEN_ROLES`). Every consumer asks
   the table through its predicates (`isBodyRole`, `isMediumRole`, `isLiquidRole`, `isPortalRole`, `isFillRole`,
   `isConstructionRole`, `roleStopsLight`, the per-role lookups a hot loop indexes, the mips' `MIP_ROLE_PRIORITY` and
   `MIP_MEDIUM_ROLES` made from the rows) and none compares a role id; `npm run build` refuses a comparison outside the
   table and the files that own a role's own behaviour (`tools/check-role-traits.mjs`: the record's constants, the roof's
   words and its relay in the mips, the kit cases' vocabulary, catalogue and piece order, the building generator, the
-  water fill and bodies; each entry names its roles and why, and one nothing needs fails). A role added later is a row.
+  water fill and bodies; each entry names its roles and why, and one nothing needs fails). A role added later is a row:
+  **gas** (47b.2) was one, and besides the row it met six places that named the liquid alone or assumed two media
+  (plan-47b §9 "47b.2": the change feed, the coarser levels' order against openings, the level fill, the wetness a
+  cell may hold, a flag sharing the new part's bit, the material uses).
   Two limits a new row meets: a level-0 cell's mesh, collision, navigation and light coverage are all read from the one
   class a body derives to, so the table refuses a row whose light stop, walkers or collision differ from `body` until
   the derive carries them apart (47p's `prop` needs that); and nothing on the GPU reads a role today (the walk reads the
@@ -177,8 +183,10 @@ page in the same commit.
   grid's changed chunks, `voxelsChanged.grids`), and a click on a grid's cells selects its object (the worker's walk
   through the worlds and their grids). Measured: plan-47a §8a "47a.5a".
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
-  water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); a brick cannot
-  hold rule-built crisp geometry exactly. A medium (`liquid`) is open space by its row of the role traits table
+  water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); a gas is kept
+  there only where the cells without it give air, by the mean of its density, so nothing a coarser level draws,
+  closes or stands on changes with it; a brick cannot
+  hold rule-built crisp geometry exactly. A medium (`liquid`, `gas`) is open space by its row of the role traits table
   (above), which every consumer asks; the far ground alone reads every non-medium cell that holds a material as
   ground, an opening's too (as before the table). Since
   47a.9 (F7) every derived output but the liquid part reads a liquid cell as the air it stands in (proved on the
@@ -187,7 +195,14 @@ page in the same commit.
   data, coarser level or fine far brick is derived again. Water blocks no light, collides with nothing (bodies
   fall through it to the bed) and walkers walk its bed; the coarser levels keep the liquid values a liquid-only
   edit left behind (nothing reads them before 49, D782); the backend's far cache still rebuilds such an edit's
-  chunks (D783).
+  chunks (D783). **Gas** (47b.2) is the same with nothing drawn yet: every output reads a gas cell as air (proved on
+  the town and the hard-case row with gas in their open cells: meshes, collision, navigation and the walk graph,
+  light stop, occupancy, open regions and sky columns, shader data, liquid faces, the mesh rings' nodes, far faces
+  and far ground, byte for byte), so a change only between air and gas, or of a gas cell's density or material,
+  feeds the **gas part** alone (`DERIVED_PART.gas`), which no derive builds until its faces exist (47b.7): such an
+  edit reads the changed chunks' voxels and derives nothing again. Water written over gas takes its cells (the level
+  fill passes gas as air); the coarser levels and the backend's far cache treat a gas-only edit as they treat a
+  liquid-only one (D782, D783).
 
 ## 3. Drawing, near to far
 
@@ -349,9 +364,10 @@ Play and export.
 
 Water is liquid-role voxels: drawn plain near the eye with narrowed feeds (47a.9) and bodies that regenerate when
 the ground is edited in the editor (47a.10) exist (§2, §6 row 5); a surface shader, far water, flow and falls,
-queries and buoyancy come in 49, extending the liquid part. Fog is a new non-solid role with the fill bits as density
-and the material id as fog type, painted with the voxel brushes and one height-based fill shared with water
-(47b); lit fog and an interactive ground fog on the interaction field (51). Vegetation is rules hanging off the
+queries and buoyancy come in 49, extending the liquid part. Fog is the `gas` role with the shape bits as density
+and the material id as fog type: the role, its mip rule, the `gas` material use and the narrowed feed exist (47b.2,
+§2); painting it with the voxel brushes and one height-based fill shared with water, and its plain look near the
+eye, come in the rest of 47b; lit fog and an interactive ground fog on the interaction field (51). Vegetation is rules hanging off the
 material record as a dressing; a hand-placed tree is an ordinary prop; density by material variations (47b),
 cover on voxel chunks (47b); large plants and every large static object stamped into the voxel data under a `prop`
 role, read by light, paths, collision and the far bricks, drawn near as their own models (47p); LODs (50); draw

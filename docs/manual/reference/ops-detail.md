@@ -7,7 +7,7 @@ Each op's arguments as the validator types them. The full validation rules for a
 <a id="op-acknowledgeBehaviorTrust"></a>
 ## acknowledgeBehaviorTrust
 
-Writes: [`content.behaviorTrust`](content-blocks-settings.md#content-behaviorTrust).
+Writes: [`content.behaviorTrust`](content-blocks-shell.md#content-behaviorTrust).
 
 Arguments (`args`):
 
@@ -21,7 +21,7 @@ interface AcknowledgeBehaviorTrustArgs {
 <a id="op-applyPrefabOverrides"></a>
 ## applyPrefabOverrides
 
-Writes: [`content.prefabs`](content-blocks-settings.md#content-prefabs).
+Writes: [`content.prefabs`](content-blocks-shell.md#content-prefabs).
 
 Arguments (`args`):
 
@@ -149,7 +149,7 @@ interface CreateFolderArgs {
 <a id="op-createPrefab"></a>
 ## createPrefab
 
-Writes: [`content.prefabs`](content-blocks-settings.md#content-prefabs).
+Writes: [`content.prefabs`](content-blocks-shell.md#content-prefabs).
 
 Arguments (`args`):
 
@@ -168,7 +168,7 @@ interface CreatePrefabArgs {
 <a id="op-createPrefabVariant"></a>
 ## createPrefabVariant
 
-Writes: [`content.prefabs`](content-blocks-settings.md#content-prefabs).
+Writes: [`content.prefabs`](content-blocks-shell.md#content-prefabs).
 
 Arguments (`args`):
 
@@ -184,7 +184,7 @@ interface CreatePrefabVariantArgs {
 <a id="op-createScene"></a>
 ## createScene
 
-Writes: [`content.scenes`](content-blocks-settings.md#content-scenes).
+Writes: [`content.scenes`](content-blocks-shell.md#content-scenes).
 
 Arguments (`args`):
 
@@ -201,7 +201,7 @@ type SceneIndexArgs =
 <a id="op-deleteAnimator"></a>
 ## deleteAnimator
 
-Writes: [`content.animators`](content-blocks-materials.md#content-animators).
+Writes: [`content.animators`](content-blocks-animators.md#content-animators).
 
 Arguments (`args`):
 
@@ -212,7 +212,7 @@ Arguments (`args`):
 <a id="op-deleteAsset"></a>
 ## deleteAsset
 
-Writes: [`content.assets`](content-blocks-settings.md#content-assets).
+Writes: [`content.assets`](content-blocks-shell.md#content-assets).
 
 Arguments (`args`):
 
@@ -223,7 +223,7 @@ Arguments (`args`):
 <a id="op-deleteBehavior"></a>
 ## deleteBehavior
 
-Writes: [`content.behaviors`](content-blocks-settings.md#content-behaviors).
+Writes: [`content.behaviors`](content-blocks-shell.md#content-behaviors).
 
 Arguments (`args`):
 
@@ -234,7 +234,7 @@ Arguments (`args`):
 <a id="op-deleteBlockStamp"></a>
 ## deleteBlockStamp
 
-Writes: [`content.blockStamps`](content-blocks-effects.md#content-blockStamps).
+Writes: [`content.blockStamps`](content-blocks-animators.md#content-blockStamps).
 
 Arguments (`args`):
 
@@ -245,7 +245,7 @@ Arguments (`args`):
 <a id="op-deleteBlockType"></a>
 ## deleteBlockType
 
-Writes: [`content.blockTypes`](content-blocks-effects.md#content-blockTypes).
+Writes: [`content.blockTypes`](content-blocks-animators.md#content-blockTypes).
 
 Arguments (`args`):
 
@@ -256,7 +256,7 @@ Arguments (`args`):
 <a id="op-deleteDialogue"></a>
 ## deleteDialogue
 
-Writes: [`content.dialogues`](content-blocks-effects.md#content-dialogues).
+Writes: [`content.dialogues`](content-blocks-shell.md#content-dialogues).
 
 Arguments (`args`):
 
@@ -267,7 +267,7 @@ Arguments (`args`):
 <a id="op-deleteEffect"></a>
 ## deleteEffect
 
-Writes: [`content.effects`](content-blocks-effects.md#content-effects).
+Writes: [`content.effects`](content-blocks-animators.md#content-effects).
 
 Arguments (`args`):
 
@@ -295,7 +295,7 @@ interface DeleteEntityArgs {
 <a id="op-deleteGraph"></a>
 ## deleteGraph
 
-Writes: [`content.graphs`](content-blocks-effects.md#content-graphs).
+Writes: [`content.graphs`](content-blocks-shell.md#content-graphs).
 
 Arguments (`args`):
 
@@ -306,7 +306,7 @@ Arguments (`args`):
 <a id="op-deleteKit"></a>
 ## deleteKit
 
-Writes: [`content.kits`](content-blocks-effects.md#content-kits).
+Writes: [`content.kits`](content-blocks-animators.md#content-kits).
 
 Arguments (`args`):
 
@@ -328,7 +328,7 @@ Arguments (`args`):
 <a id="op-deleteMaterialProfile"></a>
 ## deleteMaterialProfile
 
-Writes: [`content.materialProfiles`](content-blocks-effects.md#content-materialProfiles).
+Writes: [`content.materialProfiles`](content-blocks-animators.md#content-materialProfiles).
 
 Arguments (`args`):
 
@@ -339,7 +339,7 @@ Arguments (`args`):
 <a id="op-deletePrefab"></a>
 ## deletePrefab
 
-Writes: [`content.prefabs`](content-blocks-settings.md#content-prefabs).
+Writes: [`content.prefabs`](content-blocks-shell.md#content-prefabs).
 
 Arguments (`args`):
 
@@ -350,7 +350,7 @@ Arguments (`args`):
 <a id="op-deleteScene"></a>
 ## deleteScene
 
-Writes: [`content.scenes`](content-blocks-settings.md#content-scenes).
+Writes: [`content.scenes`](content-blocks-shell.md#content-scenes).
 
 Arguments (`args`):
 
@@ -367,7 +367,7 @@ type SceneIndexArgs =
 <a id="op-deleteScriptLibrary"></a>
 ## deleteScriptLibrary
 
-Writes: [`content.scriptLibraries`](content-blocks-effects.md#content-scriptLibraries).
+Writes: [`content.scriptLibraries`](content-blocks-animators.md#content-scriptLibraries).
 
 Arguments (`args`):
 
@@ -378,7 +378,7 @@ Arguments (`args`):
 <a id="op-deleteSpeaker"></a>
 ## deleteSpeaker
 
-Writes: [`content.speakers`](content-blocks-effects.md#content-speakers).
+Writes: [`content.speakers`](content-blocks-shell.md#content-speakers).
 
 Arguments (`args`):
 
@@ -389,7 +389,7 @@ Arguments (`args`):
 <a id="op-deleteTimeline"></a>
 ## deleteTimeline
 
-Writes: [`content.timelines`](content-blocks-effects.md#content-timelines).
+Writes: [`content.timelines`](content-blocks-shell.md#content-timelines).
 
 Arguments (`args`):
 
@@ -400,7 +400,7 @@ Arguments (`args`):
 <a id="op-deleteUiDocument"></a>
 ## deleteUiDocument
 
-Writes: [`content.uiDocuments`](content-blocks-effects.md#content-uiDocuments).
+Writes: [`content.uiDocuments`](content-blocks-animators.md#content-uiDocuments).
 
 Arguments (`args`):
 
@@ -411,7 +411,7 @@ Arguments (`args`):
 <a id="op-deleteUiTheme"></a>
 ## deleteUiTheme
 
-Writes: [`content.uiThemes`](content-blocks-effects.md#content-uiThemes).
+Writes: [`content.uiThemes`](content-blocks-shell.md#content-uiThemes).
 
 Arguments (`args`):
 
@@ -422,7 +422,7 @@ Arguments (`args`):
 <a id="op-deleteVoxelKit"></a>
 ## deleteVoxelKit
 
-Writes: [`content.voxelKits`](content-blocks-effects.md#content-voxelKits).
+Writes: [`content.voxelKits`](content-blocks-animators.md#content-voxelKits).
 
 Arguments (`args`):
 
@@ -517,7 +517,7 @@ Types: [`VoxelEditCommand`](types-s-w.md#type-voxel-edit-command).
 <a id="op-graphEdit"></a>
 ## graphEdit
 
-Writes: [`content.effects`](content-blocks-effects.md#content-effects), [`content.dialogues`](content-blocks-effects.md#content-dialogues), [`content.graphs`](content-blocks-effects.md#content-graphs).
+Writes: [`content.effects`](content-blocks-animators.md#content-effects), [`content.dialogues`](content-blocks-shell.md#content-dialogues), [`content.graphs`](content-blocks-shell.md#content-graphs).
 
 Arguments (`args`):
 
@@ -530,7 +530,7 @@ Types: [`GraphOp`](types-c-m.md#type-graph-op).
 <a id="op-importAssets"></a>
 ## importAssets
 
-Writes: [`content.assets`](content-blocks-settings.md#content-assets).
+Writes: [`content.assets`](content-blocks-shell.md#content-assets).
 
 Arguments (`args`):
 
@@ -563,7 +563,7 @@ type ImportResourcesArgs = Record<string, never>;
 <a id="op-instantiatePrefab"></a>
 ## instantiatePrefab
 
-Writes: [`content.prefabs`](content-blocks-settings.md#content-prefabs).
+Writes: [`content.prefabs`](content-blocks-shell.md#content-prefabs).
 
 Arguments (`args`):
 
@@ -665,7 +665,7 @@ Also `sceneId?: string` (read before validation): The scene the pasted objects g
 <a id="op-publishAsset"></a>
 ## publishAsset
 
-Writes: [`content.assets`](content-blocks-settings.md#content-assets).
+Writes: [`content.assets`](content-blocks-shell.md#content-assets).
 
 Arguments (`args`):
 
@@ -715,7 +715,7 @@ interface PublishAssetArgs {
 <a id="op-publishBehavior"></a>
 ## publishBehavior
 
-Writes: [`content.behaviors`](content-blocks-settings.md#content-behaviors).
+Writes: [`content.behaviors`](content-blocks-shell.md#content-behaviors).
 
 Arguments (`args`):
 
@@ -759,7 +759,7 @@ Record<string, never>
 <a id="op-renameEffect"></a>
 ## renameEffect
 
-Writes: [`content.effects`](content-blocks-effects.md#content-effects).
+Writes: [`content.effects`](content-blocks-animators.md#content-effects).
 
 Arguments (`args`):
 
@@ -783,7 +783,7 @@ interface RenameFolderArgs {
 <a id="op-renameScene"></a>
 ## renameScene
 
-Writes: [`content.scenes`](content-blocks-settings.md#content-scenes).
+Writes: [`content.scenes`](content-blocks-shell.md#content-scenes).
 
 Arguments (`args`):
 
@@ -823,7 +823,7 @@ interface PrefabOverrideTargetArgs {
 <a id="op-revokeBehaviorTrust"></a>
 ## revokeBehaviorTrust
 
-Writes: [`content.behaviorTrust`](content-blocks-settings.md#content-behaviorTrust).
+Writes: [`content.behaviorTrust`](content-blocks-shell.md#content-behaviorTrust).
 
 Arguments (`args`):
 
@@ -834,7 +834,7 @@ Arguments (`args`):
 <a id="op-setAddress"></a>
 ## setAddress
 
-Writes: [`content.loadable`](content-blocks-effects.md#content-loadable), [`content.assets`](content-blocks-settings.md#content-assets).
+Writes: [`content.loadable`](content-blocks-shell.md#content-loadable), [`content.assets`](content-blocks-shell.md#content-assets).
 
 Arguments (`args`):
 
@@ -850,7 +850,7 @@ interface SetAddressArgs {
 <a id="op-setAnimator"></a>
 ## setAnimator
 
-Writes: [`content.animators`](content-blocks-materials.md#content-animators).
+Writes: [`content.animators`](content-blocks-animators.md#content-animators).
 
 Arguments (`args`):
 
@@ -863,7 +863,7 @@ Types: [`AnimatorController`](types-a-c.md#type-animator-controller).
 <a id="op-setAssetOptions"></a>
 ## setAssetOptions
 
-Writes: [`content.assets`](content-blocks-settings.md#content-assets).
+Writes: [`content.assets`](content-blocks-shell.md#content-assets).
 
 Arguments (`args`):
 
@@ -893,7 +893,7 @@ interface SetAssetOptionsArgs {
 <a id="op-setBehaviorGroups"></a>
 ## setBehaviorGroups
 
-Writes: [`content.behaviorGroups`](content-blocks-effects.md#content-behaviorGroups).
+Writes: [`content.behaviorGroups`](content-blocks-animators.md#content-behaviorGroups).
 
 Arguments (`args`):
 
@@ -920,7 +920,7 @@ interface SetBehaviorPropertiesArgs {
 <a id="op-setBlockStamp"></a>
 ## setBlockStamp
 
-Writes: [`content.blockStamps`](content-blocks-effects.md#content-blockStamps).
+Writes: [`content.blockStamps`](content-blocks-animators.md#content-blockStamps).
 
 Arguments (`args`):
 
@@ -933,7 +933,7 @@ Types: [`BlockStamp`](types-a-c.md#type-block-stamp).
 <a id="op-setBlockType"></a>
 ## setBlockType
 
-Writes: [`content.blockTypes`](content-blocks-effects.md#content-blockTypes).
+Writes: [`content.blockTypes`](content-blocks-animators.md#content-blockTypes).
 
 Arguments (`args`):
 
@@ -946,7 +946,7 @@ Types: [`BlockType`](types-a-c.md#type-block-type).
 <a id="op-setCellFields"></a>
 ## setCellFields
 
-Writes: [`content.cellFields`](content-blocks-effects.md#content-cellFields).
+Writes: [`content.cellFields`](content-blocks-animators.md#content-cellFields).
 
 Arguments (`args`):
 
@@ -959,7 +959,7 @@ Types: [`CellField`](types-a-c.md#type-cell-field).
 <a id="op-setCollisionLayers"></a>
 ## setCollisionLayers
 
-Writes: [`content.collisionLayers`](content-blocks-effects.md#content-collisionLayers).
+Writes: [`content.collisionLayers`](content-blocks-shell.md#content-collisionLayers).
 
 Arguments (`args`):
 
@@ -999,7 +999,7 @@ interface SetComponentArgs {
 <a id="op-setDialogue"></a>
 ## setDialogue
 
-Writes: [`content.dialogues`](content-blocks-effects.md#content-dialogues).
+Writes: [`content.dialogues`](content-blocks-shell.md#content-dialogues).
 
 Arguments (`args`):
 
@@ -1012,7 +1012,7 @@ Types: [`GraphData`](types-c-m.md#type-graph-data).
 <a id="op-setDialogueSettings"></a>
 ## setDialogueSettings
 
-Writes: [`content.dialogueSettings`](content-blocks-effects.md#content-dialogueSettings).
+Writes: [`content.dialogueSettings`](content-blocks-shell.md#content-dialogueSettings).
 
 Arguments (`args`):
 
@@ -1025,7 +1025,7 @@ Types: [`DialogueSettings`](types-c-m.md#type-dialogue-settings).
 <a id="op-setEffect"></a>
 ## setEffect
 
-Writes: [`content.effects`](content-blocks-effects.md#content-effects).
+Writes: [`content.effects`](content-blocks-animators.md#content-effects).
 
 Arguments (`args`):
 
@@ -1051,7 +1051,7 @@ Types: [`EnvironmentConfig`](types-c-m.md#type-environment-config), [`SceneEnvir
 <a id="op-setEventCues"></a>
 ## setEventCues
 
-Writes: [`content.eventCues`](content-blocks-effects.md#content-eventCues).
+Writes: [`content.eventCues`](content-blocks-shell.md#content-eventCues).
 
 Arguments (`args`):
 
@@ -1064,7 +1064,7 @@ Types: [`EventCue`](types-c-m.md#type-event-cue).
 <a id="op-setGraph"></a>
 ## setGraph
 
-Writes: [`content.graphs`](content-blocks-effects.md#content-graphs).
+Writes: [`content.graphs`](content-blocks-shell.md#content-graphs).
 
 Arguments (`args`):
 
@@ -1090,7 +1090,7 @@ Types: [`InputConfig`](types-c-m.md#type-input-config).
 <a id="op-setKit"></a>
 ## setKit
 
-Writes: [`content.kits`](content-blocks-effects.md#content-kits).
+Writes: [`content.kits`](content-blocks-animators.md#content-kits).
 
 Arguments (`args`):
 
@@ -1103,7 +1103,7 @@ Types: [`KitDef`](types-c-m.md#type-kit-def).
 <a id="op-setLabels"></a>
 ## setLabels
 
-Writes: [`content.loadable`](content-blocks-effects.md#content-loadable), [`content.assets`](content-blocks-settings.md#content-assets).
+Writes: [`content.loadable`](content-blocks-shell.md#content-loadable), [`content.assets`](content-blocks-shell.md#content-assets).
 
 Arguments (`args`):
 
@@ -1119,7 +1119,7 @@ interface SetLabelsArgs {
 <a id="op-setLighting"></a>
 ## setLighting
 
-Writes: [`content.lighting`](content-blocks-settings.md#content-lighting).
+Writes: [`content.lighting`](content-blocks-shell.md#content-lighting).
 
 Arguments (`args`):
 
@@ -1132,7 +1132,7 @@ Types: [`LightingBake`](types-c-m.md#type-lighting-bake).
 <a id="op-setLightLayers"></a>
 ## setLightLayers
 
-Writes: [`content.lightLayers`](content-blocks-effects.md#content-lightLayers).
+Writes: [`content.lightLayers`](content-blocks-shell.md#content-lightLayers).
 
 Arguments (`args`):
 
@@ -1156,7 +1156,7 @@ Types: [`MaterialDef`](types-c-m.md#type-material-def).
 <a id="op-setMaterialProfile"></a>
 ## setMaterialProfile
 
-Writes: [`content.materialProfiles`](content-blocks-effects.md#content-materialProfiles).
+Writes: [`content.materialProfiles`](content-blocks-animators.md#content-materialProfiles).
 
 Arguments (`args`):
 
@@ -1169,7 +1169,7 @@ Types: [`MaterialProfile`](types-m-s.md#type-material-profile).
 <a id="op-setModes"></a>
 ## setModes
 
-Writes: [`content.modes`](content-blocks-effects.md#content-modes).
+Writes: [`content.modes`](content-blocks-animators.md#content-modes).
 
 Arguments (`args`):
 
@@ -1182,7 +1182,7 @@ Types: [`GameMode`](types-c-m.md#type-game-mode).
 <a id="op-setSaveSchema"></a>
 ## setSaveSchema
 
-Writes: [`content.saveSchema`](content-blocks-effects.md#content-saveSchema).
+Writes: [`content.saveSchema`](content-blocks-shell.md#content-saveSchema).
 
 Arguments (`args`):
 
@@ -1206,7 +1206,7 @@ Types: [`PlaneLock`](types-m-s.md#type-plane-lock).
 <a id="op-setScriptLibrary"></a>
 ## setScriptLibrary
 
-Writes: [`content.scriptLibraries`](content-blocks-effects.md#content-scriptLibraries).
+Writes: [`content.scriptLibraries`](content-blocks-animators.md#content-scriptLibraries).
 
 Arguments (`args`):
 
@@ -1219,7 +1219,7 @@ Types: [`ScriptLibraryPatch`](types-m-s.md#type-script-library-patch).
 <a id="op-setSettings"></a>
 ## setSettings
 
-Writes: [`content.settings`](content-blocks-settings.md#content-settings).
+Writes: [`content.settings`](content-blocks-shell.md#content-settings).
 
 Arguments (`args`):
 
@@ -1234,7 +1234,7 @@ interface SetSettingsArgs {
 <a id="op-setShell"></a>
 ## setShell
 
-Writes: [`content.shell`](content-blocks-effects.md#content-shell).
+Writes: [`content.shell`](content-blocks-shell.md#content-shell).
 
 Arguments (`args`):
 
@@ -1247,7 +1247,7 @@ Types: [`GameShell`](types-c-m.md#type-game-shell).
 <a id="op-setSpeaker"></a>
 ## setSpeaker
 
-Writes: [`content.speakers`](content-blocks-effects.md#content-speakers).
+Writes: [`content.speakers`](content-blocks-shell.md#content-speakers).
 
 Arguments (`args`):
 
@@ -1260,7 +1260,7 @@ Types: [`DialogueSpeaker`](types-c-m.md#type-dialogue-speaker).
 <a id="op-setStartScenes"></a>
 ## setStartScenes
 
-Writes: [`content.startScenes`](content-blocks-settings.md#content-startScenes).
+Writes: [`content.startScenes`](content-blocks-shell.md#content-startScenes).
 
 Arguments (`args`):
 
@@ -1277,7 +1277,7 @@ type SceneIndexArgs =
 <a id="op-setTags"></a>
 ## setTags
 
-Writes: [`content.tags`](content-blocks-effects.md#content-tags).
+Writes: [`content.tags`](content-blocks-shell.md#content-tags).
 
 Arguments (`args`):
 
@@ -1295,7 +1295,7 @@ interface SetTagsArgs {
 <a id="op-setTimeline"></a>
 ## setTimeline
 
-Writes: [`content.timelines`](content-blocks-effects.md#content-timelines).
+Writes: [`content.timelines`](content-blocks-shell.md#content-timelines).
 
 Arguments (`args`):
 
@@ -1320,7 +1320,7 @@ interface SetTransformArgs {
 <a id="op-setUiDocument"></a>
 ## setUiDocument
 
-Writes: [`content.uiDocuments`](content-blocks-effects.md#content-uiDocuments).
+Writes: [`content.uiDocuments`](content-blocks-animators.md#content-uiDocuments).
 
 Arguments (`args`):
 
@@ -1333,7 +1333,7 @@ Types: [`UiDocument`](types-s-w.md#type-ui-document).
 <a id="op-setUiTheme"></a>
 ## setUiTheme
 
-Writes: [`content.uiThemes`](content-blocks-effects.md#content-uiThemes).
+Writes: [`content.uiThemes`](content-blocks-shell.md#content-uiThemes).
 
 Arguments (`args`):
 
@@ -1346,7 +1346,7 @@ Types: [`UiTheme`](types-s-w.md#type-ui-theme).
 <a id="op-setVoxelKit"></a>
 ## setVoxelKit
 
-Writes: [`content.voxelKits`](content-blocks-effects.md#content-voxelKits).
+Writes: [`content.voxelKits`](content-blocks-animators.md#content-voxelKits).
 
 Arguments (`args`):
 
@@ -1405,7 +1405,7 @@ interface UpdateEntityArgs {
 <a id="op-updatePrefab"></a>
 ## updatePrefab
 
-Writes: [`content.prefabs`](content-blocks-settings.md#content-prefabs).
+Writes: [`content.prefabs`](content-blocks-shell.md#content-prefabs).
 
 Arguments (`args`):
 

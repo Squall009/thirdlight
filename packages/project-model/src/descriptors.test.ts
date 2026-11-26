@@ -736,6 +736,8 @@ const MATERIAL_BASES: J[] = [
   [{ materialId: 'mat-a', name: 'Decal', shader: 'decal', params: {}, textures: {}, decal: { sheet: 'mat-t', cell: 'sign' } }],
   // A material with the material model's parts: physics, game data and a voxel use with its texture sets.
   [{ materialId: 'mat-v', name: 'Oak', shader: 'standard', params: {}, textures: {}, physical: { profile: 'wood', density: 650, friction: 0.55, restitution: 0.2, flowRate: 0 }, gameData: { footstep: 'wood' }, voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, blendMetres: 0.1, surfaces: { wall: { albedo: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedo: 'tex-f' }, ceiling: { orm: 'tex-c' } } } }],
+  // A gas material with its plain look.
+  [{ materialId: 'mat-g', name: 'Mist', shader: 'standard', params: {}, textures: {}, voxel: { id: 13, use: 'gas', gas: { color: '#c8d2dc', density: 0.25 } } }],
   // A layered material naming its layers for the palette.
   [{ materialId: 'mat-l', name: 'Layers', shader: 'standard', params: {}, textures: {}, layerNames: ['Grass', 'Dirt'] }],
   // A layered material whose first layer follows a trim sheet.
@@ -1095,8 +1097,9 @@ describe('descriptor registry', () => {
     // and the bake level's text on what draws past the detail ring, about 0.5 KB; a voxel structure — the building's
     // definition, its world and grid — about 5.2 KB; a voxel portal — open, and what it stops while shut — about 2 KB;
     // a water body — its level and its handle, liquid and reach — about 1.6 KB; a spline's voxels — kind, material,
-    // bed, shoulders, clear — about 1.5 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(389_600);
+    // bed, shoulders, clear — about 1.5 KB; a voxel material's gas use and its look — colour, full density — about
+    // 0.6 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(390_200);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

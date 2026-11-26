@@ -29,9 +29,10 @@ export type RoleMedium = 'none' | 'liquid' | 'gas';
  * 8 cells under it:
  * - `cells`: a body drawn as whole cells: by how many of the 8 it holds (half, or a sheet), among bodies by rank;
  * - `fill`: a body drawn from its fill: with any fill, after every `cells` role that holds;
- * - `share`: a medium: only where no body holds, when its share of the 8 rounds to a level, among media by rank;
- * - `gap`: an opening: only where neither a body nor a medium holds (open space that keeps its width);
+ * - `share`: a medium: only where no body holds, when the mean of its shape over the 8 rounds to a level;
+ * - `gap`: an opening: only where no body holds, with any cell of it (open space that keeps its width);
  * - `never`: it adds nothing (air).
+ * Where no body holds, the first `share` or `gap` role by rank that does takes the cell.
  */
 export type RoleMipHold = 'never' | 'cells' | 'fill' | 'share' | 'gap';
 
@@ -61,7 +62,7 @@ export interface RoleTraits {
   readonly frame: boolean;
   /** How it holds a cell of a coarser level. */
   readonly mip: RoleMipHold;
-  /** Its place among the roles of the same {@link RoleMipHold} group order (bodies, then media): lower wins; −1 for `never` and `gap`. */
+  /** Its place in the order a coarser cell is given away: bodies (`cells`, `fill`) first, then media and openings (`share`, `gap`); lower wins; −1 for `never`. */
   readonly mipRank: number;
 }
 
@@ -80,7 +81,10 @@ const UNASSIGNED: RoleTraits = Object.freeze({ name: null, body: false, stopsLig
  * first by rank: whole-cell bodies before ground, so a wall standing in a
  * node of ground keeps its block and the ground's surface closes round it;
  * walls and their footings before floors, so a wall meeting a slab keeps
- * its height; terrain last.
+ * its height; terrain last. Where no body holds: a liquid, then an opening,
+ * then a gas, so a gas takes a coarser cell only where the world without it
+ * has air there (a doorway full of mist is still the doorway the levels
+ * above measure and close).
  */
 export const ROLE_TRAITS: readonly RoleTraits[] = Object.freeze([
   /* 0 */ Object.freeze<RoleTraits>({ name: 'air', body: false, stopsLight: false, blocksWalkers: false, collides: false, medium: 'none', shape: 'none', portal: false, frame: false, mip: 'never', mipRank: -1 }),
@@ -92,8 +96,8 @@ export const ROLE_TRAITS: readonly RoleTraits[] = Object.freeze([
   /* 6 */ Object.freeze(construction('foundation', 1)),
   /* 7 */ Object.freeze(construction('stair', 4)),
   /* 8 */ Object.freeze(construction('pillar', 2)),
-  /* 9 */ Object.freeze<RoleTraits>({ name: 'opening', body: false, stopsLight: false, blocksWalkers: false, collides: false, medium: 'none', shape: 'none', portal: true, frame: false, mip: 'gap', mipRank: -1 }),
-  /* 10 */ UNASSIGNED,
+  /* 9 */ Object.freeze<RoleTraits>({ name: 'opening', body: false, stopsLight: false, blocksWalkers: false, collides: false, medium: 'none', shape: 'none', portal: true, frame: false, mip: 'gap', mipRank: 8 }),
+  /* 10 */ Object.freeze<RoleTraits>({ name: 'gas', body: false, stopsLight: false, blocksWalkers: false, collides: false, medium: 'gas', shape: 'density', portal: false, frame: false, mip: 'share', mipRank: 9 }),
   /* 11 */ UNASSIGNED,
   /* 12 */ UNASSIGNED,
   /* 13 */ UNASSIGNED,
@@ -110,8 +114,8 @@ const SLOT_MASK = ROLE_SLOTS - 1;
  * reads a level-0 cell's mesh, collision, navigation and light coverage
  * from one class (what the rule set makes of a body), so a row whose light
  * stop, walkers or collision differ from `body` would be read wrongly until
- * the derive carries them apart; a medium is open space; ranks are distinct
- * within bodies and within media.
+ * the derive carries them apart; a medium is open space; every role that
+ * can hold a coarser cell has a rank of its own.
  */
 export function checkRoleTraits(table: readonly RoleTraits[]): void {
   if (table.length !== ROLE_SLOTS) throw new RangeError(`role traits: ${table.length} rows (the role field has ${ROLE_SLOTS} values)`);
@@ -122,7 +126,7 @@ export function checkRoleTraits(table: readonly RoleTraits[]): void {
     if (t.medium !== 'none' && t.body) throw new RangeError(`${what}: a medium is open space, not a body`);
     if ((t.shape === 'level') !== (t.medium === 'liquid') || (t.shape === 'density') !== (t.medium === 'gas')) throw new RangeError(`${what}: a liquid's shape is its level, a gas's its density`);
     if ((t.shape === 'fill' || t.shape === 'integrity') !== t.body) throw new RangeError(`${what}: a body's shape is a fill or an integrity, and only a body's`);
-    const group = t.mip === 'cells' || t.mip === 'fill' ? 'body' : t.mip === 'share' ? 'medium' : null;
+    const group = t.mip === 'cells' || t.mip === 'fill' ? 'body' : t.mip === 'share' ? 'medium' : t.mip === 'gap' ? 'gap' : null;
     if ((group === 'body') !== t.body || (group === 'medium') !== (t.medium !== 'none')) throw new RangeError(`${what}: bodies hold a coarser cell by cells or fill, media by share`);
     if ((t.mip === 'cells') !== (t.shape === 'integrity')) throw new RangeError(`${what}: whole blocks hold a coarser cell by cells, and only they`);
     if ((t.mip === 'gap') !== t.portal) throw new RangeError(`${what}: an opening holds a coarser cell as a gap, and only an opening`);
@@ -165,6 +169,7 @@ const BLOCKS_WALKERS = roleLookup((t) => t.blocksWalkers);
 const COLLIDES = roleLookup((t) => t.collides);
 const MEDIUM = roleLookup((t) => t.medium !== 'none');
 const LIQUID = roleLookup((t) => t.medium === 'liquid');
+const GAS = roleLookup((t) => t.medium === 'gas');
 const PORTAL = roleLookup((t) => t.portal);
 const FILL = roleLookup((t) => t.shape === 'fill');
 const INTEGRITY = roleLookup((t) => t.shape === 'integrity');
@@ -206,6 +211,11 @@ export function isLiquidRole(role: number): boolean {
   return LIQUID[role & SLOT_MASK] === 1;
 }
 
+/** Whether a role's cells hold a gas: its shape is a density, and it carries no wetness. */
+export function isGasRole(role: number): boolean {
+  return GAS[role & SLOT_MASK] === 1;
+}
+
 /** Whether a role is a gap a portal prop stands in ({@link RoleTraits.portal}). */
 export function isPortalRole(role: number): boolean {
   return PORTAL[role & SLOT_MASK] === 1;
@@ -241,6 +251,11 @@ export function mipBodyRoles(table: readonly RoleTraits[] = ROLE_TRAITS): number
 /** The medium roles a coarser level keeps where no body holds, first wins. */
 export function mipMediumRoles(table: readonly RoleTraits[] = ROLE_TRAITS): number[] {
   return rolesWhere((t) => t.mip === 'share', table).sort(byRank(table));
+}
+
+/** The roles a coarser cell no body holds may be, first wins: media by their share, openings by any cell of theirs. */
+export function mipOpenRoles(table: readonly RoleTraits[] = ROLE_TRAITS): number[] {
+  return rolesWhere((t) => t.mip === 'share' || t.mip === 'gap', table).sort(byRank(table));
 }
 
 /** The roles of gaps portal props stand in (ascending). */

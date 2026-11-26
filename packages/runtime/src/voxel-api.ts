@@ -81,7 +81,7 @@
  * triangle).
  */
 import type { VoxelMaterialInfo } from '@thirdlight/project-model';
-import { cellInWorld, MATERIAL_ID_MAX, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE_COUNT, VOXEL_SIZE_M, WETNESS_MAX, type OpenPortalInfo, type OpenRegionInfo, type VoxelRecord, type WalkHit, type WalkRay } from '@thirdlight/voxel';
+import { cellInWorld, heldWetness, MATERIAL_ID_MAX, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_ROLE_COUNT, VOXEL_SIZE_M, WETNESS_MAX, type OpenPortalInfo, type OpenRegionInfo, type VoxelRecord, type WalkHit, type WalkRay } from '@thirdlight/voxel';
 
 export type { VoxelMaterialInfo };
 
@@ -662,6 +662,7 @@ export function writeRecord(v: VoxelWrite): VoxelRecord | null {
   const shape = v.shape ?? SHAPE_FULL;
   const wetness = v.wetness ?? 0;
   if (!intIn(v.material, 0, MATERIAL_ID_MAX) || !intIn(v.role, 0, VOXEL_ROLE_COUNT - 1) || !intIn(shape, 0, SHAPE_FULL) || !intIn(wetness, 0, WETNESS_MAX)) return null;
+  if (v.material !== 0 && heldWetness(v.role, wetness) !== wetness) return null;
   return { material: v.material, role: v.role, shape, wetness };
 }
 

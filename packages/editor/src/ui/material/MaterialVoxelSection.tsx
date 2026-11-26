@@ -1,6 +1,7 @@
 /**
  * A material's voxel use in the Inspector: whether and how the record is
- * also a voxel material (its voxel id, use, kit, tile and relief depth),
+ * also a voxel material (its voxel id, use, kit, tile and relief depth, a
+ * gas's colour and full density),
  * and the badges of what it can be used for. Every change is one
  * `setMaterial` (committed on release), so each is one undo; the backend's
  * refusals (a voxel id another material has, a kit the project lacks) show
@@ -16,7 +17,7 @@
  */
 import { useEffect, useState, type JSX } from 'react';
 import type { MaterialDef } from '@thirdlight/project-model';
-import { materialBadges, VOXEL_MATERIAL_LIMITS, VOXEL_MATERIAL_USES, voxelTileMetresDefault, type MaterialVoxel, type VoxelMaterialUse } from '@thirdlight/project-model/voxel-materials';
+import { materialBadges, VOXEL_MATERIAL_LIMITS, VOXEL_MATERIAL_USES, voxelGasLook, voxelTileMetresDefault, voxelUseTakesKit, type MaterialVoxel, type VoxelGasLook, type VoxelMaterialUse } from '@thirdlight/project-model/voxel-materials';
 import { RefPicker } from '../catalog/RefPicker';
 
 /** What each badge says (the material library's tile shows the same). */
@@ -96,6 +97,12 @@ export function MaterialVoxelSection(p: { material: MaterialDef; resolved: Mater
     for (const k of Object.keys(patch) as (keyof MaterialVoxel)[]) if (patch[k] === undefined) delete next[k];
     save(next);
   };
+  /** The gas look with `patch` over it (a field set to undefined is left out; an empty look leaves the record). */
+  const setGas = (patch: Partial<VoxelGasLook>): void => {
+    const next: VoxelGasLook = { ...own?.gas, ...patch };
+    for (const k of Object.keys(patch) as (keyof VoxelGasLook)[]) if (patch[k] === undefined) delete next[k];
+    set({ gas: Object.keys(next).length > 0 ? next : undefined });
+  };
   const use = own?.use;
   const shownUse: VoxelMaterialUse | undefined = own?.use ?? (own !== undefined ? inherited?.use : undefined);
   const surfaces = Object.keys(own?.surfaces ?? {}).length;
@@ -139,7 +146,7 @@ export function MaterialVoxelSection(p: { material: MaterialDef; resolved: Mater
             <span className="tl-field__label">voxel id</span>
             <NumberField aria="voxel id" value={own.id} placeholder="" min={L.idMin} max={L.idMax} step={1} onCommit={(v) => v !== undefined && Number.isInteger(v) && set({ id: v })} />
           </label>
-          {shownUse !== 'liquid' && (
+          {(shownUse === undefined || voxelUseTakesKit(shownUse)) && (
             <label className="tl-field">
               <span className="tl-field__label">kit</span>
               <RefPicker aria="voxel kit" kinds={['voxelkit']} value={own.kit ?? ''} none={instance && inherited?.kit !== undefined && own.kit === undefined ? `— the parent's (${inherited.kit}) —` : '— no kit (plain faces) —'} onPick={(id) => set({ kit: id === '' ? undefined : id })} />
@@ -157,6 +164,18 @@ export function MaterialVoxelSection(p: { material: MaterialDef; resolved: Mater
             <span className="tl-field__label">blend m</span>
             <NumberField aria="voxel blend metres" value={own.blendMetres} placeholder={inherited?.blendMetres !== undefined ? String(inherited.blendMetres) : 'world'} min={0} max={L.blendMetresMax} step={0.05} onCommit={(v) => set({ blendMetres: v })} />
           </label>
+          {shownUse === 'gas' && (
+            <>
+              <label className="tl-field">
+                <span className="tl-field__label">gas colour</span>
+                <input type="color" aria-label="voxel gas colour" value={own.gas?.color ?? voxelGasLook(inherited).color} onChange={(e) => setGas({ color: e.target.value.toLowerCase() })} />
+              </label>
+              <label className="tl-field">
+                <span className="tl-field__label">full density /m</span>
+                <NumberField aria="voxel gas density" value={own.gas?.density} placeholder={String(voxelGasLook(inherited).density)} min={0} max={L.gasDensityMax} step={0.01} onCommit={(v) => setGas({ density: v })} />
+              </label>
+            </>
+          )}
           <p className="tl-hint">
             {surfaces === 0 ? 'Wall, floor and ceiling draw with the material’s own look.' : `${surfaces} surface texture set${surfaces === 1 ? '' : 's'} named (wall, floor, ceiling).`} The colour above tints its voxels.
           </p>

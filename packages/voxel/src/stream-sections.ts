@@ -195,9 +195,11 @@ const EMPTY_OUTPUT: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: n
  * sections holding the change's cells derive whole, though the change
  * itself feeds only the shader data. A paint that moves cells to another
  * kit's pieces needs it: a cell's piece reads its own material only, so
- * nothing past those sections changes geometry.
+ * nothing past those sections changes geometry. Its bit lies well above
+ * the parts', so a part added later never lands on it.
  */
-export const PIECES_AT_CELLS = 1 << 6;
+export const PIECES_AT_CELLS = 1 << 16;
+if ((PIECES_AT_CELLS & Object.values(DERIVED_PART).reduce((m, bit) => m | bit, 0)) !== 0) throw new RangeError('the pieces flag is a derived part\'s bit');
 
 /** The parts a section derives without the assembly evaluation, its surfaces standing: the shader data and the liquid part. */
 export const SURFACE_KEEPING_PARTS = DERIVED_PART.shader | DERIVED_PART.liquid;
@@ -568,6 +570,8 @@ export class SectionDerives {
   invalidate(box: CellBox, why: 'yes' | 'edit', parts: number, groupOrId: EditGroup | number | null): void {
     let g = typeof groupOrId === 'number' ? this.group(groupOrId) : groupOrId;
     const own = parts & ALL_DERIVED_PARTS;
+    // A change that feeds only a part no derive builds leaves every section as it is.
+    if (own === 0 && (parts & PIECES_AT_CELLS) === 0) return;
     const geometry = geometryParts(own);
     for (const d of dependentChunks(this.sections, box, geometry ? this.host.radius : partsApronRadius(own))) {
       const s = this.bySection.get(chunkKey(this.sections, d.cx, d.cy, d.cz));

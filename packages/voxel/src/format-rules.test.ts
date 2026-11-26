@@ -188,7 +188,13 @@ describe('chunk codec: canonical input only', () => {
   });
 
   it('refuses unassigned roles and fields past their width, in bytes and at every writer', () => {
-    expect(() => decode(packedBytes([{ m: 1, r: VOXEL_ROLE_COUNT, s: 15 }, AIR_E], rockBelow))).toThrow(/unassigned role 10/);
+    expect(() => decode(packedBytes([{ m: 1, r: VOXEL_ROLE_COUNT, s: 15 }, AIR_E], rockBelow))).toThrow(new RegExp(`unassigned role ${VOXEL_ROLE_COUNT}`));
+    expect(() => decode(packedBytes([{ m: 1, r: 15, s: 15 }, AIR_E], rockBelow))).toThrow(/unassigned role 15/);
+    // The last assigned role, a gas at a density, is held; a gas holds no wetness.
+    expect(() => decode(packedBytes([{ m: 1, r: VOXEL_ROLE.gas, s: 9 }, AIR_E], rockBelow))).not.toThrow();
+    expect(() => decode(uniformBytes(1, VOXEL_ROLE.gas, 9, 0))).not.toThrow();
+    expect(() => decode(packedBytes([{ m: 1, r: VOXEL_ROLE.gas, s: 9, w: 2 }, AIR_E], rockBelow))).toThrow(/a gas with wetness/);
+    expect(() => decode(uniformBytes(1, VOXEL_ROLE.gas, 9, 2))).toThrow(/a gas with wetness/);
     expect(() => decode(packedBytes([{ m: 1, r: 1, s: 16 }, AIR_E], rockBelow))).toThrow(/shape 16 past its largest value 15/);
     expect(() => decode(packedBytes([{ m: 1, r: 1, s: 15, w: 8 }, AIR_E], rockBelow))).toThrow(/wetness 8 past its largest value 7/);
     expect(() => decode(packedBytes([{ m: 1, r: VOXEL_ROLE.opening, s: 9, w: 7 }, AIR_E], rockBelow))).not.toThrow();
@@ -566,7 +572,7 @@ describe('saves: the cells the player changed land on a changed base', () => {
     expect(() => read(write(content))).not.toThrow();
     if (content.kind !== 'uniform') throw new Error('unreachable');
     expect(() => read(write({ ...content, mask: new Uint8Array(changedMaskBytes(grid)) }))).toThrow(/names no changed cell/);
-    expect(() => read(write({ ...content, value: recordValue(3, VOXEL_ROLE_COUNT, SHAPE_FULL, 0) }))).toThrow(/save uniform entry: unassigned role 10/);
+    expect(() => read(write({ ...content, value: recordValue(3, VOXEL_ROLE_COUNT, SHAPE_FULL, 0) }))).toThrow(new RegExp(`save uniform entry: unassigned role ${VOXEL_ROLE_COUNT}`));
     expect(() => read(write({ ...content, value: (recordValue(3, 1, SHAPE_FULL, 0) | (1 << 23)) >>> 0 }))).toThrow(/reserved bits/);
     const airShape = new CellDelta();
     airShape.push(7, recordValue(0, 0, 9, 0));
@@ -618,7 +624,7 @@ describe('record value form: every form holding raw values names it', () => {
     const { tile } = sampleRegion();
     const bad = writeRegion(tile, [{ cx: 16, cy: 0, cz: -16, uniform: recordValue(1, VOXEL_ROLE_COUNT, SHAPE_FULL, 0) }]);
     expect(() => RegionIndex.parse(bad, { expect: tile })).toThrow(RegionFileError);
-    expect(() => RegionIndex.parse(bad, { expect: tile })).toThrow(/region file: entry 0: unassigned role 10/);
+    expect(() => RegionIndex.parse(bad, { expect: tile })).toThrow(new RegExp(`region file: entry 0: unassigned role ${VOXEL_ROLE_COUNT}`));
     const delta = new CellDelta();
     delta.push(3, (recordValue(1, 1, SHAPE_FULL, 0) | (1 << 30)) >>> 0);
     const ok = new CellDelta();

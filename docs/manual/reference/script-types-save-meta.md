@@ -1134,7 +1134,7 @@ export const PLANE_AXES: readonly ["x", "z"];
 
 ```ts
 /** What a voxel material is used for. */
-export const VOXEL_MATERIAL_USES: readonly ["construction", "terrain", "liquid"];
+export const VOXEL_MATERIAL_USES: readonly ["construction", "terrain", "liquid", "gas"];
 ```
 
 <a id="script-type-game-data-json"></a>

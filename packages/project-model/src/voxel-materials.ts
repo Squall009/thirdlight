@@ -8,9 +8,9 @@
  * - `id`: its voxel material id (1–4,095, the voxel value's 12 bits; 0 is
  *   air), unique in the project, so every world of the project shares them;
  * - `use`: construction (grid-anchored 4 × 4 m tiles), terrain (triplanar,
- *   2 m) or liquid;
+ *   2 m), liquid or gas (fog, smoke: cells of the gas role);
  * - `kit`: the voxel kit whose detail pieces its edges draw (not with
- *   liquid);
+ *   liquid or gas);
  * - `tileMetres`: metres one texture repeat covers (absent: the use's
  *   default, the derive's own constants);
  * - `heightDepth`: metres the height map's 0 lies below its 1, the
@@ -22,7 +22,9 @@
  *   smaller one's wins, so a crisp material stays crisp beside a soft one;
  * - `surfaces`: wall, floor and ceiling texture sets (role and face
  *   direction pick one; floor and ceiling fall back to wall, wall to the
- *   material's own look), so a voxel stays one material id.
+ *   material's own look), so a voxel stays one material id;
+ * - `gas`: a gas's plain look, its colour and its full density per metre
+ *   (what a cell of density 15 holds; only with the gas use).
  *
  * **Variants are material instances.** An instance inherits its chain's
  * physical block, game data and voxel fields and overrides any; a voxel
@@ -43,8 +45,21 @@ import { PHYSICAL_DEFAULTS, type MaterialGameData, type ResolvedPhysical } from 
 import { ID_RE } from './validate';
 
 /** What a voxel material is used for. */
-export const VOXEL_MATERIAL_USES = ['construction', 'terrain', 'liquid'] as const;
+export const VOXEL_MATERIAL_USES = ['construction', 'terrain', 'liquid', 'gas'] as const;
 export type VoxelMaterialUse = (typeof VOXEL_MATERIAL_USES)[number];
+
+/** Whether a use's cells are bodies whose edges a kit's pieces can dress: construction and terrain, never a liquid or a gas. */
+export function voxelUseTakesKit(use: VoxelMaterialUse): boolean {
+  return use === 'construction' || use === 'terrain';
+}
+
+/** A gas's plain look: its colour, and the density per metre a cell at full density (shape 15) holds. */
+export interface VoxelGasLook {
+  /** "#rrggbb", lower case (absent: {@link VOXEL_MATERIAL_LIMITS.gasColorDefault}). */
+  color?: string;
+  /** Per metre, 0–{@link VOXEL_MATERIAL_LIMITS.gasDensityMax} (absent: {@link VOXEL_MATERIAL_LIMITS.gasDensityDefault}). */
+  density?: number;
+}
 
 /** The surfaces a voxel material dresses (picked by role and face direction). */
 export const VOXEL_SURFACES = ['wall', 'floor', 'ceiling'] as const;
@@ -66,7 +81,7 @@ export interface MaterialVoxel {
   id: number;
   /** Required on a material; an instance may leave it to its chain. */
   use?: VoxelMaterialUse;
-  /** The voxel kit whose pieces its edges draw (absent: none; never with liquid). */
+  /** The voxel kit whose pieces its edges draw (absent: none; never with liquid or gas). */
   kit?: string;
   /** Metres one texture repeat covers (absent: {@link voxelTileMetresDefault}). */
   tileMetres?: number;
@@ -76,6 +91,8 @@ export interface MaterialVoxel {
   blendMetres?: number;
   /** Texture sets per surface (absent: the material's own look on every surface). */
   surfaces?: Partial<Record<VoxelSurface, VoxelTextureSet>>;
+  /** A gas's plain look (only with the gas use; absent: the defaults). */
+  gas?: VoxelGasLook;
 }
 
 export const VOXEL_MATERIAL_LIMITS = Object.freeze({
@@ -99,9 +116,21 @@ export const VOXEL_MATERIAL_LIMITS = Object.freeze({
   blendMetresMax: VOXEL_SIZE_M,
   /** A world that says nothing: half a cell, a soft seam that still keeps each cell's material readable. */
   blendMetresDefault: VOXEL_SIZE_M / 2,
+  /** A gas that says nothing: white, and thin enough that 10 m of it at full density lets about a third of the light through. */
+  gasColorDefault: '#ffffff',
+  gasDensityDefault: 0.1,
+  /** The thickest gas: at 8 a metre one 0.5 m cell at full density passes under 2 % (opaque to the eye). */
+  gasDensityMax: 8,
 });
 
-const VOXEL_FIELDS = ['id', 'use', 'kit', 'tileMetres', 'heightDepth', 'blendMetres', 'surfaces'];
+const VOXEL_FIELDS = ['id', 'use', 'kit', 'tileMetres', 'heightDepth', 'blendMetres', 'surfaces', 'gas'];
+const GAS_FIELDS = ['color', 'density'];
+const GAS_COLOR_RE = /^#[0-9a-f]{6}$/;
+
+/** A gas material's look with what it leaves out filled in. */
+export function voxelGasLook(v: Pick<MaterialVoxel, 'gas'> | undefined): Required<VoxelGasLook> {
+  return { color: v?.gas?.color ?? VOXEL_MATERIAL_LIMITS.gasColorDefault, density: v?.gas?.density ?? VOXEL_MATERIAL_LIMITS.gasDensityDefault };
+}
 
 /** Whether `v` is a blend distance in range (metres, 0–{@link VOXEL_MATERIAL_LIMITS.blendMetresMax}). */
 export function isVoxelBlendMetres(v: unknown): v is number {
@@ -130,7 +159,7 @@ function textureSet(v: unknown, path: string, errors: ModelErrorV2[]): void {
  * whole list: {@link validateVoxelMaterialRules}). `instance`: an instance may leave `use` to its chain.
  */
 export function validateMaterialVoxel(v: unknown, path: string, errors: ModelErrorV2[], instance: boolean): void {
-  if (!isPlainObjectStrict(v)) return err(errors, 'field_type', path, 'voxel is {id, use, kit?, tileMetres?, heightDepth?, blendMetres?, surfaces?}', v, 'object');
+  if (!isPlainObjectStrict(v)) return err(errors, 'field_type', path, 'voxel is {id, use, kit?, tileMetres?, heightDepth?, blendMetres?, surfaces?, gas?}', v, 'object');
   for (const k of Object.keys(v)) if (!VOXEL_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown voxel field "${k}"`, k, VOXEL_FIELDS.join(', '));
   const L = VOXEL_MATERIAL_LIMITS;
   const id = v['id'];
@@ -157,6 +186,17 @@ export function validateMaterialVoxel(v: unknown, path: string, errors: ModelErr
       }
     }
   }
+  const gas = v['gas'];
+  if (gas !== undefined) {
+    if (!isPlainObjectStrict(gas)) err(errors, 'field_type', `${path}/gas`, 'gas is {color?, density?}', gas, 'object');
+    else {
+      for (const k of Object.keys(gas)) if (!GAS_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/gas/${k}`, `unknown gas field "${k}"`, k, GAS_FIELDS.join(', '));
+      const color = gas['color'];
+      if (color !== undefined && (typeof color !== 'string' || !GAS_COLOR_RE.test(color))) err(errors, 'field_value', `${path}/gas/color`, 'a gas colour is #rrggbb (lower case)', color);
+      const density = gas['density'];
+      if (density !== undefined && (typeof density !== 'number' || !Number.isFinite(density) || density < 0 || density > L.gasDensityMax)) err(errors, 'field_value', `${path}/gas/density`, `a gas's full density is 0-${L.gasDensityMax} per metre`, density);
+    }
+  }
 }
 
 function canonicalSet(s: VoxelTextureSet): VoxelTextureSet {
@@ -165,7 +205,7 @@ function canonicalSet(s: VoxelTextureSet): VoxelTextureSet {
   return out;
 }
 
-/** The voxel part in canonical form: fields in a fixed order, surfaces and maps in theirs, empty sets left out. */
+/** The voxel part in canonical form: fields in a fixed order, surfaces and maps in theirs, empty sets and an empty gas look left out. */
 export function canonicalMaterialVoxel(v: MaterialVoxel): MaterialVoxel {
   const surfaces: Partial<Record<VoxelSurface, VoxelTextureSet>> = {};
   for (const s of VOXEL_SURFACES) {
@@ -174,6 +214,7 @@ export function canonicalMaterialVoxel(v: MaterialVoxel): MaterialVoxel {
     const c = canonicalSet(set);
     if (Object.keys(c).length > 0) surfaces[s] = c;
   }
+  const gas: VoxelGasLook = { ...(v.gas?.color !== undefined ? { color: v.gas.color } : {}), ...(v.gas?.density !== undefined ? { density: v.gas.density } : {}) };
   return {
     id: v.id,
     ...(v.use !== undefined ? { use: v.use } : {}),
@@ -182,15 +223,17 @@ export function canonicalMaterialVoxel(v: MaterialVoxel): MaterialVoxel {
     ...(v.heightDepth !== undefined ? { heightDepth: v.heightDepth } : {}),
     ...(v.blendMetres !== undefined ? { blendMetres: v.blendMetres } : {}),
     ...(Object.keys(surfaces).length > 0 ? { surfaces } : {}),
+    ...(Object.keys(gas).length > 0 ? { gas } : {}),
   };
 }
 
-/** Voxel parts along an instance chain (the root first, the instance last): each level's fields over the farther ones', sets map by map, the id the instance's own. */
+/** Voxel parts along an instance chain (the root first, the instance last): each level's fields over the farther ones', sets map by map, the gas look field by field, the id the instance's own. */
 export function mergeMaterialVoxel(chain: readonly (MaterialVoxel | undefined)[]): MaterialVoxel | undefined {
   const own = chain[chain.length - 1];
   if (own === undefined) return undefined;
   const out: MaterialVoxel = { id: own.id };
   const surfaces: Partial<Record<VoxelSurface, VoxelTextureSet>> = {};
+  let gas: VoxelGasLook = {};
   for (const v of chain) {
     if (v === undefined) continue;
     if (v.use !== undefined) out.use = v.use;
@@ -199,8 +242,10 @@ export function mergeMaterialVoxel(chain: readonly (MaterialVoxel | undefined)[]
     if (v.heightDepth !== undefined) out.heightDepth = v.heightDepth;
     if (v.blendMetres !== undefined) out.blendMetres = v.blendMetres;
     for (const s of VOXEL_SURFACES) if (v.surfaces?.[s] !== undefined) surfaces[s] = { ...surfaces[s], ...v.surfaces[s] };
+    if (v.gas !== undefined) gas = { ...gas, ...v.gas };
   }
   if (Object.keys(surfaces).length > 0) out.surfaces = surfaces;
+  if (Object.keys(gas).length > 0) out.gas = gas;
   return out;
 }
 
@@ -259,7 +304,7 @@ export function materialBadges(m: { readonly shader: string; readonly graph?: un
   const out: MaterialBadge[] = [];
   if (family !== 'decal') out.push('mesh');
   if (isVoxelMaterial(m)) out.push('voxel');
-  if (m.voxel?.kit !== undefined && m.voxel.use !== 'liquid') out.push('kit');
+  if (m.voxel?.kit !== undefined && (m.voxel.use === undefined || voxelUseTakesKit(m.voxel.use))) out.push('kit');
   if (family === 'liquid') out.push('liquid');
   if (family === 'decal') out.push('decal');
   if (family === 'graph') out.push('graph');
@@ -319,8 +364,8 @@ export interface VoxelRulesMaterial {
 
 /**
  * The rules between resolved materials, the voxel kits and the profiles (each reported at the material's index in
- * the stored list): a voxel id is used once (`voxel_id_taken`), a kit named exists (`kit_missing`), a liquid names
- * no kit, an instance's chain gives it a use, a profile named exists.
+ * the stored list): a voxel id is used once (`voxel_id_taken`), a kit named exists (`kit_missing`), a liquid or a
+ * gas names no kit, only a gas has a gas look, an instance's chain gives it a use, a profile named exists.
  */
 export function validateVoxelMaterialRules(
   resolved: readonly VoxelRulesMaterial[],
@@ -341,7 +386,8 @@ export function validateVoxelMaterialRules(
     else owner.set(v.id, m.materialId);
     if (v.use === undefined) err(errors, 'field_missing', `${at}/voxel/use`, 'a voxel variant whose chain gives no use needs its own', undefined, 'use');
     if (v.kit !== undefined && !kitIds.has(v.kit)) err(errors, 'kit_missing', `${at}/voxel/kit`, `no voxel kit "${v.kit}" in this project`, v.kit);
-    if (v.kit !== undefined && v.use === 'liquid') err(errors, 'field_value', `${at}/voxel/kit`, 'a liquid draws no kit pieces: leave kit out', v.kit);
+    if (v.kit !== undefined && v.use !== undefined && !voxelUseTakesKit(v.use)) err(errors, 'field_value', `${at}/voxel/kit`, `a ${v.use} draws no kit pieces: leave kit out`, v.kit);
+    if (v.gas !== undefined && v.use !== undefined && v.use !== 'gas') err(errors, 'field_value', `${at}/voxel/gas`, `a gas look belongs to a material whose use is gas (this one is ${v.use}): leave gas out`, v.gas);
   }
 }
 
@@ -383,14 +429,14 @@ export function resolvedVoxelParts(materials: readonly BindableMaterial[]): Map<
 /**
  * The kits with the material ids each binds, as the piece table reads them (`materials`, ascending; left out when
  * none): the ids whose material names the kit, then the kit's own test list for ids no material names. A liquid
- * binds none.
+ * or a gas binds none.
  */
 export function boundVoxelKits<K extends BindableKit>(kits: readonly K[], materials: readonly BindableMaterial[]): K[] {
   const named = new Set<number>();
   const byKit = new Map<string, number[]>();
   for (const v of resolvedVoxelParts(materials).values()) {
     named.add(v.id);
-    if (v.kit === undefined || v.use === 'liquid') continue;
+    if (v.kit === undefined || (v.use !== undefined && !voxelUseTakesKit(v.use))) continue;
     const list = byKit.get(v.kit);
     if (list === undefined) byKit.set(v.kit, [v.id]);
     else list.push(v.id);

@@ -43,7 +43,7 @@ For a game:
 ## The setting
 
 **Project Settings → Quality → Rendering → Occlusion culling**
-([`occlusion_culling`](../reference/content-blocks-settings.md#content-settings):
+([`occlusion_culling`](../reference/content-blocks-shell.md#content-settings):
 0 off, 1 auto, 2 on). A project that does not set it uses **auto**, which
 for now culls nothing: in the scenes measured so far the
 culling cost an open view more than it saved (the frame drawn in two passes

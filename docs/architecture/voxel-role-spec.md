@@ -26,8 +26,9 @@ kits: slots, jitter, the near ring, decals. §12 is for kit artists (Blender). �
 
 ## 1. Roles are stored; everything else is read from the arrangement
 
-A voxel stores four things (format spec §2.2): a material, a **role**, a shape and a wetness. Ten roles are assigned
-(owner 2026-11-02); values 10–15 are refused until a later spec assigns them.
+A voxel stores four things (format spec §2.2): a material, a **role**, a shape and a wetness. Ten roles were assigned
+(owner 2026-11-02) and an eleventh, `gas`, was added (owner 2026-11-26: G1 of plan 47b, add-only; no case, slot or
+rule of this page changes, a gas cell is open as air is); values 11–15 are refused until a later spec assigns them.
 
 | Role | Value | Kind | Its shape means | What draws it |
 |---|---|---|---|---|
@@ -41,6 +42,7 @@ A voxel stores four things (format spec §2.2): a material, a **role**, a shape 
 | stair | 7 | construction | integrity | plain voxel faces + edge pieces (a nosing is a top edge) |
 | pillar | 8 | construction | integrity | plain voxel faces + edge pieces |
 | opening | 9 | open | — | nothing: the gap a door or window prop fills (47a); the walls' edges round it are drawn **flush** (§3) |
+| gas | 10 | gas | density (0–15, 15 its material's full density) | its own derived part (47b); open for pieces, as air |
 
 **Construction differs from terrain and liquid in one way that matters here:** a construction cell is a whole
 0.5 m block or nothing. Its shape field is not a fill but its **integrity** (owner 2026-11-04): 15 is intact, lower
@@ -68,7 +70,7 @@ drawn in the near ring only (level 0); from level 1 out the edges are plain squa
 
 ## 3. Solid, open, and who dresses a piece
 
-**Solid and open.** Solid: any construction role, and terrain filled to its surface. Open: air, liquid, opening.
+**Solid and open.** Solid: any construction role, and terrain filled to its surface. Open: air, liquid, gas, opening.
 
 **Which case.** For a lattice edge the 4 cells round it decide: **1 solid = an outer edge, 3 = an inner edge, 2 side
 by side = a flat face (no piece), 2 diagonal = two outer edges**, one a cell (never more than two pieces on one
@@ -129,7 +131,7 @@ drawn from the rules of §3:
 | Symbol | Meaning |
 |---|---|
 | `#` | a solid cell (construction, or terrain for the counts; a piece never goes where terrain touches) |
-| `.` | an open cell (air, liquid, opening) |
+| `.` | an open cell (air, liquid, gas, opening) |
 | `*` | the edge (seen end-on) or the corner the piece sits on |
 | `O` | the piece's anchor cell (who dresses it: §3) |
 | `R` | a roof cell; `r` a roof plane cell the roof mesher draws |

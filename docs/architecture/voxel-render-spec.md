@@ -45,13 +45,14 @@ is refused whole), unknown fields at every level are refused, and later steps on
   An empty block is left out canonically.
 - `gameData?`: any JSON nested at most 32 deep (`game-data.ts`, the kit format's rule), object keys sorted, never
   read by the engine.
-- `voxel?` `{id, use, kit?, tileMetres?, heightDepth?, blendMetres?, surfaces?}`, in that order (`blendMetres?`
-  added by 46d.11, owner note below):
+- `voxel?` `{id, use, kit?, tileMetres?, heightDepth?, blendMetres?, surfaces?, gas?}`, in that order (`blendMetres?`
+  added by 46d.11, owner note below; `gas?` and the use `gas` by 47b.2, G3, owner note below):
   - `id` 1–4,095 (the voxel value's 12 material bits; 0 is air), **unique in the project** (`voxel_id_taken`);
     every world of the project shares the ids.
-  - `use` `construction` | `terrain` | `liquid` (required on a material; an instance may leave it to its chain).
+  - `use` `construction` | `terrain` | `liquid` | `gas` (required on a material; an instance may leave it to its
+    chain).
   - `kit` a voxel kit id the project has (`kit_missing`; deleting that kit is refused the same way); never with
-    `liquid`.
+    `liquid` or `gas` (`voxelUseTakesKit`).
   - `tileMetres` 0.5–64 m a texture repeat (absent: `CONSTRUCTION_TILE_METRES` 4 for construction,
     `TERRAIN_TILE_METRES` 2 for terrain and liquid, the derive's own constants).
   - `heightDepth` 0–0.25 m between the height map's 1 (the surface) and 0 (absent: 0.02 m). Relief only recesses,
@@ -62,10 +63,23 @@ is refused whole), unknown fields at every level are refused, and later steps on
   - `surfaces` `{wall?, floor?, ceiling?}`, each a texture set `{albedo?, normal?, orm?}` of plain texture
     assets (not arrays: each becomes one layer of its map's array in 46d.4a). Floor and ceiling fall back to wall,
     wall to the material's own look (`voxelSurfaceSet`). Empty sets are left out canonically.
+  - `gas` `{color?, density?}`, in that order, only on a material whose (resolved) use is `gas`: the plain look's
+    two fields. `color` "#rrggbb", lower case (absent: `VOXEL_MATERIAL_LIMITS.gasColorDefault`, white); `density`
+    the **full density per metre**, 0–8 (`gasDensityMax`; absent: `gasDensityDefault` 0.1): what a gas cell of shape
+    15 holds, a cell of shape d holding d/15 of it (format spec §2.2, G1). Inherited along an instance chain field
+    by field; an empty look is left out canonically; `voxelGasLook` gives the two with the defaults filled in.
 - `content.materialProfiles?`: `[{profileId, name, density?, friction?, restitution?, flowRate?, gameData?}]` by
   `profileId`. Engine profiles are constants (`ENGINE_MATERIAL_PROFILES`: earth, glass, lava, metal, stone, water,
   wood); a project profile with one of their ids overrides it field by field (game data whole), one with a new id
   adds one. A material naming a profile neither has is refused (`reference_missing`).
+
+**Owner note (47b.2, G3, 2026-11-26):** approved with plan 47b (§4): "Voxel material use `gas`: a fourth use beside
+construction, terrain and liquid, with two fields for the plain look: colour and full density (per metre). 51 adds
+its lighting and simulation fields." An add-only step inside project schema 8, as the record's other parts were
+(no schema bump: a project without a gas material reads and writes byte for byte as before; a build before it
+refuses the use and the field, as it refuses any unknown one). Default chosen, owner to confirm (plan 47b §8): the
+two fields are one optional block `voxel.gas`, where 51's fields can join them, with the defaults and the range
+above. A gas material's shader family stays what its shader gives (`standard`): how a gas is drawn is 47b.7's.
 
 **Variants are material instances** (`instanceOf`, at most `MAX_MATERIAL_INSTANCE_DEPTH` 8 deep). An instance
 inherits its chain's `physical` (number by number), `gameData` (top-level keys, the nearer level's winning; a
@@ -80,7 +94,7 @@ types.
 
 **The kit binding.** The piece table's material → kit pairs (§3.9 of the kit page) are built from the records:
 `boundVoxelKits(kits, materials)` gives each kit, as `materials`, the ids whose (resolved) material names it, then
-the ids of its own format-1 list that **no material record names**; a liquid binds none. The kit check adds an info
+the ids of its own format-1 list that **no material record names**; a liquid or a gas binds none. The kit check adds an info
 row (`binding`, "Set the binding on the material") while a kit has a list. The editor's views compute it from
 `queryGameConfig`; a build (Play and export) ships each kit with its bound ids, so the runtime reads one list.
 
@@ -395,7 +409,8 @@ parent is downsampled from its 8 children, an opening narrower than `MIP_OPENING
 closed in the body round it: its width is the middle of the three run lengths of opening cells through a cell
 (the shortest is the wall's thickness), in child cells, clipped at the parent's sides; it closes only when a body
 cell ends that run on a side, takes that body's role and its own material, and is whole. A parent left with no
-solid or liquid share but holding an opening cell is an opening (drawn as open space, like air), so a wider opening
+solid or liquid share but holding an opening cell is an opening (drawn as open space, like air; a gas in the same
+parent does not take it: format spec §3.7, G2), so a wider opening
 keeps its width up the levels until it too is that narrow. So a 0.5 m door or window is wall at level 1 (no
 "legs" under a far front wall), a 3 m gate stays open at level 1 and closes at level 2.
 

@@ -117,10 +117,10 @@ export interface WorldRewriteReport {
 
 /** Whether a cell holding `now` still holds what was written there, `written`. */
 export function stillWritten(now: number, written: number): boolean {
-  return now === written || (airOrLiquid(now) && airOrLiquid(written));
+  return now === written || (airOrMedium(now) && airOrMedium(written));
 }
 
-const airOrLiquid = (v: number): boolean => v === 0 || isMediumRole((v >>> ROLE_SHIFT) & ROLE_MASK);
+const airOrMedium = (v: number): boolean => v === 0 || isMediumRole((v >>> ROLE_SHIFT) & ROLE_MASK);
 
 /** The index of `cell` among a delta's ascending cells, or −1. */
 function find(d: CellDelta, cell: number): number {

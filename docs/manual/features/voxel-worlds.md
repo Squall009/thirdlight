@@ -21,7 +21,9 @@ layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-
     4 floor, 5 roof, 6 foundation, 7 stair, 8 pillar, 9 opening (a door's
     or window's gap: open like air, but the edge pieces round it are cut
     flush with its faces, so nothing stands in the doorway; a dug hole is
-    air and its edges are dressed as any other). Edges, corners and roof edges are not
+    air and its edges are dressed as any other), 10 gas (fog or smoke: open
+    like air to everything that collides, walks, stops light or draws a
+    surface; nothing draws a gas yet). Edges, corners and roof edges are not
     roles: they follow from how the cells are arranged. Beams and banisters
     are not part of voxel worlds: cells laid as one are plain voxels. What
     collides, blocks walking and lets light through is the cells, never the
@@ -30,8 +32,9 @@ layers and terrain: [the migration note](migration.md#voxel-worlds-beside-block-
     full), so ground can slope and round off instead of stepping. For the
     building roles (wall, floor, roof, foundation, stair, pillar) it is the
     cell's **integrity**: 15 intact, lower damaged (see *Damage* under
-    [Voxel kits](#voxel-kits)); a building cell is always a whole block;
-  - **wetness** — 0 (dry) to 7: as it rises the surface darkens, gets
+    [Voxel kits](#voxel-kits)); a building cell is always a whole block.
+    For a gas it is the **density**: 15 is its material's full density;
+  - **wetness** — 0 (dry) to 7 (a gas holds none: always 0): as it rises the surface darkens, gets
     smoother and loses its fine relief, and water fills the low parts of its
     texture first (the cracks between stones, then more) until level 7
     stands as water in the low parts.
@@ -838,10 +841,15 @@ the same record dresses a prop and a wall, so there is one oak, not an
   of the project shares the ids; two materials with one id are refused
   (`voxel_id_taken`).
 - **`voxel.use`**: `construction` (grid-anchored tiles, 4 × 4 m by
-  default), `terrain` (projected from three axes, 2 m) or `liquid`.
+  default), `terrain` (projected from three axes, 2 m), `liquid` or `gas`
+  (fog, smoke: the material of cells with the gas role).
+- **`voxel.gas`** (only with the use `gas`): `{color?, density?}`, the
+  gas's colour (`"#rrggbb"`, lower case; white when left out) and its
+  **full density** per metre (0–8, 0.1 when left out): what a cell of
+  density 15 holds, a cell of density 5 a third of it.
 - **`voxel.kit`**: the voxel kit whose pieces its edges draw (a kit the
   project has: `kit_missing` otherwise, and deleting a kit a material names
-  is refused). A liquid has no kit. A material without one draws plain
+  is refused). A liquid or a gas has no kit. A material without one draws plain
   voxel edges.
 - **`voxel.tileMetres`** (0.5–64 m) and **`voxel.heightDepth`** (0–0.25 m,
   the depth between its height map's white and black: sand shallow, rock
@@ -910,9 +918,10 @@ All of it goes through `setMaterial` (the editor, MCP's `tl_command` and
 scripts send the same command; one undo).
 
 **In the editor**, the material's Inspector has a **Voxel use** section:
-its badges, the use (none, construction, terrain, liquid; on an instance,
+its badges, the use (none, construction, terrain, liquid, gas; on an instance,
 "a variant" with the parent's use), the voxel id (a new voxel material gets
-the smallest free one), the kit, the tile in metres and the height depth.
+the smallest free one), the kit, the tile in metres and the height depth,
+and for a gas its colour and full density.
 Wall, floor and ceiling texture sets are set over the API for now. The
 project window shows each material's **badges**: `mesh` (draws on meshes),
 `voxel` (has a voxel use: voxel tools list it), `kit` (its edges draw a

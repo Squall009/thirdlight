@@ -116,7 +116,7 @@ off outside; the fade time eases each switch.
 3. The cut-aways: `{"entityId": "<layer>", "component": "blockLayer", "value": {"cutaway": {"regions": [{"region": "roof"}], "planes": [<upper floor's wall row>]}}}`.
 4. See-through's look ([`setSettings`](../reference/ops-detail.md#op-setSettings)):
    `{"settings": {"see_through_radius": 0.25}}`
-   ([the settings](../reference/content-blocks-settings.md#content-settings)).
+   ([the settings](../reference/content-blocks-shell.md#content-settings)).
 5. An object that stays solid: `{"entityId": "<sign>", "component": "model", "value": {"seeThrough": false}}`
    (`box`, `instances`, `blockLayer`, `terrain` and `architecture` take the
    same field; a scatter rule takes it in the rule).

@@ -358,12 +358,16 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
   json('gameData', 'Game data', `The game's own data for the material (sounds, break tags …): JSON nested at most ${GAME_DATA_DEPTH_MAX} deep, shipped as it is, never read by the engine. An instance's keys override its parent's.`),
   obj('voxel', 'Voxel use', 'It is also a voxel material: its voxel id, what it is used for, its kit and its texture sets on walls, floors and ceilings. An instance with its own (and its own id) is a voxel variant.', [
     int('id', 'Voxel id', `Its voxel material id (${VOXEL_MATERIAL_LIMITS.idMin}-${VOXEL_MATERIAL_LIMITS.idMax}), unique in the project; every world shares it.`, { required: true, min: VOXEL_MATERIAL_LIMITS.idMin, max: VOXEL_MATERIAL_LIMITS.idMax, default: 1 }),
-    enm('use', 'Use', 'Construction (grid-anchored tiles), terrain (triplanar) or liquid. An instance may leave it to its parent.', VOXEL_MATERIAL_USES, { required: true, default: 'construction' }),
-    str('kit', 'Kit', 'The voxel kit whose detail pieces its edges draw (absent: plain voxel edges; never with liquid).', ID),
+    enm('use', 'Use', 'Construction (grid-anchored tiles), terrain (triplanar), liquid or gas (fog, smoke: cells of the gas role). An instance may leave it to its parent.', VOXEL_MATERIAL_USES, { required: true, default: 'construction' }),
+    str('kit', 'Kit', 'The voxel kit whose detail pieces its edges draw (absent: plain voxel edges; never with liquid or gas).', ID),
     num('tileMetres', 'Tile', 'Metres one texture repeat covers (absent: 4 construction, 2 terrain and liquid).', { min: VOXEL_MATERIAL_LIMITS.tileMetresMin, max: VOXEL_MATERIAL_LIMITS.tileMetresMax, step: 0.5, unit: 'm' }),
     num('heightDepth', 'Height depth', `Metres between its height map's 1 (the surface) and 0 (absent: ${VOXEL_MATERIAL_LIMITS.heightDepthDefault}): sand shallow, rock deep.`, { min: 0, max: VOXEL_MATERIAL_LIMITS.heightDepthMax, step: 0.005, unit: 'm' }),
     num('blendMetres', 'Blend', `Metres over which it blends into a neighbouring voxel material (0: a hard cell line; absent: its world's blend, else ${VOXEL_MATERIAL_LIMITS.blendMetresDefault}); where two meet, the smaller wins.`, { min: 0, max: VOXEL_MATERIAL_LIMITS.blendMetresMax, step: 0.05, unit: 'm' }),
     json('surfaces', 'Surfaces', `Texture sets by surface: {${VOXEL_SURFACES.join('?, ')}?: {${VOXEL_TEXTURE_MAPS.join('?, ')}?: a plain texture asset}} (role and face direction pick one; floor and ceiling fall back to wall, wall to the material's own look).`, { shape: 'Partial<Record<VoxelSurface, VoxelTextureSet>>' }),
+    obj('gas', 'Gas look', 'A gas\'s plain look (only with the gas use): its colour and how dense it is at full density.', [
+      color('color', 'Colour', `The gas's colour (absent: ${VOXEL_MATERIAL_LIMITS.gasColorDefault}).`, { default: VOXEL_MATERIAL_LIMITS.gasColorDefault, omitDefault: true }),
+      num('density', 'Full density', `Density per metre of a cell at full density, shape 15 (absent: ${VOXEL_MATERIAL_LIMITS.gasDensityDefault}); a cell of density d holds d/15 of it.`, { min: 0, max: VOXEL_MATERIAL_LIMITS.gasDensityMax, step: 0.01 }),
+    ], { when: when('use', 'gas') }),
   ]),
 ]);
 

@@ -13,6 +13,7 @@
  *
  * Pure: no DOM, no three.js.
  */
+import type { VoxelMaterialUse } from '@thirdlight/project-model/voxel-materials';
 import { anchoredDefinition, BUILDING_GENERATOR, GridFrame, MATERIAL_AIR, STRUCTURE_DEFAULTS, StructureDefinitionError, VOXEL_ROLE, VOXEL_SIZE_M, valueMaterial, valueRole, type EditMode, type GridPlacement, type StructureDefinition, type StructureMaterials } from '@thirdlight/voxel';
 
 /** A footprint point or a rectangle's corner, [x, z] in cells. */
@@ -168,7 +169,7 @@ export function yawRotation(yaw: number): [number, number, number, number] {
 export interface StructureMaterialChoice {
   readonly id: number;
   readonly name: string;
-  readonly use: 'construction' | 'terrain' | 'liquid';
+  readonly use: VoxelMaterialUse;
 }
 
 /** The parts a structure has a material for, in the Inspector's order. */

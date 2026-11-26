@@ -80,6 +80,7 @@ export {
   shapeDensity,
   CONSTRUCTION_ROLES,
   fillLevel,
+  heldWetness,
   isConstructionRole,
   valueDensity,
   valueMaterial,
@@ -400,7 +401,7 @@ export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismat
 export { cellOutputs, resolvedClassAt, type CellOutputs, type CellPieceOutput } from './derived-cell';
 export { collisionBodyParts, collisionGeometry, heightfieldPart, type CollisionBodyPart, type CollisionGeometry, type CollisionHeightfield, type CollisionMesh, type CollisionMeshLimits, type CollisionSource, type HeightfieldUse } from './derived-collision';
 export { groundHeightfield, groundHeightfieldPatches, GROUND_HEIGHTFIELD_TOLERANCE_M, MIN_HEIGHTFIELD_PATCH_CELLS, type GroundHeightfield, type GroundHeightfieldPatches, type HeightfieldPatchOptions, type HeightfieldRefusal } from './ground-heightfield';
-export { ChunkTreeFlags, downsampleMip, isRelaidRole, MIP_MEDIUM_ROLES, MIP_OPENING_KEEP_CELLS, MIP_ROLE_PRIORITY, MIP_SHEET_CELLS, MIP_SHEET_NEIGHBOURS, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
+export { ChunkTreeFlags, downsampleMip, isRelaidRole, MIP_MEDIUM_ROLES, MIP_OPEN_ROLES, MIP_OPENING_KEEP_CELLS, MIP_ROLE_PRIORITY, MIP_SHEET_CELLS, MIP_SHEET_NEIGHBOURS, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
 export {
   buildFarNode,
   collapseUniform,

@@ -4,8 +4,8 @@
  *
  *   bits  0–11  material   (4,096 ids a world; 0 is air)
  *   bits 12–15  role       (what the voxel is for: terrain, wall, roof, …)
- *   bits 16–19  shape      (16 fill levels: 0 empty … 15 full)
- *   bits 20–22  wetness    (0 dry … 7 soaked)
+ *   bits 16–19  shape      (16 levels: a fill, a liquid's level, a block's integrity, a gas's density)
+ *   bits 20–22  wetness    (0 dry … 7 soaked; a gas holds none)
  *   bits 23–31  reserved   (0; the next per-voxel field takes them)
  *
  * The value is the unit everywhere: palettes, aprons, cell deltas, region
@@ -22,7 +22,7 @@
  * This module names the roles (the format's constants); what a role does
  * is the role traits table's (role-traits.ts), which every consumer asks.
  */
-import { INTEGRITY_ROLES, isIntegrityRole, isMediumRole, ROLE_SLOTS, ROLE_TRAITS } from './role-traits';
+import { INTEGRITY_ROLES, isGasRole, isIntegrityRole, ROLE_SLOTS, ROLE_TRAITS, type RoleMedium } from './role-traits';
 
 /** One voxel's fields (material 12 bits, role 4, shape 4, wetness 3). */
 export interface VoxelRecord {
@@ -30,7 +30,7 @@ export interface VoxelRecord {
   material: number;
   /** Role ({@link VOXEL_ROLE}); architectural detail is inferred, never stored. */
   role: number;
-  /** Fill level: 0 empty … {@link SHAPE_FULL} full; between is a surface (or a liquid's fill). */
+  /** Fill level: 0 empty … {@link SHAPE_FULL} full; between is a surface (or a liquid's fill, or a gas's density: {@link SHAPE_FULL} its material's full density). */
   shape: number;
   /** Wetness: 0 dry … {@link WETNESS_MAX}. Feeds shading only. */
   wetness: number;
@@ -53,10 +53,11 @@ export const VOXEL_ROLE = Object.freeze({
   stair: 7,
   pillar: 8,
   opening: 9,
+  gas: 10,
 });
 
 /** Roles assigned so far; a stored role of this value or above is refused. */
-export const VOXEL_ROLE_COUNT = 10;
+export const VOXEL_ROLE_COUNT = 11;
 
 // The traits table's rows are these roles: a name a row, and no row past the assigned ones.
 for (let r = 0; r < ROLE_SLOTS; r++) {
@@ -186,6 +187,15 @@ export function valueDensity(v: number): number {
 }
 
 /**
+ * The wetness a cell of `role` holds: a gas holds none (its value's wetness
+ * bits are 0), every other role what it is given. A writer that keeps a
+ * cell's role and sets its wetness (rain over a region) passes through here.
+ */
+export function heldWetness(role: number, wetness: number): number {
+  return isGasRole(role) ? 0 : wetness;
+}
+
+/**
  * The record value form: how a raw value is laid out where a format stores
  * it outside the chunk codec (region uniform entries, cell deltas in undo
  * records and saves, save uniform payloads, structure overrides). Form 2 is
@@ -271,18 +281,19 @@ export function isAir(v: Readonly<VoxelRecord>): boolean {
   return v.material === MATERIAL_AIR;
 }
 
-/** Throws unless every field fits its width and holds an assigned value. */
+/** Throws unless every field fits its width and holds an assigned value, and a gas holds no wetness. */
 export function checkVoxel(v: Readonly<VoxelRecord>): void {
   const ok = (n: number, max: number): boolean => Number.isInteger(n) && n >= 0 && n <= max;
   if (!ok(v.material, MATERIAL_ID_MAX) || !ok(v.role, VOXEL_ROLE_COUNT - 1) || !ok(v.shape, SHAPE_FULL) || !ok(v.wetness, WETNESS_MAX)) {
     throw new RangeError(`voxel field out of range: ${JSON.stringify(v)}`);
   }
+  if (v.material !== MATERIAL_AIR && heldWetness(v.role, v.wetness) !== v.wetness) throw new RangeError(`voxel field out of range: a gas holds no wetness: ${JSON.stringify(v)}`);
 }
 
 /**
  * Throws unless a value is one the format holds: a u32, air as the one
- * value 0, an assigned role, reserved bits 0. `what` names the bytes it was
- * read from.
+ * value 0, an assigned role, reserved bits 0, a gas with no wetness. `what`
+ * names the bytes it was read from.
  */
 export function checkRecordValue(v: number, what = 'voxel value'): void {
   if (!Number.isInteger(v) || v < 0 || v > 0xffffffff) throw new RangeError(`${what}: value ${v} is not a u32`);
@@ -292,35 +303,39 @@ export function checkRecordValue(v: number, what = 'voxel value'): void {
     return;
   }
   if (valueRole(v) >= VOXEL_ROLE_COUNT) throw new RangeError(`${what}: unassigned role ${valueRole(v)}`);
+  if (heldWetness(valueRole(v), valueWetness(v)) !== valueWetness(v)) throw new RangeError(`${what}: a gas with wetness`);
 }
 
 /**
  * Derived outputs, as bits of a parts mask: what a change to the voxels can
  * make stale. `shader` is the per-chunk material and wetness grid the
  * surface shader blends from; `liquid` the liquid's faces against open
- * space (derived-liquid.ts); the others are built by the assembly
- * evaluation.
+ * space (derived-liquid.ts); `gas` a gas's own part; the others are built
+ * by the assembly evaluation.
  */
-export const DERIVED_PART = Object.freeze({ mesh: 1, collision: 2, nav: 4, light: 8, shader: 16, liquid: 32 });
+export const DERIVED_PART = Object.freeze({ mesh: 1, collision: 2, nav: 4, light: 8, shader: 16, liquid: 32, gas: 64 });
 
-/** Every derived part. */
+/**
+ * Every part a derive builds. The gas part is not among them while nothing
+ * builds it: a change that feeds it alone derives nothing again.
+ */
 export const ALL_DERIVED_PARTS = 63;
 
 /**
  * Which derived outputs each field drives (the feeds mask), when nothing
  * else is known of the change. Shape and role decide geometry, so they
  * drive the mesh, collision, navigation and light occupancy, and the
- * liquid's faces (ground dug beside water bares its side); the role also
- * says how a surface is projected (construction from the build grid,
+ * media's parts (ground dug beside water or fog bares its side); the role
+ * also says how a surface is projected (construction from the build grid,
  * terrain from three axes), so it drives the shader data too; material and
  * wetness only change how a surface is shaded, or which material a
- * liquid's faces wear. An edit decides each change exactly
+ * medium's part wears. An edit decides each change exactly
  * ({@link changeFeeds}).
  */
 export const FIELD_FEEDS: Readonly<Record<VoxelPlane, number>> = Object.freeze({
-  material: DERIVED_PART.shader | DERIVED_PART.liquid,
-  role: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light | DERIVED_PART.shader | DERIVED_PART.liquid,
-  shape: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light | DERIVED_PART.liquid,
+  material: DERIVED_PART.shader | DERIVED_PART.liquid | DERIVED_PART.gas,
+  role: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light | DERIVED_PART.shader | DERIVED_PART.liquid | DERIVED_PART.gas,
+  shape: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light | DERIVED_PART.liquid | DERIVED_PART.gas,
   wetness: DERIVED_PART.shader,
 });
 
@@ -331,22 +346,33 @@ export function fieldsFeed(fields: number): number {
   return parts;
 }
 
-/** Whether a value is air or a medium (liquid): open space every output but the medium's own part reads alike. */
-function airOrLiquid(v: number): boolean {
-  return v === 0 || isMediumRole((v >>> ROLE_SHIFT) & ROLE_MASK);
+/** The derived part that draws each medium: a medium's cells are open space to every other output. */
+const MEDIUM_PART: Readonly<Record<RoleMedium, number>> = Object.freeze({ none: 0, liquid: DERIVED_PART.liquid, gas: DERIVED_PART.gas });
+
+/** Per role: its medium's part (0: not a medium). */
+const ROLE_MEDIUM_PART: readonly number[] = Object.freeze(ROLE_TRAITS.map((t) => MEDIUM_PART[t.medium]));
+
+/** The part a value's medium is drawn by; 0 for air; −1 for anything else (a body, an opening). */
+function openPart(v: number): number {
+  if (v === 0) return 0;
+  const part = ROLE_MEDIUM_PART[(v >>> ROLE_SHIFT) & ROLE_MASK]!;
+  return part === 0 ? -1 : part;
 }
 
 /**
  * The derived parts one cell's change from `before` to `after` feeds: a
- * change only between air and liquid, or of a liquid's fill level,
- * material or wetness, feeds the liquid part alone (every other output
- * reads a liquid cell as air); any other change feeds what its fields feed
- * ({@link FIELD_FEEDS}), but a material or wetness change of a cell that is
- * not liquid not the liquid part (it wears its own material). 0 when equal.
+ * change only between air and a medium (a liquid, a gas), or of a medium's
+ * shape, material or wetness, feeds that medium's part alone (every other
+ * output reads its cells as air), one medium replaced by another both
+ * theirs; any other change feeds what its fields feed ({@link FIELD_FEEDS}),
+ * but a material or wetness change of a cell that is no medium neither
+ * medium's part (it wears its own material). 0 when equal.
  */
 export function changeFeeds(before: number, after: number): number {
   if (before === after) return 0;
-  if (airOrLiquid(before) && airOrLiquid(after)) return DERIVED_PART.liquid;
+  const from = openPart(before);
+  const to = openPart(after);
+  if (from >= 0 && to >= 0) return from | to;
   const fields = changedFields(before, after);
   if ((fields & (PLANE_BIT.role | PLANE_BIT.shape)) !== 0) return fieldsFeed(fields);
   return DERIVED_PART.shader;
@@ -367,10 +393,11 @@ export const DEFAULT_SAVED_FIELDS = PLANE_BIT.material | PLANE_BIT.role | PLANE_
 export function savedValue(base: number, now: number, saved: number): number {
   if (base === now || (saved & ALL_PLANES) === ALL_PLANES) return now;
   if (base === 0 || now === 0) return saved & PLANE_BIT.material ? now : base;
+  const role = saved & PLANE_BIT.role ? valueRole(now) : valueRole(base);
   return recordValue(
     saved & PLANE_BIT.material ? valueMaterial(now) : valueMaterial(base),
-    saved & PLANE_BIT.role ? valueRole(now) : valueRole(base),
+    role,
     saved & PLANE_BIT.shape ? valueShape(now) : valueShape(base),
-    saved & PLANE_BIT.wetness ? valueWetness(now) : valueWetness(base),
+    heldWetness(role, saved & PLANE_BIT.wetness ? valueWetness(now) : valueWetness(base)),
   );
 }

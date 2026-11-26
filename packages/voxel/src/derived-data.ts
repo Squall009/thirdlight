@@ -249,8 +249,13 @@ const REGIONS_SPAN = threadProfiler.span('open regions', 'voxelMesh');
  * liquid (derived-liquid.ts): a level-0 unit's liquid faces against open
  * space merged into quads with their material, null without liquid;
  * outside the canonical bytes.
+ *
+ * v34: a gas is open space to every output (a row of the role traits
+ * table), and the downsample keeps it only where the cells without it give
+ * air, by the mean of its density. Results differ from v33's only in the
+ * nodes of a world that holds gas.
  */
-export const DERIVED_FORMAT_VERSION = 33;
+export const DERIVED_FORMAT_VERSION = 34;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });

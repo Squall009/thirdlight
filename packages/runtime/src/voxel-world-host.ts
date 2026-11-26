@@ -51,6 +51,7 @@
  */
 import { canonicalVoxelWorldRings, COLLIDER_3D_LIMITS, decodeBase64, encodeBase64, resolveVoxelWorld, validateVoxelWorldRings, type ModelErrorV2, type QualityLevelConfig, type ResolvedVoxelWorld, type VoxelWorldComponent, type VoxelWorldRings, type VoxelMaterialInfo, voxelMaterialInfos } from '@thirdlight/project-model';
 import {
+  heldWetness,
   applyWorldRings,
   canonicalEditCommand,
   chunkInWorld,
@@ -1275,7 +1276,7 @@ export class VoxelWorldHost {
         st.voxelAt(list[i]!, list[i + 1]!, list[i + 2]!, v);
         if (v.material === MATERIAL_AIR) continue;
         const material = paint.material ?? v.material;
-        const wetness = paint.wetness ?? v.wetness;
+        const wetness = heldWetness(v.role, paint.wetness ?? v.wetness);
         if (material === v.material && wetness === v.wetness) continue;
         const key = `${material},${v.role},${v.shape},${wetness}`;
         let g = groups.get(key);

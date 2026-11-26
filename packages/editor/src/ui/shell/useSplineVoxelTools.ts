@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { voxelUseTakesKit } from '@thirdlight/project-model/voxel-materials';
 import type { ProjectedEntity } from '../../session/projection';
 import type { StructureMaterialChoice } from '../../session/structure-shape';
 import type { ClientRef, ViewportRef } from './commands';
@@ -91,7 +92,7 @@ export function useSplineVoxelTools(deps: Deps): SplineVoxelTools {
   const [refusal, setRefusal] = useState<string | null>(null);
   const latest = useRef(deps);
   latest.current = deps;
-  const solids = useMemo(() => deps.materials.filter((m) => m.use !== 'liquid').sort((a, b) => a.id - b.id), [deps.materials]);
+  const solids = useMemo(() => deps.materials.filter((m) => voxelUseTakesKit(m.use)).sort((a, b) => a.id - b.id), [deps.materials]);
   const liquids = useMemo(() => deps.materials.filter((m) => m.use === 'liquid').sort((a, b) => a.id - b.id), [deps.materials]);
 
   const read = useCallback((): void => {

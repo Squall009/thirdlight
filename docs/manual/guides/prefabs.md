@@ -144,7 +144,7 @@ always a script's job.
   each with its own camera; override the second copy's `moveAction` and
   `jumpAction` so it reads its own input. A prefab never holds what the
   scene keeps (block layers, instance sets, terrains, vertex paint,
-  folders). The exact list: [content.prefabs](../reference/content-blocks-settings.md#content-prefabs).
+  folders). The exact list: [content.prefabs](../reference/content-blocks-shell.md#content-prefabs).
 - **Spawned copies are the game's, not the project's.** They are gone when
   the run restarts, and a save keeps them only when its schema has the
   `spawned` section. `ctx.destroy` removes spawned copies only.

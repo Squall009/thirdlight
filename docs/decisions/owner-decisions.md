@@ -73,7 +73,8 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 ## Format proposals waiting for the owner's note
 
 Each is a hard stop when its phase arrives: a `gas` role (value 10) with shape as density and a mip rule like
-liquid's, and a fill stroke kind in the edit command (both **approved 2026-11-26** as 47b's G1, G2 and G4); a
+liquid's, and a fill stroke kind in the edit command (both **approved 2026-11-26** as 47b's G1, G2 and G4; the
+role, its mip rule, the `gas` material use G3 and the derived list's entries G6 **built 47b.2**); a
 `prop` role, stamps voxelized from models and the overlay's files (47p); narrowed feeds for liquid edits (47a: approved as F7
 2026-11-20, **built 47a.9**: `changeFeeds`, derived data 33); a liquid derived part per chunk (49: its plain first
 form built with F7 in 47a.9, a part per derive section; 49 extends it); a medium channel (liquid and fog) on

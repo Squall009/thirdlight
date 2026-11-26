@@ -14,7 +14,7 @@ import { NO_KIT, worldPieceTable } from '@thirdlight/voxel';
 import { validateContentV4 } from './content';
 import { MAX_MATERIAL_INSTANCE_DEPTH, resolveMaterial, type MaterialDef } from './materials';
 import { materialProfilesOf, PHYSICAL_DEFAULTS, resolveMaterialPhysical, withResolvedPhysics, type MaterialProfile } from './material-profiles';
-import { boundVoxelKits, isVoxelMaterial, materialBadges, materialFamilyOf, VOXEL_MATERIAL_LIMITS, voxelMaterialInfos, voxelSurfaceSet } from './voxel-materials';
+import { boundVoxelKits, isVoxelMaterial, materialBadges, materialFamilyOf, VOXEL_MATERIAL_LIMITS, VOXEL_MATERIAL_USES, voxelGasLook, voxelMaterialInfos, voxelSurfaceSet, voxelUseTakesKit } from './voxel-materials';
 import type { VoxelKit } from './voxel-kit';
 
 type Obj = Record<string, unknown>;
@@ -144,6 +144,43 @@ describe('the material record', () => {
     expect(voxelSurfaceSet(variant.voxel!, 'ceiling')).toEqual(OAK.voxel!.surfaces!.wall);
     // One more level is past the depth bound.
     expect(refused({ materials: [...chain, { materialId: 'oak-x', name: 'X', shader: 'standard', params: {}, textures: {}, instanceOf: chain[last]!.materialId }] })).toMatchObject({ code: 'limits_exceeded' });
+  });
+
+  it('holds a gas: the fourth use with its two fields (colour, full density per metre), kept through the canonical round trip and inherited field by field', () => {
+    const mist = { materialId: 'mist', name: 'Mist', shader: 'standard', params: {}, textures: {}, voxel: { gas: { density: 0.25, color: '#c8d2dc' }, use: 'gas', id: 30 } };
+    const smoke = { materialId: 'smoke', name: 'Smoke', shader: 'standard', params: {}, textures: {}, instanceOf: 'mist', voxel: { id: 31, gas: { color: '#333333' } } };
+    const bare = { materialId: 'haze', name: 'Haze', shader: 'standard', params: {}, textures: {}, voxel: { id: 32, use: 'gas', gas: {} } };
+    const c = loaded({ materials: [mist, smoke, bare] });
+    const stored = c['materials'] as MaterialDef[];
+    expect(VOXEL_MATERIAL_USES).toEqual(['construction', 'terrain', 'liquid', 'gas']);
+    // Canonical: the gas look last, colour before density; an empty look left out.
+    const of = (id: string): MaterialDef => stored.find((x) => x.materialId === id)!;
+    expect(JSON.stringify(of('mist').voxel)).toBe('{"id":30,"use":"gas","gas":{"color":"#c8d2dc","density":0.25}}');
+    expect(of('haze').voxel).toEqual({ id: 32, use: 'gas' });
+    // A variant takes its own colour and its parent's density and use.
+    expect(resolveMaterial(stored, 'smoke')!.voxel).toEqual({ id: 31, use: 'gas', gas: { color: '#333333', density: 0.25 } });
+    // What a look leaves out is the default; the runtime answers a gas material by its use.
+    expect(voxelGasLook(of('haze').voxel)).toEqual({ color: VOXEL_MATERIAL_LIMITS.gasColorDefault, density: VOXEL_MATERIAL_LIMITS.gasDensityDefault });
+    expect(voxelGasLook(resolveMaterial(stored, 'smoke')!.voxel)).toEqual({ color: '#333333', density: 0.25 });
+    expect(voxelMaterialInfos(stored.map((m) => resolveMaterial(stored, m.materialId)!)).get(31)).toMatchObject({ materialId: 'smoke', use: 'gas', kit: null });
+    expect(isVoxelMaterial(of('mist'))).toBe(true);
+    expect(materialBadges(of('mist'))).toEqual(['mesh', 'voxel']);
+    // A gas dresses no edge: it names no kit and binds none; a body's use takes one.
+    expect([voxelUseTakesKit('construction'), voxelUseTakesKit('terrain'), voxelUseTakesKit('liquid'), voxelUseTakesKit('gas')]).toEqual([true, true, false, false]);
+    expect(boundVoxelKits([KIT], stored)).toEqual([KIT]);
+  });
+
+  it('refuses a gas look that is not one: a field it does not have, a colour or a density out of form, a kit on a gas, a look on another use', () => {
+    const m = (voxel: Obj, more: Obj[] = []): Obj => ({ materials: [{ materialId: 'mist', name: 'Mist', shader: 'standard', params: {}, textures: {}, voxel }, ...more] });
+    expect(refused(m({ id: 30, use: 'gas', gas: { albedo: '#ffffff' } }))).toMatchObject({ code: 'field_unexpected', path: '/materials/0/voxel/gas/albedo' });
+    expect(refused(m({ id: 30, use: 'gas', gas: 3 }))).toMatchObject({ code: 'field_type', path: '/materials/0/voxel/gas' });
+    for (const color of ['#FFFFFF', 'white', '#fff', 7]) expect(refused(m({ id: 30, use: 'gas', gas: { color } }))).toMatchObject({ code: 'field_value', path: '/materials/0/voxel/gas/color' });
+    for (const density of [-0.1, VOXEL_MATERIAL_LIMITS.gasDensityMax + 0.01, '1', Number.NaN]) expect(refused(m({ id: 30, use: 'gas', gas: { density } }))).toMatchObject({ code: 'field_value', path: '/materials/0/voxel/gas/density' });
+    for (const density of [0, VOXEL_MATERIAL_LIMITS.gasDensityMax]) expect(load(m({ id: 30, use: 'gas', gas: { density } })).ok).toBe(true);
+    expect(refused(m({ id: 30, use: 'gas', kit: 'log' }))).toMatchObject({ code: 'field_value', path: '/materials/0/voxel/kit' });
+    expect(refused(m({ id: 30, use: 'terrain', gas: { density: 1 } }))).toMatchObject({ code: 'field_value', path: '/materials/0/voxel/gas' });
+    // A variant of ground with a gas look of its own is refused by what its chain makes it.
+    expect(refused(m({ id: 30, use: 'terrain' }, [{ materialId: 'fog', name: 'Fog', shader: 'standard', params: {}, textures: {}, instanceOf: 'mist', voxel: { id: 31, gas: { density: 1 } } }]))).toMatchObject({ code: 'field_value', path: '/materials/1/voxel/gas' });
   });
 
   it('derives the shader family from shader, graph and voxel use (no new shader types)', () => {

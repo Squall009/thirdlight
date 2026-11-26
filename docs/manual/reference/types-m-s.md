@@ -126,7 +126,7 @@ interface MaterialVoxel {
   id: number;
   /** Required on a material; an instance may leave it to its chain. */
   use?: VoxelMaterialUse;
-  /** The voxel kit whose pieces its edges draw (absent: none; never with liquid). */
+  /** The voxel kit whose pieces its edges draw (absent: none; never with liquid or gas). */
   kit?: string;
   /** Metres one texture repeat covers (absent: {@link voxelTileMetresDefault}). */
   tileMetres?: number;
@@ -136,6 +136,8 @@ interface MaterialVoxel {
   blendMetres?: number;
   /** Texture sets per surface (absent: the material's own look on every surface). */
   surfaces?: Partial<Record<VoxelSurface, VoxelTextureSet>>;
+  /** A gas's plain look (only with the gas use; absent: the defaults). */
+  gas?: VoxelGasLook;
 }
 ```
 

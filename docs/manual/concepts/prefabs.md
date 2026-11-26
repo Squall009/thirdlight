@@ -86,7 +86,7 @@ target, a rail's path, a socket's model) names that object of each copy.
 
 What stays in the scene is what the scene itself keeps: a block layer's
 cells, an instance set, a terrain, vertex paint, and folders. The exact list
-is in [prefabs in the reference](../reference/content-blocks-settings.md#content-prefabs).
+is in [prefabs in the reference](../reference/content-blocks-shell.md#content-prefabs).
 
 The scene's own rules hold for copies: a player controller is a root object,
 the live camera is the enabled one with the highest priority, and a scene's

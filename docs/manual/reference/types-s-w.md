@@ -1275,7 +1275,7 @@ Declared in `packages/project-model/src/voxel-materials.ts`.
 
 ```ts
 /** What a voxel material is used for. */
-const VOXEL_MATERIAL_USES: readonly ["construction", "terrain", "liquid"];
+const VOXEL_MATERIAL_USES: readonly ["construction", "terrain", "liquid", "gas"];
 ```
 
 <a id="type-voxel-surfaces"></a>
@@ -1309,6 +1309,21 @@ Declared in `packages/voxel/src/edit-command.ts`.
 
 ```ts
 type VoxelEditCommand = BrushEdit | FillEdit | StampEdit | SetEdit | DigEdit;
+```
+
+<a id="type-voxel-gas-look"></a>
+### VoxelGasLook
+
+Declared in `packages/project-model/src/voxel-materials.ts`.
+
+```ts
+/** A gas's plain look: its colour, and the density per metre a cell at full density (shape 15) holds. */
+interface VoxelGasLook {
+  /** "#rrggbb", lower case (absent: {@link VOXEL_MATERIAL_LIMITS.gasColorDefault}). */
+  color?: string;
+  /** Per metre, 0–{@link VOXEL_MATERIAL_LIMITS.gasDensityMax} (absent: {@link VOXEL_MATERIAL_LIMITS.gasDensityDefault}). */
+  density?: number;
+}
 ```
 
 <a id="type-voxel-kit"></a>

@@ -18,7 +18,7 @@
  * axis, so its centre is x + 0.5.
  */
 import { cellInWorld } from './coords';
-import { MATERIAL_ID_MAX, SHAPE_FULL, VOXEL_ROLE_COUNT, WETNESS_MAX } from './record';
+import { heldWetness, MATERIAL_ID_MAX, SHAPE_FULL, VOXEL_ROLE_COUNT, WETNESS_MAX } from './record';
 import { VOXEL_GRID_ID_MAX } from './region-file';
 
 /** The edit command format this build writes and reads. */
@@ -170,7 +170,9 @@ function editVoxel(v: unknown, path: string): EditVoxel {
   const o = obj(v, path);
   only(o, path, ['material', 'role', 'wetness']);
   const material = int(o.material, `${path}/material`, 1, MATERIAL_ID_MAX);
-  return { material, role: int(o.role, `${path}/role`, 0, VOXEL_ROLE_COUNT - 1), wetness: int(o.wetness, `${path}/wetness`, 0, WETNESS_MAX) };
+  const role = int(o.role, `${path}/role`, 0, VOXEL_ROLE_COUNT - 1);
+  // A role that holds no wetness (a gas) is written dry: the command names 0.
+  return { material, role, wetness: int(o.wetness, `${path}/wetness`, 0, heldWetness(role, WETNESS_MAX)) };
 }
 
 function setVoxel(v: unknown, path: string): SetVoxel {
@@ -179,11 +181,12 @@ function setVoxel(v: unknown, path: string): SetVoxel {
   const material = int(o.material, `${path}/material`, 0, MATERIAL_ID_MAX);
   // Air is one value, so two payloads never mean the same cells.
   if (material === 0) return { material: 0, role: int(o.role, `${path}/role`, 0, 0), shape: int(o.shape, `${path}/shape`, 0, 0), wetness: int(o.wetness, `${path}/wetness`, 0, 0) };
+  const role = int(o.role, `${path}/role`, 0, VOXEL_ROLE_COUNT - 1);
   return {
     material,
-    role: int(o.role, `${path}/role`, 0, VOXEL_ROLE_COUNT - 1),
+    role,
     shape: int(o.shape, `${path}/shape`, 1, SHAPE_FULL),
-    wetness: int(o.wetness, `${path}/wetness`, 0, WETNESS_MAX),
+    wetness: int(o.wetness, `${path}/wetness`, 0, heldWetness(role, WETNESS_MAX)),
   };
 }
 

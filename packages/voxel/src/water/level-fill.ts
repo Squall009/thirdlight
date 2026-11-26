@@ -2,7 +2,7 @@
  * The level fill: the liquid a basin holds up to a level, from a seed.
  *
  * From the seed's cell the fill walks the open cells joined face to face
- * (air, or liquid of the fill's own material), never a cell whose bottom is
+ * (air, a gas, or liquid of the fill's own material), never a cell whose bottom is
  * at or above the level, bounded by everything else (ground, built cells,
  * an opening, another liquid) and by the bound it is given: the reach, a
  * horizontal distance from the seed's column. Every cell it reaches holds
@@ -27,6 +27,7 @@
  * Pure: the reader is the only input, nothing is written.
  */
 import { MATERIAL_ID_MAX, recordValue, ROLE_MASK, ROLE_SHIFT, SHAPE_FULL, VOXEL_ROLE } from '../record';
+import { isGasRole } from '../role-traits';
 import { CellQueue, CellSet } from './cell-set';
 
 /** What a reader answers for a cell the fill may not know (past the world's edge, a region it cannot read): a breach. */
@@ -82,9 +83,9 @@ export function isLiquidOf(v: number, material: number): boolean {
   return v > 0 && ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.liquid && (v & MATERIAL_ID_MAX) === material;
 }
 
-/** Whether the fill of `material` may pass a cell holding `v`: air, or its own liquid. */
+/** Whether the fill of `material` may pass a cell holding `v`: air, a gas (the liquid takes its cell: a cell holds one), or its own liquid. */
 export function fillPasses(v: number, material: number): boolean {
-  return v === 0 || isLiquidOf(v, material);
+  return v === 0 || isLiquidOf(v, material) || (v > 0 && isGasRole((v >>> ROLE_SHIFT) & ROLE_MASK));
 }
 
 /** Whether the fill may enter a cell of the world (inside it, its own liquid or air, nothing standing over it). */

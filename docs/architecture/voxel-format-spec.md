@@ -18,7 +18,7 @@ refer to it.
 The world is a grid of 0.5 m voxels. Each voxel is **one 32-bit value** (owner 2026-11-02, §2.2):
 
 - a **material** (12 bits, 4,096 a world; 0 means air);
-- a **role** (4 bits): air, terrain, liquid, wall, floor, roof, foundation, stair, pillar or opening;
+- a **role** (4 bits): air, terrain, liquid, wall, floor, roof, foundation, stair, pillar, opening or gas (G1, 2026-11-26);
 - a **shape**: 16 fill levels (4 bits), inside the value for every voxel;
 - a **wetness** (3 bits), which only changes shading;
 - 9 **reserved** bits (0; the shoreline liquid level, O15, is the first candidate).
@@ -229,9 +229,9 @@ runtime overlay all hold whole values, so reading or writing a voxel is one 32-b
 | Bits | Field | Values | Notes |
 |---|---|---|---|
 | 0–11 | material | 0 = air, 1–4,095 (`MATERIAL_ID_MAX`) | 4,096 ids a world: a format width, not a count cap on anything else (O12, owner). The id refers to the material record (46d) |
-| 12–15 | role | see the role table; 10 assigned, 16 at most | Unassigned values are refused by every writer and reader (`VOXEL_ROLE_COUNT`) |
-| 16–19 | shape | 0 empty … 15 full (`SHAPE_FULL`) | 16 levels, stored for every voxel inside the value: the fill for terrain, the fill level for liquid, the **integrity** for construction roles (wall, floor, roof, foundation, stair, pillar: 15 intact, lower a damage stage, air broken; owner 2026-11-04, no new bits; §3.7 *Kits*). Derived consumers read it on a 0–255 scale (`shapeDensity` = shape × 17) |
-| 20–22 | wetness | 0 dry … 7 (`WETNESS_MAX`) | Feeds the shader data only. Authored in base files, set at runtime in the overlay. The shader darkens albedo, lowers roughness and fills in normals as it rises (R111; the 45.10b slice shader only darkens) |
+| 12–15 | role | see the role table; 11 assigned (10 until G1, 2026-11-26), 16 at most | Unassigned values are refused by every writer and reader (`VOXEL_ROLE_COUNT`) |
+| 16–19 | shape | 0 empty … 15 full (`SHAPE_FULL`) | 16 levels, stored for every voxel inside the value: the fill for terrain, the fill level for liquid, the **integrity** for construction roles (wall, floor, roof, foundation, stair, pillar: 15 intact, lower a damage stage, air broken; owner 2026-11-04, no new bits; §3.7 *Kits*), the **density** for gas (0 none, 15 its material's full density; G1). Derived consumers read it on a 0–255 scale (`shapeDensity` = shape × 17) |
+| 20–22 | wetness | 0 dry … 7 (`WETNESS_MAX`); 0 for a gas (G1) | Feeds the shader data only. Authored in base files, set at runtime in the overlay. The shader darkens albedo, lowers roughness and fills in normals as it rises (R111; the 45.10b slice shader only darkens) |
 | 23–31 | reserved | must be 0 | 9 bits. A value with any set is refused everywhere raw values are read. O15 (shoreline / liquid level in a ground cell) is the first candidate |
 
 **Roles** (`VOXEL_ROLE`; what a stored voxel is for):
@@ -248,6 +248,7 @@ runtime overlay all hold whole values, so reading or writing a voxel is one 32-b
 | 7 | stair | built |
 | 8 | pillar | built |
 | 9 | opening | open, empty (the door or window is a kit piece) |
+| 10 | gas | open, empty (G1; its own part draws it) |
 
 Beams, banisters, posts, soffits and mouldings are **not roles**: the assembly rules infer them from the
 arrangement, every time (§3.7). The role set is what the stored value says about intent (Q-a, owner); what each role
@@ -260,8 +261,22 @@ before it is voxelized (its command carries yaw and scale, §3.3); everything fi
   store's `setVoxel`, the cell delta, the commands, `valueOf`), and every reader refuses a material-0 value with any
   other bit set.
 - **Every field is checked** before it is packed (`checkVoxel`, the codec's `checkField`) and every raw value after
-  it is read (`checkRecordValue`): a role past the assigned set, a reserved bit, or air that is not 0 is refused. A
-  refused region table refuses the file, so its chunks are reported damaged.
+  it is read (`checkRecordValue`): a role past the assigned set, a reserved bit, air that is not 0, or a gas with
+  wetness (G1) is refused. A refused region table refuses the file, so its chunks are reported damaged.
+- **Role `gas`, value 10 (G1, approved by the owner 2026-11-26 with plan 47b §4; built 47b.2; add-only).** One more
+  value of the 4 role bits (16 values, 10 used before it): no bit is added to the value, record value form 2 and
+  every stored format's version stand, and a world written before it is read as before (it holds no value 10).
+  `VOXEL_ROLE_COUNT` is 11; values 11–15 are refused as before. A gas cell is **non-solid**: open space to every
+  consumer but the gas's own derived part (below, G6), by its row of the role traits table (`role-traits.ts`:
+  medium `gas`, not a body, stops no light, blocks no walker, collides with nothing). Its **shape is its density**
+  in 16 levels: 0 none (such a cell is written as air), 15 its material's full density (the material's `gas.density`,
+  [render spec](voxel-render-spec.md) §1, G3). Its **wetness and reserved bits are 0**: a gas with wetness is refused
+  wherever a value is checked (`checkVoxel`, `checkRecordValue`, the edit command's voxel), a writer that keeps a
+  cell's role and sets its wetness leaves a gas dry (`heldWetness`: the runtime's paint), and a save's field mask
+  never gives a kept gas a base cell's wetness (`savedValue`). **A cell is solid, liquid or gas, never two**: one
+  value a cell, one role a value; fog over a lake is gas cells above liquid cells, and the level fill passes through
+  gas as through air and takes its cells (`fillPasses`). An older build refuses a world that holds a gas cell
+  (unassigned role 10), which is what a reader that cannot draw it should do.
 - **Record value form 2** (`RECORD_VALUE_FORM`, `checkValueForm`). Every format that stores raw values outside the
   chunk codec names the form it holds: the region file (header byte 10), the undo record (byte 7), the save (byte 8)
   and the structure overrides (byte 6). Form 2 is the u32 above. Form 1 (the draft 23/4/5 value with the shape beside
@@ -285,6 +300,7 @@ before it is voxelized (its command carries yaw and scale, §3.3); everything fi
 | material | shader data | rebuilds the shader data of the chunks within the shader border (1 cell) of the changed cells, and nothing else |
 | wetness | shader data | the same |
 | *a cell changing only between air and liquid, or a liquid's fill level or material* (F7, owner 2026-11-20) | the **liquid part** alone | rebuilds the liquid part of the derive sections within one cell (`LIQUID_REACH_CELLS`) of the changed cells, and nothing else: no mesh, collision, nav, light, shader data, coarser level or fine far brick |
+| *a cell changing only between air and gas, or a gas cell's density or material* (G6, owner 2026-11-26) | the **gas part** alone | feeds nothing else: no mesh, collision, nav, light, shader data, liquid part, coarser level or fine far brick |
 
 - **The liquid rule (F7, approved by the owner 2026-11-20, built 47a.9).** The table's rows are what a field drives
   when nothing else is known of the change (`FIELD_FEEDS`, `fieldsFeed`: since 47a.9 a role or shape change also
@@ -299,6 +315,19 @@ before it is voxelized (its command carries yaw and scale, §3.3); everything fi
   the hilly world's two lakes and the caves world's pools (`tools/voxel-bench/liquid.test.ts`); the shader data
   held a liquid's material until derived data 33 (now air) and the roof words read it apart from air (now plain
   air).
+
+- **The gas rule (G6, approved by the owner 2026-11-26, built 47b.2: F7's rule extended).** `changeFeeds` reads
+  each value's medium from the role traits table: a change whose both values are air or a medium feeds the part of
+  each medium in it and nothing else, so air ↔ gas, a gas cell's density or its material feed the **gas part** alone
+  (`DERIVED_PART.gas` = 64), air ↔ liquid the liquid part alone as before, and one medium written over the other
+  (water filling a hollow of fog) both parts. Any other change feeds what its fields feed; a role or shape change
+  also feeds the gas part (ground dug beside fog bares its side), a material or wetness change of a cell that is no
+  medium the shader data alone. Every other output reads a gas cell as the air it stands in, the liquid part too (a
+  liquid's face toward a gas cell is its face toward air): proved on the town and the hard-case row with gas written
+  into 224,000 of their open cells (`tools/voxel-bench/gas.test.ts`). The gas part itself (a derive section's gas
+  faces, §3.7 *Derived data 33 → 34*) is built by 47b.7; until then no derive builds it, so `ALL_DERIVED_PARTS` stays
+  63 and a change that feeds the gas part alone derives nothing again (the streamer reads the changed chunks' voxels
+  and leaves every section, coarser node and far brick as it is).
 
 - Every applied edit reports the fields that changed in any cell (`EditOutcome.fields`, a `PLANE_BIT` mask; the
   worker's `edit` job too) and the derived parts its changes feed (`EditOutcome.parts`, by the liquid rule above;
@@ -691,7 +720,7 @@ Common fields: `v: 2`, `grid` (u32; 0 is the world grid), `kind`.
 
 - **Modes.**
   - `place`: write the voxel whatever was there.
-  - `add`: write only into air or liquid; a smooth add also grows the shape of a cell of the same material.
+  - `add`: write only into air, liquid or gas (a medium, by the role traits table; gas since G1); a smooth add also grows the shape of a cell of the same material.
   - `dig`: remove; a smooth dig lowers the shape, and an empty cell becomes air.
   - `paint`: change material, role and wetness of non-air cells and keep their shape (a paint of only a new wetness
     changes the wetness field alone: its answer's parts are the shader data, §2.2).
@@ -1375,7 +1404,7 @@ planes are appended to it (v15) and damage holes draw no faces (v16; v25 by the 
 - A level-L node has the chunk's form: 32³ cells of 0.5 m × 2^L (`mipCellMetres`), using the same store, codec and
   mesher input. Mips are derived, never stored.
 - Its shape is the share of the node cell that is solid: the rounded mean of the 8 children's fill levels (0–15),
-  counting only solid roles (air, liquid and openings add nothing). So a fill means the same at every level and
+  counting only solid roles (air, liquid, gas and openings add nothing). So a fill means the same at every level and
   the terrain mesher's surface sits where the solid volume is.
 - Its role goes by priority, `MIP_ROLE_PRIORITY`: wall, foundation, pillar, floor, stair, roof, terrain. Bodies
   drawn as whole cells (every solid role but terrain) hold the node cell when their cells are at least 4 of the 8,
@@ -1386,6 +1415,15 @@ planes are appended to it (v15) and damage holes draw no faces (v16; v25 by the 
   level. The node cell takes the first body role among those cells. Terrain holds it with any fill.
 - With no solid role, the cell is liquid when its liquid cells' share rounds to at least 1 (the shape is then that
   share), else air.
+- **Gas (G2, approved by the owner 2026-11-26, built 47b.2; derived 34).** Gas adds nothing to a node cell that
+  holds a solid. With no solid and no liquid (neither holds the cell by the rules above) and no opening cell
+  (which keeps the cell an opening, below), the cell is gas when its share rounds to at least 1: the share is the
+  mean of the 8 children's densities, a child that is not gas counting 0, rounded; the shape is that mean, the
+  material the gas of the most cells, the wetness 0. So a gas takes a node cell only where the same cells without
+  it give air, and nothing a coarser level draws, closes or stands on changes with it (`MIP_OPEN_ROLES`: liquid,
+  opening, gas, from the role traits table's ranks). Fog lying on the ground is lost from the 2 m level up (its
+  cells share their parents with the ground), as shore water is: no painted fog in the far field until 51. The far
+  cache's nodes (levels 2 and up) hold the gas cells this rule keeps, as they hold liquid; nothing reads them.
   (Derived 31 adds narrow openings closing and wider ones kept as openings, and the far cache keeps levels 2 and
   up of the mips as a derived cache: [voxel-render-spec.md](voxel-render-spec.md) §4.)
 - Its material is the one its surface shows (derived 8). Among the counted cells nearest the surface it takes the
@@ -1581,9 +1619,17 @@ and radius). Every owner note is "default chosen, owner to confirm" unless it na
 | 31 → 32 | 46e.3 | three new derived outputs per level-0 unit, never stored: **region labels** (open cells, i.e. not drawn as a body, labelled 6-connected into components, `opening` cells into portal components apart; each with its cells, the unit faces it reaches, the region–portal contacts), **face connectivity** (R97: the 15 face pairs joined through open cells) and **sky columns** (R98: the highest solid cell + 1 a column); radius 0; stitched across chunks where the world runs (`open-regions.ts`, `open-region-stitch.ts`) | regions after the shader data in the canonical bytes; other outputs v31's | **owner 2026-11-14**: "Yes I approve of the spec change for the proposed testing of lighting voxels in this phase." (these three outputs only) |
 | 32 → 33 | 47a.9 | liquid is open space to every output but its own: the shader data holds a liquid cell as air (entry 0), the roof words read it as plain air; a new part, the **liquid part** (F7): a level-0 unit's liquid faces against open space merged into quads with their material, outside the canonical bytes | 16-byte quad (below); canonical bytes v32's, shader data differs where it held liquid | **owner 2026-11-20**: F7 approved as proposed ("Everything as proposed is fine"); the shader data's liquid as air a default chosen, owner to confirm |
 
+| 33 → 34 | 47b.2 | the gas role (G1) is open space to every output; the downsample keeps gas by G2 (above: only where the cells without it give air); three entries join the derived list, never stored (G6): the **surface fields** a column, the **gas part** a derive section, **cover points** a chunk | level-0 results v33's for a world without gas, and for one with gas but for its gas part; nodes differ only where a cell that was air is gas | **owner 2026-11-26**: G1, G2 and G6 approved with plan 47b (§4) |
+
 **Derived data 31 → 32 (46e.3; owner 2026-11-14, add-only, these three outputs only).** Per level-0 unit (`OpenRegionsOut`): `labels` (a byte or u16 a cell, 0 solid; none when uniform), `volume`, `flags` (faces reached, portal bit), `links` (region, portal) pairs, `connect` (15 face-pair bits), `sky` (a byte a column, or one value). Rebuilt by the derive workers with every full derive, never stored, saved or exported; no world regenerated. Definitions and numbers: `plan-phase-46e.md` §8a 46e.3.
 
 **Derived data 32 → 33 (47a.9; F7, owner 2026-11-20; never stored).** `liquid` (`LiquidPart`, `derived-liquid.ts`), per level-0 derive unit (a section), built in every full derive and alone by a `derive` job with `parts` of only `shader` and `liquid` (`DERIVED_PART.liquid` = 32, `ALL_DERIVED_PARTS` 63; apron `LIQUID_REACH_CELLS` = 1), cached with the section's other parts and joined per chunk for the draw (`JoinedDraw.liquid`, a chunk batch's `liquid` entry). A liquid cell of fill h (its shape, 1–15) shows: toward open space (air, an opening, ground below the surface iso) its whole face (sides from the cell's floor to h, top at h, bottom at the floor); toward liquid only a side step where the neighbour's fill is lower; toward ground at the surface or any built role nothing; a partly filled cell always its top. Positions are exact, in `LIQUID_STEPS_PER_CELL` (15) steps a cell. Tops and bottoms merge into rectangles of one height and material in a cell layer; sides merge up a column, then along the row where the run and material match; no quad crosses a section. Bytes, 16 a quad, little-endian: x0, y0, z0, x1, y1, z1 (u16, steps from the unit's corner), material (u16), face (u8: +x, −x, +y, −y, +z, −z = 0–5), 0 (u8). A unit with no liquid face has no part (null; no bytes); one with no liquid cell costs a look at its cells. Phase 49 extends this part (column runs, flow, shore distance); nothing of it is stored. The shader data's liquid as air: a surface beside or under water no longer blends toward the water's material (the liquid part draws it in its own), so an air ↔ liquid change leaves the shader data equal (liquid.test.ts). Results differ from v32's only in the shader data of grids holding liquid; no world regenerated.
+
+**Derived data 33 → 34 (47b.2; G1, G2, G6, owner 2026-11-26; never stored).** No output's bytes change for a world that holds no gas. With gas: every level-0 output reads a gas cell as the air it stands in (meshes, kit cases and pieces, collision, navigation and the walk graph, light coverage and occupancy, open regions, face connectivity and sky columns, shader data, the liquid part, structure stamps, the far faces and the far ground), and the downsample keeps it by G2 (§3.7 *Voxel mips*). **The derived list gains three entries (G6), each rebuilt from voxels where the world runs and never stored, saved or exported:**
+- **the surface fields, a column** (built 47b.4): per cell column, what stands there (height, slope, material, role, sky, wetness, water top and depth, gas bottom, top and density, distances to another material's edge and to construction);
+- **the gas part, a derive section** (built 47b.7; as the liquid part): a level-0 unit's gas faces against air, with their material and density, outside the canonical bytes, fed by the gas rule (§2.2);
+- **cover points, a chunk** (built 47b.9): the ground cover's points over a level-0 chunk, made again with its mesh.
+47b.2 writes the list and the feed; each entry's layout is written here by the item that builds it. No world regenerated.
 
 The owner notes of 3 → 9, as each step recorded them:
 
@@ -1665,7 +1711,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 32 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 34 | refused | rebuilt, never upgraded |
 | Far cache ([render spec §4](voxel-render-spec.md#4-far-field-data)) | `far.json` `format` | 3 (reads 1, 2 and 3) | refused, built again | add-only steps: 2 adds the nodes' baked bricks (`bricks`, `B<level>/`; a format-1 cache reads as one without them, the backend builds it again); 3 adds the fine levels a world bakes (`fine`, `B0/`, `B1/`; a format-2 cache is current for a world baked to 2 m); rebuilt when its world's revision or its bricks' build differs |
 | Kit piece table | `PIECE_TABLE_FORMAT` (u16, first in its bytes) | 5 | refused | rebuilt from the kits, never stored |
 | Voxel kit record ([kit page](voxel-kit-format.md) §3.9, final) | `kitFormat` | 1 | any other refused whole | add-only fields (v1 has none to lift) |

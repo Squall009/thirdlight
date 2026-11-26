@@ -1,8 +1,211 @@
-# Content documents (settings to lighting)
+# Content documents (shell to lighting)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The project's content blocks and their fields. Paths with `[]` are list items and `{}` map values.
+
+<a id="content-shell"></a>
+## shell — Game shell
+
+The menus around the game and its HUD, drawn with the project's UI documents: a title before play, pause, settings, controls (rebinding) and the save and load screens (project saves), the HUD shown while playing, and the game's scenes in order.
+
+- In every project: no
+- Written by: [`setShell`](ops-detail.md#op-setShell)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `screens` | object |  |  | **Screens.** The UI document drawn for each shell screen. Its buttons use the engine actions: resume, continue, back, open a screen, save or load a slot, set a setting, rebind, next scene (deprecated), load, unload or reload a scene. |
+| `screens.title` | uiDocument id |  |  | **Title.** Shown before play (the game waits behind it); absent: the game starts at once. |
+| `screens.pause` | uiDocument id |  |  | **Pause.** Shown while paused (absent: the engine's pause panel, with Resume only). |
+| `screens.settings` | uiDocument id |  |  | **Settings.** Opened by the settings or open action (volumes, quality). |
+| `screens.controls` | uiDocument id |  |  | **Controls.** The rebinding screen (rebind actions; $flow.input lists the actions and their keys). |
+| `screens.save` | uiDocument id |  |  | **Save.** Save slots (project saves; $flow.saves lists them). |
+| `screens.load` | uiDocument id |  |  | **Load.** Load slots (project saves). |
+| `simulate` | object |  |  | **While shown.** What runs under each screen: the engine pause (no steps), or the scripts outside behavior groups (physics and grouped scripts held) — a title or menu its scripts animate. |
+| `simulate.title` | enum: `pause`, `scripts` | `"pause"` |  | **Title.** What runs while the title screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
+| `simulate.pause` | enum: `pause`, `scripts` | `"pause"` |  | **Pause.** What runs while the pause screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
+| `simulate.settings` | enum: `pause`, `scripts` | `"pause"` |  | **Settings.** What runs while the settings screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
+| `simulate.controls` | enum: `pause`, `scripts` | `"pause"` |  | **Controls.** What runs while the controls screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
+| `simulate.save` | enum: `pause`, `scripts` | `"pause"` |  | **Save.** What runs while the save screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
+| `simulate.load` | enum: `pause`, `scripts` | `"pause"` |  | **Load.** What runs while the load screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
+| `hud` | list of uiDocument id, distinct |  |  | **HUD.** UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. As many as the game needs, drawn in list order (later ones on top). |
+| `scenes` | list of objects |  |  | **Scene list.** The game's scenes in order, each with the spawn a kept player arrives at when it loads. Next scene (deprecated) moves along it. |
+| `scenes[].scene` | scene id |  |  | **Scene.** A scene of the project. (required) |
+| `scenes[].spawn` | object id (with `playerSpawn`), any scene |  |  | **Spawn.** The player spawn the character starts at (in that scene; absent: it stays where it is). |
+| `scenes[].fade` | number |  | 0 – 5, step 0.05 | **Fade.** Seconds the view fades out before a move to this scene and back in after it (absent or 0: no fade; the previous scene stays in view until this one is drawn). |
+| `scenes[].fadeColor` | color |  |  | **Fade colour.** The colour the view fades to (absent: black). |
+| `pause` | bool | `true` |  | **Pause allowed.** The pause input opens the pause screen. |
+| `status` | bool | `false` |  | **Status line.** A small debug line: the shell screen, the listed scene and the input prompts. |
+
+<a id="content-eventCues"></a>
+## eventCues — Event sounds
+
+Sounds the game plays when a signal is sent or an event happens (a trigger entered, something collected, damaged, touched…), by name.
+
+- In every project: no
+- Written by: [`setEventCues`](ops-detail.md#op-setEventCues)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `eventCues` | list of objects | `[]` |  | **Event sounds.** One row per signal or event that plays a sound. |
+| `eventCues[].on` | enum: `signal`, `event` | `"signal"` |  | **On.** A signal (by its name) or an event scripts see in ctx.events (by its type: enter, exit, collected, damaged, died, contact…, or an animator clip event's name). (required) |
+| `eventCues[].name` | string, 1–64 chars | `"trigger"` |  | **Name.** The signal's name, or the event's type or name. (required) |
+| `eventCues[].entity` | object id, any scene |  |  | **Object.** Only this object's events (absent: any object's). (applies when `on` is `event`) |
+| `eventCues[].assetId` | asset id (audio) |  |  | **Sound.** The audio asset played. (required) |
+| `eventCues[].volume` | number | `1` | 0 – 1, step 0.05 | **Volume.** How loud (0–1). |
+| `eventCues[].bus` | enum: `sfx`, `music`, `voice`, `ui` | `"sfx"` |  | **Bus.** The mixer bus it plays on. |
+| `eventCues[].maxLateMs` | int | `500` | 0 – 60000, step 1, ms | **Late by at most.** When its file is not loaded yet, it still starts this long after the event; later it is dropped. |
+
+<a id="content-uiThemes"></a>
+## uiThemes — UI themes
+
+Named styles and icons UI documents share.
+
+- In every project: no
+- Written by: [`setUiTheme`](ops-detail.md#op-setUiTheme), [`deleteUiTheme`](ops-detail.md#op-deleteUiTheme)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `uiThemes` | list of JSON: `UiTheme` ([UiTheme](types-s-w.md#type-ui-theme)) | `[]` |  | **UI themes.** The project's themes (each its own file). |
+
+<a id="content-dialogues"></a>
+## dialogues — Dialogues
+
+Conversations: node graphs of lines (speaker, expression, text, voice clip), choices, conditions and effects, signals and jumps.
+
+- In every project: no
+- Written by: [`setDialogue`](ops-detail.md#op-setDialogue), [`deleteDialogue`](ops-detail.md#op-deleteDialogue), [`graphEdit`](ops-detail.md#op-graphEdit)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `dialogues` | list of JSON: `DialogueDocument` ([DialogueDocument](types-c-m.md#type-dialogue-document)) | `[]` |  | **Dialogues.** The project's conversations (each its own file). |
+
+<a id="content-speakers"></a>
+## speakers — Speakers
+
+Who speaks in conversations: name, name-plate colour, portraits per expression, voice profile, text blip.
+
+- In every project: no
+- Written by: [`setSpeaker`](ops-detail.md#op-setSpeaker), [`deleteSpeaker`](ops-detail.md#op-deleteSpeaker)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `speakers` | list of JSON: `DialogueSpeaker` ([DialogueSpeaker](types-c-m.md#type-dialogue-speaker)) | `[]` |  | **Speakers.** The project's speakers. |
+
+<a id="content-dialogueSettings"></a>
+## dialogueSettings — Dialogue settings
+
+Text speed, auto-advance and its delay, the music/SFX duck under a voice, the backlog length, the dialogue UI document and theme.
+
+- In every project: no
+- Written by: [`setDialogueSettings`](ops-detail.md#op-setDialogueSettings)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `value` | JSON: `DialogueSettings` ([DialogueSettings](types-c-m.md#type-dialogue-settings)) |  |  | **Dialogue settings.** { textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId), voiceMaxLateMs? (ms a voice whose file is not loaded may still start late; 1000) }. (written by a tool) |
+
+<a id="content-timelines"></a>
+## timelines — Timelines
+
+Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals and fades on a time ruler, played by scripts or signals.
+
+- In every project: no
+- Written by: [`setTimeline`](ops-detail.md#op-setTimeline), [`deleteTimeline`](ops-detail.md#op-deleteTimeline)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `timelines` | list of JSON: `TimelineAsset` ([TimelineAsset](types-s-w.md#type-timeline-asset)) | `[]` |  | **Timelines.** The project's timelines (each its own file). |
+
+<a id="content-graphs"></a>
+## graphs — Graphs
+
+Standalone node graphs, edited in the graph editor.
+
+- In every project: no
+- Written by: [`setGraph`](ops-detail.md#op-setGraph), [`deleteGraph`](ops-detail.md#op-deleteGraph), [`graphEdit`](ops-detail.md#op-graphEdit)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `graphs` | list of JSON: `GraphDocument` ([GraphDocument](types-c-m.md#type-graph-document)) | `[]` |  | **Graphs.** The project's graphs (each its own file). |
+
+<a id="content-tags"></a>
+## tags — Tags
+
+Named tag bits objects carry.
+
+- In every project: no
+- Written by: [`setTags`](ops-detail.md#op-setTags)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `tags` | list of objects, ≤ 32 items | `[]` |  | **Tags.** Up to 32 tags. |
+| `tags[].bit` | int |  | 0 – 31, step 1 | **Bit.** The bit (0–31). (required) |
+| `tags[].name` | string, identifier, 1–32 chars |  |  | **Name.** A letter, then letters, digits, _ or - (unique ignoring case). (required; format identifier) |
+
+<a id="content-loadable"></a>
+## loadable — Loadable resources
+
+The resources (prefabs, materials, dialogue, …) a script may load by address or label; Play and export ship them even when no scene uses them.
+
+- In every project: no
+- Written by: [`setLabels`](ops-detail.md#op-setLabels), [`setAddress`](ops-detail.md#op-setAddress)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `loadable` | list of objects | `[]` |  | **Loadable resources.** One entry per resource with an address or labels. |
+| `loadable[].kind` | enum: `prefab`, `behavior`, `material`, `animator`, `graph`, `effect`, `library`, `ui`, `uitheme`, `dialogue`, `timeline`, `envpreset` | `"prefab"` |  | **Kind.** The resource kind. (required) |
+| `loadable[].id` | string, id, 1–64 chars |  |  | **Id.** The resource id. (required; format id) |
+| `loadable[].address` | string, 1–128 chars |  |  | **Address.** The one name a script loads it by (unique in the project). |
+| `loadable[].labels` | list of string, 1–64 chars, ≥ 1 items, distinct |  |  | **Labels.** Names a script loads it by, with everything else carrying them (ascending). |
+
+<a id="content-collisionLayers"></a>
+## collisionLayers — Collision layers
+
+Named collision layers colliders are in and script queries filter by (3D; "default" is implicit).
+
+- In every project: no
+- Written by: [`setCollisionLayers`](ops-detail.md#op-setCollisionLayers)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `collisionLayers` | list of string, identifier, 1–32 chars, ≤ 15 items, distinct | `[]` |  | **Collision layers.** Up to 15 names ("default" is implicit). |
+
+<a id="content-lightLayers"></a>
+## lightLayers — Light layers
+
+Names of the light layers by number (editor labels: objects, lights and scripts use the layer masks).
+
+- In every project: no
+- Written by: [`setLightLayers`](ops-detail.md#op-setLightLayers)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `lightLayers` | list of string, ≤ 32 chars, ≤ 8 items | `[]` |  | **Light layers.** Up to 8 names, the first naming layer 1 ("" leaves one unnamed). |
+
+<a id="content-saveSchema"></a>
+## saveSchema — Project saves
+
+The project save document (its version and migrations), the slot count, the engine state every save includes, the slot picture and the settings document the game writes.
+
+- In every project: no
+- Written by: [`setSaveSchema`](ops-detail.md#op-setSaveSchema)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `version` | int |  | 1 – 1000000, step 1 | **Version.** The save document's schema version (older saves are migrated on load). (required) |
+| `slots` | int |  | 1 – 99, step 1 | **Slots.** Numbered save slots (engine limit 99). (required) |
+| `migrations` | list of objects |  |  | **Migrations.** For each older version, the script function (ctx.saves.migration) that upgrades a document by one version. |
+| `migrations[]` | object |  |  | **Migration.** One upgrade step. (rules: one migration per version; from < version) |
+| `migrations[].from` | int |  | ≥ 1, step 1 | **From version.** The version it upgrades from (to from + 1; below the schema version). (required) |
+| `migrations[].name` | string, 1–64 chars |  |  | **Function.** The name a script registers with ctx.saves.migration. (required) |
+| `sections` | list of enum: `grid`, `materials`, `spawned`, `storage`, `environment`, `dialogue`, `components`, `world`, ≤ 8 items |  |  | **Included state.** Engine state every save includes: block cells, material values, spawned objects, script storage, the environment blend, dialogue variables and seen lines, objects' health, collectibles, patrols and hitboxes, and where the play stands (world: the loaded scenes and the player's place, which a load moves the game to). |
+| `legacyWorld` | bool | `true` |  | **Always save the world.** Without world in the sections, false keeps no world in a save (the game restores scenes and its player itself); absent or true keeps the deprecated always-on world. |
+| `thumbnail` | object |  |  | **Slot picture.** The size and format of a slot's picture of the view (absent: 256 × 144 JPEG). |
+| `thumbnail.width` | int |  | 16 – 512, step 1 | **Width.** Pixels. (required) |
+| `thumbnail.height` | int |  | 16 – 512, step 1 | **Height.** Pixels. (required) |
+| `thumbnail.format` | enum: `jpeg`, `webp` |  |  | **Format.** JPEG or WebP. (required) |
+| `thumbnail.quality` | number |  | 0.1 – 1, step 0.05 | **Quality.** Encoder quality. |
+| `settings` | list of JSON: `SettingsField` ([SettingsField](types-m-s.md#type-settings-field)) |  |  | **Settings document.** The fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool\|number\|string\|enum, default, label?, min?, max?, values?, engine?: music\|sfx\|ui\|quality\|frameRateCap }. |
 
 <a id="content-settings"></a>
 ## settings — Gameplay settings

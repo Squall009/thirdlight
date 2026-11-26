@@ -20,9 +20,9 @@ What the engine offers, generated from its source: the objects, components and c
 | [Components: Organisation](components-organisation.md) | prefab — Prefab link, folder — Folder |
 | [Content documents](content.md) | Content blocks |
 | [Content documents (environment to input)](content-blocks-environment.md) | environment — Environment, input — Input |
-| [Content documents (materials to animators)](content-blocks-materials.md) | materials — Materials, animators — Animator controllers |
-| [Content documents (effects to saveSchema)](content-blocks-effects.md) | 24 sections |
-| [Content documents (settings to lighting)](content-blocks-settings.md) | settings — Gameplay settings, scenes — Scenes, startScenes — Start scenes, assets — Assets, prefabs — Prefabs, behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
+| [Content documents (materials to materials)](content-blocks-materials.md) | materials — Materials |
+| [Content documents (animators to behaviorGroups)](content-blocks-animators.md) | animators — Animator controllers, effects — Effects, scriptLibraries — Script libraries, blockTypes — Block types, cellFields — Cell fields, blockStamps — Block stamps, kits — Kits, voxelKits — Voxel kits, materialProfiles — Physical profiles, uiDocuments — UI documents, modes — Game modes, behaviorGroups — Behavior groups |
+| [Content documents (shell to lighting)](content-blocks-shell.md) | 21 sections |
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
@@ -30,7 +30,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 73 sections |
 | [Types (CreateEntityArgs to MaterialGameData)](types-c-m.md) | 89 sections |
 | [Types (MaterialParameter to SkyConfig)](types-m-s.md) | 103 sections |
-| [Types (StairFacing to WindOctave)](types-s-w.md) | 82 sections |
+| [Types (StairFacing to WindOctave)](types-s-w.md) | 83 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 19 sections |
 | [Script API types (from `BehaviorRandom`)](script-types-behavior-random.md) | 23 sections |

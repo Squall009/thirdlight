@@ -3,7 +3,8 @@
  * to compare role ids itself; those expressions are kept here, as they
  * were, as the reference: every one of the 16 role values goes through
  * every consumer's question, and every cell of the test worlds through the
- * consumers that answer from a whole value.
+ * consumers that answer from a whole value. The reference knows the ten
+ * roles the consumers compared; a role added since (gas) has its own file.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -89,6 +90,8 @@ const R = VOXEL_ROLE;
 const ALL = Array.from({ length: ROLE_SLOTS }, (_, r) => r);
 const ASSIGNED = ALL.filter((r) => r < VOXEL_ROLE_COUNT);
 const UNASSIGNED = ALL.filter((r) => r >= VOXEL_ROLE_COUNT);
+/** The roles the consumers' own checks knew: every assigned role but those added as rows since. */
+const COMPARED = ASSIGNED.filter((r) => r !== R.gas);
 
 const OLD_CONSTRUCTION: number[] = [R.wall, R.floor, R.roof, R.foundation, R.stair, R.pillar];
 const OLD_FRAME: number[] = [R.wall, R.floor, R.foundation, R.stair, R.pillar];
@@ -215,23 +218,25 @@ function placeholderClass(role: number): number {
 }
 
 describe('role traits table', () => {
-  it('has a row for each of the 16 role values: the record\'s ten roles by name, six unassigned', () => {
+  it('has a row for each of the 16 role values: the record\'s eleven roles by name, five unassigned', () => {
     expect(ROLE_TRAITS).toHaveLength(16);
     for (const [name, id] of Object.entries(VOXEL_ROLE)) expect(ROLE_TRAITS[id]!.name).toBe(name);
     for (const r of UNASSIGNED) expect(ROLE_TRAITS[r]!.name).toBeNull();
-    expect(ASSIGNED.map((r) => roleShape(r))).toEqual(['none', 'fill', 'level', 'integrity', 'integrity', 'integrity', 'integrity', 'integrity', 'integrity', 'none']);
-    expect(ASSIGNED.map((r) => roleTraits(r).medium)).toEqual(['none', 'none', 'liquid', 'none', 'none', 'none', 'none', 'none', 'none', 'none']);
+    expect(ASSIGNED).toHaveLength(11);
+    expect(UNASSIGNED).toEqual([11, 12, 13, 14, 15]);
+    expect(ASSIGNED.map((r) => roleShape(r))).toEqual(['none', 'fill', 'level', 'integrity', 'integrity', 'integrity', 'integrity', 'integrity', 'integrity', 'none', 'density']);
+    expect(ASSIGNED.map((r) => roleTraits(r).medium)).toEqual(['none', 'none', 'liquid', 'none', 'none', 'none', 'none', 'none', 'none', 'none', 'gas']);
   });
 
   it('answers every consumer\'s question for each assigned role as the consumer\'s own check did', () => {
-    for (const [what, old, now] of BY_ROLE) for (const r of ASSIGNED) expect(now(r), `${what}: role ${r} (${ROLE_TRAITS[r]!.name})`).toEqual(old(r));
+    for (const [what, old, now] of BY_ROLE) for (const r of COMPARED) expect(now(r), `${what}: role ${r} (${ROLE_TRAITS[r]!.name})`).toEqual(old(r));
     expect([...MIP_ROLE_PRIORITY]).toEqual(OLD.mipPriority);
-    expect([...MIP_MEDIUM_ROLES]).toEqual([R.liquid]);
+    expect(MIP_MEDIUM_ROLES.filter((r) => COMPARED.includes(r))).toEqual([R.liquid]);
     expect([...PORTAL_ROLES]).toEqual([R.opening]);
     expect(ASSIGNED.filter(isRoofRole)).toEqual([R.roof]);
     expect(ASSIGNED.filter(isRelaidRole)).toEqual([R.roof]);
     expect(ASSIGNED.filter(isAirRole)).toEqual([R.air]);
-    for (const r of ASSIGNED) {
+    for (const r of COMPARED) {
       const plain = OLD.plainClass(r);
       // A frame role alone in air is a wall to the placeholder rules (no beam, no rail without neighbours).
       expect(placeholderClass(r), `placeholder class of role ${r}`).toBe(plain ?? ASSEMBLY_CLASS.wall);
@@ -256,7 +261,7 @@ describe('role traits table', () => {
 
   it('answers the consumers that read a whole value as their own checks did, for every assigned role, shape and material', () => {
     const values: number[] = [0];
-    for (const r of ASSIGNED) for (let shape = 0; shape <= SHAPE_FULL; shape++) for (const material of [1, 9]) for (const wet of [0, 3]) values.push(recordValue(material, r, shape, wet));
+    for (const r of COMPARED) for (let shape = 0; shape <= SHAPE_FULL; shape++) for (const material of [1, 9]) for (const wet of [0, 3]) values.push(recordValue(material, r, shape, wet));
     for (const v of values) {
       const at = `value ${v} (role ${valueRole(v)}, shape ${valueShape(v)})`;
       expect(stampClassOfValue(v), `stamp class of ${at}`).toBe(OLD.stampClass(v));
@@ -317,14 +322,16 @@ describe('role traits table', () => {
       expect(wgsl).toContain(`const ${name}: u32 = ${bits}u;`);
     }
     expect(roleTraitBits('stopsLight')).toBe(ASSIGNED.filter((r) => OLD.construction(r) || r === R.terrain).reduce((m, r) => m | (1 << r), 0));
-    expect(roleTraitBits('medium')).toBe(1 << R.liquid);
+    expect(roleTraitBits('medium')).toBe((1 << R.liquid) | (1 << R.gas));
+    expect(roleTraitBits('gas')).toBe(1 << R.gas);
     expect(wgsl).toContain('fn role_has(bits: u32, role: u32) -> bool');
-    // A row added (a gas at value 10) reaches the lookup with no other change.
-    const withGas = ROLE_TRAITS.map((t, r): RoleTraits => (r === 10 ? { ...t, name: 'gas', medium: 'gas', shape: 'density', mip: 'share', mipRank: 8 } : t));
-    expect(() => checkRoleTraits(withGas)).not.toThrow();
-    expect(roleTraitBits('gas', withGas)).toBe(1 << 10);
-    expect(roleTraitBits('body', withGas)).toBe(roleTraitBits('body'));
-    expect(roleTraitsWgsl(withGas)).toContain(`const ROLE_MEDIUM: u32 = ${(1 << R.liquid) | (1 << 10)}u;`);
+    // A row added (a second gas at the first unassigned value) reaches the lookup with no other change.
+    const next = UNASSIGNED[0]!;
+    const withRow = ROLE_TRAITS.map((t, r): RoleTraits => (r === next ? { ...t, name: 'vapour', medium: 'gas', shape: 'density', mip: 'share', mipRank: 10 } : t));
+    expect(() => checkRoleTraits(withRow)).not.toThrow();
+    expect(roleTraitBits('gas', withRow)).toBe((1 << R.gas) | (1 << next));
+    expect(roleTraitBits('body', withRow)).toBe(roleTraitBits('body'));
+    expect(roleTraitsWgsl(withRow)).toContain(`const ROLE_MEDIUM: u32 = ${(1 << R.liquid) | (1 << R.gas) | (1 << next)}u;`);
   });
 
   it('refuses a table the consumers would read wrongly', () => {
