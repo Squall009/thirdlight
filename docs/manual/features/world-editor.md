@@ -1,4 +1,4 @@
-# The world editor: sculpt and paint a voxel world
+# The world editor: sculpt, paint and fill a voxel world
 
 The world editor is the edit mode of a voxel world's ground. It works on the
 live Scene view, in the same frame as every other editor (the header with
@@ -8,7 +8,10 @@ the status line with its keys). What a voxel world is: [Voxel worlds](voxel-worl
 Every stroke is one `editVoxels` command, the same one a script or an AI
 agent sends ([Edits: `editVoxels`](voxel-worlds.md#edits-editvoxels)), and one
 step of the project's undo (Ctrl+Z takes a stroke back, Ctrl+Shift+Z puts it
-back).
+back). A water body and a spline made here are one object each, made by the
+command that makes any object, and one undo step too.
+
+The rail has four parts: **Sculpt**, **Paint**, **Fill** and **Splines**.
 
 ## Opening it
 
@@ -69,14 +72,88 @@ blocks.
   paint will land. The pattern stays put in the world, so strokes side by
   side meet without a seam.
 
+## Fog with the brush
+
+Paint's palette lists the project's **gases** after the ground and
+construction materials (materials whose voxel use is gas). Pick one and the
+brush becomes the fog brush:
+
+| Tool | Key | What a stroke does |
+|---|---|---|
+| **Fog** | P | Writes the picked fog into the **open cells** under the brush, at the **Density** set. Ground, walls, doorways and water under the brush stay exactly as they are; another fog there is painted over. Hold Ctrl to erase for one stroke. |
+| **Erase** | E | Takes fog out of the cells under the brush: fog only, of any kind. Ground and water are left. Hold Ctrl to paint for one stroke. |
+| **Smooth** | S | Evens out the picked fog's density under the brush: a bank's edge thins into the air beside it. Other fogs and the ground are left. |
+
+- **Density**: 1 to 15, shown as a share of the material's full density (a
+  cell holds fog in 16 steps; 15 is the material's own density).
+- The brush sits on the cell **over** the ground under the pointer, so half
+  of a ball brush reaches into the ground and writes nothing there.
+- A fog brush is at most 8 m across. A wider bank is made with the Fill
+  rail.
+- Fog painted or erased has a hard edge; go over it with Smooth.
+
+## Fill
+
+The Fill rail fills the open space joined to a point, up to a level.
+
+- **Fog** (G): pick a gas, **press** on a point in a hollow and **drag up or
+  down** to set the level, then release. The ring in the view shows the level;
+  the status line reads it in metres. A press and release without a drag
+  fills to the **Depth** set over the point. The fog fills every open cell
+  joined to that point under the level: round a rock, into a cave, never
+  through ground, walls or water.
+  - **Depth**: the level a click gives, over the point clicked. A drag
+    changes it, and the next click starts from where the last drag ended.
+  - **Fade**: the metres under the level over which the fog thins to nothing
+    at the level (0: full density up to the level).
+  - **Reach**: how far from the point the fill may spread, and how deep.
+    The panel says the most one fill can reach (about 60 m).
+- **A leak**: when the fill would pass its reach or leave the world (the
+  hollow is open on one side, or the level is over its rim), **nothing is
+  written**. The status line says so and red marks in the view show where
+  the fill crossed its bound. Close the gap, lower the level or shorten the
+  reach, and fill again. The marks go with the next fill that is taken.
+- **Drain** (R): the same press and drag; fog **and water** under the level,
+  joined to the point, are taken out. Water that belongs to a water body
+  comes back at once: delete or lower the body instead. Fog lying on open
+  ground cannot be drained (it leaks as a fill would): erase it with the fog
+  brush.
+- **Water** (L): pick a liquid, press on a point in a basin and drag the
+  level. This makes a **water body**: an object at that point which fills the
+  basin, and fills it again whenever the ground there changes, so a shore
+  follows your sculpting. Its level, liquid and reach are changed in the
+  Inspector after **Done** (see [water bodies](voxel-worlds.md)); where it
+  leaks is marked as a fill's leak is. The editor stays open, so several can
+  be made.
+- When the project has no gas or no liquid material yet, the panel offers
+  **Make a mist material** or **Make a water material**: a plain material
+  with the next free voxel id, to change in its material editor.
+
+A fog fill is a stroke: it does not follow later ground edits (dig the bank
+away and the fog stays where it was). Fill again, or drain it first.
+
+## Splines
+
+**Road** (R), **Path** (P) and **River** (V) start a spline that writes
+voxels. Pick the surface material (a river: the liquid), then **drag on the
+ground** from where it starts to where its first stretch ends. The spline is
+made as an object with those two points and its voxels section already set
+(a road or path on a metre of bed; a river of the liquid), and the editor
+**closes with it selected**: move, add and remove its points with its handles
+in the Scene view, and set its width, bed and shoulders in the Inspector. A
+click without a drag makes nothing.
+
 ## Limits to know
 
 - The ground changes at the release, not under the pointer while you drag.
+- **Fog is not drawn yet.** A fill or a fog stroke changes the world (the
+  status line and undo show it), but nothing shows the fog in the view until
+  its drawing is built.
 - Wetness cannot be painted alone: a Paint stroke always writes its material
   too.
 - Smooth and Flatten have no strength setting; a stroke over a place again
   goes further.
-- Liquids and gases are not in the palette: a lake is a
-  [water body](voxel-worlds.md), fog comes with the fill tools.
+- A fog stroke changes the cells the view has loaded. Wait for the view to
+  settle after a big edit before painting fog over the same place.
 - A world needs at least one voxel material for ground or construction
   before Add and Paint can write (a material's **Voxel** section).

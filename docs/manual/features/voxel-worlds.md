@@ -458,8 +458,9 @@ Limits today:
   editor, and the Scene view rebuilds the chunks it changed.
 - **Edit → Undo / Redo** (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) take voxel strokes
   back and apply them again in turn with the scene's edits (below).
-- **The world editor** sculpts and paints a world's ground with brushes
-  (select the voxel world object, **Edit world**):
+- **The world editor** sculpts and paints a world's ground with brushes,
+  fills hollows with fog, makes water bodies and starts road, path and river
+  splines (select the voxel world object, **Edit world**):
   [The world editor](world-editor.md). Edits are also sent by the voxel world
   page or over the API (below).
 - **The voxel world page**, `/voxel-world.html?project=<id>&world=<name>`

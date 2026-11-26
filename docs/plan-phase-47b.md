@@ -1,7 +1,7 @@
 # Plan — phase 47b: the world edit mode, the fill, fog as voxels, dressing rules and ground cover
 
 **Status: APPROVED by the owner 2026-11-26, with the changes of that conversation (§8). A fresh session builds
-it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D838.
+it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D841.
 
 The roadmap's line (owner, 2026-11-12): "**47b World edit mode**: one mode on the brush kit in the Scene view;
 fields derived from voxels; the height-based fill for water and fog; the fog role and fog painting with a plain
@@ -140,7 +140,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.3 | done 2026-11-26: edit command v3 (v2 read as written): `flood` (the water bodies' level fill, its role, fade and a floor as parameters; a leak refused with its places), brush modes `smooth` and `flatten` (the ground a column at a time; a gas's density), a paint that keeps roles. 30 unit tests, 2 over HTTP on the one undo line. D762 stays open for the tool. Results §9 |
 | 47b.4 | done 2026-11-26: `surface-fields.ts` (16 values a surface; the block form is the kernel at each column's top, the per-point form answers caves and storeys), a `surface-fields` job at level 0 and on the 2 m nodes (`farGroundFields`), `ctx.voxels.surfaceAt`. Never stored, no derive part, run when asked: 8–9 ms a chunk column. 2 m against 0.5 m within stated tolerances. Results §9 |
 | 47b.5 | done 2026-11-26: the world mode (Edit world on a `voxelWorld`; Sculpt: add, dig, smooth, flatten; Paint: palette with variants, wetness, noise mask) on one voxel brush tool the structure mode's hand edits now use (D762 fixed). A drag is one v3 command of thinned dabs at the release. E7 read; a real pointer drag changed the ground. D837 opened. Results §9 |
-| 47b.6 | not started |
+| 47b.6 | done 2026-11-26: the Fill rail (fog to a dragged level with a fade and a reach, one `flood`; a leak refused and marked; drain; Water makes a water body), the fog brush on Paint (a `set` or `dig` of the cells it names, so ground and water stay; smooth) and a Splines rail, all on the one tool. No command or stored thing added. E8 read; fog is not drawn before 47b.7. D838–D840. Results §9 |
 | 47b.7 | not started |
 | 47b.8 | not started |
 | 47b.9 | not started |
@@ -357,6 +357,47 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   11. **The mode is a scene's mode** (as decals): opened on a `voxelWorld` object by the Inspector's Edit world or a
       double-click in the Hierarchy, it edits that object's world, draws the whole scene, and takes only hits on the
       world's own lattice (over a structure a drag orbits). No menu entry or toolbar button was added.
+- **2026-11-26 — 47b.6, defaults chosen, owner to confirm** (item agent):
+  1. **Fog paint and erase name their cells; no command field was added.** No brush form writes a gas into open
+     cells only at a chosen density, or empties gas cells only: `add` also takes a liquid's cells and writes full
+     density (its coverage at a soft rim), `dig` takes ground, a `paint` never fills air (D838). So a fog stroke reads
+     the cells under its dabs from the Scene view's worker at the release and sends one `set` (the gas at the
+     density, dry) or one `dig` over the cells it may change. What follows from it: painted fog has one density and a
+     hard edge (Smooth softens it); the fog brush is at most 8 m across, and a stroke whose list passes the command
+     route's body bound is refused by the backend (D838); the cells are the view's copy, which can be an edit behind
+     (D840). A brush mode that does this in the command is a line for after the merge.
+  2. **Fog is painted into air and into any gas** (another fog is painted over; a cell already holding this fog at
+     this density is left out); **Erase takes any gas**, not only the picked one. Ground, built cells, openings,
+     liquids and cells the view has not loaded are never named.
+  3. **The level gesture**: the press is the seed (the open cell in front of the face met); the level starts at the
+     panel's Depth over the surface clicked (2 m to start) and follows the pointer up and down the screen by the
+     view's scale at the seed's distance, in steps of 0.25 m, never under one step over the surface; the depth a
+     gesture ends at is where the next click starts. It is a drag on the screen, not a handle in the scene: from
+     straight above, up the screen still raises the level.
+  4. **Reach and fade**: a fill's reach starts at 32 m; its most is the command's own bound, asked of `editChunks`
+     (63 m on a world of 32-cell chunks) and said on the panel. The fade starts at 1 m; 0 sends none.
+  5. **A drain is the flood with air** (47b.3): it takes fog and water alike; water of a water body is written again
+     by the body in the same stroke. The manual says so.
+  6. **Water is one `createEntity`** of a group object named Water at the seed cell's middle, with `waterBody`
+     (world, level, the picked liquid); the reach is left to the component (256 m). The mode stays open; the body's
+     own leak marks and Inspector do the rest. The tool never floods a liquid.
+  7. **The spline entry is a rail of its own, Splines** (Road, Path, River), not a tile of Fill: a drag gives the
+     spline's first two points (a click lays nothing), the object stands at the first, 4 m, 1.5 m and 4 m wide; a
+     road or path of the picked ground or construction material on a metre of bed, a river of the picked liquid (the
+     Inspector's own start, now one function); then **the mode closes with the spline selected**, where its handles
+     are. Spline editing was not rebuilt and is not offered inside the mode.
+  8. **No starter material went into the basic kit.** Neither the kit nor the two templates holds any voxel material
+     (no liquid either: the item's brief assumed one). A voxel id is unique in a project and a kit is added whole or
+     not at all, so a kit material with a fixed voxel id would make the kit's add fail in every project that uses
+     that id. Instead the Fill and Splines panels offer **Make a mist material** / **Make a water material** when the
+     project has none: one `setMaterial` of a plain material (Mist: gas, `#dfe6ea`, the default density; Water:
+     liquid, `#2a5fc0`) with the project's next free voxel id.
+  9. **A refused flood's marks stay** until a fill is taken or the fill tools are put down (another rail, Navigate,
+     Done). They stand where the fill crossed its bound, as a water body's do, not at the gap in the bank.
+  10. **Ctrl (or the panel's switch) swaps Fog and Erase** for a stroke, as it swaps Add and Dig.
+  11. **Picture E8's stand-in for the fog itself** is the level ring, the leak mark and the status line; no overlay
+      and no gas draw was built (47b.7's). Its script also drags one stroke of the fog brush, so the worker's cell
+      read ran in a real page.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -866,6 +907,103 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
 - **Left out, and why:** the Fill rail, fog paint, the spline entry (47b.6); the Rules rail (47b.10); a menu entry
   for the mode; a preview of the result while dragging and wetness painted alone (§8 1, 6); a strength for Smooth
   and Flatten (47b.3 named none); a cursor that follows the ground's height.
+
+### 47b.6
+
+- **What exists.** The world mode's rail is **Sculpt, Paint, Fill, Splines**.
+  - **Fill** (`ui/editmode/world-mode.tsx` `FillColumn`): tools Fog (G), Drain (R), Water (L); the gas palette for
+    Fog and the liquid palette for Water (the same `voxelPalette`, asked for one use); Depth, Fade and Reach; the
+    reach's bound said in words. Gesture: press a point (the seed: the open cell in front of the face met), drag up
+    or down (the level, in 0.25 m steps, drawn as the water bodies' level ring with a post at the seed, read out on
+    the status line), release: **one command**. Fog: `{v: 3, kind: "flood", seed, level, value: {the gas, role gas},
+    reach, fade?}`. Drain: the same with `{material: 0, role: 0}` and no fade. Water: `createEntity` of a group
+    with `waterBody: {world, level, material}` at the seed cell's middle. A `flood_leaks` refusal: the water bodies'
+    markers at each place the error names, the status line "The fog leaks past its reach at N places, first at … :
+    nothing was written", nothing sent after it.
+  - **The fog brush** (Paint, a gas picked in its palette, which now ends with the gases): Fog (P), Erase (E),
+    Smooth (S), a Density of 1–15 (shown in per cent), its own brush size (0.5–8 m). **How erase is sent**: the
+    cells under the stroke's dabs are read from the view's worker, and the stroke is `{v: 3, kind: "dig", cells:
+    [the gas cells]}`; paint is `{v: 3, kind: "set", cells: [the open cells: air and gas], voxel: {the gas, role gas,
+    wetness 0, shape: the density}}`; smooth is the brush's `mode: "smooth"` with `voxel` the gas (§8 1, 2).
+  - **Splines**: Road (R), Path (P), River (V): a drag from a point to another is one `createEntity` of a spline
+    (two points, a width, `voxels` preset), then the mode closes with it selected.
+  - **Make a mist / water material** where the project has no gas or liquid (§8 8).
+- **What it extends**: the voxel brush tool (`viewport/voxel-brush-tool.ts`, 443 → 545 lines; the gesture in
+  `voxel-fill-gesture.ts`, 290, owned by it: one tool on the router, one pick, one arm); `session/voxel-fill.ts`
+  (pure: the commands and the cell lists); `session/world-mode.ts` (state, arming, tools); `heightRingLines` moved
+  out of the handles' `linesOf` so the fill draws the same ring; `WaterLeakMarkers` (a second group); the
+  Inspector's spline start (`splineStartVoxels`, now one function for both); the Scene view worker's wire gained a
+  `cells` message (a box of record values from the walk's `record`; nothing stored); the editor's refusal keeps an
+  error's `leaks`; `EditModeHost.handOver`.
+- **No command, command field or stored thing was added.** `editVoxels` v3 and `createEntity` as they were; the
+  `cells` message is between the editor page and its own worker.
+- **Tests** (new: `session/voxel-fill.test.ts` 16, `viewport/voxel-fill-tool.test.ts` 12; one added to each of
+  `envelope.test.ts`, `tests/integration/voxel-world/voxel-world.test.ts`, `voxel-water.test.ts`):
+  - the arithmetic: the flood as `canonicalEditCommand` reads it (seed, level in cells, the gas, reach in cells,
+    fade in metres; a drain: air, no fade); the reach bound taken by `editChunks` and twice it refused; the seed,
+    the level's step and the drag's scale; a water body's and a spline's create args; the cells a fog stroke names on
+    a made box (ground, a wall, a doorway, water, two gases, a cell not loaded); the set and the dig as the backend
+    reads them; the gas and liquid groups of the palette and Paint's with gases; what each rail arms; the starter
+    material through the project model's check.
+  - the tool with a camera, a stand-in canvas, a fake pick and a made world behind the cell read: a fog fill is one
+    flood with the level the drag set, nothing sent before the release; a click fills to the depth, a drag down
+    stops a step over the surface; a `flood_leaks` answer becomes markers at the places named (the marks' own
+    vertices read), says so and sends nothing more, the marks go with a taken fill or when the fill tools are put
+    down; a drain sends air; `flood_blocked` and `no_change` said without marks; Water sends exactly one
+    `createEntity` and no stroke; no material picked begins nothing; Esc drops a fill; the spline entry's create and
+    a click that lays nothing; fog paint a `set` at the density with no ground or water cell in it, erase a `dig` of
+    the one gas cell there, smooth the brush's smooth with the gas; no read or nothing loaded sends nothing.
+  - **over HTTP, the tool itself driven** against a real backend with `applyEdit` as the reference: a world of rock
+    with a pond, a wall block and a basin; fog painted across rock, wall and pond (a `set`, the gas part alone),
+    erased over part of it (a `dig`), smoothed, the basin flooded (243 cells: nine by nine by three) and drained;
+    after each the region files equal the oracle and **every cell that is not gas is where and what it was** (a
+    hash over ground, wall and water with their places); a fill over the rim refused 400 `flood_leaks`, the marks
+    at the error's places, the revision unmoved; five undos give the first bytes. 2.5 s.
+  - the objects over HTTP (`voxel-water.test.ts`): the tool's own args make a water body that fills its hollow
+    (98 cells, `writeWater`, reach 256 from the component) and a road spline (`writeSplines`), each one undo step
+    back to the same files.
+  - **Broken on purpose, each run once** (12): the fade never sent → 2 red; the seed the cell met → 3 and the HTTP
+    test; leaks not marked → 2 and HTTP; fog painted over anything → 2 and HTTP; erase digging any cell → 2 and
+    HTTP; the level ignoring the drag → 2; a drain sending the gas → 1 and HTTP; fog smooth without its gas → 2 and
+    HTTP; a click laying a spline → 2; water sent as a flood → 1; a refused flood written off as taken → 3 and
+    HTTP; **cells not loaded read as air → green**: the marker's bits are neither air nor a gas, so the lists leave
+    it out without the explicit line (which stays, for the reader).
+- **Picture E8** (four takes: 130 s, 290 s, 21 s, 23 s; WebGPU, load about 1.5–2).
+  `~/.cache/thirdlight-phase47b/work/47b.6/`:
+  - Take 1 (`pictures/`): the near hollow's fill refused and marked by a real click, but the far hollow never
+    filled: the script's scan of the view found no floor cell of it. Fixed (a finer scan).
+  - Take 2 (`pictures-2/`): both fills by the real pointer; the facts of the second were the first's answer read
+    again, the scan took four minutes, and the ring had two posts (the handle's at its rim and the seed's). Fixed:
+    one scan for both hollows, the answer awaited by its change, the post at the seed only.
+  - Take 3 (`pictures-3/`): as take 4 without the fog brush stroke.
+  - **Take 4, the picture** (`pictures-4/E08-world-fill.png`; settled). Sees: the World editor on the yard, the
+    rail Sculpt, Paint, Fill (shown), Splines; the column Navigate, Fog (armed), Drain, Water, the Fog palette with
+    one tile (Mist · gas · 31), Depth 1.50 m, Fade 1.00 m, Reach 8 m and the line "One fill reaches at most 63 m";
+    in the view two square hollows in the grass, the house's corner at the left, the lane behind; over the near
+    hollow a thin orange ring half a metre under its rim with a post from its floor; its trench running to the
+    lower left with a red cross and ring where the fill passed 8 m; the status line "The fog leaks past its reach
+    at 1 place, first at (21.0, -1.3, 8.8) m: nothing was written. Close the gap, …". **The fog itself is not
+    drawn**: the far hollow, which the facts say was filled (the command answered ok, the view's world went from
+    revision 8 to 9), looks exactly like an empty one, and so does the fog the brush painted in the near one.
+    Wrong: nothing shows a fill that worked; the ring is thin and easy to miss on the grass; the leak mark is large
+    and partly behind the Project bar at the view's bottom; the editor's status bar also says "error
+    flood_leaks" in red beside the mode's own sentence (D839); the Project bar covers the view's lower edge. Sure:
+    high for what is there; nothing on how the gesture feels.
+  - **Real pointer events drove it** (Playwright's mouse on the canvas): one stroke of the fog brush on the Paint
+    rail with the Mist picked (3 dabs, the cells read from the view's worker, a `set` of 303 cells answered ok in
+    34 ms, revision 7 → 8); a press on the far hollow's floor, a drag down until the level read -0.5 m, a release
+    (flood ok, revision 8 → 9); a press and release on the near hollow's floor (400 `flood_leaks`, one place
+    marked, revision unmoved); the Reach typed into its field. Drain, Water, the spline entry, Erase and Smooth
+    were not driven in a browser.
+- **Gate:** GATE_PLACEHOLDER
+- **Unverified:** the fog and what any fill looks like (nothing draws gas); Drain, Water, Erase, Smooth and the
+  three spline kinds with a real pointer; the hand-over to a spline's handles and the Make a material buttons in a
+  browser; the keys G, R, L and P, E, S, V; Ctrl+Z in the editor after a fill; a fog stroke right after another
+  edit of the same cells (D840); a fill dragged from straight above; anything on a world bigger than the 64 m yard.
+- **Left out, and why:** the gas draw and the density overlay (47b.7); a fog body that follows ground edits (§10
+  3); a soft rim or a density by coverage for painted fog, and a fog brush wider than 8 m (they need a brush mode
+  in the command: owner); a starter material in the kit (§8 8); a preview of what a fill would cover before the
+  release; a spline's later points inside the mode.
 
 ## 10. The proposed plan's questions and how each stands
 
