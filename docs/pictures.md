@@ -41,8 +41,11 @@ state, the bench's speck count for world pictures, capture facts), `README.md`, 
 performance report beside the one before it) and `read.md`, the skeleton of the read. The benches' own output
 (every picture they took, their JSON and logs) is in `<pack>.raw/`.
 
-A picture that could not be taken or did not settle turns the run RED: the run did not do its job. What a
-picture shows never turns anything red.
+A picture that could not be taken or did not settle within its timeout (120 s a screen, `SETTLE_MS` in
+`editor-screens.ts`; a world picture's camera light-shots' `--timeout`, 180 s by default) turns `pictures` and
+the phase run RED: the run could not do its job. Besides the timeouts that only catch a hang (a unit test's 30 s,
+the boot check's start timeouts), that settle timeout is the only time-dependent red in the suite: no unit test
+and no boot test asserts a wall time. What a picture shows never turns anything red.
 
 ## The read
 

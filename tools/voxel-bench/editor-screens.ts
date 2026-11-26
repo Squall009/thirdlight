@@ -288,9 +288,15 @@ export async function stagingScreens(browser: Browser, want: readonly ScreenName
         const panel = page.getByTestId('profiler-timeline');
         const p = await until(page, async () => ((await panel.count()) > 0 && (await panel.isVisible()) ? null : 'the Profiler timeline not shown'), 30_000);
         if (w.ok && !p.ok) w = p;
-        await page.waitForTimeout(2000);
+        // The timeline drawn with frames in it: columns, and the page's bars among them (what the picture shows).
+        const bars = await until(page, async () => {
+          const a = await panel.evaluate((el) => ({ columns: Number(el.dataset['columns'] ?? 0), page: Number(el.dataset['pageBars'] ?? 0) })).catch(() => null);
+          if (a === null || a.columns === 0) return 'the Profiler timeline holds no frame';
+          return a.page > 0 ? null : 'the Profiler timeline has no page bar drawn';
+        }, 30_000);
+        if (w.ok && !bars.ok) w = bars;
       }
-      out.set('play-profiler', await shoot(page, files('play-profiler'), w, facts('play-profiler', { camera: 'the project\'s Perf far camera as its behaviour holds it' }), idOf('play-profiler'), 'Play drawing, its streaming counts still for 3 s and the light volume settled, the Profiler timeline shown'));
+      out.set('play-profiler', await shoot(page, files('play-profiler'), w, facts('play-profiler', { camera: 'the project\'s Perf far camera as its behaviour holds it' }), idOf('play-profiler'), 'Play drawing, its streaming counts still for 3 s and the light volume settled, the Profiler timeline shown with frames and page bars'));
       await page.getByTitle('Stop the play preview').click().catch(() => undefined);
       await page.locator('iframe.tl-app__preview-frame').waitFor({ state: 'detached', timeout: 30_000 }).catch(() => undefined);
     }
