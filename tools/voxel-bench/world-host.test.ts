@@ -19,6 +19,7 @@ import {
   type BehaviorArtifact,
   type BehaviorVoxels,
   type Runtime,
+  type VoxelEditResult,
   type VoxelWorldConnection,
   type VoxelWorldPorts,
 } from '@thirdlight/runtime';
@@ -396,6 +397,57 @@ describe('voxel worlds in the runtime (ctx.voxels)', () => {
     expect(h.rt.dispose().ok).toBe(true);
     expect(h.closed).toEqual(['b', 'a']);
     expect(h.poolsClosed).toEqual(['b', 'a']);
+  }, 120_000);
+
+  it('a runtime set and dig across a chunk face: a run of cells grown a row taller and taken away again, read at once, and the colliders on both sides of the face follow each swap', async () => {
+    const h = await harness();
+    // A floating run of construction cells (a rail with nothing under it) along x across the chunk face at x = 0,
+    // four cells over the ground so the ground's own relief is never what a ray meets.
+    const z = 4;
+    const y0 = groundY + 6;
+    const xs = [-4, -3, -2, -1, 0, 1, 2, 3];
+    const m = (cell: number): number => (cell + 0.5) * VOXEL_SIZE_M;
+    const wood = { material: 7, role: 1 };
+    const probeAt = [m(-2), m(1)]; // a column each side of the chunk face
+    const topsNow = (): number[] => probeAt.map((x) => groundBelow(h.port, x, m(z))?.y ?? NaN);
+    await h.stepUntil((v) => (v.isResident({ at: [m(0), m(y0), m(z)] }) ? true : undefined), 'the run region to load');
+    await h.until(() => topsNow().every((y) => Number.isFinite(y)), 'bodies under the run');
+    const ground = topsNow();
+    for (const g of ground) expect(g).toBeLessThan(y0 * VOXEL_SIZE_M);
+
+    // A change from the script: each set read at once in its step, then swapped and reported once.
+    const edit = async (what: string, fn: (v: BehaviorVoxels) => VoxelEditResult[]): Promise<BehaviorVoxels['changes'][number]> => {
+      const rs = await h.inStep(fn);
+      for (const r of rs) expect(r.ok, what).toBe(true);
+      const last = rs.at(-1)!;
+      if (!last.ok) throw new Error(what);
+      return h.stepUntil((v) => v.changes.find((c) => c.edit === last.edit), `${what} to swap`);
+    };
+    const chunkXs = (c: BehaviorVoxels['changes'][number]): Set<number> => new Set(c.chunks.map((b) => Math.round(b.min[0] / (grid.edge * VOXEL_SIZE_M))));
+
+    const laid = await edit('the run', (v) => xs.map((x) => v.set({ at: [m(x), m(y0), m(z)] }, wood)));
+    expect(chunkXs(laid).has(-1) && chunkXs(laid).has(0)).toBe(true);
+    // The collider's top: within the run's top cell (its surface sits a little under the cell's top face).
+    const topIn = (row: number): boolean => topsNow().every((y) => y > (row + 0.5) * VOXEL_SIZE_M && y <= (row + 1) * VOXEL_SIZE_M + 1e-3);
+    await h.until(() => topIn(y0), 'the run collides on both sides of the face');
+
+    // Grown a row taller: one more row on top, the colliders rise half a metre on both sides.
+    const grown = await h.inStep((v) => {
+      const rs = xs.map((x) => v.set({ at: [m(x), m(y0 + 1), m(z)] }, wood));
+      return { rs, read: v.get(m(-1), m(y0 + 1), m(z)) };
+    });
+    expect(grown.read).toMatchObject(wood);
+    const last = grown.rs.at(-1)!;
+    if (!last.ok) throw new Error('grow');
+    await h.stepUntil((v) => v.changes.find((c) => c.edit === last.edit), 'the growth to swap');
+    await h.until(() => topIn(y0 + 1), 'the taller run collides');
+
+    // Taken away again: read as air at once; once swapped a ray meets the ground under it, on both sides.
+    const dug = await edit('the dig', (v) => xs.flatMap((x) => [v.dig({ at: [m(x), m(y0 + 1), m(z)] }), v.dig({ at: [m(x), m(y0), m(z)] })]));
+    expect(chunkXs(dug).has(-1) && chunkXs(dug).has(0)).toBe(true);
+    expect((await h.inStep((v) => v.get(m(0), m(y0), m(z))))?.material).toBe(0);
+    await h.until(() => topsNow().every((y, i) => Math.abs(y - ground[i]!) < 1e-3), 'the ground under the run again');
+    expect(h.rt.dispose().ok).toBe(true);
   }, 120_000);
 
   it("sends the world's draws to the page as one batch a streamer task: a swap's chunks in one message, equal to fresh joins, handed over without detaching the streamer's buffers", async () => {
