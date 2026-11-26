@@ -142,6 +142,9 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
   `tools/voxel-bench`; a roof kit with wall-top fill for the bench town, or the owner's word on that default (D829);
   why Play in the editor takes about 95 s to settle on the town (D835); a script that declares more than 32 debug
   commands gets an error, not a log line.
+- From 47b.2: the reference generator keeps a page's name when it splits one by size (a rename broke 13 manual
+  links); a stroke's material use is checked against the role it writes, liquid and gas alike; `ALL_DERIVED_PARTS`
+  named for what it is (what a derive builds), and the flags beside the part bits allocated in one place.
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
