@@ -1,7 +1,7 @@
 # Plan — phase 47b: the world edit mode, the fill, fog as voxels, dressing rules and ground cover
 
 **Status: APPROVED by the owner 2026-11-26, with the changes of that conversation (§8). A fresh session builds
-it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D835.
+it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D836.
 
 The roadmap's line (owner, 2026-11-12): "**47b World edit mode**: one mode on the brush kit in the Scene view;
 fields derived from voxels; the height-based fill for water and fog; the fog role and fog painting with a plain
@@ -135,7 +135,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | Item | Status |
 |---|---|
 | 47b.0 | done 2026-11-26: three.js still 0.187.0 (nothing newer); the three files split (1,909 → 1,347, 1,879 → 1,303, 1,857 → 1,730 lines); the role traits table (`role-traits.ts`, 16 rows) asked by every consumer, `tools/check-role-traits.mjs` in the build (10 owner files); 688 derived digests equal before and after. Results §9 |
-| 47b.1 | not started |
+| 47b.1 | done 2026-11-26: D827 (the far march wrote the edge ring's pushed depth into its own target), D825 (the first profile read over the bridge's 1 MiB bound, no cursor), D831 (the Scene view's grid 1 cm under the floor), D832 (33 debug commands declared, a game holds 32) found and fixed with tests; D829 restated: wall-top fill is off by design. L16, E1, E6 clean. D835 opened. Results §9 |
 | 47b.2 | not started |
 | 47b.3 | not started |
 | 47b.4 | not started |
@@ -213,6 +213,17 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   needs the derive to carry them apart first, and removes the refusal then. (3) **The roof's special handling is a
   predicate in the roof's file, not a column** (it is the roof's own form, as the item's row allows). (4) **The build
   check reads `packages/*/src` only**: tests and `tools/voxel-bench` may compare roles.
+- **2026-11-26 — 47b.1, defaults chosen, owner to confirm** (item agent): (1) **A profile answer over the bridge's
+  bound loses its oldest frames**, never the newest; the kept long frames (spikes) are sent over the next reads, none
+  lost. So the Profiler opened on a running Play starts with a timeline shorter than four seconds and fills within
+  them. The bound itself (1 MiB) stands. (2) **The Scene view's grid sits lower the farther the camera is** (the
+  farthest corner's horizontal distance ÷ the focal length in pixels; 9 cm from the yard overview, a centimetre up
+  close) instead of being drawn another way; from far off it is that much under a floor at y = 0, which nobody
+  sees. (3) **D829 is restated, not fixed**: wall-top fill off is the kit format's approved default; turning it on for
+  the bench town is data (a roof kit), turning the default is the owner's. This is also the phase's second cut, used.
+  (4) **Picture E6 now opens the Profiler on the settled Play** (the case that failed), not before Play starts.
+  (5) **The bench's cameras are one debug command with an argument**; the engine's limit of 32 declared commands a
+  game stands (a declaration past it is a log line, as before).
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -289,6 +300,80 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   37 s.
 - **Not done, and why:** the role spec has no pointer to the table (an approved spec is not edited for it; the
   design page carries it). `AGENTS.md` does not name the new check (the rules page is the lead's to change).
+
+### 47b.1
+
+Each defect was reproduced or read from 47T's pictures first; the diagnostic pictures and logs are in
+`~/.cache/thirdlight-phase47b/work/47b.1/` (`before/`, `diag1/`, `diag2/`, `diagE1/`, `pictures/`, `pictures-e6/`).
+
+- **D827, fixed (4ef43983).** A diagnostic run of `town-250m` with the near and the far field hidden in turn
+  (`diag1/town-250m-near-hidden.png`, `-far-hidden.png`) showed the band in the far field alone: at that camera the
+  near field draws houses only, no ground. Cause: the far bricks' visibility march wrote, as its depth, the near
+  cover's edge-ring push (`FarCover.behindNear`: a depth behind all of the near field) into the far field's **own**
+  target, whose depth sorts far hits against each other and holds nothing of the near field. An edge-ring hit so lost
+  to every far node box behind it, which the ray enters under its surface and shades as the ground's inside (grey
+  rock, dark where the sun field calls it shaded). The edge ring is normally the load ring's rim, with near geometry
+  in front. From 91.5 m up the load cylinder's floor (96 m under the eye) put the near set's lowest chunk layer, all
+  air and so an edge ring, on the ground: the slabs are where the coarser far surface rises into that layer, a band
+  along the ground's contour, with node boxes' straight edges. At 150 m (56 m up) the layer is under the ground, at
+  600 m no near chunk is drawn. Fix: the march writes the hit's own depth; the shade (which already pushed the kept
+  hit when writing the frame's depth) is unchanged. Test: `voxel-far-view.test.ts`, the march's WGSL holds no
+  `farBehindNear`, the shade's and the in-frame march's do; with the old line the test is red. Not fixed: the march
+  shading in the frame (`?farPass=direct`, the comparison path) has one depth for both jobs and keeps the fault.
+- **D825, fixed (d850dc30).** Cause: not the 2 s wait the row guessed. The panel's first read on a running Play is
+  the page's full rings (120 frames a thread, up to 128 spans each, and up to eight kept long frames with their own
+  frames): 1.3 MB on the town against `BRIDGE_PROFILE_RESULT_MAX_BYTES` = 1,048,576. The preview's bridge refused its
+  own answer and sent an error in its place; the panel showed "the play page did not answer", kept no cursor and
+  asked for everything again every 500 ms. Opened before Play, the first read is small and the cursor is set. The
+  same happened to a panel paused past four seconds on a busy world. Fix: `fitProfileReport` (game-host): a read over
+  the bound keeps the newest frames of all threads (a run back from now) and sends spikes oldest first in at most
+  half the room, the cursor's spike count stopping at the last sent; `preview/profile-answer.ts` applies it to every
+  answer. Tests: `profile-view.test.ts` (a real `PageProfile`: fits, newest kept, every spike arrives over the next
+  reads, the cursor ends at the page's) and `profile-answer.test.ts` (full rings across a real `Bridge` pair: the
+  read as it is comes out as the refusal error, the fitted one arrives with its cursor; without the fit the second
+  half is red).
+- **D831, fixed (741e4b04).** The grid is the Scene view's own (`ViewGround`: 20 m round the origin, a
+  `GridHelper` a centimetre under y = 0), nothing of the structure: the house's footprint happens to cover part of
+  it. The yard's ground top is exactly y = 0 (measured from the derived mesh). With the drop set to 25 cm the grid
+  was gone (`diagE1/`), so its lines are depth tested and too near the floor: a line's pixels take their depth along
+  the line, up to a pixel off the pixel's centre, and on a ground seen at a slant one pixel is (horizontal distance ÷
+  focal length in pixels) of height: 7 cm at the overview's 35 m. The dark square under the grid has a slope-scaled
+  polygon offset and stayed hidden, which is why only lines showed. Fix: `viewGroundDrop`, set before each frame.
+  Test: `view-ground.test.ts` computes, by ray and plane, the line's range a pixel off against the floor's at the
+  grid's corners from eight eyes; the fixed centimetre fails it from the overview and from 6 m over the origin.
+- **D832, fixed (f613b2b3).** Cause: `MAX_DEBUG_COMMANDS` = 32 a game. `lightShotsSource` declared a command a
+  camera (28 since 47T's picture cameras), the day's three, the L room's one, and only then `region_dig`: the 33rd,
+  refused by the runtime with a log line, so the call after the shots was `game_command_invalid`. The lamp walls, the
+  glow commands and the edit digs came after it and were lost the same way in such a run. Fix: one `shot` command,
+  the camera's name its argument (`shotCall`). Test: `lighting-cameras.test.ts` transpiles the fullest script and
+  steps it against the runtime's own `DebugCommands`; with a command a camera it throws "at most 32 debug commands
+  per game". Seen: the pictures' day run now ends `exit 0` with "room wall dug → region changed" (102 ms, 4 steps).
+- **D829, restated (about 15 minutes).** Not a mesher fault: the open triangles are what a roof without wall-top
+  fill is specified to show (`voxel-kit-format.md` §3.9, default off; plan-46c "what shows when off"), and the bench
+  town's roof material is in none of its kits, so nothing can turn it on there. The row now says so and what closes
+  them (data, or the owner's default).
+- **Pictures** (one run of L2, L16, E1, E6, 213 s, then E6 alone, 102 s; low tier, WebGPU; L2 was added so the day
+  run makes D832's dig):
+  - **L16** `pictures/L16-town-250m.png` (streaming still after 4.4 s; the light volume keeps no brick). Before
+    (`before/L16-town-250m.png`): a curved band of grey and dark-green slabs across the ground in front of the town
+    and an arc at the bottom edge. After: the ground is one unbroken green surface from the bottom edge to the town;
+    no slab, line or arc. `diag2/town-250m.png` shows the same with the near set as 47T had it (56 level-0 chunks).
+    Still wrong: the far ground is flat-coloured with faint contour ripples on the slopes behind (D830). Sure: high.
+  - **E1** `pictures/E01-editor.png` (the Scene view settled). Before: a dark wire grid on the grass behind and
+    beside the house. After: plain grass there; the house, its gizmo, the lake and the lane as before. Sure: high.
+  - **E6** `pictures-e6/E06-play-profiler.png` (settled after 98.5 s): the Profiler opened on a Play at frame 2,810
+    shows "Play running · low tier · cap 30 fps · 100 frames", page and simulation bars across the timeline, the
+    frame's spans and "Spikes 8". Before, opened this way, it showed "the play page did not answer" (47T's probe;
+    47T's E6 itself was taken with the tab opened first). The first run's E6
+    (`pictures/E06-play-profiler-UNSETTLED.png`) shows the same filled Profiler at frame 3,439, but its Play had
+    not settled its light volume in 120 s (D835), so that run was RED. Still wrong: the job workers' lane is empty
+    (nothing was being derived; D799 not looked at). Sure: high for the Profiler answering, low for anything in
+    motion.
+  - L2 `pictures/L02-room-window.png`: the dark room as in 47T (not this item's).
+- **Seen and not placed:** in `diag2/town-150m.png` a dark-green rectangle about a house lot wide lies on the middle
+  street, in the picture before the fix too (`diag1/`); 47T's L15 read does not name it. Not traced.
+- **Unverified:** nothing was seen in motion; the Profiler on a Play paused past four seconds and resumed (the unit
+  test covers its read); the grid from under the ground or in a view at a render scale under 1; `?farPass=direct`.
 
 ## 10. The proposed plan's questions and how each stands
 

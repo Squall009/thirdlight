@@ -262,7 +262,7 @@ export async function stagingScreens(browser: Browser, want: readonly ScreenName
       if (w0.ok) {
         await page.getByTitle('Start an isolated play preview').click();
         const game = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
-        type Play = { stats(): { worlds: Record<string, { chunks: number; far: { bricks: number } }> }; light?: { progress(): { settled?: boolean; waiting: number } | null } };
+        type Play = { stats(): { worlds: Record<string, { chunks: number; far: { bricks: number } }> }; light?: { progress(): { settled?: boolean; waiting: number; staleUnits?: number } | null } };
         let last = '';
         let still = 0;
         w = await until(page, async () => {
@@ -271,7 +271,7 @@ export async function stagingScreens(browser: Browser, want: readonly ScreenName
             if (h === undefined) return null;
             const st = h.stats().worlds[world];
             const p = h.light?.progress() ?? null;
-            return { chunks: st?.chunks ?? 0, bricks: st?.far.bricks ?? 0, lit: p === null ? null : p.settled === true && p.waiting === 0 };
+            return { chunks: st?.chunks ?? 0, bricks: st?.far.bricks ?? 0, lit: p === null ? null : p.settled === true && p.waiting === 0, light: p === null ? '' : `settled ${String(p.settled)}, ${p.staleUnits ?? 0} stale, ${p.waiting} waiting` };
           }, s.world).catch(() => null);
           if (r === null) return 'Play not drawing yet';
           if (r.chunks === 0) return 'no chunk drawn in Play';
@@ -280,7 +280,7 @@ export async function stagingScreens(browser: Browser, want: readonly ScreenName
           last = now;
           // Counts unchanged for 3 s (12 polls) and the light volume settled.
           if (still < 12) return `streaming (chunks/bricks ${now})`;
-          if (r.lit === false) return 'the light volume settling';
+          if (r.lit === false) return `the light volume settling (${r.light})`;
           return null;
         });
         // The Profiler opened on a Play that has run for a while: its first read is then the page's full rings, the

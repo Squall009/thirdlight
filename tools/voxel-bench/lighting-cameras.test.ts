@@ -103,7 +103,8 @@ describe('the lighting cameras', () => {
     const module = { exports: {} as { default?: { instantiate(): Record<string, unknown>; step(s: unknown, ctx: unknown): void } } };
     new Function('module', 'exports', js)(module, module.exports);
     const behaviour = module.exports.default!;
-    // The game's own registry of debug commands: a declaration past its limit throws, as it does in a game.
+    // The game's own registry of debug commands: a declaration past its limit throws here (a game logs it, and the
+    // command answers no calls and takes none).
     const dropped: string[] = [];
     const commands = new DebugCommands({ emitSignal: () => undefined, dropped: (problem) => void dropped.push(problem) });
     const counters = new Map<string, number>();
