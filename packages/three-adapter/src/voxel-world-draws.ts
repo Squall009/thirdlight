@@ -207,6 +207,8 @@ export interface VoxelWorldDrawStats {
   readonly seams: number;
   readonly triangles: number;
   readonly seamTriangles: number;
+  /** Its gas as drawn: the hull meshes' triangles (not in `triangles`), whether a gas program was made, whether the last render's eye stood in gas, and whether the density overlay draws. */
+  readonly gas: { readonly triangles: number; readonly program: boolean; readonly eyeInside: boolean; readonly overlay: boolean };
   readonly instances: number;
   /** Of them kit pieces, and the piece draws (one a piece kind across the chunks, a draw call each a pass). */
   readonly kitInstances: number;
@@ -332,8 +334,8 @@ export class VoxelWorldDraws {
   /** The density the arrays were last capped at and their caps by map. */
   private density: number | null = null;
   private tops: Partial<Record<VoxelTextureMap, number>> = {};
-  /** Whether relief vertices move (false: the relief meshes draw flat; a view's switch). */
-  private displace = true;
+  /** A view's switches: whether relief vertices move (false: the relief meshes draw flat), and whether gas draws as the density overlay. */
+  private readonly shown = { displace: true, gasOverlay: false };
   private readonly focus = new THREE.Vector3();
 
   /** The near and far draws' entries in the page's GPU measurement (taken out on dispose). */
@@ -354,8 +356,7 @@ export class VoxelWorldDraws {
   private volumeWorld: string | null = null;
   /** Readers of the GPU walk ({@link readWalk}), the feed they get (0: none), the store's own read (the volume). */
   private walkReaders = 0;
-  private walkFeedNow = 0;
-  private walkFeeds = 0;
+  private readonly walkFed = { now: 0, made: 0 };
   private storeRead: (() => void) | null = null;
 
   constructor(private readonly opts: VoxelWorldDrawsOptions) {
@@ -457,7 +458,7 @@ export class VoxelWorldDraws {
 
   /** Relief vertices move (true, the default) or draw flat in every world (a view's switch; the meshes are the same). */
   setRelief(s: { readonly displace: boolean }): void {
-    this.displace = s.displace;
+    this.shown.displace = s.displace;
     for (const w of this.worlds.values()) if (!w.shared) w.surface.setRelief({ displace: s.displace });
     this.opts.applied?.();
   }
@@ -655,6 +656,13 @@ export class VoxelWorldDraws {
     return this.volume;
   }
 
+  /** Fog drawn by its density (an editor's overlay) or as a game draws it, in every world's views now and those made later. */
+  setGasOverlay(on: boolean): void {
+    this.shown.gasOverlay = on;
+    for (const w of this.worlds.values()) w.view.gases.setOverlay(on);
+    this.opts.applied?.();
+  }
+
   /** The sun march off (true) or back to the tier's (a page hook's comparison). */
   setSunOff(off: boolean): void {
     this.sun?.setOff(off);
@@ -691,6 +699,7 @@ export class VoxelWorldDraws {
       const origin = new FloatingOrigin({ grid });
       const view = new VoxelChunkView({ grid, origin, surface: base.surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), liquid: voxelLiquidFromUrl(pageSearch()), gas: voxelGasFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), sharedPieces: base.view.pieces });
       view.rebuilt = () => this.rebuilt(name);
+      view.gases.setOverlay(this.shown.gasOverlay);
       view.root.name = `voxel-world ${name}`;
       const at = this.places.get(name) ?? place;
       view.root.position.set(at.position[0], at.position[1], at.position[2]);
@@ -712,7 +721,7 @@ export class VoxelWorldDraws {
     const grid = chunkGrid(edge as ChunkEdge);
     const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX, readDepthCells: SHADER_READ_DEPTH_CELLS }, { look: this.looks, blendMetres: voxelWorldDecalsOf(scene)?.blendOf(name) ?? voxelWorldBlendMetres(null), relief: true });
     // Nothing is displaced until the ring is told (a relief mesh arrives only with or after it).
-    surface.setRelief({ displace: this.displace, fadeStartM: 0, fadeEndM: 0 });
+    surface.setRelief({ displace: this.shown.displace, fadeStartM: 0, fadeEndM: 0 });
     if (this.arrays !== null) this.giveArrays(surface);
     // Per-draw programs on WebGPU only: WebGL 2 keeps the one program it drew with.
     const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
@@ -725,6 +734,7 @@ export class VoxelWorldDraws {
     const origin = new FloatingOrigin({ grid });
     const view = new VoxelChunkView({ grid, origin, surface, renderer, kits: this.kitSet, fastPaths: webgpu && voxelPathsFromUrl(pageSearch()), gas: voxelGasFromUrl(pageSearch()), shadows, staticShadows: link?.revision ?? null, farVisibility: farVisibilityFromUrl(pageSearch()), ...(this.opts.farSeen !== undefined && farFeedbackFromUrl(pageSearch()) ? { onFarSeen: (seen: FarSeenWire) => this.opts.farSeen!(name, seen) } : {}), ...(this.opts.fineUnavailable !== undefined ? { onFineUnavailable: () => this.opts.fineUnavailable!(name) } : {}), ...((t) => (t !== null ? { fineTexture: t } : {}))(fineTextureFromUrl(pageSearch())) });
     view.rebuilt = () => this.rebuilt(name);
+    view.gases.setOverlay(this.shown.gasOverlay);
     // `?voxelSun=off` makes none (a comparison draws as before the field).
     if (webgpu && link !== null && edge === SUN_TILE_TEXELS && voxelSunFromUrl(pageSearch())) {
       this.sun ??= new SunFieldHost(scene, link, edge, VOXEL_SIZE_M, () => this.skies.values(), {
@@ -814,15 +824,15 @@ export class VoxelWorldDraws {
    */
   readWalk(): () => void {
     if (this.walkReaders++ === 0) {
-      this.walkFeedNow = ++this.walkFeeds;
-      this.opts.walkFeed?.(this.walkFeedNow);
+      this.walkFed.now = ++this.walkFed.made;
+      this.opts.walkFeed?.(this.walkFed.now);
     }
     let done = false;
     return () => {
       if (done || this.disposed) return;
       done = true;
       if (--this.walkReaders > 0) return;
-      this.walkFeedNow = 0;
+      this.walkFed.now = 0;
       for (const g of this.walks.values()) g.dispose();
       this.walks.clear();
       this.opts.walkFeed?.(0);
@@ -831,7 +841,7 @@ export class VoxelWorldDraws {
 
   /** The walk feed the batches are asked for now (0: no reader, none). */
   get walkFeed(): number {
-    return this.walkFeedNow;
+    return this.walkFed.now;
   }
 
   private dropVolume(): void {
@@ -847,7 +857,7 @@ export class VoxelWorldDraws {
 
   /** A batch's walk blocks into its world's GPU walk (WebGL 2: none, the blocks are dropped; another feed's: dropped). */
   private applyWalk(world: string, wires: ChunkDrawBatch['walk'], feed: number | undefined): void {
-    if (wires === undefined || wires.length === 0 || feed !== this.walkFeedNow || feed === 0) return;
+    if (wires === undefined || wires.length === 0 || feed !== this.walkFed.now || feed === 0) return;
     let g = this.walks.get(world);
     if (g === undefined) {
       const r = this.opts.renderer();
@@ -934,7 +944,7 @@ export class VoxelWorldDraws {
   /** What is drawn (diagnostics and tests). */
   stats(): { worlds: Record<string, VoxelWorldDrawStats>; batches: number; applied: number; replaced: number; waiting: number; staging: VoxelWorldDraws['staging'] } {
     const worlds: Record<string, VoxelWorldDrawStats> = {};
-    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, instances: view.instances, kitInstances: view.piecesDrawn.kit, shutCasters: this.worlds.get(name)?.casters?.count ?? 0, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieceDraws === 0 ? 0 : view.pieces.drawsInView, piecesInView: view.pieceDraws === 0 ? 0 : view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes, cover: { hidden: view.far.coverState.covered, edge: view.far.coverState.edge }, pass: view.far.brickPass, visibilityBytes: view.far.visibilityBytes, feedback: view.far.feedbackStats, fine: view.far.fineState, fineBaked: { drawn: [...view.far.fineDrawn], read: view.far.fineBakedIn } } };
+    for (const [name, { view, surface, relief }] of this.worlds) worlds[name] = { chunks: view.count, levels: view.levelCounts(), seams: view.seamCount, triangles: view.triangles, seamTriangles: view.seamTriangles, gas: { triangles: view.gases.triangles, program: view.gases.look.built, eyeInside: view.gases.eyeRun !== null, overlay: view.gases.look.overlay }, instances: view.instances, kitInstances: view.piecesDrawn.kit, shutCasters: this.worlds.get(name)?.casters?.count ?? 0, pieceDraws: view.pieceDraws, pieceDrawsInView: view.pieceDraws === 0 ? 0 : view.pieces.drawsInView, piecesInView: view.pieceDraws === 0 ? 0 : view.pieces.instancesInView, meshBuilds: view.meshBuilds, shaderSets: view.shaderSets, paths: view.pathCounts(), tableUploads: surface.tableUploads, tableMs: surface.tableMs, blendM: surface.blendMetres, textureLayers: this.arrays?.count ?? 0, textured: surface.textured, texelDensity: this.density !== null && Number.isFinite(this.density) ? this.density : null, textureTops: { ...this.tops }, relief: relief === null ? null : { n: relief.n, radiusM: relief.radius * VOXEL_SIZE_M, displace: this.shown.displace, vertices: view.reliefVertices }, far: { nodes: view.far.nodes, bricks: view.far.bricks, triangles: view.far.triangles, draws: view.far.draws, gpuBytes: view.far.bytes, trims: view.far.trims, covered: view.far.coveredNodes, cover: { hidden: view.far.coverState.covered, edge: view.far.coverState.edge }, pass: view.far.brickPass, visibilityBytes: view.far.visibilityBytes, feedback: view.far.feedbackStats, fine: view.far.fineState, fineBaked: { drawn: [...view.far.fineDrawn], read: view.far.fineBakedIn } } };
     return { worlds, batches: this.batches, applied: this.applied, replaced: this.replaced, waiting: this.waiting.length, staging: { ...this.staging } };
   }
 

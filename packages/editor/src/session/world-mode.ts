@@ -47,9 +47,11 @@ export interface WorldBrushState {
   readonly reach: number;
   /** What the spline entry starts. */
   readonly spline: SplineStartKind;
+  /** Whether the Scene view shows fog by its density (the overlay) while a fog tool's column shows. */
+  readonly overlay: boolean;
 }
 
-export const WORLD_BRUSH_START: WorldBrushState = Object.freeze({ sculpt: 'add', shape: 'sphere', soft: true, material: null, wetness: 0, fog: 'fog', density: 8, fill: 'fog', gas: null, liquid: null, depth: 2, fade: 1, reach: 32, spline: 'road' });
+export const WORLD_BRUSH_START: WorldBrushState = Object.freeze({ sculpt: 'add', shape: 'sphere', soft: true, material: null, wetness: 0, fog: 'fog', density: 8, fill: 'fog', gas: null, liquid: null, depth: 2, fade: 1, reach: 32, spline: 'road', overlay: false });
 
 export const SCULPT_TOOLS = [
   { id: 'add', label: 'Add', glyph: 'raise', key: 'A', hint: 'Drag over the ground to add the picked material in front of it (hold Ctrl to dig instead).' },
@@ -108,6 +110,15 @@ export interface WorldBrushArming {
   readonly density?: number;
   /** A fill has the tool in place of the brush (the Fill rail, the spline entry). */
   readonly fill?: { readonly kind: VoxelFillKind; readonly material: number | null; readonly depthM: number; readonly reachM: number; readonly fadeM: number; readonly sceneId: string | null; readonly spline?: SplineStartVoxels | null };
+}
+
+/**
+ * Whether the Scene view draws the density overlay: the switch is on and the
+ * rail shown has fog tools (Fill, or Paint with a gas picked). Sculpting and
+ * laying a spline see the fog as a game draws it.
+ */
+export function gasOverlayShown(rail: WorldRail, s: WorldBrushState, palettes: Pick<WorldPalettes, 'paint'>): boolean {
+  return s.overlay && (rail === 'fill' || (rail === 'paint' && paintsFog(s, palettes)));
 }
 
 /** Whether Paint has a gas picked: its brush is then the fog brush. */

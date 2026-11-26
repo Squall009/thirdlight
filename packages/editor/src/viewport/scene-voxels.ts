@@ -267,6 +267,11 @@ export class SceneVoxels {
     this.draws.setKits(p.set);
   }
 
+  /** Fog drawn by its density (an editing aid) or as a game draws it. */
+  gasOverlay(on: boolean): void {
+    this.draws.setGasOverlay(on);
+  }
+
   /** The project's material records changed (or arrived): the worlds' tables follow them. */
   setMaterials(materials: readonly VoxelLookRecord[]): void {
     this.materials = materials;

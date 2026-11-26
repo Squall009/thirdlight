@@ -38,6 +38,7 @@ import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { GAS_DEPTH_CAP_M, GAS_EYE_FADE_M, gasEyeSlab, VOXEL_GAS_DENSITY_ATTRIBUTE, VOXEL_GAS_MATERIAL_ATTRIBUTE } from './voxel-gas-draw';
 import { voxelRecordLooks, type VoxelLookRecord } from './voxel-material-looks';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
+import { VoxelWorldDraws } from './voxel-world-draws';
 import { voxelGasFromUrl } from './voxel-surface-path';
 
 const grid = chunkGrid(32);
@@ -348,5 +349,37 @@ describe('the plain gas draw', () => {
     expect(view.gases.layer).toBeNull();
     expect(view.gases.look.built).toBe(false);
     expect(view.gases.triangles).toBe(0);
+  });
+
+  it('draws gas wherever a game\'s batches are drawn (Play, exports and the Scene view draw through VoxelWorldDraws): the batch\'s gas entry, the records\' look, the overlay for every world', () => {
+    const s = world();
+    gas(s, 4, 9, 4, 5, 4, 9);
+    const cells = new Uint16Array(shaderGridSide(grid.edge) ** 3);
+    const d = joined(s, 0, 0, 0, cells);
+    const scene = new THREE.Scene();
+    const draws = new VoxelWorldDraws({ materials: RECORDS, scene: () => scene, renderer: () => renderer(), report: () => undefined });
+    const batch = (worldName: string): ChunkDrawBatch => ({ world: worldName, edge: grid.edge, chunks: [{ kind: 'draw', cx: 0, cy: 0, cz: 0, ground: d.ground, base: d.base, instances: d.instances, solid: d.solid, ...(d.solid < 0 ? { cells: cells.slice() } : {}), gas: d.gas! }], swaps: [], sentAt: 0, joinMs: 0 });
+    draws.receive(batch('w'));
+    const stats = (name: string) => draws.stats().worlds[name]!.gas;
+    expect(stats('w')).toEqual({ triangles: 10, program: true, eyeInside: false, overlay: false });
+    const meshes: THREE.Mesh[] = [];
+    scene.traverse((o) => void (o.name === 'voxel gas' && meshes.push(o as THREE.Mesh)));
+    expect(meshes.length).toBe(1);
+    // The overlay reaches the worlds drawn now and one drawn later.
+    draws.setGasOverlay(true);
+    expect(stats('w').overlay).toBe(true);
+    draws.receive(batch('v'));
+    expect(stats('v')).toEqual({ triangles: 10, program: true, eyeInside: false, overlay: true });
+    draws.setGasOverlay(false);
+    expect([stats('w').overlay, stats('v').overlay]).toEqual([false, false]);
+    // A record's change (the mist made denser and red) reaches the fog through the table: no mesh is made again.
+    draws.setMaterials([{ materialId: 'mist', shader: 'standard', params: {}, voxel: { id: MIST, use: 'gas', gas: { color: '#ff0000', density: 3 } } }]);
+    const after: THREE.Mesh[] = [];
+    scene.traverse((o) => void (o.name === 'voxel gas' && after.push(o as THREE.Mesh)));
+    expect(after.slice(0, 1)).toEqual(meshes);
+    draws.dispose();
+    const left: THREE.Object3D[] = [];
+    scene.traverse((o) => void (o.name.startsWith('voxel gas') && left.push(o)));
+    expect(left).toEqual([]);
   });
 });

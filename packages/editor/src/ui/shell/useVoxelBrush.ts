@@ -35,6 +35,8 @@ export interface VoxelBrushTools {
   readonly palette: readonly VoxelPaletteEntry[];
   /** Every palette of the world mode (`solid` is `palette`). */
   readonly palettes: WorldPalettes;
+  /** Show fog in the Scene view by its density (the overlay) or as a game draws it. */
+  gasOverlay(on: boolean): void;
   /** What the stroke in flight holds, live (null: none). */
   readonly readout: string | null;
   /** Why the last stroke was not applied (null: none since the last one applied). */
@@ -98,5 +100,7 @@ export function useVoxelBrush(deps: { clientRef: ClientRef; viewportRef: Viewpor
     v.voxelWorlds.brushTool(a, a === null ? null : callbacks);
   }, [viewportRef, callbacks]);
 
-  return useMemo(() => ({ arm, palette, palettes, readout, refusal }), [arm, palette, palettes, readout, refusal]);
+  const gasOverlay = useCallback((on: boolean): void => viewportRef.current?.voxelWorlds.gasOverlay(on), [viewportRef]);
+
+  return useMemo(() => ({ arm, gasOverlay, palette, palettes, readout, refusal }), [arm, gasOverlay, palette, palettes, readout, refusal]);
 }

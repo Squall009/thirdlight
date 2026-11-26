@@ -1120,7 +1120,8 @@ export class Viewport {
    * - `info`: a world's route as the backend answers it now (null: not read);
    * - `listen`: the feed's voxel changes (the structure mode's counts and misfits); returns the unsubscribe;
    * - `waterLeaks`: where the water bodies leak (the backend's reports), marked in the view (an empty list: none);
-   * - `splineMarks`: the cells splines' last writes left alone or could not keep, marked the same way.
+   * - `splineMarks`: the cells splines' last writes left alone or could not keep, marked the same way;
+   * - `gasOverlay`: fog drawn by its density (the world mode's switch) or as a game draws it.
    */
   readonly voxelWorlds = {
     changed: (c: VoxelsChangedPayload | 'kits' | { readonly materials: readonly VoxelLookRecord[] }): void => {
@@ -1141,6 +1142,12 @@ export class Viewport {
     splineMarks: (marks: readonly WaterLeakMark[]): void => {
       this.voxels.splineMarks(marks);
       this.root.setAttribute('data-spline-marks', JSON.stringify(marks.map((m) => m.at)));
+      this.requestRender();
+    },
+    gasOverlay: (on: boolean): void => {
+      this.voxels.gasOverlay(on);
+      // What the view draws fog as (tests and pictures read it).
+      this.root.setAttribute('data-gas-overlay', on ? 'density' : 'off');
       this.requestRender();
     },
   };

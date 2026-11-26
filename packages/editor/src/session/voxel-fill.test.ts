@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { CELL_NOT_LOADED } from '../voxel-world/scene-voxels-wire';
 import { FOG_BRUSH_BOUNDS, GAS_PALETTE_USES, LIQUID_PALETTE_USES, PAINT_PALETTE_USES, voxelPalette, voxelStrokeCommand } from './voxel-brush';
 import { cellMiddleM, dabsBox, draggedLevelM, fogCells, fogCellsCommand, fogDensity, floodCommand, floodReachBoundM, gasValue, leakMessage, metresPerPixel, seedCell, snapLevelM, splineCreate, splineStartVoxels, waterBodyCreate } from './voxel-fill';
-import { densityPercent, paletteTiles, paintsFog, starterMedium, WORLD_BRUSH_START, worldBrushArming, type WorldPalettes } from './world-mode';
+import { densityPercent, gasOverlayShown, paletteTiles, paintsFog, starterMedium, WORLD_BRUSH_START, worldBrushArming, type WorldPalettes } from './world-mode';
 
 describe('a fill is one flood command', () => {
   it('fog: the seed, the level in cells, the gas, the reach in cells and the fade in metres, as the backend reads them', () => {
@@ -191,6 +191,15 @@ describe('the palettes and what each rail arms', () => {
     expect(palettes.solid.map((e) => e.name)).toEqual(['Grass', 'Brick']);
     expect(paletteTiles(palettes.gas).map((t) => [t.group, t.name, t.badge])).toEqual([['Gases', 'Smoke', undefined], ['Mist', 'Mist', undefined], ['Mist', 'Thin mist', 'V']]);
     expect(paletteTiles(palettes.liquid).map((t) => t.group)).toEqual(['Liquids', 'Liquids']);
+  });
+
+  it('the density overlay shows only while its switch is on and the rail has fog tools: Fill, or Paint with a gas picked', () => {
+    expect(WORLD_BRUSH_START.overlay).toBe(false);
+    const on = { ...WORLD_BRUSH_START, overlay: true, material: 40 };
+    expect((['sculpt', 'paint', 'fill', 'spline'] as const).map((rail) => gasOverlayShown(rail, on, palettes))).toEqual([false, true, true, false]);
+    // Paint with ground picked is the material brush: fog is seen as a game draws it.
+    expect(gasOverlayShown('paint', { ...on, material: 2 }, palettes)).toBe(false);
+    expect((['sculpt', 'paint', 'fill', 'spline'] as const).some((rail) => gasOverlayShown(rail, { ...on, overlay: false }, palettes))).toBe(false);
   });
 
   it('Paint with a gas picked arms the fog brush: the gas, dry, at the density; Smooth alone takes the soft rim', () => {

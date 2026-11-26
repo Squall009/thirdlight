@@ -50,4 +50,22 @@ describe('shippedMaterials', () => {
     expect(loadable.map((m) => m.materialId)).toEqual(['unused']);
     expect(shippedMaterials({ content: {}, entities: [], assets: [], styles: noStyles })).toBeUndefined();
   });
+
+  it('ships a voxel world\'s gas materials with their plain look: the colour and full density a game\'s fog is drawn with, an instance\'s folded onto its base\'s', () => {
+    const materials: MaterialDef[] = [
+      { materialId: 'mist', name: 'Mist', shader: 'standard', params: {}, textures: {}, voxel: { id: 31, use: 'gas', gas: { color: '#dfe6ea', density: 0.4 } } },
+      { materialId: 'mist-thick', name: 'Thick mist', shader: 'standard', params: {}, textures: {}, instanceOf: 'mist', voxel: { id: 32, gas: { density: 2 } } } as MaterialDef,
+      { materialId: 'smoke', name: 'Smoke', shader: 'standard', params: {}, textures: {}, voxel: { id: 33, use: 'gas' } },
+      { materialId: 'rock', name: 'Rock', shader: 'standard', params: { color: '#404040' }, textures: {}, voxel: { id: 2, use: 'terrain' } },
+    ];
+    const shipped = shippedMaterials({ content: { materials }, entities: [{ components: { voxelWorld: { world: 'w' } } }], assets: [], styles: noStyles })!;
+    const voxel = Object.fromEntries(shipped.map((m) => [m.materialId, m.voxel]));
+    expect(voxel['mist']).toEqual({ id: 31, use: 'gas', gas: { color: '#dfe6ea', density: 0.4 } });
+    expect(voxel['mist-thick']).toEqual({ id: 32, use: 'gas', gas: { color: '#dfe6ea', density: 2 } });
+    // A gas that names no look ships none: the page draws it with the record's defaults.
+    expect(voxel['smoke']).toEqual({ id: 33, use: 'gas' });
+    expect(voxel['rock']).toEqual({ id: 2, use: 'terrain' });
+    // Without a voxel world nothing names them.
+    expect(shippedMaterials({ content: { materials }, entities: [], assets: [], styles: noStyles })).toEqual([]);
+  });
 });

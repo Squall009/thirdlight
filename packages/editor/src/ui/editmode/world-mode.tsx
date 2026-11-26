@@ -39,7 +39,7 @@ import { brushStore, type BrushStore } from '../../session/brush';
 import type { ProjectedEntity } from '../../session/projection';
 import { FOG_BRUSH, FOG_BRUSH_BOUNDS, VOXEL_BRUSH, VOXEL_BRUSH_BOUNDS, type VoxelPaletteEntry } from '../../session/voxel-brush';
 import { FILL_LEVEL_STEP_M, floodReachBoundM } from '../../session/voxel-fill';
-import { densityPercent, FILL_TOOLS, FOG_TOOLS, PAINT_TOOLS, paintsFog, paletteTiles, pickedEntry, SCULPT_TOOLS, SPLINE_TOOLS, starterMedium, WORLD_BRUSH_START, worldBrushArming, type FillKind, type FogKind, type SculptKind, type WorldBrushState, type WorldRail } from '../../session/world-mode';
+import { densityPercent, FILL_TOOLS, FOG_TOOLS, gasOverlayShown, PAINT_TOOLS, paintsFog, paletteTiles, pickedEntry, SCULPT_TOOLS, SPLINE_TOOLS, starterMedium, WORLD_BRUSH_START, worldBrushArming, type FillKind, type FogKind, type SculptKind, type WorldBrushState, type WorldRail } from '../../session/world-mode';
 import { SliderField } from '../brush/SliderField';
 import { useBrush } from '../brush/useBrush';
 import { freeVoxelId } from '../material/MaterialVoxelSection';
@@ -112,6 +112,13 @@ function useWorldBrush(view: SceneModeView, rail: WorldRail): { state: WorldBrus
     // eslint-disable-next-line react-hooks/exhaustive-deps -- every value the arm reads is in `key` (its objects are made again each render)
   }, [key, arm, store, handOver]);
   useEffect(() => () => arm(null), [arm]);
+  // Fog by its density while the switch is on and this rail has fog tools; as a game draws it otherwise and after.
+  const { gasOverlay } = view.host.voxelBrush;
+  const overlay = gasOverlayShown(rail, state, palettes);
+  useEffect(() => {
+    gasOverlay(overlay);
+    return () => gasOverlay(false);
+  }, [gasOverlay, overlay]);
   return { state, set, store, world, note };
 }
 
@@ -173,6 +180,21 @@ function MakeMedium({ view, use }: { view: SceneModeView; use: 'gas' | 'liquid' 
   );
 }
 
+/** The switch between fog as a game draws it and fog by its density, where thin fog is found to erase. */
+function FogViewSection({ state, set }: { state: WorldBrushState; set: (p: Partial<WorldBrushState>) => void }): JSX.Element {
+  return (
+    <Section title="Fog in the view">
+      <Segmented
+        aria="world fog view"
+        small
+        options={[{ id: 'look', label: 'As drawn', hint: 'Fog as a game draws it: see-through by how much of it lies behind each pixel' }, { id: 'density', label: 'Density', hint: 'Every fog face in a colour for its density (blue the thinnest, yellow half, red the full density), nearly opaque: thin fog shows' }]}
+        value={state.overlay ? 'density' : 'look'}
+        onChange={(v) => set({ overlay: v === 'density' })}
+      />
+    </Section>
+  );
+}
+
 function SculptColumn(view: SceneModeView): JSX.Element {
   const { state, set, store, world } = useWorldBrush(view, 'sculpt');
   const settings = useBrush(store);
@@ -222,6 +244,7 @@ function PaintColumn(view: SceneModeView): JSX.Element {
         </Section>
       )}
       {fog && <p className="tl-hint">Fog is written into open cells only: ground, walls and water under the brush stay as they are. A fog brush is at most {FOG_BRUSH_BOUNDS.size[1]} m across; a wider bank is the Fill rail's.</p>}
+      {fog && <FogViewSection state={state} set={set} />}
       <ShapeSection state={state} set={set} rim={fog && state.fog === 'fog-smooth'} />
       <EditPanels panels={brushPanels(fog ? { settings, store, uses: state.fog === 'fog-smooth' ? ['size', 'spacing'] : ['size', 'spacing', 'invert'], ...(state.fog === 'fog-smooth' ? {} : { invert: state.fog === 'fog' ? 'Erase' : 'Paint' }), title: 'Brush', badge: 'the fog brush' } : { settings, store, uses: ['size', 'spacing', 'mask'], title: 'Brush', badge: 'cells of the world' })} />
     </div>
@@ -249,6 +272,7 @@ function FillColumn(view: SceneModeView): JSX.Element {
         <SliderField label="Depth" aria="world fill depth" value={state.depth} min={FILL_LEVEL_STEP_M} max={32} step={FILL_LEVEL_STEP_M} unit="m" decimals={2} hint="The level a click gives, over the point clicked. Dragging up or down after the press changes it, and the ring in the view shows it." onChange={(depth) => set({ depth })} />
         {state.fill === 'fog' && <SliderField label="Fade" aria="world fill fade" value={state.fade} min={0} max={8} step={FILL_LEVEL_STEP_M} unit="m" decimals={2} hint="The metres under the level over which the fog thins to nothing at the level (0: full density up to the level)." onChange={(fade) => set({ fade })} />}
       </Section>
+      {state.fill !== 'water' && <FogViewSection state={state} set={set} />}
       {state.fill === 'water' ? (
         <p className="tl-hint">A water body is an object at the point clicked: it fills the basin joined to it, and again whenever the ground there changes. Its level, liquid and reach are in the Inspector; where it leaks is marked in red.</p>
       ) : (
