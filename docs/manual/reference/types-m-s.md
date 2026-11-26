@@ -1,8 +1,109 @@
-# Types (MaterialParameter to SkyConfig)
+# Types (MaterialDef to SettingsEngineBinding)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-material-def"></a>
+### MaterialDef
+
+Declared in `packages/project-model/src/materials.ts`.
+
+```ts
+interface MaterialDef {
+  materialId: string;
+  name: string;
+  shader: MaterialShader;
+  params: Record<string, MaterialParamValue>;
+  textures: Record<string, string>;
+  /**
+   * The exposed parameters of a graph material (read by its
+   * Parameter nodes; objects may override the public ones with the
+   * `materialParams` component). Absent = none.
+   */
+  parameters?: MaterialParameter[];
+  /**
+   * A node graph (graph kind `material`). A material with a graph
+   * is a graph material: at render time the graph replaces `shader`, `params`
+   * and `textures` (it compiles to TSL; the shader part stays for "Remove
+   * graph").
+   */
+  graph?: GraphData;
+  /**
+   * A material instance — this material is its parent's (another
+   * material or instance, by materialId) with some values changed: `params`
+   * and `textures` over the parent's (a shader material), `values` over the
+   * parent's parameter defaults (a graph material). An instance has no graph
+   * or parameters of its own and its `shader` is its parent's. Anything that
+   * names a material (an object's, a model asset's or a block type's mapping,
+   * overrides, effects, timelines) may name an instance; the runtime gets it
+   * resolved (`resolveMaterialInstances`).
+   */
+  instanceOf?: string;
+  /** Instances of graph materials: parameter key → value (see `MaterialParameter.default`). */
+  values?: Record<string, MaterialValue>;
+  /**
+   * A trim material's row table (`shader: 'trim'`, required there and only there; `trim-sheet.ts`). An
+   * instance uses its root's table: a sheet laid out differently is a material of its own.
+   */
+  trim?: TrimSheet;
+  /**
+   * A decal material's cell of a trim sheet (`shader: 'decal'` only, on a root material; `decals.ts`): its
+   * textures are the sheet's, inside the cell. Absent: its own texture slots.
+   */
+  decal?: DecalCellRef;
+  /**
+   * Where a decal material's images are on the build's decal pages (`decal-pages.ts`). Only a build writes it,
+   * on the materials it hands the runtime; a project never stores one.
+   */
+  decalPage?: DecalPageRef;
+  /**
+   * A layered material's names for its texture-array layers, shown in the
+   * layer palette (index i = array layer i). "" or past the list's end: the
+   * name of the texture in that layer's slot. Absent: every layer named by
+   * its texture. A material instance uses its root's names.
+   */
+  layerNames?: string[];
+  /**
+   * A layered material's trim sheets: per texture-array layer, the trim
+   * material whose row table that layer's textures follow ("" or past the
+   * end: none). A layer whose UV source is the mesh's own UVs reads its
+   * sheet inside the rows (the row-safe mip limit), and generated
+   * architecture wearing the material lays its strips out on those rows.
+   * Every sheet named must share one row table (a problem lists the rows
+   * that differ). A build writes the table itself (`trim`) onto the material
+   * it hands the runtime, so the sheets need not ship. A material instance
+   * uses its root's.
+   */
+  layerSheets?: string[];
+  /**
+   * Its physics (`material-profiles.ts`): a profile and the numbers it changes. Absent: the engine's defaults. An
+   * instance's numbers override its chain's one by one.
+   */
+  physical?: MaterialPhysical;
+  /**
+   * The game's own data (sounds, break tags, …): any JSON, kept and shipped, never read by the engine. An
+   * instance's top-level keys override its chain's.
+   */
+  gameData?: MaterialGameData;
+  /**
+   * Its voxel use (`voxel-materials.ts`): a voxel material id, construction / terrain / liquid, its kit, tile and
+   * height depth in metres, wall / floor / ceiling texture sets. Absent: not a voxel material. An instance with its
+   * own (and its own id) is a voxel variant of its chain's; without, a mesh variant only.
+   */
+  voxel?: MaterialVoxel;
+}
+```
+
+<a id="type-material-game-data"></a>
+### MaterialGameData
+
+Declared in `packages/project-model/src/material-profiles.ts`.
+
+```ts
+/** Opaque game data (any JSON within the kit format's depth bound). */
+type MaterialGameData = GameDataJson;
+```
 
 <a id="type-material-parameter"></a>
 ### MaterialParameter
@@ -1462,169 +1563,4 @@ Declared in `packages/project-model/src/save-schema.ts`.
 
 ```ts
 type SettingsEngineBinding = (typeof SETTINGS_ENGINE_BINDINGS)[number];
-```
-
-<a id="type-settings-field"></a>
-### SettingsField
-
-Declared in `packages/project-model/src/save-schema.ts`.
-
-```ts
-interface SettingsField {
-  key: string;
-  type: 'bool' | 'number' | 'string' | 'enum';
-  default: SettingsFieldValue;
-  label?: string;
-  min?: number;
-  max?: number;
-  /** enum: the choices. */
-  values?: string[];
-  /**
-   * An engine setting this field drives (music/sfx/ui: a number 0–1; quality: an enum of the project's quality level ids (low/medium/high unless it lists its own); frameRateCap: an enum of 30/60/120/none;
-   * ambientOcclusion: an enum of off/ssao/gtao; renderScale: a number within 0.5–1; dynamicResolution: a bool).
-   */
-  engine?: SettingsEngineBinding;
-}
-```
-
-<a id="type-settings-field-value"></a>
-### SettingsFieldValue
-
-Declared in `packages/project-model/src/save-schema.ts`.
-
-```ts
-type SettingsFieldValue = boolean | number | string;
-```
-
-<a id="type-settings-map"></a>
-### SettingsMap
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-type SettingsMap = Record<string, SettingsValue>;
-```
-
-<a id="type-settings-value"></a>
-### SettingsValue
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-type SettingsValue = number | boolean | string;
-```
-
-<a id="type-set-transform-args"></a>
-### SetTransformArgs
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-interface SetTransformArgs {
-  entityId: string;
-  transform: PartialTransformArgs;
-}
-```
-
-<a id="type-set-voxel"></a>
-### SetVoxel
-
-Declared in `packages/voxel/src/edit-command.ts`.
-
-```ts
-/** A voxel written exactly, shape included (runtime set). */
-interface SetVoxel extends EditVoxel {
-  readonly shape: number;
-}
-```
-
-<a id="type-shell-screens"></a>
-### SHELL_SCREENS
-
-Declared in `packages/project-model/src/shell.ts`.
-
-```ts
-/** The shell's screens a project draws with its own UI documents. */
-const SHELL_SCREENS: readonly ["title", "pause", "settings", "controls", "save", "load"];
-```
-
-<a id="type-shell-scene"></a>
-### ShellScene
-
-Declared in `packages/project-model/src/shell.ts`.
-
-```ts
-interface ShellScene {
-  /** A scene of the project. */
-  scene: string;
-  /** The player spawn the character starts at (a playerSpawn object in that scene; absent: it stays where it is). */
-  spawn?: string;
-  /** Seconds the view fades out before a move to this scene and back in after it (0–5; absent: no fade). */
-  fade?: number;
-  /** The fade's colour (#rrggbb; absent: black). */
-  fadeColor?: string;
-}
-```
-
-<a id="type-shell-screen"></a>
-### ShellScreen
-
-Declared in `packages/project-model/src/shell.ts`.
-
-```ts
-type ShellScreen = (typeof SHELL_SCREENS)[number];
-```
-
-<a id="type-shell-simulate"></a>
-### ShellSimulate
-
-Declared in `packages/project-model/src/shell.ts`.
-
-```ts
-/** What runs while a shell screen shows. */
-type ShellSimulate = 'pause' | 'scripts';
-```
-
-<a id="type-sky-config"></a>
-### SkyConfig
-
-Declared in `packages/project-model/src/materials.ts`.
-
-```ts
-/** The sky (background + image-based lighting). */
-interface SkyConfig {
-  /** procedural: physically based (Preetham); gradient: three colours; texture: an equirect or six-face image; color: solid. */
-  mode: 'procedural' | 'gradient' | 'texture' | 'color';
-  turbidity?: number;
-  rayleigh?: number;
-  mieCoefficient?: number;
-  mieDirectionalG?: number;
-  /** true (default): the sun sits opposite the scene's directional light; false: sunElevation/sunAzimuth. */
-  sunFromLight?: boolean;
-  sunElevation?: number;
-  sunAzimuth?: number;
-  /** The physical sky's clouds: the share of the sky they cover (0: clear) and how solid they are (0: none). They drift along the scene's global wind. */
-  cloudCoverage?: number;
-  cloudDensity?: number;
-  /** Seconds of drift behind the clouds when the clock starts: every run (and replay) starts on the same sky. */
-  cloudTime?: number;
-  topColor?: string;
-  horizonColor?: string;
-  bottomColor?: string;
-  color?: string;
-  /** An equirectangular texture asset. */
-  texture?: string;
-  /** Six texture assets px, nx, py, ny, pz, nz (instead of `texture`). */
-  cube?: [string, string, string, string, string, string];
-  /**
-   * A texture sky's turn about +Y in degrees (absent: 0), counter-clockwise
-   * seen from above: the background and the image-based lighting turn
-   * together, so a painted sun can be lined up with the key light.
-   */
-  rotation?: number;
-  /** Background brightness. */
-  intensity?: number;
-  /** Image-based lighting strength from the sky (0 = none). */
-  environmentIntensity?: number;
-}
 ```

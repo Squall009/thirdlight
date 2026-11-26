@@ -164,7 +164,7 @@ export {
   type RegionRange,
   type RegionTile,
 } from './region-file';
-export { canonicalEditCommand, BRUSH_SHAPES, EDIT_MODES, EditCommandError, VOXEL_EDIT_VERSION, type BrushEdit, type BrushShape, type DigEdit, type EditMode, type EditVoxel, type FillEdit, type SetEdit, type SetVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
+export { canonicalEditCommand, BRUSH_MODES, BRUSH_SHAPES, EDIT_MODES, EditCommandError, SURFACE_MODES, VOXEL_EDIT_VERSION, VOXEL_EDIT_VERSIONS, type BrushEdit, type BrushMode, type BrushShape, type DigEdit, type EditMode, type EditVersion, type EditVoxel, type FillEdit, type FloodEdit, type FloodValue, type SurfaceMode, type SetEdit, type SetVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
 export { CellDelta, chunkScratch, decodeDenseChunk, DELTA_CELL_BYTES, denseValue, diffDense, encodeDenseChunk, exportOrAir, writeDenseValue } from './cell-delta';
 export { checkStampShape, STAMP_SIDE_MAX, stampShapeHash, type StampResolver, type StampShape } from './stamp-shape';
 export { applyEdit, applyUndo, chunkWorstUndoBytes, editBounds, editChunks, EditRefused, UNDO_CHUNK_HEADER_BYTES, UNDO_IMAGE_CHECK_BYTES, UNDO_MEMORY_BUDGET_BYTES, undoRecordBytes, type ChunkBefore, type ChunkUndo, type EditGrids, type EditOptions, type EditOutcome, type EditRefusal } from './edit-apply';
@@ -481,6 +481,7 @@ export { captureOverrides, chunkRecordOf, regenerateAll, regenerateStructure, ty
 export { emptyWorldRecord, groundOf, rewriteInWorld, stillWritten, worldRecordCells, worldRecordChunks, writeRecordOf, type GroundReader, type LeftAlone, type WorldRecord, type WorldRewriteReport, type WorldWriter } from './structures/world-writer';
 export { SPLINE_VOXEL_KINDS, SPLINE_WRITER, SPLINE_WRITER_VERSION, type SplineBodyMeet, type SplineVoxelDefinition, type SplineVoxelKind } from './structures/spline-writer';
 export { CellQueue, CellSet } from './water/cell-set';
-export { FILL_BREACH, FILL_OUTSIDE, fillOpen, fillPasses, fillShapeAt, fillStartRow, isLiquidOf, levelFill, liquidValue, walkFill, withinReach, type FillWalk, type FillWorld, type LevelFillResult, type LevelFillSpec, type LevelFillStatus } from './water/level-fill';
+export { FILL_BREACH, FILL_OUTSIDE, fillOpen, fillPasses, fillRole, fillShape, fillShapeAt, fillStartRow, fillTopRow, fillValue, isLiquidOf, levelFill, liquidValue, walkFill, withinReach, type FillWalk, type FillWorld, type LevelFillResult, type LevelFillSpec, type LevelFillStatus } from './water/level-fill';
 export { bodyCells, bodyStart, clearBody, fillLeaks, followBody, FOLLOW_CUT_MARGIN_CELLS, LEAK_GROUP_CELLS, regenerateBody, type BodyFollow, type BodyRegenerate, type CellWrites, type FillLeak, type FollowWholeWhy } from './water/body';
 export { writeCells, type CellsWritten } from './water/write-cells';
+export { floodBox, floodFill, floodSpec, gasSmoothWrites, SMOOTH_READ_MARGIN_CELLS, surfaceWrites, type EachCovered, type ReadCell } from './edit-surface';

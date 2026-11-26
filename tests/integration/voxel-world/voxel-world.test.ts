@@ -26,7 +26,10 @@
  * (assembled from the voxel materials' surface sets, the same bytes the
  * editor's route answers, the height in the albedo array's A, an opaque
  * albedo given its brightness, the normal array's A unused), or refusing
- * a damaged world.
+ * a damaged world; and the strokes of command version 3 (a flood with
+ * liquid, a fading gas and a drain, a leak refused with its places, smooth,
+ * flatten, a paint that keeps each cell's role), each against the oracle
+ * and taken back and applied again on the project's one undo line.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
@@ -50,8 +53,12 @@ import {
   kitTestScene,
   materialSwap,
   parseRegionFileName,
+  readValue,
+  recordValue,
   RegionChunkSource,
   sameDenseChunk,
+  SHAPE_FULL,
+  VOXEL_ROLE,
   type ChunkCoord,
   shippedChunkSource,
   type RegionChunkRead,
@@ -1047,5 +1054,108 @@ describe('voxel world routes', () => {
     expect(fromExport.map((r) => (r.kind === 'stored' ? `${r.kind}:${createHash('sha256').update(r.bytes).digest('hex')}` : r.kind))).toEqual(fromRoute.map((r) => (r.kind === 'stored' ? `${r.kind}:${createHash('sha256').update(r.bytes).digest('hex')}` : r.kind)));
     const total = readdirSync(join(out, 'js')).reduce((n, f) => n + statSync(join(out, 'js', f)).size, 0);
     console.log(`[voxel export] ${shipped.files.length} region files, ${regionBytes} bytes; js/ ${total} bytes (voxel worker ${worker.length})`);
+  }, 120_000);
+
+  it('the strokes of command version 3 over the command route: a flood (liquid, a fading gas, a drain), a leak refused with its places, smooth, flatten and a paint that keeps roles, each the oracle\'s voxels, all on the one undo line', async () => {
+    const STROKES = 'strokes';
+    const ROCK = recordValue(7, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
+    // A basin (inside [1, 10]², walls 6 high) on rock, a cliff beside it (x 20 … 36: 4 high, then 8), a wall on the cliff's foot.
+    const made = (): PaletteStore => {
+      const st = createWorldStore(grid);
+      const r = { material: 0, role: 0, shape: 0, wetness: 0 };
+      for (let x = -24; x <= 40; x++) for (let z = -24; z <= 36; z++) for (let y = -4; y <= 9; y++) {
+        const inside = x >= 1 && x <= 10 && z >= 1 && z <= 10;
+        const rim = x >= 0 && x <= 11 && z >= 0 && z <= 11;
+        let v = y <= 0 ? ROCK : !inside && rim && y <= 6 ? ROCK : 0;
+        if (x >= 20 && z >= 0 && z <= 16 && y >= 1 && y < (x < 28 ? 4 : 8)) v = ROCK;
+        if (x === 22 && z === 8 && y >= 4 && y <= 6) v = recordValue(5, VOXEL_ROLE.wall, SHAPE_FULL, 0);
+        if (v !== 0) st.setVoxel(x, y, z, readValue(v, r));
+      }
+      return st;
+    };
+    const first = made();
+    const oracle = made();
+    writeVoxelWorld(join(backend._test.service.projectDir(PROJECT)!, 'voxels', STROKES), { worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512 }, made());
+    const CHUNKS: ChunkCoord[] = [-1, 0, 1].flatMap((cx) => [-1, 0].flatMap((cy) => [-1, 0, 1].map((cz) => ({ cx, cy, cz }))));
+    const send = (cmd: Record<string, unknown>) => command({ op: 'editVoxels', projectId: PROJECT, args: { world: STROKES, command: cmd } });
+    const flood = { v: 3, grid: 0, kind: 'flood', seed: [5, 2, 5], level: 3.5, reach: 16 };
+    const LIQUID = { material: 40, role: VOXEL_ROLE.liquid };
+    const GAS = { material: 50, role: VOXEL_ROLE.gas };
+    const brush = { v: 3, grid: 0, kind: 'brush', shape: 'sphere', size: [5, 5, 5], points: [28, 6, 8], smooth: true };
+    const strokes: Array<{ cmd: Record<string, unknown>; parts?: number; cells?: number }> = [
+      { cmd: { ...flood, value: LIQUID }, parts: DERIVED_PART.liquid, cells: 300 },
+      // Fog on the water, fading over 1 m under its level: the gas part alone.
+      { cmd: { ...flood, seed: [5, 5, 5], level: 6, value: GAS, fade: 1 }, parts: DERIVED_PART.gas },
+      { cmd: { ...flood, level: 6, value: { material: 0, role: 0 } }, parts: DERIVED_PART.liquid | DERIVED_PART.gas },
+      { cmd: { ...flood, level: 4, value: GAS }, parts: DERIVED_PART.gas, cells: 300 },
+      { cmd: { ...brush, points: [5, 3, 5], mode: 'smooth', voxel: { ...GAS, wetness: 0 } }, parts: DERIVED_PART.gas },
+      { cmd: { ...brush, mode: 'smooth' }, parts: EVERY_PART },
+      { cmd: { ...brush, shape: 'cylinder', size: [4, 5, 4], points: [32, 6, 8], mode: 'flatten', height: 5.5, smooth: false }, parts: EVERY_PART },
+      { cmd: { v: 3, grid: 0, kind: 'fill', min: [20, 3, 6], max: [24, 6, 10], mode: 'paint', voxel: { material: 9, wetness: 2 } }, parts: DERIVED_PART.shader },
+    ];
+    const states: PaletteStore[] = [];
+    let revision = 0;
+    for (const { cmd, parts, cells } of strokes) {
+      const out = applyEdit({ store: () => oracle }, canonicalEditCommand(cmd));
+      expect(out.cells, JSON.stringify(cmd)).toBeGreaterThan(0);
+      const r = await send(cmd);
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+      expect(r.json).toMatchObject({ ok: true, op: 'editVoxels', revision: ++revision, cells: out.cells, parts: out.parts, box: editBounds(grid, canonicalEditCommand(cmd)) });
+      if (parts !== undefined) expect(r.json.parts, JSON.stringify(cmd)).toBe(parts);
+      if (cells !== undefined) expect(r.json.cells).toBe(cells);
+      expectSame(await readChunks(CHUNKS, STROKES), oracle, CHUNKS);
+      const kept = createWorldStore(grid);
+      const d = createDenseChunk(grid);
+      for (const c of CHUNKS) kept.importChunk(c.cx, c.cy, c.cz, exportOrAir(oracle, c.cx, c.cy, c.cz, d));
+      states.push(kept);
+    }
+    // The paint kept the wall a wall and the ground ground.
+    const rec = { material: 0, role: 0, shape: 0, wetness: 0 };
+    expect(oracle.voxelAt(22, 5, 8, rec)).toMatchObject({ material: 9, role: VOXEL_ROLE.wall, wetness: 2 });
+    expect({ ...oracle.voxelAt(21, 3, 8, rec) }).toMatchObject({ material: 9, role: VOXEL_ROLE.terrain, wetness: 2 });
+
+    // A leak: the basin's wall opened, a flood is refused, names where, and writes nothing.
+    const hole = { v: 3, grid: 0, kind: 'set', cells: [11, 1, 5, 11, 2, 5], voxel: { material: 0, role: 0, shape: 0, wetness: 0 } };
+    applyEdit({ store: () => oracle }, canonicalEditCommand(hole));
+    expect((await send(hole)).status).toBe(200);
+    revision++;
+    const leak = await send({ ...flood, value: LIQUID, level: 2.5 });
+    expect(leak.status, JSON.stringify(leak.json)).toBe(400);
+    const error = leak.json.error as { code: string; message: string; leaks: Array<{ at: [number, number, number]; kind: string; cells: number }> };
+    expect(error.code).toBe('flood_leaks');
+    expect(error.message).toMatch(/leaks in \d+ places?: past its reach near cell/);
+    expect(error.leaks.length).toBeGreaterThan(0);
+    for (const l of error.leaks) {
+      // Metres in the scene (a cell is half a metre): just past 8 m from the seed's column, in the rows under the level.
+      expect(l.kind).toBe('reach');
+      const d = Math.hypot(l.at[0] - 2.75, l.at[2] - 2.75);
+      expect(d).toBeGreaterThan(6);
+      expect(d).toBeLessThan(9.25);
+      expect(l.at[1]).toBeGreaterThan(0.5);
+      expect(l.at[1]).toBeLessThan(1.5);
+    }
+    const blocked = await send({ ...flood, value: LIQUID, seed: [5, 0, 5] });
+    expect(blocked.status).toBe(400);
+    expect((blocked.json.error as { code: string }).code).toBe('flood_blocked');
+    // A body role is no flood value; a version 2 command knows no flood.
+    expect((await send({ ...flood, value: { material: 7, role: VOXEL_ROLE.terrain } })).json.error).toMatchObject({ code: 'invalid_args', path: '/args/command/value/role' });
+    expect((await send({ ...flood, v: 2, value: LIQUID })).json.error).toMatchObject({ code: 'invalid_args', path: '/args/command/kind' });
+    const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${STROKES}`, { headers: auth })).json()) as { manifest: { revision: number } };
+    expect(info.manifest.revision).toBe(revision);
+    expectSame(await readChunks(CHUNKS, STROKES), oracle, CHUNKS);
+
+    // The one undo line: the hole, then every stroke back in order, each the bytes before it; then all again.
+    expect((await step('undo')).voxels).toMatchObject({ ok: true, op: 'undo' });
+    for (let i = strokes.length - 1; i >= 0; i--) {
+      const u = await step('undo');
+      expect(u.status, JSON.stringify(u.json)).toBe(200);
+      expect(u.voxels).toMatchObject({ ok: true, op: 'undo', box: editBounds(grid, canonicalEditCommand(strokes[i]!.cmd)) });
+      if (strokes[i]!.parts !== undefined) expect(u.voxels!.parts).toBe(strokes[i]!.parts);
+      expectSame(await readChunks(CHUNKS, STROKES), i === 0 ? first : states[i - 1]!, CHUNKS);
+    }
+    for (let i = 0; i < strokes.length; i++) {
+      expect((await step('redo')).voxels).toMatchObject({ ok: true, op: 'redo' });
+      expectSame(await readChunks(CHUNKS, STROKES), states[i]!, CHUNKS);
+    }
   }, 120_000);
 });

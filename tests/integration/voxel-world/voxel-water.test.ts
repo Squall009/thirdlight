@@ -161,6 +161,38 @@ describe('water bodies through the commands', () => {
     expect((await info()).bodies).toEqual([expect.objectContaining({ entityId: lake, status: 'filled', cells: 6400 })]);
   });
 
+  it('a flood stroke beside a body: a drain inside its reach is written again by the body in the same stroke; a flood of fog follows no later edit, the lake does', async () => {
+    const before = folderState();
+    // Air to the lake's level from a seed in it: the drain empties it, and the body, following the stroke, fills it again.
+    const drained = await stroke({ v: 3, grid: 0, kind: 'flood', seed: [0, -4, 0], level: -2, value: { material: 0, role: 0 }, reach: 30 });
+    expect(drained.status, JSON.stringify(drained.json)).toBe(200);
+    expect((drained.json['water'] as WaterAnswer).bodies).toEqual([expect.objectContaining({ entityId: lake, status: 'filled', via: 'whole', cells: 6400, written: 6400 })]);
+    expect((await liquid()).size).toBe(6400);
+    expect((await lineStep('undo')).status).toBe(200);
+    expect(folderState()).toEqual(before);
+    // Fog over the water to the ground's top: two rows of the pit, the gas part alone; the lake under it is not written.
+    const fog = await stroke({ v: 3, grid: 0, kind: 'flood', seed: [0, -2, 0], level: 0, value: { material: 9, role: VOXEL_ROLE.gas }, reach: 30 });
+    expect(fog.status, JSON.stringify(fog.json)).toBe(200);
+    expect(fog.json).toMatchObject({ cells: 40 * 40 * 2, parts: DERIVED_PART.gas });
+    expect((fog.json['water'] as WaterAnswer).bodies).toEqual([expect.objectContaining({ entityId: lake, status: 'filled', written: 0 })]);
+    const gasCells = async (): Promise<Set<string>> => {
+      const st = await onDisk();
+      const r: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+      const out = new Set<string>();
+      for (let x = -48; x < 48; x++) for (let z = -48; z < 48; z++) for (let y = -12; y < 2; y++) if (valueRole(valueOf(st.voxelAt(x, y, z, r))) === VOXEL_ROLE.gas) out.add(`${x},${y},${z}`);
+      return out;
+    };
+    const fogged = await gasCells();
+    expect(fogged.size).toBe(3200);
+    // The east bank dug back: the lake's shore follows into the dug cells; the fog stays where it was flooded.
+    expect((await dig([PIT, -6, -4], [PIT + 3, -1, 3])).status).toBe(200);
+    expect((await liquid()).has(`${PIT + 3},-3,0`)).toBe(true);
+    expect(await gasCells()).toEqual(fogged);
+    expect((await lineStep('undo')).status).toBe(200);
+    expect((await lineStep('undo')).status).toBe(200);
+    expect(folderState()).toEqual(before);
+  });
+
   it('follows a bank dug back in the same stroke, locally: the shore moves, the water feeds the liquid part alone, one undo takes both back', async () => {
     const before = folderState();
     const t0 = performance.now();

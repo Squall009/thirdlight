@@ -1223,11 +1223,17 @@ interface BrushEdit extends EditBase {
   readonly size: readonly [number, number, number];
   /** Dab centres, x y z flat, in cells (at least one dab). */
   readonly points: readonly number[];
-  readonly mode: EditMode;
-  /** Absent for `dig`. */
+  readonly mode: BrushMode;
+  /** Absent for `dig`, `flatten` and a `smooth` of the ground; a `smooth` of a gas names the gas. */
   readonly voxel?: EditVoxel;
-  /** Partial density at the rim (add and dig only; projected materials). */
+  /**
+   * A soft rim: partial density there for `add` and `dig` (projected
+   * materials); for `smooth` and `flatten` the stroke's weight falls with
+   * the coverage instead of ending at half of it.
+   */
   readonly smooth: boolean;
+  /** `flatten` only: the plane's height in cells. */
+  readonly height?: number;
 }
 ```
 
@@ -1264,6 +1270,16 @@ interface BrushMask {
   /** Another seed, another pattern (a whole number). */
   seed: number;
 }
+```
+
+<a id="type-brush-mode"></a>
+### BrushMode
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** A brush's mode. */
+type BrushMode = EditMode | SurfaceMode;
 ```
 
 <a id="type-brush-shape"></a>

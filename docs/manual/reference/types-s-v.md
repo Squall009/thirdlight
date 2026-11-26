@@ -1,8 +1,173 @@
-# Types (StairFacing to WindOctave)
+# Types (SettingsField to VoxelKitDamage)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-settings-field"></a>
+### SettingsField
+
+Declared in `packages/project-model/src/save-schema.ts`.
+
+```ts
+interface SettingsField {
+  key: string;
+  type: 'bool' | 'number' | 'string' | 'enum';
+  default: SettingsFieldValue;
+  label?: string;
+  min?: number;
+  max?: number;
+  /** enum: the choices. */
+  values?: string[];
+  /**
+   * An engine setting this field drives (music/sfx/ui: a number 0–1; quality: an enum of the project's quality level ids (low/medium/high unless it lists its own); frameRateCap: an enum of 30/60/120/none;
+   * ambientOcclusion: an enum of off/ssao/gtao; renderScale: a number within 0.5–1; dynamicResolution: a bool).
+   */
+  engine?: SettingsEngineBinding;
+}
+```
+
+<a id="type-settings-field-value"></a>
+### SettingsFieldValue
+
+Declared in `packages/project-model/src/save-schema.ts`.
+
+```ts
+type SettingsFieldValue = boolean | number | string;
+```
+
+<a id="type-settings-map"></a>
+### SettingsMap
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+type SettingsMap = Record<string, SettingsValue>;
+```
+
+<a id="type-settings-value"></a>
+### SettingsValue
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+type SettingsValue = number | boolean | string;
+```
+
+<a id="type-set-transform-args"></a>
+### SetTransformArgs
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+interface SetTransformArgs {
+  entityId: string;
+  transform: PartialTransformArgs;
+}
+```
+
+<a id="type-set-voxel"></a>
+### SetVoxel
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** A voxel written exactly, shape included (runtime set). */
+interface SetVoxel extends EditVoxel {
+  readonly shape: number;
+}
+```
+
+<a id="type-shell-screens"></a>
+### SHELL_SCREENS
+
+Declared in `packages/project-model/src/shell.ts`.
+
+```ts
+/** The shell's screens a project draws with its own UI documents. */
+const SHELL_SCREENS: readonly ["title", "pause", "settings", "controls", "save", "load"];
+```
+
+<a id="type-shell-scene"></a>
+### ShellScene
+
+Declared in `packages/project-model/src/shell.ts`.
+
+```ts
+interface ShellScene {
+  /** A scene of the project. */
+  scene: string;
+  /** The player spawn the character starts at (a playerSpawn object in that scene; absent: it stays where it is). */
+  spawn?: string;
+  /** Seconds the view fades out before a move to this scene and back in after it (0–5; absent: no fade). */
+  fade?: number;
+  /** The fade's colour (#rrggbb; absent: black). */
+  fadeColor?: string;
+}
+```
+
+<a id="type-shell-screen"></a>
+### ShellScreen
+
+Declared in `packages/project-model/src/shell.ts`.
+
+```ts
+type ShellScreen = (typeof SHELL_SCREENS)[number];
+```
+
+<a id="type-shell-simulate"></a>
+### ShellSimulate
+
+Declared in `packages/project-model/src/shell.ts`.
+
+```ts
+/** What runs while a shell screen shows. */
+type ShellSimulate = 'pause' | 'scripts';
+```
+
+<a id="type-sky-config"></a>
+### SkyConfig
+
+Declared in `packages/project-model/src/materials.ts`.
+
+```ts
+/** The sky (background + image-based lighting). */
+interface SkyConfig {
+  /** procedural: physically based (Preetham); gradient: three colours; texture: an equirect or six-face image; color: solid. */
+  mode: 'procedural' | 'gradient' | 'texture' | 'color';
+  turbidity?: number;
+  rayleigh?: number;
+  mieCoefficient?: number;
+  mieDirectionalG?: number;
+  /** true (default): the sun sits opposite the scene's directional light; false: sunElevation/sunAzimuth. */
+  sunFromLight?: boolean;
+  sunElevation?: number;
+  sunAzimuth?: number;
+  /** The physical sky's clouds: the share of the sky they cover (0: clear) and how solid they are (0: none). They drift along the scene's global wind. */
+  cloudCoverage?: number;
+  cloudDensity?: number;
+  /** Seconds of drift behind the clouds when the clock starts: every run (and replay) starts on the same sky. */
+  cloudTime?: number;
+  topColor?: string;
+  horizonColor?: string;
+  bottomColor?: string;
+  color?: string;
+  /** An equirectangular texture asset. */
+  texture?: string;
+  /** Six texture assets px, nx, py, ny, pz, nz (instead of `texture`). */
+  cube?: [string, string, string, string, string, string];
+  /**
+   * A texture sky's turn about +Y in degrees (absent: 0), counter-clockwise
+   * seen from above: the background and the image-based lighting turn
+   * together, so a painted sun can be lined up with the key light.
+   */
+  rotation?: number;
+  /** Background brightness. */
+  intensity?: number;
+  /** Image-based lighting strength from the sky (0 = none). */
+  environmentIntensity?: number;
+}
+```
 
 <a id="type-stair-facing"></a>
 ### StairFacing
@@ -138,6 +303,21 @@ interface SurfaceBake {
   /** Terrain rings saved (absent: none, or a bake made before terrain was saved). */
   rings?: number;
 }
+```
+
+<a id="type-surface-mode"></a>
+### SurfaceMode
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/**
+ * What only a brush does: it moves what is there instead of writing a voxel.
+ * - `smooth` relaxes the ground's surface under the brush (no voxel), or the
+ *   density of the gas its voxel names;
+ * - `flatten` moves the ground's surface toward the plane at `height`.
+ */
+type SurfaceMode = 'smooth' | 'flatten';
 ```
 
 <a id="type-surface-preset-name"></a>
@@ -1308,7 +1488,7 @@ const VOXEL_TEXTURE_MAPS: readonly ["albedo", "normal", "orm"];
 Declared in `packages/voxel/src/edit-command.ts`.
 
 ```ts
-type VoxelEditCommand = BrushEdit | FillEdit | StampEdit | SetEdit | DigEdit;
+type VoxelEditCommand = BrushEdit | FillEdit | StampEdit | SetEdit | DigEdit | FloodEdit;
 ```
 
 <a id="type-voxel-gas-look"></a>
@@ -1379,178 +1559,5 @@ interface VoxelKitDamage {
   stage3?: DamageStageSpan | null;
   /** The crack overlay's map (its red channel) over one 4 × 4 m construction tile, replacing the engine's. */
   crackTexture?: VoxelKitImage;
-}
-```
-
-<a id="type-voxel-kit-image"></a>
-### VoxelKitImage
-
-Declared in `packages/project-model/src/voxel-kit.ts`.
-
-```ts
-/** An image asset version: the asset and the SHA-256 of the image bytes it was made from. */
-interface VoxelKitImage {
-  assetId: string;
-  digest: string;
-}
-```
-
-<a id="type-voxel-kit-json"></a>
-### VoxelKitJson
-
-Declared in `packages/project-model/src/voxel-kit.ts`.
-
-```ts
-/** A kit's game data (opaque JSON, `game-data.ts`). */
-type VoxelKitJson = GameDataJson;
-```
-
-<a id="type-voxel-kit-mesh"></a>
-### VoxelKitMesh
-
-Declared in `packages/project-model/src/voxel-kit.ts`.
-
-```ts
-/** One authored mesh: a model asset, the digest of the GLB version it was made from, optionally one node of it. */
-interface VoxelKitMesh {
-  assetId: string;
-  /** SHA-256 (64 lowercase hex) of the GLB bytes: the asset version's source digest. */
-  digest: string;
-  /** The node drawn when the file holds several pieces (absent: the whole model). */
-  node?: string;
-}
-```
-
-<a id="type-voxel-kit-sheet-layout"></a>
-### VoxelKitSheetLayout
-
-Declared in `packages/project-model/src/voxel-trim-layout.ts`.
-
-```ts
-/**
- * A sheet layout a kit declares for its own sheet (kit field `sheetLayout`): the authored sheet's side and density
- * and its regions, as a named layout holds them.
- */
-interface VoxelKitSheetLayout {
-  /** Authored sheet side, pixels. */
-  size: number;
-  /** Authored pixels a metre. */
-  pxPerMetre: number;
-  regions: Array<{ id: string; kind: TrimRegion['kind']; metres: number; y: [number, number]; x?: [number, number] }>;
-}
-```
-
-<a id="type-voxel-kit-slot"></a>
-### VoxelKitSlot
-
-Declared in `packages/project-model/src/voxel-kit.ts`.
-
-```ts
-/** One filled slot: its meshes, and the game's data for it. */
-interface VoxelKitSlot {
-  /** One or more meshes (an empty slot is not stored: leave the slot out). */
-  meshes: VoxelKitSlotMesh[];
-  /** The game's own data for this slot (break, sound, physics …), never read by the engine. */
-  gameData?: VoxelKitJson;
-}
-```
-
-<a id="type-voxel-kit-slot-mesh"></a>
-### VoxelKitSlotMesh
-
-Declared in `packages/project-model/src/voxel-kit.ts`.
-
-```ts
-/** One mesh a slot holds: the mesh, the cube rotation that turns it into the slot's case orientation, its weight among the slot's meshes. */
-interface VoxelKitSlotMesh {
-  mesh: VoxelKitMesh;
-  /** One of the 24 cube rotations (voxel `CUBE_ROTATIONS`, a fixed numbering; absent: 0, the identity). */
-  rotation?: number;
-  /** Relative weight among the slot's meshes (absent: 1). */
-  weight?: number;
-  /**
-   * Draw the mesh mirrored across its case's run (the case's x, after the rotation), winding and normal-map
-   * tangents flipped with it: one mesh serves both hands of a handed piece (absent: false).
-   */
-  mirror?: boolean;
-}
-```
-
-<a id="type-voxel-material-use"></a>
-### VoxelMaterialUse
-
-Declared in `packages/project-model/src/voxel-materials.ts`.
-
-```ts
-type VoxelMaterialUse = (typeof VOXEL_MATERIAL_USES)[number];
-```
-
-<a id="type-voxel-surface"></a>
-### VoxelSurface
-
-Declared in `packages/project-model/src/voxel-materials.ts`.
-
-```ts
-type VoxelSurface = (typeof VOXEL_SURFACES)[number];
-```
-
-<a id="type-voxel-texture-map"></a>
-### VoxelTextureMap
-
-Declared in `packages/project-model/src/voxel-materials.ts`.
-
-```ts
-type VoxelTextureMap = (typeof VOXEL_TEXTURE_MAPS)[number];
-```
-
-<a id="type-voxel-texture-set"></a>
-### VoxelTextureSet
-
-Declared in `packages/project-model/src/voxel-materials.ts`.
-
-```ts
-/** One texture set: a texture asset per map (a map left out: the engine's flat stand-in). */
-type VoxelTextureSet = Partial<Record<VoxelTextureMap, string>>;
-```
-
-<a id="type-wind-config"></a>
-### WindConfig
-
-Declared in `packages/project-model/src/materials.ts`.
-
-```ts
-interface WindConfig {
-  /** Horizontal direction [x, z] (normalized by the runtime; not both zero). */
-  direction: [number, number];
-  /** Base strength (0 = still air). */
-  strength: number;
-  /** Extra strength of gusts. */
-  gust: number;
-  /** Gusts per second. */
-  gustFrequency: number;
-  /** Small-scale variation over space (0-1). */
-  turbulence: number;
-  /** The gust pattern: a texture asset read top-down over the world, its red channel 0–1 (absent: the engine's neutral noise). Global only. */
-  noise?: string;
-  /** Metres per second the gust pattern travels along the direction (absent: `gustFrequency` × `scale`, so as many gusts pass a point a second as before). */
-  speed?: number;
-  /** Metres the gust pattern spans before it repeats (absent: {@link WIND_DEFAULTS}). */
-  scale?: number;
-  /** A second, finer layer of the pattern so it does not visibly repeat: its size and speed as shares of the first (absent: {@link WIND_DEFAULTS}). Global only. */
-  octave?: WindOctave;
-}
-```
-
-<a id="type-wind-octave"></a>
-### WindOctave
-
-Declared in `packages/project-model/src/materials.ts`.
-
-```ts
-interface WindOctave {
-  /** Its size as a share of `scale`. */
-  scale: number;
-  /** Its speed as a share of `speed`. */
-  speed: number;
 }
 ```

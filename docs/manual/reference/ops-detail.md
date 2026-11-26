@@ -512,7 +512,7 @@ Arguments (`args`):
 { world: string; command: VoxelEditCommand }
 ```
 
-Types: [`VoxelEditCommand`](types-s-w.md#type-voxel-edit-command).
+Types: [`VoxelEditCommand`](types-s-v.md#type-voxel-edit-command).
 
 <a id="op-graphEdit"></a>
 ## graphEdit
@@ -1151,7 +1151,7 @@ Arguments (`args`):
 { material: MaterialDef }
 ```
 
-Types: [`MaterialDef`](types-c-m.md#type-material-def).
+Types: [`MaterialDef`](types-m-s.md#type-material-def).
 
 <a id="op-setMaterialProfile"></a>
 ## setMaterialProfile
@@ -1303,7 +1303,7 @@ Arguments (`args`):
 { timeline: TimelineAsset }
 ```
 
-Types: [`TimelineAsset`](types-s-w.md#type-timeline-asset).
+Types: [`TimelineAsset`](types-s-v.md#type-timeline-asset).
 
 <a id="op-setTransform"></a>
 ## setTransform
@@ -1328,7 +1328,7 @@ Arguments (`args`):
 { document: UiDocument }
 ```
 
-Types: [`UiDocument`](types-s-w.md#type-ui-document).
+Types: [`UiDocument`](types-s-v.md#type-ui-document).
 
 <a id="op-setUiTheme"></a>
 ## setUiTheme
@@ -1341,7 +1341,7 @@ Arguments (`args`):
 { theme: UiTheme }
 ```
 
-Types: [`UiTheme`](types-s-w.md#type-ui-theme).
+Types: [`UiTheme`](types-s-v.md#type-ui-theme).
 
 <a id="op-setVoxelKit"></a>
 ## setVoxelKit
@@ -1354,7 +1354,7 @@ Arguments (`args`):
 { kit: VoxelKit }
 ```
 
-Types: [`VoxelKit`](types-s-w.md#type-voxel-kit).
+Types: [`VoxelKit`](types-s-v.md#type-voxel-kit).
 
 <a id="op-undo"></a>
 ## undo

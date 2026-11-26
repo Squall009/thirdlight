@@ -1,14 +1,25 @@
 /**
- * The level fill: the liquid a basin holds up to a level, from a seed.
+ * The level fill: the medium a basin holds up to a level, from a seed.
  *
- * From the seed's cell the fill walks the open cells joined face to face
- * (air, a gas, or liquid of the fill's own material), never a cell whose bottom is
- * at or above the level, bounded by everything else (ground, built cells,
- * an opening, another liquid) and by the bound it is given: the reach, a
- * horizontal distance from the seed's column. Every cell it reaches holds
- * the liquid: full below the level's row, the level's own row filled to the
- * level (the shape's 16 fill levels, rounded; a share that rounds to empty
- * is not filled and not entered).
+ * From the seed's cell the fill walks the open cells joined face to face,
+ * never a cell whose bottom is at or above the level, bounded by everything
+ * else (ground, built cells, an opening, another medium) and by the bound
+ * it is given: the reach, a horizontal distance from the seed's column,
+ * and, when the caller gives one, a floor (the lowest row). What it writes
+ * is the caller's: a role and a material.
+ *
+ * - **A liquid** (the default) passes air, a gas (the liquid takes its
+ *   cell: a cell holds one) and liquid of its own material. Every cell it
+ *   reaches holds the liquid: full below the level's row, the level's own
+ *   row filled to the level (the shape's 16 fill levels, rounded; a share
+ *   that rounds to empty is not filled and not entered).
+ * - **A gas** passes air and gas of its own material; a liquid bounds it
+ *   (fog lies on water). Its cells hold the full density, or with a fade
+ *   the density falls from full, `fade` cells under the level, to none at
+ *   the level, read at each cell's centre (a cell whose density rounds to
+ *   none is not filled and not entered).
+ * - **Air** (material 0) drains: it passes air and every medium, and the
+ *   media it reaches become air.
  *
  * Where the walk would step out of its bound (past the reach, or into a
  * cell the reader cannot give: past the world's edge, a region it cannot
@@ -22,12 +33,12 @@
  * (`seed_blocked`).
  *
  * One function for every caller: a water body's regenerate in the editor's
- * backend, a fill stroke and a later settle call it with their own reader.
+ * backend, the `flood` stroke and a later settle call it with their own reader.
  * Deterministic: the same reader gives the same cells in the same order.
  * Pure: the reader is the only input, nothing is written.
  */
-import { MATERIAL_ID_MAX, recordValue, ROLE_MASK, ROLE_SHIFT, SHAPE_FULL, VOXEL_ROLE } from '../record';
-import { isGasRole } from '../role-traits';
+import { MATERIAL_AIR, MATERIAL_ID_MAX, recordValue, ROLE_MASK, ROLE_SHIFT, SHAPE_FULL, VOXEL_ROLE } from '../record';
+import { isGasRole, isLiquidRole, isMediumRole, roleShape } from '../role-traits';
 import { CellQueue, CellSet } from './cell-set';
 
 /** What a reader answers for a cell the fill may not know (past the world's edge, a region it cannot read): a breach. */
@@ -49,10 +60,16 @@ export interface LevelFillSpec {
   readonly seed: readonly [number, number, number];
   /** The surface's height in cells (metres over the cell size): a cell fills while its bottom lies below it. */
   readonly level: number;
-  /** The liquid's voxel material. */
+  /** The voxel material written (0: air, a drain). */
   readonly material: number;
   /** How far from the seed's column the fill may spread, in cells (between column centres, horizontal). */
   readonly reach: number;
+  /** The role written: a medium (left out: a liquid). Not read when the material is air. */
+  readonly role?: number;
+  /** A gas only: the cells under the level over which its density falls from full to none at the level (left out: full density everywhere). */
+  readonly fade?: number;
+  /** The lowest row the fill may enter (left out: none): an open cell under it is a breach of the reach. */
+  readonly floor?: number;
 }
 
 export type LevelFillStatus = 'filled' | 'breached' | 'seed_blocked';
@@ -63,7 +80,7 @@ export interface LevelFillResult {
   readonly start: readonly [number, number, number] | null;
   /** Cells reached, x, y, z each, in the order the walk reached them. */
   readonly cells: Int32Array;
-  /** The value each reached cell holds after the fill (the liquid at its fill level). */
+  /** The value each reached cell holds after the fill (the medium at its shape; air for a drain). */
   readonly values: Uint32Array;
   /** Cells just past the bound, x, y, z each, in the order the walk met them. */
   readonly breaches: Int32Array;
@@ -83,15 +100,30 @@ export function isLiquidOf(v: number, material: number): boolean {
   return v > 0 && ((v >>> ROLE_SHIFT) & ROLE_MASK) === VOXEL_ROLE.liquid && (v & MATERIAL_ID_MAX) === material;
 }
 
-/** Whether the fill of `material` may pass a cell holding `v`: air, a gas (the liquid takes its cell: a cell holds one), or its own liquid. */
-export function fillPasses(v: number, material: number): boolean {
-  return v === 0 || isLiquidOf(v, material) || (v > 0 && isGasRole((v >>> ROLE_SHIFT) & ROLE_MASK));
+/** The role a fill writes (a liquid unless the spec names one). */
+export function fillRole(spec: Pick<LevelFillSpec, 'role'>): number {
+  return spec.role ?? VOXEL_ROLE.liquid;
 }
 
-/** Whether the fill may enter a cell of the world (inside it, its own liquid or air, nothing standing over it). */
-export function fillOpen(spec: Pick<LevelFillSpec, 'material'>, world: FillWorld, x: number, y: number, z: number): boolean {
+/**
+ * Whether a fill may pass a cell holding `v`: air, or its own medium of its
+ * own material; a liquid also a gas (it takes the cell: a cell holds one);
+ * a drain every medium.
+ */
+export function fillPasses(v: number, spec: Pick<LevelFillSpec, 'material' | 'role'>): boolean {
+  if (v === 0) return true;
+  if (v < 0) return false;
+  const role = (v >>> ROLE_SHIFT) & ROLE_MASK;
+  if (spec.material === MATERIAL_AIR) return isMediumRole(role);
+  const own = fillRole(spec);
+  if (role === own && (v & MATERIAL_ID_MAX) === spec.material) return true;
+  return isLiquidRole(own) && isGasRole(role);
+}
+
+/** Whether the fill may enter a cell of the world (inside it, a cell it passes, nothing standing over it). */
+export function fillOpen(spec: Pick<LevelFillSpec, 'material' | 'role'>, world: FillWorld, x: number, y: number, z: number): boolean {
   const v = world.value(x, y, z);
-  return v !== FILL_OUTSIDE && fillPasses(v, spec.material) && world.stops?.(x, y, z) !== true;
+  return v !== FILL_OUTSIDE && fillPasses(v, spec) && world.stops?.(x, y, z) !== true;
 }
 
 /** The fill level a cell of row `y` takes under a surface at `level` cells (0: the cell stays dry). */
@@ -102,10 +134,40 @@ export function fillShapeAt(level: number, y: number): number {
   return Math.round(share * SHAPE_FULL);
 }
 
-/** The row the walk starts from in the seed's column: the seed's, or the highest row under the level when the seed is above it. */
-export function fillStartRow(spec: Pick<LevelFillSpec, 'seed' | 'level'>): number | null {
+/**
+ * The shape a cell of row `y` takes from a fill (0: the fill leaves it and
+ * does not enter it): a liquid's fill level ({@link fillShapeAt}); a gas's
+ * density, full wherever a liquid would fill, or with a fade the share of
+ * the fade the cell's centre lies under the level; a drain's is only read
+ * as entered or not.
+ */
+export function fillShape(spec: Pick<LevelFillSpec, 'level' | 'role' | 'fade'>, y: number): number {
+  const level = fillShapeAt(spec.level, y);
+  if (level === 0 || roleShape(fillRole(spec)) !== 'density') return level;
+  if (spec.fade === undefined) return SHAPE_FULL;
+  const depth = spec.level - y - 0.5;
+  if (depth >= spec.fade) return SHAPE_FULL;
+  if (depth <= 0) return 0;
+  return Math.round((depth / spec.fade) * SHAPE_FULL);
+}
+
+/** The value a fill leaves in a cell of row `y` it reached (0: air, a drain's, or a cell it does not fill). */
+export function fillValue(spec: Pick<LevelFillSpec, 'level' | 'role' | 'fade' | 'material'>, y: number): number {
+  if (spec.material === MATERIAL_AIR) return 0;
+  const shape = fillShape(spec, y);
+  return shape === 0 ? 0 : recordValue(spec.material, fillRole(spec), shape, 0);
+}
+
+/** The highest row a fill enters (not finite: none). */
+export function fillTopRow(spec: Pick<LevelFillSpec, 'level' | 'role' | 'fade'>): number {
   let top = Math.ceil(spec.level) - 1;
-  if (fillShapeAt(spec.level, top) === 0) top--;
+  while (Number.isFinite(top) && fillShape(spec, top) === 0) top--;
+  return top;
+}
+
+/** The row the walk starts from in the seed's column: the seed's, or the highest row the fill enters when the seed is above it. */
+export function fillStartRow(spec: Pick<LevelFillSpec, 'seed' | 'level' | 'role' | 'fade'>): number | null {
+  const top = fillTopRow(spec);
   return Number.isFinite(top) ? Math.min(spec.seed[1], top) : null;
 }
 
@@ -163,8 +225,7 @@ export function walkFill(spec: LevelFillSpec, world: FillWorld, starts: readonly
   const kinds: number[] = [];
   const met = new CellSet();
   const q = new CellQueue();
-  const top = Math.ceil(spec.level) - 1;
-  const topFills = fillShapeAt(spec.level, top) > 0;
+  const top = fillTopRow(spec);
   for (const [x, y, z] of starts) {
     if (!into.add(x, y, z)) continue;
     cells.push(x, y, z);
@@ -177,7 +238,7 @@ export function walkFill(spec: LevelFillSpec, world: FillWorld, starts: readonly
       const nx = x + dx;
       const ny = y + dy;
       const nz = z + dz;
-      if (ny > top || (ny === top && !topFills)) continue;
+      if (ny > top) continue;
       if (into.has(nx, ny, nz) || skip?.has(nx, ny, nz) === true || met.has(nx, ny, nz)) continue;
       const v = world.value(nx, ny, nz);
       if (v === FILL_OUTSIDE) {
@@ -186,8 +247,8 @@ export function walkFill(spec: LevelFillSpec, world: FillWorld, starts: readonly
         kinds.push(FILL_BREACH.world);
         continue;
       }
-      if (!fillPasses(v, spec.material) || world.stops?.(nx, ny, nz) === true) continue;
-      if (!withinReach(spec, nx, nz)) {
+      if (!fillPasses(v, spec) || world.stops?.(nx, ny, nz) === true) continue;
+      if (!withinReach(spec, nx, nz) || (spec.floor !== undefined && ny < spec.floor)) {
         met.add(nx, ny, nz);
         breaches.push(nx, ny, nz);
         kinds.push(FILL_BREACH.reach);
@@ -212,7 +273,7 @@ export function levelFill(spec: LevelFillSpec, world: FillWorld): LevelFillResul
   const walk = walkFill(spec, world, [start], set);
   const cells = walk.cells.a.slice(0, walk.cells.n);
   const values = new Uint32Array(walk.cells.count);
-  for (let i = 0; i < values.length; i++) values[i] = liquidValue(spec.material, fillShapeAt(spec.level, cells[3 * i + 1]!));
+  for (let i = 0; i < values.length; i++) values[i] = fillValue(spec, cells[3 * i + 1]!);
   return {
     status: walk.kinds.length > 0 ? 'breached' : 'filled',
     start,

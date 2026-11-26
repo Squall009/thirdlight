@@ -478,10 +478,13 @@ and MCP (`tl_command`) send alike:
 - [`editVoxels`](../reference/ops-detail.md#op-editVoxels)
   `{world, command}` applies one **stroke**: a brush drag (`brush`: a
   sphere, box or cylinder through one or more points, to `place`, `add`,
-  `dig` or `paint`), a box `fill`, a `stamp`, or exact cells (`set`,
-  `dig`). The command format:
-  [`VoxelEditCommand`](../reference/types-s-w.md#type-voxel-edit-command).
-  **Positions here are cells (0.5 m), not metres.**
+  `dig` or `paint`, or to `smooth` or `flatten` what is there), a box
+  `fill`, a `stamp`, a `flood` (a liquid or a gas filled to a level), or
+  exact cells (`set`, `dig`). The command format:
+  [`VoxelEditCommand`](../reference/types-s-v.md#type-voxel-edit-command).
+  **Positions here are cells (0.5 m), not metres.** A command names its
+  format version: `"v": 3` for everything on this page; `"v": 2` commands
+  written before the flood and the two brush modes are read as before.
 - `writeKitTestScene` (below) writes the kit test scene as one stroke.
 
 An answer gives the world's new `revision`, the `cells` changed, the
@@ -496,6 +499,50 @@ of a 1 m ball at cell (0, 4, 0):
   {"v": 2, "grid": 0, "kind": "brush", "shape": "sphere", "size": [2, 2, 2],
    "points": [0, 4, 0], "mode": "dig", "smooth": false}}}
 ```
+
+- **Flood: a liquid or a gas to a level.** `{"v": 3, "grid": 0, "kind":
+  "flood", "seed": [x, y, z], "level": …, "value": {"material": …,
+  "role": …}, "reach": …}` fills the open cells joined to the seed cell
+  under `level` (a height in cells) with the value: a liquid (role 2: full
+  cells, the top row filled to the level) or a gas (role 10: fog, at full
+  density). With `"fade"` (metres, a gas only) the fog is at full density
+  that far under the level and thins in a straight line to nothing at the
+  level, so its top is soft. `reach` (cells) is how far the fill may run
+  from the seed: sideways from its column, and downward in rows.
+  - **It never spills.** A fill that would run past its reach or the
+    world's edge is refused with `flood_leaks` and writes nothing; the
+    error's `leaks` lists where, in metres (a place per 16 m of ground:
+    `{at, kind: "reach" | "world", cells}`), the way a water body's leaks
+    are told. Close the gap, lower the level or widen the reach, and send
+    it again. `flood_blocked`: the seed cell is in ground, in a built
+    cell or in another liquid.
+  - **Air drains.** `"value": {"material": 0, "role": 0}` empties every
+    liquid and gas cell the same walk reaches: the same seed and level
+    take a flood back (and so does undo).
+  - Water runs through fog and takes its cells; fog lies on water; one
+    fog does not flow through another.
+  - **A flood follows nothing.** Its cells are ordinary voxels: dig the
+    bank back later and the water stays where it was. For a lake whose
+    shore follows the ground, make a water body (below). A flood of fog
+    over a lake leaves the lake as it is; a drain of a water body's water
+    is filled again by the body in the same stroke.
+- **Smooth and flatten** are brush modes (`"v": 3`, no `voxel`):
+  `"mode": "smooth"` relaxes the ground's surface under the brush toward
+  the mean of the ground round each column; `"mode": "flatten", "height":
+  …` moves it toward a level plane at that height (in cells).
+  `"smooth": true` on the brush gives a soft rim (the pull falls off
+  toward the edge); `false` moves everything under the brush the whole
+  way. The surface moves only inside the brush's own rows, new ground
+  takes the material of the ground it rises from, and built cells (walls,
+  floors, roofs, stairs) and the ground under them are left alone.
+  `smooth` with a `voxel` naming a gas (`{"material": …, "role": 10,
+  "wetness": 0}`) blurs that fog's density instead and touches nothing
+  else.
+- **Paint that keeps roles.** A `paint` whose `voxel` leaves `role` out
+  (`{"material": …, "wetness": …}`, `"v": 3`) changes material and wetness
+  and leaves every cell's role and shape: a brush over a wall's top and
+  the roof beside it repaints both and each stays what it is. With a
+  `role`, a paint writes that one role into every cell it covers.
 
 - **Water bodies follow a stroke.** A stroke inside a water body's reach
   (a `waterBody` object: a seed, a `level` in metres, a liquid `material`,
@@ -541,7 +588,9 @@ of a 1 m ball at cell (0, 4, 0):
   and the world's `currentRevision`, as a project op is).
 - **Refusals:** `no_change` (the stroke changed no cell), `outside_world`
   (it reaches past the world's bounds), `over_budget` (one stroke too large
-  to undo, about 64 MiB of undo), `revision_conflict`, `world_not_found`,
+  to undo, about 64 MiB of undo; a flood counts its whole reach, so about
+  60 m of it at most), `flood_leaks` and `flood_blocked` (above),
+  `revision_conflict`, `world_not_found`,
   and `invalid_args` naming the bad field. A request id sent again answers
   once and applies nothing.
 

@@ -137,7 +137,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.0 | done 2026-11-26: three.js still 0.187.0 (nothing newer); the three files split (1,909 → 1,347, 1,879 → 1,303, 1,857 → 1,730 lines); the role traits table (`role-traits.ts`, 16 rows) asked by every consumer, `tools/check-role-traits.mjs` in the build (10 owner files); 688 derived digests equal before and after. Results §9 |
 | 47b.1 | done 2026-11-26: D827 (the far march wrote the edge ring's pushed depth into its own target), D825 (the first profile read over the bridge's 1 MiB bound, no cursor), D831 (the Scene view's grid 1 cm under the floor), D832 (33 debug commands declared, a game holds 32) found and fixed with tests; D829 restated: wall-top fill is off by design. L16, E1, E6 clean. D835 opened. Results §9 |
 | 47b.2 | done 2026-11-26: role `gas` = 10 (11 roles), its mip rule, material use `gas` (`voxel.gas`: colour, full density), the gas feed (`DERIVED_PART.gas`), spec text, derived 34. Town and hard-case row with gas in 224,397 open cells derive byte for byte as without. Besides the row: 6 places named liquid alone or assumed two media. Results §9 |
-| 47b.3 | not started |
+| 47b.3 | done 2026-11-26: edit command v3 (v2 read as written): `flood` (the water bodies' level fill, its role, fade and a floor as parameters; a leak refused with its places), brush modes `smooth` and `flatten` (the ground a column at a time; a gas's density), a paint that keeps roles. 30 unit tests, 2 over HTTP on the one undo line. D762 stays open for the tool. Results §9 |
 | 47b.4 | not started |
 | 47b.5 | not started |
 | 47b.6 | not started |
@@ -241,6 +241,46 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   changed chunks and derives nothing. (6) **Water takes fog's cells**: the level fill passes gas as air, and one
   medium written over the other feeds both parts. (7) The reference's materials page passed its size bound and the
   pages after it were renamed by the generator; 13 manual links were repointed.
+- **2026-11-26 — 47b.3, defaults chosen, owner to confirm** (item agent; G4's words could be met more than one way,
+  the smaller was taken each time):
+  1. **The reach bounds a flood downward too**: ⌈reach⌉ rows under the cell it starts from, besides the circle round
+     the seed's column a water body's reach is. Without it the cells a flood can touch are not known from the command,
+     and every stroke path (the backend's load, a page's overlay, the edit worker) needs them before the first read.
+     A flood counts its whole reach against the work bound of one stroke: about 120 cells (60 m) at most. A wider
+     fog bank is several floods, or a later entry.
+  2. **Fade**: G4's "metres under the level over which gas density falls to 0" is read as a soft top: full density
+     `fade` metres or more under the level, falling in a straight line to none at the level, read at each cell's
+     centre; a cell whose density rounds to none is not filled and not entered. `fade` is in metres as G4 says; the
+     seed, the level and the reach are in cells like every position of the command.
+  3. **A drain is the flood's own walk with air**: it passes air and every medium under the level and empties the
+     media it reaches (liquid and gas alike), so the same seed and level take a flood back. In open ground it leaks
+     as a flood does and is refused; fog painted on an open plain is erased with the dig brush.
+  4. **What each value passes**: a liquid air, any gas and its own liquid (as water bodies since 47b.2); a gas air and
+     its own gas only (a liquid and another gas bound it). A start cell the value does not pass is refused
+     (`flood_blocked`) instead of answering `no_change`.
+  5. **Smooth and flatten move the ground's height a column at a time**, inside the brush's own rows, by the brush's
+     coverage (`smooth: true`: the soft rim's weight; `false`: all or nothing at half). Relaxing the fill of cells in
+     three dimensions was tried on paper and dropped: flat ground is not a fixed point of it (every stroke blurs the
+     surface cell and the air over it). Under an overhang the top surface inside the brush's rows is the one moved.
+     No strength field: G4 names none.
+  6. **`smooth` of a gas is chosen by the brush's existing `voxel` field** naming that gas (material and role); with no
+     voxel it smooths the ground. One stroke never does both, so a fog brush cannot move ground and the gas answer
+     stays the gas part alone. `flatten` takes its plane as `height` (cells), G4's "a plane's height".
+  7. **Cells that are not ground**: a column whose first cell under the open ones is built or an opening is left
+     whole, the ground under it too, and pulls no neighbour; ground that rises takes the material, role and wetness
+     of the surface cell under it; a column with no ground in the brush's rows is left.
+  8. **The paint that keeps roles is a `paint` whose voxel leaves `role` out** (v3), no new field; with a role it is
+     v2's paint. D762 stays open: the command is there, structure mode's Paint still sends a role until 47b.5
+     rebuilds the tool (editor tools are not this item's).
+  9. **Versions**: a command keeps the `v` it was sent with (2 or 3); a build writes 3; nothing stores a command, so
+     there is no upgrade step. The refusal of a leak carries `leaks` in the water bodies' form (cells in
+     `EditRefused`, metres in the backend's error); they are where the fill crossed its bound, not the gap in the
+     bank, as a water body's are.
+  10. **The world's edge is the world's cell bounds** for a flood, the same in the backend and on a page; a water
+      body's fill also stops at the listed region files. A flood on open ground at the edge of what is authored
+      meets its reach, and creates no region past it.
+  11. **No game API**: `ctx.voxels` gains no flood, smooth or flatten (G4 names the command only). A game's overlay
+      applies them like any command if handed one.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -485,6 +525,75 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
   389,600 → 390,200 with its line (the gas look, 0.6 KB), as each field before it.
 - **Unverified:** the material section's two gas fields were not looked at in a browser. Nothing draws gas, so
   there is no picture.
+
+### 47b.3
+
+- **The command, as built** (`edit-command.ts`; spec §3.3 *Stroke command v3*; `format-versions.md`):
+  - `{v: 3, grid, kind: "flood", seed: [x, y, z] (integer cell), level (cells), value: {material, role}, reach
+    (cells ≥ 0), fade? (metres > 0, a gas only)}`. The value's role must be a medium by the traits table (`isMediumRole`:
+    liquid, gas), or `{material: 0, role: 0}` for a drain; a body role, an opening, a fade on a liquid or a drain are
+    refused (`invalid_args`).
+  - `brush` gains `mode: "smooth"` (no `voxel`: the ground; a `voxel` naming a gas: that gas's density) and
+    `mode: "flatten"` with `height` (cells; no `voxel`). `smooth: true` is their soft rim.
+  - `paint` (brush, fill, stamp): `voxel: {material, wetness}` without `role` keeps each cell's role.
+  - `v: 2` is read as before and stays 2; it is refused the additions. `VOXEL_EDIT_VERSION` 3, `VOXEL_EDIT_VERSIONS`
+    [2, 3]. Refusals added: `flood_leaks` (with `leaks`), `flood_blocked`.
+- **The level fill** (`water/level-fill.ts`): `LevelFillSpec` gained three optional fields, `role` (left out: a
+  liquid), `fade` (cells; a gas) and `floor` (the lowest row); `fillPasses(v, spec)`, `fillShape`, `fillValue`,
+  `fillTopRow` and `fillRole` carry them, and `walkFill` and `levelFill` are the same two functions for a water
+  body and the stroke. `water/body.ts` and the workspace's `voxel-water.ts` are untouched. **Water bodies unchanged,
+  shown two ways:** `level-fill.test.ts` (20 tests, bodies and follow-ups) passes untouched, as do
+  `voxel-water.test.ts`'s seven over HTTP; and `level-fill-roles.test.ts` keeps the walk as it was written with the
+  liquid inside it and compares it with the new one on 300 made worlds (rolling ground, pools of the same and
+  another liquid, fog, openings, a roofed corner, a world's edge or a wall): status, start, cells, values, breaches
+  and their order are equal in all 300, with and without the role named (filled, breached and blocked all reached).
+- **Apply** (`edit-apply.ts`, `edit-surface.ts` new): a flood, a smooth and a flatten are computed whole from the
+  voxels before the stroke and written with `writeCells` (the water bodies' writer), their undo record the existing
+  cell deltas a chunk: no new record form. The cells each can read are its `editBounds` (the flood's reach box;
+  a smoothing brush's box one cell wider), so `editChunks` loads them in the backend, a page's streamer requires
+  them resident, and the edit worker is sent them: the same `applyEdit` on every path, a structure's grid by
+  `command.grid`. The backend's refusal passes `leaks` in metres (`VoxelWorldError.leaks`).
+- **Tests** (new: `packages/voxel/src/edit-strokes.test.ts`, 25; `water/level-fill-roles.test.ts`, 5; one test
+  added to each of `tests/integration/voxel-world/voxel-world.test.ts` and `voxel-water.test.ts`):
+  - flood: a basin to a level with liquid (300 cells, the level's row at 8/15, the liquid part alone) and with gas
+    (full density; with a fade of 1 m densities 15, 11, 4 up a column; the gas part alone); a drain takes each back
+    to the first bytes; a breached basin refused with places just past the reach and nothing written, filled once the
+    hole is closed; the reach met sideways and down a shaft (the leak the one cell under the floor); the world's
+    edge (every place `world`); a blocked seed; water through fog, fog on water; `editBounds` and `editChunks` from
+    the command; a reach of 4,000 over budget; a chunk not loaded refused; a structure's grid.
+  - smooth: a 4-cell cliff relaxed (largest step 4 → under 3, the profile still in order, nothing overshoots, far
+    columns untouched, volume kept within a fifteenth of a cell a moved column, a second stroke never rougher);
+    flat ground unchanged; a wall's column and a slab's columns byte for byte as before; a gas bank's edge thinned
+    into the air beside it, density kept within a tenth, ground and another gas untouched, the gas part alone.
+  - flatten: a mound to the plane (every column exactly 4); a pit raised with the ground's material, wetness and
+    role; a soft rim (a column 0.475 covered moves 3/15 of a cell toward a plane 0.4 away; hard, it stays); only
+    inside the brush's rows; a wall standing in the ground keeps its whole column.
+  - paint without a role over terrain, wall, roof, liquid and gas cells: material and wetness change, role and
+    shape stay, the gas stays dry; with a role, v2 and v3 write the one role.
+  - every kind through `proven`: a twin world gives equal cells and equal chunk bytes, the undo gives the first
+    bytes back, the redo the second. v2 strokes give the same voxels sent as v2 or v3.
+  - over HTTP: eight strokes on a made world (liquid flood, fading gas flood, drain, gas flood, gas smooth, ground
+    smooth, flatten, role-keeping paint), each the oracle's voxels read back through the range route, its `parts`
+    as expected (a gas flood and a gas smooth answer 64 alone); a leak refused 400 `flood_leaks` with `leaks` in
+    metres, the revision unmoved; `flood_blocked`; a body role and a v2 flood refused by field; then nine undos and
+    eight redos on the project's line, each state byte for byte. Beside a water body: a drain of its water is
+    written again by the body in the same stroke; fog flooded over the lake stays where it was when the bank is dug
+    back, the lake's shore follows.
+  - **Broken on purpose, each run once:** the fade ignored → 2 red; the floor ignored → 2 red; a role-less paint
+    writing a role → 1 red; a leaking flood written anyway → 3 red; smooth reading its own column only → 2 red; a
+    liquid fill not passing gas → 2 red (the 300-world comparison among them); a built column treated as ground →
+    first green (the test's plane lay on the ground), sharpened, then 1 red.
+- **Reference**: `tl_command`'s text (`tool-docs.ts`) and the generated pages (`node tools/gen-reference.mjs`:
+  `FloodEdit`, `FloodValue`, `BrushEdit`, `VoxelEditCommand`); the types page passed its size bound and split
+  (`types-s-w.md` → `types-s-v.md`, `types-v-w.md`), six manual links repointed. The behaviour API typings were
+  regenerated and did not change. Manual: `features/voxel-worlds.md` (flood, smooth and flatten, paint).
+- **Gate:** the one check runs after this commit; its line follows.
+- **Not built, and why:** a strength for smooth and flatten, a 3D smooth of overhangs and cave walls, a flood wider
+  than the work bound of one stroke, a flood on `ctx.voxels` (none named by G4; lines for after the merge). The
+  structure tool's Paint still sends a role (D762, 47b.5).
+- **Unverified:** nothing was looked at in a browser (no tool draws these yet, and gas is not drawn before 47b.7).
+  A flood through a page's streamer and through the edit worker runs the same `applyEdit` but was not run there.
+  Smoothed ground was judged by heights, never seen meshed.
 
 ## 10. The proposed plan's questions and how each stands
 

@@ -700,7 +700,7 @@ file names, sorted, each once), `grids` and `revision` (moves by one with every 
 
 **Canonical form.** `canonicalEditCommand` rebuilds the command field by field and refuses:
 - an unknown field;
-- an unknown version (`v` must be 2; the draft v1 with category and orientation is refused);
+- an unknown version (`v` must be 2, or 3 since G4: *Stroke command v3* below; the draft v1 with category and orientation is refused);
 - an out-of-range value;
 - −0 (normalised to 0).
 
@@ -755,6 +755,95 @@ Common fields: `v: 2`, `grid` (u32; 0 is the world grid), `kind`.
   Its hash is the SHA-256 (hex) of the three sizes (u16 LE each) followed by the coverage bytes.
 - **Size bound.** A long drag must fit the command pipeline's 64 KB request bound, about 2,000 dabs. Thinning the
   dabs to a spacing is the tool's job (proposal for 47b).
+
+#### Stroke command v3 (G4, owner 2026-11-26; `edit-command.ts`, `edit-surface.ts`, `water/level-fill.ts`)
+
+An add-only step: `v: 3` reads everything above unchanged and adds a kind, two brush modes and one freedom of
+`paint`. **A `v: 2` command is read exactly as before and stays `v: 2`** (it is refused the additions: the kind
+`flood`, the modes `smooth` and `flatten`, the field `height`, a voxel without a role). A build writes 3
+(`VOXEL_EDIT_VERSION`) and reads 2 and 3 (`VOXEL_EDIT_VERSIONS`); nothing stored holds a command (an undo record is
+voxels), so there is no upgrade step. The undo record, its budget and the answers are v2's.
+
+| kind | Fields |
+|---|---|
+| `flood` | `seed` [x, y, z] (an integer cell) · `level` (the surface's height in cells, any number) · `value` {`material`, `role`} · `reach` (cells, ≥ 0) · `fade` (optional; metres, > 0; a gas only) |
+| `brush` | as v2, and: `mode` may be `smooth` or `flatten` · `height` (the plane's height in cells; `flatten` only, and required there) |
+
+- **`flood`** is the level fill water bodies regenerate with (one function, `levelFill`, its role and fade
+  parameters; the `waterBody` component's bodies, F6 in `format-versions.md`, are unchanged by it). From the seed's cell it walks the open cells joined face
+  to face whose bottom lies under the level, and writes its value into each.
+  - **The value** is a medium: a material and a role the role traits table calls a medium (liquid, gas). Any other
+    role is refused (`invalid_args`). `{material: 0, role: 0}` is air: a drain.
+  - **What it passes and what bounds it.** A liquid passes air, any gas (it takes the cell: a cell holds one) and
+    liquid of its own material. A gas passes air and gas of its own material; a liquid bounds it (fog lies on
+    water), and so does another gas. A drain passes air and every medium, and each medium cell it reaches becomes
+    air: the same seed and level take a flood back. Everything else bounds all three: ground, built cells, an
+    opening, another liquid.
+  - **Shapes.** A liquid: full under the level's row, the level's own row filled to the level (rounded to the 16
+    levels; a share that rounds to none is not filled and not entered), as a water body's. A gas without `fade`:
+    full density (15) in every cell a liquid would fill. A gas with `fade`: **the density is full `fade` metres or
+    more under the level and falls in a straight line to none at the level**, read at each cell's centre: with
+    d = level − (y + 0.5) cells and f = `fade` ÷ 0.5 m, shape = 15 for d ≥ f, else round(15 · d ÷ f); a cell whose
+    density rounds to none is not filled and not entered (so the fill's top row lies under the level by
+    f ÷ 30 cells or more). Wetness is 0.
+  - **The seed.** A seed above the fill's top row starts from that row in its column (as a water body's marker).
+    A start cell the fill does not pass (ground, a built cell, another medium), or outside the world, refuses the
+    command: `flood_blocked`.
+  - **The reach bounds the fill in every direction it runs**: between column centres from the seed's column
+    (a circle, as a water body's reach), and in rows under the cell it starts from (⌈reach⌉ rows). So the cells a
+    flood can touch are known from the command alone, like every stroke's: `editBounds` is the reach's square with
+    one cell round it, from the row under that floor to the fill's top row, cut to the world's bounds; the chunks
+    of it must be loaded, and count against the work bound (`over_budget`: at 32³ chunks a reach of about 120
+    cells, 60 m).
+  - **Refused, naming where it leaked** (`flood_leaks`, nothing written): when the walk would enter an open cell
+    past the reach (sideways or under its floor) or past the world's edge (the world's cell bounds, §2.1). The walk
+    goes on everywhere else, so every leak is found, not the first. The refusal carries `leaks`, the form a
+    water body's report uses (`fillLeaks`): a place per 16 m of ground, each `{at: [x, y, z], kind: "reach" |
+    "world", cells}`, `at` the mean of the cells just past the bound there. In `EditRefused.leaks` the positions
+    are cell centres of the command's grid; the backend's error answers them in metres (cells × 0.5: the scene's
+    metres for the world grid, the grid's own frame for a structure's), as a water body's leaks. The message
+    names the first four.
+  - **It follows nothing.** A flood is a stroke: its cells are ordinary voxels afterwards, and a later edit of
+    the ground does not move them (a lake that follows the ground is a water body, F6). A stroke inside a water
+    body's reach is followed by that body as any stroke is: a drain of a body's water is written again by
+    the body in the same stroke.
+  - **Feeds.** Each cell's change is decided on its own (§2.2): a gas flood answers the gas part alone, a liquid
+    flood the liquid part, a drain the parts of the media it took.
+- **`smooth` and `flatten`** are brush modes: the brush's shapes, dabs and coverage as above. They move what is
+  there and write no voxel of their own. `smooth: true` (the soft rim) weights a column or cell by its coverage
+  (0–1); `smooth: false` gives every cell covered half or more the full weight and the others none.
+  - **The ground's surface, a column at a time** (`flatten`, and `smooth` without a `voxel`). In each column the
+    brush covers, the surface is looked for from the top row of the brush's cell box downward through open cells
+    (air, a liquid, a gas): the first other cell is the surface if it is ground (a role whose shape is a fill:
+    terrain), its height h = its row + shape ÷ 15. The column's weight w is the most the brush covers of any of
+    its cells. The target t is the plane's `height` (`flatten`), or the mean height of the nine columns round it,
+    the column among them (`smooth`; a column with no ground in the box counts as the box's bottom, a built one as
+    the column itself). The new height is h + w · (t − h), held inside the box's rows. Rising, the cells from the
+    old height to the new take fill max(old, f) where f = round(15 · clamp(h′ − y, 0, 1)): ground keeps its own
+    material, an open cell (a liquid or gas among them) takes the surface cell's material, role and wetness.
+    Falling, ground cells from the old surface down to the new height take fill min(old, f), 0 being air; cells
+    that are not ground are left. So flat ground is a fixed point of `smooth`, and the ground's volume is kept to
+    the fill's rounding.
+  - **Cells that are not ground are never written, and never become ground.** A column whose first cell under
+    the open ones is built (a wall, a floor, a roof, a foundation, a stair, a pillar) or an opening is left whole,
+    the ground under it too, and pulls no neighbour. A column with no ground in the box is left (there is no
+    material to raise it with).
+  - **A gas's density** (`smooth` with a `voxel`, which must name a gas: its material and role; wetness 0). In
+    air and in that gas only, each covered cell's density d moves to round(d + w · (m − d)), m the mean of the
+    cell and its six neighbours (air 0, that gas its density, anything else, another gas included, the cell's
+    own d); 0 is air, a cell that gains density is that gas. Ground, built cells, liquids and other gases are
+    not written. Its answer's parts are the gas part alone.
+  - `flatten` takes no `voxel`; `height` on any other mode is refused. A `fill` or a `stamp` has neither mode.
+- **A `paint` that keeps each cell's role** (D762): in v3 a `paint`'s `voxel` may leave `role` out
+  (`{material, wetness}`; `brush`, `fill` and `stamp` alike). Each non-air cell then takes the material and the
+  wetness and keeps its role and its shape; a cell whose role holds no wetness (a gas) stays dry. With a `role` a
+  paint is v2's. No other mode may leave the role out.
+- **Determinism.** A flood, a smooth and a flatten read cells beside the ones they write. Each is computed whole
+  from the voxels before the stroke (every read before the first write), with the arithmetic above, so the
+  result does not depend on the order cells or chunks are visited in; the cells read lie inside `editBounds`
+  (a smoothing brush's box is one cell wider than its dabs' on every side), which is why every chunk of it must
+  be loaded. Their undo records are cell deltas a chunk (§3.4, unchanged).
+- **Refusals added:** `flood_leaks`, `flood_blocked` (both before the first write).
 
 ### 3.4 Undo record v2 (`undo-store.ts`; magic `TLVU`) and budget
 
@@ -1705,7 +1794,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Chunk codec | `VC` | 2 | a newer one refused | `CHUNK_CODEC_UPGRADES`, add-only, keyed by the version lifted from (v2 has none) |
 | Region file | `TLVR` | 2 (+ codec version byte) | a newer one refused | `REGION_UPGRADES` (header and table; chunks by the codec's steps), add-only (v2 has none) |
 | World manifest | `world.json` `format` | 3 | a newer one refused | step 1 → 2 lists the region files found; 2 → 3 adds `grids: []` (§3.2) |
-| Edit command | `v` | 2 | refused | none yet |
+| Edit command | `v` | 3 (2 read as written) | refused | none needed: v3 is add-only and nothing stores a command (§3.3, *Stroke command v3*) |
 | Undo record | `TLVU` | 2 | refused | not needed (session data) |
 | Save | `TLVS` | 2 | a newer one refused | `SAVE_UPGRADES`, append-only (v2 has none) |
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |

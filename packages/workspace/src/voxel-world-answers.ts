@@ -60,6 +60,12 @@ export interface VoxelWorldError {
   /** `revision_conflict`: the revision the command expected and the world's. */
   readonly expectedRevision?: number;
   readonly currentRevision?: number;
+  /**
+   * `flood_leaks`: where the refused flood would leave its bound, as a water body's leaks are told: metres (in the
+   * scene for the world grid, in the grid's own frame for a structure's), a place per 16 m of ground, the bound
+   * crossed and the cells there.
+   */
+  readonly leaks?: ReadonlyArray<{ readonly at: readonly [number, number, number]; readonly kind: 'reach' | 'world'; readonly cells: number }>;
 }
 
 /** A world's manifest and its listed region files with their tags (null: listed, but missing or unreadable): the world grid's (`files`), each structure grid's (`grids`). */

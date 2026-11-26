@@ -126,7 +126,8 @@ describe('edit commands', () => {
     expect(c).toEqual({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: [0, 1, 2], mode: 'dig', smooth: false });
     expect(c.kind === 'brush' && Object.is(c.points[0], 0)).toBe(true);
     const bad: [unknown, string][] = [
-      [{ v: 3, grid: 0, kind: 'dig', cells: [0, 0, 0] }, '/v'],
+      // Version 3 is read since the flood and the two brush modes: the next unknown one is 4.
+      [{ v: 4, grid: 0, kind: 'dig', cells: [0, 0, 0] }, '/v'],
       [{ v: 1, grid: 0, kind: 'dig', cells: [0, 0, 0] }, '/v'],
       [{ v: 2, grid: 0, kind: 'dig', cells: [0, 0, 0], extra: 1 }, '/extra'],
       [{ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [1, 1, 1], points: [0, 0, 0], mode: 'place', voxel: stone, smooth: true }, '/smooth'],

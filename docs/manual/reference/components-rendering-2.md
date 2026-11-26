@@ -195,8 +195,8 @@ A building that writes its own grid of a voxel world: change a field and the bac
 | `materials.roof` | int |  | 1 – 4095, step 1 | **Roof.** The voxel material (its id, 1-4095) of the roof; a material's kit draws it. (required) |
 | `materials.foundation` | int |  | 1 – 4095, step 1 | **Foundation.** The voxel material (its id, 1-4095) of the foundation and ground floor slab; a material's kit draws it. (required) |
 | `materials.stair` | int |  | 1 – 4095, step 1 | **Stairs.** The voxel material (its id, 1-4095) of the stairs; a material's kit draws it. (required) |
-| `openings` | JSON: `StructureOpening[]` ([StructureOpening](types-s-w.md#type-structure-opening)) |  |  | **Openings.** Doors and windows [{id, polygon, edge, storey, at, width, height, sill, prop?}] on an outside wall, in cells. (required) |
-| `stairs` | JSON: `StructureStair[]` ([StructureStair](types-s-w.md#type-structure-stair)) |  |  | **Stairs.** Flights [{id, polygon, from, at: [x, z], facing}] from a storey to the next, two cells wide. (required) |
+| `openings` | JSON: `StructureOpening[]` ([StructureOpening](types-s-v.md#type-structure-opening)) |  |  | **Openings.** Doors and windows [{id, polygon, edge, storey, at, width, height, sill, prop?}] on an outside wall, in cells. (required) |
+| `stairs` | JSON: `StructureStair[]` ([StructureStair](types-s-v.md#type-structure-stair)) |  |  | **Stairs.** Flights [{id, polygon, from, at: [x, z], facing}] from a storey to the next, two cells wide. (required) |
 | `generator` | int |  | ≥ 1, step 1 | **Generator.** The building generator version that last wrote its voxels; a newer engine regenerates every structure in one undoable step (Regenerate structures). (required; written by a tool) |
 
 <a id="component-waterBody"></a>

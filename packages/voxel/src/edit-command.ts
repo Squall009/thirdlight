@@ -1,6 +1,6 @@
 /**
- * Voxel edit commands, stroke command format v2: one command is one stroke (a brush
- * drag, a box fill, a stamp, or a runtime set/dig of a few cells), so undo,
+ * Voxel edit commands, stroke command format v3: one command is one stroke (a brush
+ * drag, a box fill, a stamp, a flood to a level, or a runtime set/dig of a few cells), so undo,
  * MCP, the editor and game sessions edit at a useful granularity and history
  * stays small.
  *
@@ -13,6 +13,10 @@
  * an angle), and application uses only +, −, ×, ÷, square root, floor and
  * round, which IEEE-754 defines exactly; no sin/cos/pow at apply time.
  *
+ * Version 3 adds to version 2 and changes nothing of it: the `flood` kind,
+ * the brush modes `smooth` and `flatten`, and a `paint` whose voxel names
+ * no role. A version 2 command is read as before and stays version 2.
+ *
  * Positions are in cells of the command's grid (the world grid, or a
  * structure's own grid), continuous: cell (x, y, z) spans [x, x + 1) on each
  * axis, so its centre is x + 0.5.
@@ -20,9 +24,16 @@
 import { cellInWorld } from './coords';
 import { heldWetness, MATERIAL_ID_MAX, SHAPE_FULL, VOXEL_ROLE_COUNT, WETNESS_MAX } from './record';
 import { VOXEL_GRID_ID_MAX } from './region-file';
+import { isGasRole, isMediumRole } from './role-traits';
 
-/** The edit command format this build writes and reads. */
-export const VOXEL_EDIT_VERSION = 2;
+/** The edit command format this build writes. */
+export const VOXEL_EDIT_VERSION = 3;
+
+/** The edit command versions this build reads: each is read as it was written. */
+export const VOXEL_EDIT_VERSIONS: readonly number[] = Object.freeze([2, 3]);
+
+/** A version this build reads. */
+export type EditVersion = 2 | 3;
 
 /**
  * What a stroke does to the cells it covers:
@@ -31,16 +42,36 @@ export const VOXEL_EDIT_VERSION = 2;
  *   its own material), never replacing other solid voxels;
  * - `dig` removes (when smooth, lowers the density, emptying a cell to air);
  * - `paint` changes material, role and wetness of non-air cells and keeps
- *   their shape.
+ *   their shape; when its voxel names no role, each cell keeps its own.
  */
 export type EditMode = 'place' | 'add' | 'dig' | 'paint';
 export const EDIT_MODES: readonly EditMode[] = Object.freeze(['place', 'add', 'dig', 'paint']);
 
+/**
+ * What only a brush does: it moves what is there instead of writing a voxel.
+ * - `smooth` relaxes the ground's surface under the brush (no voxel), or the
+ *   density of the gas its voxel names;
+ * - `flatten` moves the ground's surface toward the plane at `height`.
+ */
+export type SurfaceMode = 'smooth' | 'flatten';
+export const SURFACE_MODES: readonly SurfaceMode[] = Object.freeze(['smooth', 'flatten']);
+
+/** A brush's mode. */
+export type BrushMode = EditMode | SurfaceMode;
+export const BRUSH_MODES: readonly BrushMode[] = Object.freeze([...EDIT_MODES, ...SURFACE_MODES]);
+
 /** The voxel a stroke writes: its shape comes from the stroke (full, or its coverage when smooth). */
 export interface EditVoxel {
   readonly material: number;
-  readonly role: number;
+  /** Left out only by a `paint`: each cell keeps its role. */
+  readonly role?: number;
   readonly wetness: number;
+}
+
+/** What a flood writes: a medium's material and role, or air (both 0), which drains. */
+export interface FloodValue {
+  readonly material: number;
+  readonly role: number;
 }
 
 /** A voxel written exactly, shape included (runtime set). */
@@ -57,7 +88,7 @@ export type BrushShape = 'sphere' | 'box' | 'cylinder';
 export const BRUSH_SHAPES: readonly BrushShape[] = Object.freeze(['sphere', 'box', 'cylinder']);
 
 interface EditBase {
-  readonly v: 2;
+  readonly v: EditVersion;
   /** The grid edited: 0 the world grid, else a structure's own grid. */
   readonly grid: number;
 }
@@ -69,11 +100,17 @@ export interface BrushEdit extends EditBase {
   readonly size: readonly [number, number, number];
   /** Dab centres, x y z flat, in cells (at least one dab). */
   readonly points: readonly number[];
-  readonly mode: EditMode;
-  /** Absent for `dig`. */
+  readonly mode: BrushMode;
+  /** Absent for `dig`, `flatten` and a `smooth` of the ground; a `smooth` of a gas names the gas. */
   readonly voxel?: EditVoxel;
-  /** Partial density at the rim (add and dig only; projected materials). */
+  /**
+   * A soft rim: partial density there for `add` and `dig` (projected
+   * materials); for `smooth` and `flatten` the stroke's weight falls with
+   * the coverage instead of ending at half of it.
+   */
   readonly smooth: boolean;
+  /** `flatten` only: the plane's height in cells. */
+  readonly height?: number;
 }
 
 /** A box of whole cells, both corners inclusive. */
@@ -116,7 +153,27 @@ export interface DigEdit extends EditBase {
   readonly cells: readonly number[];
 }
 
-export type VoxelEditCommand = BrushEdit | FillEdit | StampEdit | SetEdit | DigEdit;
+/**
+ * A medium filled to a level from a seed, through the open cells joined to
+ * it (the level fill, water/level-fill.ts): refused, naming where it leaks,
+ * when it would pass its reach or the world's edge. Air as the value drains
+ * the media it reaches instead.
+ */
+export interface FloodEdit extends EditBase {
+  readonly v: 3;
+  readonly kind: 'flood';
+  /** The cell the fill starts from (above the level: from the level's row in its column). */
+  readonly seed: readonly [number, number, number];
+  /** The surface's height in cells: a cell fills while its bottom lies below it. */
+  readonly level: number;
+  readonly value: FloodValue;
+  /** How far the fill may spread, in cells: between column centres from the seed's column, and in rows under the cell it starts from. */
+  readonly reach: number;
+  /** A gas only: the metres under the level over which its density falls from full to none at the level. */
+  readonly fade?: number;
+}
+
+export type VoxelEditCommand = BrushEdit | FillEdit | StampEdit | SetEdit | DigEdit | FloodEdit;
 
 /** A command the format refuses: `path` names the field (JSON pointer). */
 export class EditCommandError extends Error {
@@ -166,13 +223,26 @@ function bool(v: unknown, path: string): boolean {
   return v;
 }
 
-function editVoxel(v: unknown, path: string): EditVoxel {
+function editVoxel(v: unknown, path: string, keepsRole: boolean): EditVoxel {
   const o = obj(v, path);
   only(o, path, ['material', 'role', 'wetness']);
   const material = int(o.material, `${path}/material`, 1, MATERIAL_ID_MAX);
+  // Each cell keeps its role: the wetness is held to what each cell's role holds when it is written.
+  if (keepsRole && o.role === undefined) return { material, wetness: int(o.wetness, `${path}/wetness`, 0, WETNESS_MAX) };
   const role = int(o.role, `${path}/role`, 0, VOXEL_ROLE_COUNT - 1);
   // A role that holds no wetness (a gas) is written dry: the command names 0.
   return { material, role, wetness: int(o.wetness, `${path}/wetness`, 0, heldWetness(role, WETNESS_MAX)) };
+}
+
+function floodValue(v: unknown, path: string): FloodValue {
+  const o = obj(v, path);
+  only(o, path, ['material', 'role']);
+  const material = int(o.material, `${path}/material`, 0, MATERIAL_ID_MAX);
+  // Air is one value, so two payloads never mean the same drain.
+  if (material === 0) return { material: 0, role: int(o.role, `${path}/role`, 0, 0) };
+  const role = int(o.role, `${path}/role`, 0, VOXEL_ROLE_COUNT - 1);
+  if (!isMediumRole(role)) throw new EditCommandError(`${path}/role`, 'a flood writes a medium (a liquid or a gas), or air to drain');
+  return { material, role };
 }
 
 function setVoxel(v: unknown, path: string): SetVoxel {
@@ -190,13 +260,33 @@ function setVoxel(v: unknown, path: string): SetVoxel {
   };
 }
 
-function modeVoxel(o: Json, path: string): { mode: EditMode; voxel?: EditVoxel } {
+function modeVoxel(o: Json, path: string, v: EditVersion): { mode: EditMode; voxel?: EditVoxel } {
   const mode = oneOf(o.mode, `${path}/mode`, EDIT_MODES);
   if (mode === 'dig') {
     if (o.voxel !== undefined) throw new EditCommandError(`${path}/voxel`, 'a dig writes no voxel');
     return { mode };
   }
-  return { mode, voxel: editVoxel(o.voxel, `${path}/voxel`) };
+  return { mode, voxel: editVoxel(o.voxel, `${path}/voxel`, v >= 3 && mode === 'paint') };
+}
+
+/** A brush's mode with what it writes: the four voxel modes, or from version 3 a surface mode. */
+function brushMode(o: Json, v: EditVersion): { mode: BrushMode; voxel?: EditVoxel; height?: number } {
+  // A version 2 command names one of its own four modes, and is refused as it always was.
+  if (v < 3) return modeVoxel(o, '', v);
+  const mode = oneOf(o.mode, '/mode', BRUSH_MODES);
+  if (mode !== 'smooth' && mode !== 'flatten') {
+    if (o.height !== undefined) throw new EditCommandError('/height', 'only a flatten names a height');
+    return modeVoxel(o, '', v);
+  }
+  if (mode === 'flatten') {
+    if (o.voxel !== undefined) throw new EditCommandError('/voxel', 'a flatten writes no voxel: new ground takes the material of the ground under it');
+    return { mode: 'flatten', height: num(o.height, '/height') };
+  }
+  if (o.height !== undefined) throw new EditCommandError('/height', 'only a flatten names a height');
+  if (o.voxel === undefined) return { mode: 'smooth' };
+  const voxel = editVoxel(o.voxel, '/voxel', false);
+  if (!isGasRole(voxel.role!)) throw new EditCommandError('/voxel/role', 'a smooth with a voxel relaxes a gas: name a gas, or no voxel to smooth the ground');
+  return { mode: 'smooth', voxel };
 }
 
 /**
@@ -236,13 +326,14 @@ const YAW_TOLERANCE = 1e-9;
  */
 export function canonicalEditCommand(input: unknown): VoxelEditCommand {
   const o = obj(input, '');
-  if (o.v !== VOXEL_EDIT_VERSION) throw new EditCommandError('/v', `unknown edit command version ${String(o.v)}`);
+  if (!VOXEL_EDIT_VERSIONS.includes(o.v as number)) throw new EditCommandError('/v', `unknown edit command version ${String(o.v)}`);
+  const v = o.v as EditVersion;
   const grid = int(o.grid, '/grid', 0, VOXEL_GRID_ID_MAX);
-  const kind = oneOf(o.kind, '/kind', ['brush', 'fill', 'stamp', 'set', 'dig'] as const);
+  const kind = oneOf(o.kind, '/kind', v >= 3 ? (['brush', 'fill', 'stamp', 'set', 'dig', 'flood'] as const) : (['brush', 'fill', 'stamp', 'set', 'dig'] as const));
   let cmd: VoxelEditCommand;
   switch (kind) {
     case 'brush': {
-      only(o, '', ['v', 'grid', 'kind', 'shape', 'size', 'points', 'mode', 'voxel', 'smooth']);
+      only(o, '', v >= 3 ? ['v', 'grid', 'kind', 'shape', 'size', 'points', 'mode', 'voxel', 'smooth', 'height'] : ['v', 'grid', 'kind', 'shape', 'size', 'points', 'mode', 'voxel', 'smooth']);
       const shape = oneOf(o.shape, '/shape', BRUSH_SHAPES);
       const given = triple(o.size, '/size', (x, p) => {
         const n = num(x, p);
@@ -252,8 +343,8 @@ export function canonicalEditCommand(input: unknown): VoxelEditCommand {
       const size: [number, number, number] = shape === 'sphere' ? [given[0], given[0], given[0]] : shape === 'cylinder' ? [given[0], given[1], given[0]] : given;
       if (!Array.isArray(o.points) || o.points.length === 0 || o.points.length % 3 !== 0) throw new EditCommandError('/points', 'expected x y z triples, at least one');
       const points = o.points.map((p, i) => num(p, `/points/${i}`));
-      const mv = modeVoxel(o, '');
-      cmd = { v: 2, grid, kind, shape, size, points, ...mv, smooth: bool(o.smooth, '/smooth') };
+      const mv = brushMode(o, v);
+      cmd = { v, grid, kind, shape, size, points, mode: mv.mode, ...(mv.voxel !== undefined ? { voxel: mv.voxel } : {}), smooth: bool(o.smooth, '/smooth'), ...(mv.height !== undefined ? { height: mv.height } : {}) };
       break;
     }
     case 'fill': {
@@ -262,7 +353,7 @@ export function canonicalEditCommand(input: unknown): VoxelEditCommand {
       const max = triple(o.max, '/max', (x, p) => int(x, p, -0x8000, 0x7fff));
       if (min[0] > max[0] || min[1] > max[1] || min[2] > max[2]) throw new EditCommandError('/max', 'max below min');
       if (!cellInWorld(...min) || !cellInWorld(...max)) throw new EditCommandError('/min', 'box outside the world');
-      cmd = { v: 2, grid, kind, min, max, ...modeVoxel(o, '') };
+      cmd = { v, grid, kind, min, max, ...modeVoxel(o, '', v) };
       break;
     }
     case 'stamp': {
@@ -276,18 +367,34 @@ export function canonicalEditCommand(input: unknown): VoxelEditCommand {
       if (Math.abs(yaw[0] * yaw[0] + yaw[1] * yaw[1] - 1) > YAW_TOLERANCE) throw new EditCommandError('/yaw', 'cos² + sin² must be 1');
       const scale = num(o.scale, '/scale');
       if (scale <= 0) throw new EditCommandError('/scale', 'a scale is > 0');
-      cmd = { v: 2, grid, kind, stamp: { id: s.id, hash: s.hash }, origin: triple(o.origin, '/origin', num), yaw, scale, ...modeVoxel(o, ''), smooth: bool(o.smooth, '/smooth') };
+      cmd = { v, grid, kind, stamp: { id: s.id, hash: s.hash }, origin: triple(o.origin, '/origin', num), yaw, scale, ...modeVoxel(o, '', v), smooth: bool(o.smooth, '/smooth') };
       break;
     }
     case 'set':
       only(o, '', ['v', 'grid', 'kind', 'cells', 'voxel']);
-      cmd = { v: 2, grid, kind, cells: cellList(o.cells, '/cells'), voxel: setVoxel(o.voxel, '/voxel') };
+      cmd = { v, grid, kind, cells: cellList(o.cells, '/cells'), voxel: setVoxel(o.voxel, '/voxel') };
       break;
     case 'dig':
       only(o, '', ['v', 'grid', 'kind', 'cells']);
-      cmd = { v: 2, grid, kind, cells: cellList(o.cells, '/cells') };
+      cmd = { v, grid, kind, cells: cellList(o.cells, '/cells') };
       break;
+    case 'flood': {
+      only(o, '', ['v', 'grid', 'kind', 'seed', 'level', 'value', 'reach', 'fade']);
+      const seed = triple(o.seed, '/seed', (x, p) => int(x, p, -0x8000, 0x7fff));
+      if (!cellInWorld(...seed)) throw new EditCommandError('/seed', 'cell outside the world');
+      const value = floodValue(o.value, '/value');
+      const reach = num(o.reach, '/reach');
+      if (reach < 0) throw new EditCommandError('/reach', 'a reach is ≥ 0');
+      let fade: number | undefined;
+      if (o.fade !== undefined) {
+        if (!isGasRole(value.role)) throw new EditCommandError('/fade', 'only a gas fades');
+        fade = num(o.fade, '/fade');
+        if (fade <= 0) throw new EditCommandError('/fade', 'a fade is > 0 (leave it out for full density everywhere)');
+      }
+      cmd = { v: 3, grid, kind, seed, level: num(o.level, '/level'), value, reach, ...(fade !== undefined ? { fade } : {}) };
+      break;
+    }
   }
-  if ((cmd.kind === 'brush' || cmd.kind === 'stamp') && cmd.smooth && cmd.mode !== 'add' && cmd.mode !== 'dig') throw new EditCommandError('/smooth', 'only add and dig strokes are smooth');
+  if ((cmd.kind === 'brush' || cmd.kind === 'stamp') && cmd.smooth && cmd.mode !== 'add' && cmd.mode !== 'dig' && cmd.mode !== 'smooth' && cmd.mode !== 'flatten') throw new EditCommandError('/smooth', 'only add and dig strokes are smooth');
   return cmd;
 }

@@ -1,4 +1,4 @@
-# Types (CreateEntityArgs to MaterialGameData)
+# Types (CreateEntityArgs to MATERIAL_SHADERS)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -309,7 +309,7 @@ Declared in `packages/voxel/src/edit-command.ts`.
 
 ```ts
 interface EditBase {
-  readonly v: 2;
+  readonly v: EditVersion;
   /** The grid edited: 0 the world grid, else a structure's own grid. */
   readonly grid: number;
 }
@@ -328,7 +328,7 @@ Declared in `packages/voxel/src/edit-command.ts`.
  *   its own material), never replacing other solid voxels;
  * - `dig` removes (when smooth, lowers the density, emptying a cell to air);
  * - `paint` changes material, role and wetness of non-air cells and keeps
- *   their shape.
+ *   their shape; when its voxel names no role, each cell keeps its own.
  */
 type EditMode = 'place' | 'add' | 'dig' | 'paint';
 ```
@@ -402,6 +402,16 @@ Declared in `packages/commands/src/terrain-ops.ts`.
 type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake' | 'scatter' | 'erode' | 'addTiles';
 ```
 
+<a id="type-edit-version"></a>
+### EditVersion
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** A version this build reads. */
+type EditVersion = 2 | 3;
+```
+
 <a id="type-edit-voxel"></a>
 ### EditVoxel
 
@@ -411,7 +421,8 @@ Declared in `packages/voxel/src/edit-command.ts`.
 /** The voxel a stroke writes: its shape comes from the stroke (full, or its coverage when smooth). */
 interface EditVoxel {
   readonly material: number;
-  readonly role: number;
+  /** Left out only by a `paint`: each cell keeps its role. */
+  readonly role?: number;
   readonly wetness: number;
 }
 ```
@@ -727,6 +738,46 @@ interface FillEdit extends EditBase {
   readonly max: readonly [number, number, number];
   readonly mode: EditMode;
   readonly voxel?: EditVoxel;
+}
+```
+
+<a id="type-flood-edit"></a>
+### FloodEdit
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/**
+ * A medium filled to a level from a seed, through the open cells joined to
+ * it (the level fill, water/level-fill.ts): refused, naming where it leaks,
+ * when it would pass its reach or the world's edge. Air as the value drains
+ * the media it reaches instead.
+ */
+interface FloodEdit extends EditBase {
+  readonly v: 3;
+  readonly kind: 'flood';
+  /** The cell the fill starts from (above the level: from the level's row in its column). */
+  readonly seed: readonly [number, number, number];
+  /** The surface's height in cells: a cell fills while its bottom lies below it. */
+  readonly level: number;
+  readonly value: FloodValue;
+  /** How far the fill may spread, in cells: between column centres from the seed's column, and in rows under the cell it starts from. */
+  readonly reach: number;
+  /** A gas only: the metres under the level over which its density falls from full to none at the level. */
+  readonly fade?: number;
+}
+```
+
+<a id="type-flood-value"></a>
+### FloodValue
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** What a flood writes: a medium's material and role, or air (both 0), which drains. */
+interface FloodValue {
+  readonly material: number;
+  readonly role: number;
 }
 ```
 
@@ -1494,105 +1545,4 @@ Declared in `packages/project-model/src/material-schema.ts`.
 
 ```ts
 const MATERIAL_SHADERS: readonly ["standard", "foliage", "kit", "unlit", "water", "trim", "decal"];
-```
-
-<a id="type-material-def"></a>
-### MaterialDef
-
-Declared in `packages/project-model/src/materials.ts`.
-
-```ts
-interface MaterialDef {
-  materialId: string;
-  name: string;
-  shader: MaterialShader;
-  params: Record<string, MaterialParamValue>;
-  textures: Record<string, string>;
-  /**
-   * The exposed parameters of a graph material (read by its
-   * Parameter nodes; objects may override the public ones with the
-   * `materialParams` component). Absent = none.
-   */
-  parameters?: MaterialParameter[];
-  /**
-   * A node graph (graph kind `material`). A material with a graph
-   * is a graph material: at render time the graph replaces `shader`, `params`
-   * and `textures` (it compiles to TSL; the shader part stays for "Remove
-   * graph").
-   */
-  graph?: GraphData;
-  /**
-   * A material instance — this material is its parent's (another
-   * material or instance, by materialId) with some values changed: `params`
-   * and `textures` over the parent's (a shader material), `values` over the
-   * parent's parameter defaults (a graph material). An instance has no graph
-   * or parameters of its own and its `shader` is its parent's. Anything that
-   * names a material (an object's, a model asset's or a block type's mapping,
-   * overrides, effects, timelines) may name an instance; the runtime gets it
-   * resolved (`resolveMaterialInstances`).
-   */
-  instanceOf?: string;
-  /** Instances of graph materials: parameter key → value (see `MaterialParameter.default`). */
-  values?: Record<string, MaterialValue>;
-  /**
-   * A trim material's row table (`shader: 'trim'`, required there and only there; `trim-sheet.ts`). An
-   * instance uses its root's table: a sheet laid out differently is a material of its own.
-   */
-  trim?: TrimSheet;
-  /**
-   * A decal material's cell of a trim sheet (`shader: 'decal'` only, on a root material; `decals.ts`): its
-   * textures are the sheet's, inside the cell. Absent: its own texture slots.
-   */
-  decal?: DecalCellRef;
-  /**
-   * Where a decal material's images are on the build's decal pages (`decal-pages.ts`). Only a build writes it,
-   * on the materials it hands the runtime; a project never stores one.
-   */
-  decalPage?: DecalPageRef;
-  /**
-   * A layered material's names for its texture-array layers, shown in the
-   * layer palette (index i = array layer i). "" or past the list's end: the
-   * name of the texture in that layer's slot. Absent: every layer named by
-   * its texture. A material instance uses its root's names.
-   */
-  layerNames?: string[];
-  /**
-   * A layered material's trim sheets: per texture-array layer, the trim
-   * material whose row table that layer's textures follow ("" or past the
-   * end: none). A layer whose UV source is the mesh's own UVs reads its
-   * sheet inside the rows (the row-safe mip limit), and generated
-   * architecture wearing the material lays its strips out on those rows.
-   * Every sheet named must share one row table (a problem lists the rows
-   * that differ). A build writes the table itself (`trim`) onto the material
-   * it hands the runtime, so the sheets need not ship. A material instance
-   * uses its root's.
-   */
-  layerSheets?: string[];
-  /**
-   * Its physics (`material-profiles.ts`): a profile and the numbers it changes. Absent: the engine's defaults. An
-   * instance's numbers override its chain's one by one.
-   */
-  physical?: MaterialPhysical;
-  /**
-   * The game's own data (sounds, break tags, …): any JSON, kept and shipped, never read by the engine. An
-   * instance's top-level keys override its chain's.
-   */
-  gameData?: MaterialGameData;
-  /**
-   * Its voxel use (`voxel-materials.ts`): a voxel material id, construction / terrain / liquid, its kit, tile and
-   * height depth in metres, wall / floor / ceiling texture sets. Absent: not a voxel material. An instance with its
-   * own (and its own id) is a voxel variant of its chain's; without, a mesh variant only.
-   */
-  voxel?: MaterialVoxel;
-}
-```
-
-<a id="type-material-game-data"></a>
-### MaterialGameData
-
-Declared in `packages/project-model/src/material-profiles.ts`.
-
-```ts
-/** Opaque game data (any JSON within the kit format's depth bound). */
-type MaterialGameData = GameDataJson;
 ```

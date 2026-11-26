@@ -13,7 +13,7 @@ where the format is an owner hard stop (the voxel formats: `voxel-format-spec.md
 | Voxel world record | `VOXEL_WORLD_FORMAT` (workspace/voxel-world-manifest.ts) | 3 | structure grids listed in the manifest, F2 (47a.1; owner 2026-11-20) |
 | Region file | `REGION_FORMAT_VERSION` (voxel/region-file.ts) | 2 | — |
 | Palette codec | `PALETTE_CODEC_VERSION` (voxel/palette-codec.ts) | 2 | value v2 (45.10a) |
-| Edit command | `VOXEL_EDIT_VERSION` (voxel/edit-command.ts) | 2 | — |
+| Edit command | `VOXEL_EDIT_VERSION` (voxel/edit-command.ts) | 3 | the `flood` kind, the brush modes `smooth` and `flatten`, a `paint` that keeps each cell's role, G4 (47b.3; owner 2026-11-26). Add-only: version 2 is read as written (`VOXEL_EDIT_VERSIONS`); no command is stored, so no upgrade step |
 | Undo record | `UNDO_RECORD_VERSION` (voxel/undo-store.ts) | 2 | — |
 | Save file / base form codec | `SAVE_FORMAT_VERSION`, `BASE_FORM_CODEC_VERSION` (voxel/save-file.ts) | 2 / 2 | — |
 | Structure overrides | `OVERRIDE_FORMAT_VERSION` (voxel/structure-overrides.ts) | 2 | from draft to used, F3 (47a.3; owner 2026-11-20); its layout also holds what a world-grid structure replaced, F5 (`voxels/<world>/structures/<object id>.tlvo`, before and written; 47a.11) |

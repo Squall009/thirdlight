@@ -27,10 +27,11 @@ What the engine offers, generated from its source: the objects, components and c
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 94 sections |
-| [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 73 sections |
-| [Types (CreateEntityArgs to MaterialGameData)](types-c-m.md) | 89 sections |
-| [Types (MaterialParameter to SkyConfig)](types-m-s.md) | 103 sections |
-| [Types (StairFacing to WindOctave)](types-s-w.md) | 83 sections |
+| [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 74 sections |
+| [Types (CreateEntityArgs to MATERIAL_SHADERS)](types-c-m.md) | 90 sections |
+| [Types (MaterialDef to SettingsEngineBinding)](types-m-s.md) | 94 sections |
+| [Types (SettingsField to VoxelKitDamage)](types-s-v.md) | 83 sections |
+| [Types (VoxelKitImage to WindOctave)](types-v-w.md) | 12 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 19 sections |
 | [Script API types (from `BehaviorRandom`)](script-types-behavior-random.md) | 23 sections |

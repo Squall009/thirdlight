@@ -6,7 +6,10 @@
  *   the command only (never of its neighbours or of the order cells are
  *   visited), computed with exactly rounded arithmetic, so the same command
  *   on the same voxels gives the same voxels everywhere, and chunks can be
- *   applied in any order or apart.
+ *   applied in any order or apart. A flood, a smooth and a flatten read the
+ *   cells round the ones they write (edit-surface.ts): they are computed
+ *   whole from the voxels before the stroke, then written, so they are as
+ *   deterministic, but need every chunk they can read at once.
  * - **Per chunk.** The command's bounds are cut into chunks; each chunk's
  *   cells are visited in local-index order and its changes recorded on their
  *   own, so an undo record, dirty marks and rebuilds are per chunk.
@@ -23,14 +26,18 @@
  */
 import { chunkKey, chunkOfKey, cellInWorld, type ChunkCoord, type ChunkGrid } from './coords';
 import { CellDelta, chunkScratch, DELTA_CELL_BYTES, encodeDenseChunk, exportOrAir } from './cell-delta';
-import { type BrushEdit, type EditMode, type EditVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
+import { type BrushEdit, type EditMode, type EditVoxel, type FloodEdit, type StampEdit, type VoxelEditCommand } from './edit-command';
+import { floodBox, floodFill, floodSpec, gasSmoothWrites, SMOOTH_READ_MARGIN_CELLS, surfaceWrites, type EachCovered, type ReadCell } from './edit-surface';
 import { scratchImage, uniformImage } from './palette-chunk';
 import { encodePaletteImage } from './palette-codec';
-import { changedFields, changeFeeds, DENSITY_FULL, isConstructionRole, MATERIAL_AIR, materialSwap, SHAPE_FULL, valueOf, type VoxelRecord } from './record';
+import { changedFields, changeFeeds, DENSITY_FULL, heldWetness, isConstructionRole, MATERIAL_AIR, materialSwap, SHAPE_FULL, valueOf, type VoxelRecord } from './record';
 import { isMediumRole } from './role-traits';
 import type { StampResolver, StampShape } from './stamp-shape';
 import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
+import { fillLeaks, type CellWrites, type FillLeak } from './water/body';
+import { FILL_OUTSIDE } from './water/level-fill';
+import { writeCells } from './water/write-cells';
 
 /** The stores an edit writes, by grid id (0 the world grid, else a structure's grid). */
 export interface EditGrids {
@@ -80,8 +87,13 @@ export interface EditOutcome {
   readonly materialSwaps: readonly number[];
 }
 
-/** Why an edit could not be applied (nothing was written). */
-export type EditRefusal = 'grid_unknown' | 'chunk_not_loaded' | 'stamp_unknown' | 'stamp_changed' | 'outside_world' | 'over_budget';
+/**
+ * Why an edit could not be applied (nothing was written). A flood adds two:
+ * `flood_leaks` (its fill would pass its reach or the world's edge; the
+ * refusal carries where) and `flood_blocked` (the cell it starts from is
+ * not open to it, or lies outside the world).
+ */
+export type EditRefusal = 'grid_unknown' | 'chunk_not_loaded' | 'stamp_unknown' | 'stamp_changed' | 'outside_world' | 'over_budget' | 'flood_leaks' | 'flood_blocked';
 
 /**
  * Bytes of undo records an editor keeps in memory before spilling the
@@ -104,6 +116,8 @@ export class EditRefused extends Error {
   constructor(
     readonly code: EditRefusal,
     message: string,
+    /** `flood_leaks`: the places the fill leaks, as a water body's leaks are told (cells of the command's grid, a place per 16 m of ground). */
+    readonly leaks?: readonly FillLeak[],
   ) {
     super(message);
   }
@@ -125,6 +139,7 @@ type Cover = (x: number, y: number, z: number) => number;
 
 /** What a command does in one chunk: its cells' coverage, or listed cells. */
 interface Plan {
+  /** The cells the command can change or, for a stroke computed whole, read. */
   readonly box: CellBox;
   readonly mode: EditMode;
   readonly smooth: boolean;
@@ -136,6 +151,14 @@ interface Plan {
   readonly cover?: (grid: ChunkGrid, cx: number, cy: number, cz: number) => Cover | null;
   /** Listed cells by chunk key, local indices ascending (set and dig). */
   readonly cells?: Map<number, number[]>;
+  /** Cells past each dab's own the stroke reads (a brush that smooths). */
+  readonly margin?: number;
+  /**
+   * A stroke computed whole from the voxels before it (a flood, a smooth, a
+   * flatten): its writes, every read made before the first of them. It may
+   * refuse.
+   */
+  readonly whole?: (grid: ChunkGrid, read: ReadCell) => CellWrites;
 }
 
 function emptyBox(): CellBox {
@@ -151,6 +174,9 @@ function grow(b: CellBox, x0: number, y0: number, z0: number, x1: number, y1: nu
   b.maxZ = Math.max(b.maxZ, z1);
 }
 
+/** What a stroke computed whole reads past the world's edge (the level fill's own mark for it). */
+const OUTSIDE = FILL_OUTSIDE;
+
 const clamp01 = (v: number): number => (v <= 0 ? 0 : v >= 1 ? 1 : v);
 
 /**
@@ -164,6 +190,70 @@ function dabCover(shape: BrushEdit['shape'], ex: number, ey: number, ez: number,
   if (shape === 'cylinder') return clamp01(Math.min(ex - Math.sqrt(dx * dx + dz * dz), ey - Math.abs(dy)) + 0.5);
   return clamp01(Math.min(ex - Math.abs(dx), ey - Math.abs(dy), ez - Math.abs(dz)) + 0.5);
 }
+
+/** The four modes that write a cell from the cell alone. */
+const cellMode = (c: BrushEdit): EditMode => (c.mode === 'smooth' || c.mode === 'flatten' ? 'place' : c.mode);
+
+/** A dab's cells with `margin` more round them: cells whose centre lies within extent + half a cell of the dab. */
+function dabBox(c: BrushEdit, i: number, margin: number): CellBox {
+  const [ex, ey, ez] = c.size;
+  const p = c.points;
+  return { minX: Math.ceil(p[i]! - ex - 1) - margin, minY: Math.ceil(p[i + 1]! - ey - 1) - margin, minZ: Math.ceil(p[i + 2]! - ez - 1) - margin, maxX: Math.floor(p[i]! + ex) + margin, maxY: Math.floor(p[i + 1]! + ey) + margin, maxZ: Math.floor(p[i + 2]! + ez) + margin };
+}
+
+/**
+ * A brush that smooths or flattens: its cells are the brush's, with the
+ * cells it reads beside them; its writes are computed whole.
+ */
+function surfacePlan(c: BrushEdit): Plan {
+  const brush = brushPlan({ ...c, mode: 'place' });
+  const margin = c.mode === 'smooth' ? SMOOTH_READ_MARGIN_CELLS : 0;
+  const own = brush.box;
+  const box: CellBox = { minX: own.minX - margin, minY: own.minY - margin, minZ: own.minZ - margin, maxX: own.maxX + margin, maxY: own.maxY + margin, maxZ: own.maxZ + margin };
+  const whole = (grid: ChunkGrid, read: ReadCell): CellWrites => {
+    const each: EachCovered = (visit) => {
+      const m = grid.mask;
+      const s = grid.shift;
+      for (const ch of chunksOf(grid, own)) {
+        const cover = brush.cover!(grid, ch.cx, ch.cy, ch.cz);
+        if (cover === null) continue;
+        const ox = ch.cx << s;
+        const oy = ch.cy << s;
+        const oz = ch.cz << s;
+        for (let x = Math.max(own.minX, ox); x <= Math.min(own.maxX, ox + m); x++) for (let z = Math.max(own.minZ, oz); z <= Math.min(own.maxZ, oz + m); z++) for (let y = Math.max(own.minY, oy); y <= Math.min(own.maxY, oy + m); y++) {
+          const cov = cover(x, y, z);
+          if (cov > 0) visit(x, y, z, cov);
+        }
+      }
+    };
+    return c.voxel !== undefined ? gasSmoothWrites(c, each, read) : surfaceWrites(c, own, each, read);
+  };
+  return { box, mode: 'place', smooth: false, margin, whole };
+}
+
+/** A flood: the cells its reach bounds, and the level fill written into them, or its refusal. */
+function floodPlan(c: FloodEdit): Plan {
+  const spec = floodSpec(c);
+  const box = floodBox(spec);
+  if (box === null) throw new EditRefused('flood_blocked', 'the flood starts outside the world: its seed or its level lies past the world\'s bounds');
+  const whole = (_grid: ChunkGrid, read: ReadCell): CellWrites => {
+    const fill = floodFill(spec, read);
+    if (fill.status === 'seed_blocked') {
+      const at = fill.start ?? spec.seed;
+      throw new EditRefused('flood_blocked', `the flood's start cell (${at[0]}, ${at[1]}, ${at[2]}) is not open to it (ground, a built cell, an opening or another medium): move the seed into the space to fill`);
+    }
+    if (fill.status === 'breached') {
+      const leaks = fillLeaks(fill);
+      const named = leaks.slice(0, LEAKS_NAMED).map((l) => `past ${l.kind === 'reach' ? 'its reach' : 'the world\'s edge'} near cell (${Math.floor(l.at[0])}, ${Math.floor(l.at[1])}, ${Math.floor(l.at[2])}) (${l.cells} cell${l.cells === 1 ? '' : 's'})`);
+      throw new EditRefused('flood_leaks', `the flood leaks in ${leaks.length} place${leaks.length === 1 ? '' : 's'}: ${named.join('; ')}${leaks.length > LEAKS_NAMED ? '; …' : ''}. Nothing was written: close the gap, lower the level or widen the reach`, leaks);
+    }
+    return { cells: fill.cells, values: fill.values };
+  };
+  return { box, mode: 'place', smooth: false, whole };
+}
+
+/** Leak places a refusal's message names (the refusal carries them all). */
+const LEAKS_NAMED = 4;
 
 function brushPlan(c: BrushEdit): Plan {
   const [ex, ey, ez] = c.size;
@@ -194,7 +284,7 @@ function brushPlan(c: BrushEdit): Plan {
       return best;
     };
   };
-  return { box, mode: c.mode, smooth: c.smooth, ...(c.voxel !== undefined ? { voxel: c.voxel } : {}), cover };
+  return { box, mode: cellMode(c), smooth: c.smooth, ...(c.voxel !== undefined ? { voxel: c.voxel } : {}), cover };
 }
 
 function stampPlan(c: StampEdit, shape: StampShape): Plan {
@@ -246,7 +336,9 @@ function listPlan(grid: ChunkGrid, cells: readonly number[], mode: EditMode, vox
 function planOf(grid: ChunkGrid, cmd: VoxelEditCommand, stamps: StampResolver | undefined): Plan {
   switch (cmd.kind) {
     case 'brush':
-      return brushPlan(cmd);
+      return cmd.mode === 'smooth' || cmd.mode === 'flatten' ? surfacePlan(cmd) : brushPlan(cmd);
+    case 'flood':
+      return floodPlan(cmd);
     case 'fill': {
       const [x0, y0, z0] = cmd.min;
       const [x1, y1, z1] = cmd.max;
@@ -272,7 +364,7 @@ function planOf(grid: ChunkGrid, cmd: VoxelEditCommand, stamps: StampResolver | 
 function nextVoxel(plan: Plan, cov: number, old: Readonly<VoxelRecord>, out: VoxelRecord): boolean {
   const v = plan.voxel;
   // A construction shape is integrity, not a fill: a smooth rim places whole blocks where it covers half a cell.
-  const smooth = plan.smooth && (v === undefined || !isConstructionRole(v.role));
+  const smooth = plan.smooth && (v?.role === undefined || !isConstructionRole(v.role));
   if (!smooth && cov < 0.5) return false;
   const oldAir = old.material === MATERIAL_AIR;
   // Exact shape (set) or full, or the coverage as a fill level at a smooth rim.
@@ -280,7 +372,7 @@ function nextVoxel(plan: Plan, cov: number, old: Readonly<VoxelRecord>, out: Vox
   switch (plan.mode) {
     case 'place':
       out.material = v!.material;
-      out.role = v!.role;
+      out.role = v!.role!;
       out.wetness = v!.wetness;
       out.shape = t;
       break;
@@ -288,7 +380,7 @@ function nextVoxel(plan: Plan, cov: number, old: Readonly<VoxelRecord>, out: Vox
       const open = oldAir || isMediumRole(old.role);
       if (open) {
         out.material = v!.material;
-        out.role = v!.role;
+        out.role = v!.role!;
         out.wetness = v!.wetness;
         out.shape = t;
       } else if (smooth && old.material === v!.material && old.shape < t) {
@@ -318,8 +410,9 @@ function nextVoxel(plan: Plan, cov: number, old: Readonly<VoxelRecord>, out: Vox
     case 'paint':
       if (oldAir) return false;
       out.material = v!.material;
-      out.role = v!.role;
-      out.wetness = v!.wetness;
+      // A paint that names no role leaves each cell its own, and a role that holds no wetness dry.
+      out.role = v!.role ?? old.role;
+      out.wetness = v!.role === undefined ? heldWetness(old.role, v!.wetness) : v!.wetness;
       out.shape = old.shape;
       break;
   }
@@ -406,12 +499,11 @@ function boxChunkCount(grid: ChunkGrid, b: CellBox): number {
 function touchedChunks(grid: ChunkGrid, cmd: VoxelEditCommand, plan: Plan, limit: number): number {
   if (plan.cells !== undefined) return plan.cells.size;
   if (cmd.kind !== 'brush') return boxChunkCount(grid, plan.box);
-  const [ex, ey, ez] = cmd.size;
   const p = cmd.points;
   const s = grid.shift;
   const seen = new Set<string>();
   for (let i = 0; i < p.length; i += 3) {
-    const b: CellBox = { minX: Math.ceil(p[i]! - ex - 1), minY: Math.ceil(p[i + 1]! - ey - 1), minZ: Math.ceil(p[i + 2]! - ez - 1), maxX: Math.floor(p[i]! + ex), maxY: Math.floor(p[i + 1]! + ey), maxZ: Math.floor(p[i + 2]! + ez) };
+    const b = dabBox(cmd, i, plan.margin ?? 0);
     if (boxChunkCount(grid, b) > limit) return limit + 1;
     for (let cx = b.minX >> s; cx <= b.maxX >> s; cx++) for (let cz = b.minZ >> s; cz <= b.maxZ >> s; cz++) for (let cy = b.minY >> s; cy <= b.maxY >> s; cy++) {
       seen.add(`${cx},${cy},${cz}`);
@@ -459,6 +551,12 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
     for (const c of chunks) if (!opts.loaded(cmd.grid, c.cx, c.cy, c.cz)) throw new EditRefused('chunk_not_loaded', `chunk (${c.cx}, ${c.cy}, ${c.cz}) of grid ${cmd.grid} is not loaded`);
   }
   const old: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+  if (plan.whole !== undefined) {
+    // Read whole, then written: the fill or the relaxation sees the voxels as they were, never its own writes.
+    const writes = plan.whole(grid, (x, y, z) => (cellInWorld(x, y, z) ? valueOf(store.voxelAt(x, y, z, old)) : OUTSIDE));
+    const done = writeCells(store, cmd.grid, writes);
+    return { cells: done.cells, chunks: done.chunks, fields: done.fields, parts: done.parts, materialSwaps: done.materialSwaps };
+  }
   const next: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
   const undo: ChunkUndo[] = [];
   let changed = 0;

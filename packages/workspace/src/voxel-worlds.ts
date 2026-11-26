@@ -950,7 +950,12 @@ export class VoxelWorlds {
         }
       } catch (e) {
         if (e instanceof EditCommandError) return refuse('invalid_args', 'validation', e.message, `/args/command${e.path}`);
-        if (e instanceof EditRefused) return refuse(e.code, e.code === 'chunk_not_loaded' ? 'conflict' : 'validation', e.message);
+        if (e instanceof EditRefused) {
+          const refused = refuse(e.code, e.code === 'chunk_not_loaded' ? 'conflict' : 'validation', e.message);
+          if (e.leaks === undefined) return refused;
+          const m = VOXEL_SIZE_M;
+          return { ok: false, error: { ...refused.error, leaks: e.leaks.map((l) => ({ at: [l.at[0] * m, l.at[1] * m, l.at[2] * m] as const, kind: l.kind, cells: l.cells })) } };
+        }
         throw e;
       }
     } else if (op === 'writeKitTestScene') {
