@@ -688,7 +688,7 @@ describe('the far field drawn as meshes and as bricks', () => {
 
 /**
  * A far field fed rounds of visibility feedback (what the page's draws were seen at): asked for finer nodes, what the
- * eye sees too coarse is refined first; a node no longer seen keeps its detail within the turn window, and after it
+ * eye sees too coarse is refined first; a node no longer seen keeps its detail, within the turn window and after it,
  * while the GPU budget is far off; near the budget it coarsens (never to nothing); a stale round changes nothing.
  */
 async function seenFirst(source: ReturnType<typeof regionFarSource>, workers: WorkerPool, maxLevel: number): Promise<void> {
@@ -757,9 +757,9 @@ async function seenFirst(source: ReturnType<typeof regionFarSource>, workers: Wo
     feed([]);
     await wait(TURN / 4);
     feed([]);
-    // The window is real time: on a loaded host the wait may outlast it, and then the inside-the-window reading does not
-    // apply (kept detail holds either way, below).
-    if (performance.now() - left < TURN) expect(far.metrics().seen.unseenWanted).toBeLessThan(far.metrics().nodes);
+    // Kept detail holds inside the window and past it alike, so it is asserted whatever the host's load. Which wanted
+    // nodes count as unseen inside the window is the seen log's rule on a given clock (far-seen.test.ts): here the
+    // window is real time, and a wait on a loaded host can outlast it, so this test does not read that count.
     expect(fine().length).toBe(kept);
     // Past it, with the GPU budget far off, still kept (the unseen only wait behind the seen).
     await wait(TURN - (performance.now() - left) + 100);

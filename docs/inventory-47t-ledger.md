@@ -33,7 +33,9 @@ tests/integration, `ex/` packages/exporter/src, …).
      Problems and Console tabs' text, Hierarchy marks, the Profiler panel itself (its digest is unit-tested), key
      shortcuts (Delete/W/E/R, Ctrl+D/C/V, F3, the backquote console), the picker and token form beyond boot test 1;
   5. rates and timing in a real page: the frame-rate cap, the draw rate with a slow worker, input-to-motion latency,
-     render on demand, HiDPI (recorded as stats by the phase run, never checked);
+     render on demand, HiDPI (recorded as stats by the phase run, never checked); the far field's count of unseen
+     wanted nodes inside a real-time turn window (`far-world.test.ts` read it only when its wait stayed inside the
+     window; the seen log's rule on a given clock is `far-seen.test.ts`'s);
   6. the browser platform: IndexedDB and localStorage refusals, FontFace, Web Audio output, cross-origin isolation and
      shared memory, real mouse, keyboard and gamepad events, blob URLs; the browser decoders (Draco, meshopt, Basis);
      an insecure context; the Play and export pages' own code beyond what the boot check runs (the export page's
