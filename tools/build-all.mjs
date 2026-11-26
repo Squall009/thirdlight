@@ -23,7 +23,7 @@ const LANES = [
   ['typecheck'],
   ['history-comments'],
   ['check-deps', 'check-slow-units', 'check-docs', 'check-size'],
-  ['check-boundaries', 'check-redefinitions'],
+  ['check-boundaries', 'check-redefinitions', 'check-role-traits'],
 ];
 /** The bundles run last in their own lane: their `build: done` line closes the output. */
 const BUNDLES = 'build';
