@@ -23,6 +23,7 @@ import { FAR_NODE_FLOATS, FAR_NODE_HI_FLOAT, FAR_NODE_LO_FLOAT, FAR_NODE_PAGE_FL
 import { VoxelFarView } from './voxel-far-mesh';
 import { createVoxelSurface, GRID_TRIM_SLACK, VoxelShaderGrids, type VoxelGridRenderer } from './voxel-surface';
 import { FarBrickAtlas } from './voxel-far-bricks';
+import { BEHIND_NEAR_NAME } from './voxel-far-common';
 import { FAR_VIS_CELL_FROM, FAR_VIS_CELL_SPAN, FAR_VIS_CELL_STEPS, packFarVisibility, unpackFarVisibility } from './voxel-far-visibility';
 import { installMotionVectors, motionVectorOutput, MOTION_TARGET } from './motion-vectors';
 import { INSTANCE_CULLER_KEY } from './attribute-instancing';
@@ -309,6 +310,13 @@ describe('the far view', () => {
     expect(shade).toContain('discard');
     expect(shade).toContain('textureLoad');
     expect(samplesTop(shade)).toBe(7);
+    // The edge ring's push behind the near field is the shade's alone. The target's depth holds far hits only: a march
+    // that pushed an edge-ring hit there would lose it to every far box behind it (the ground's inside shown in slabs
+    // where the near field's lowest chunks, all air, lie on the ground from a camera high over it).
+    expect(march, 'the march keeps the nearest far hit: its own depth').not.toContain(BEHIND_NEAR_NAME);
+    expect(shade, 'the frame\'s depth goes behind the near field in its edge ring').toContain(BEHIND_NEAR_NAME);
+    // The march shading in the frame (no target of its own) writes the frame's depth, so it keeps the push.
+    expect(lit).toContain(BEHIND_NEAR_NAME);
     // A fine brick's hit (its own branch, only its pixels): the occlusion, the two words' far colours (each set's
     // mean), and, nearer than the fade's end, the two materials' albedo, normal and ORM at an explicit level, on the
     // three triplanar axes (a fine field's normal flips its largest axis on a slope); its eight words are loads.

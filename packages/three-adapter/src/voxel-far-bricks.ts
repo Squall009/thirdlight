@@ -506,7 +506,11 @@ export class FarBrickMaterial {
       const look = insideHit.or(deep.and(view.z.greaterThan(-FAR_INSIDE_LOOK_M).or(isFine)));
       if (output === 'visibility') {
         hitPayload.assign(farVisibilityOutput(region, p, view.z, select(look, float(INSIDE_FACE_CODE), entryFaceCode(face)), select(isFine, float(1), float(0))));
-        return farFragmentDepth(cover.behindNear(world, view.z));
+        // The target's depth sorts far hits among themselves only (the near field is not in it), so it is the hit's own:
+        // pushed behind the near field here, an edge-ring hit would lose to every far box behind it (ground entered
+        // under its surface), and that box's inside would show where the near field has nothing in front. The shade
+        // pushes the kept hit's depth behind the near field when it writes the frame's.
+        return farFragmentDepth(view.z);
       }
       // Deep under the surface (the samples clamped to the band) there is no gradient: a ray hits there only where a
       // node face shows its ground's side (a neighbour drawn at a coarser level lies lower), shaded as that face.

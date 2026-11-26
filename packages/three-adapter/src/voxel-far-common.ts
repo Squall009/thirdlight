@@ -51,6 +51,9 @@ export function farFragmentDepth(viewZ: N): N {
   return select(cameraNdc(cameraNear).lessThan(-0.5), ndc.mul(0.5).add(0.5), ndc);
 }
 
+/** The name a program gives the view z {@link FarCover.behindNear} answers: a program that holds it writes a depth pushed behind the near field. */
+export const BEHIND_NEAR_NAME = 'farBehindNear';
+
 /**
  * The near cover (where the near field draws, by storage chunk: hidden
  * inside, its edge ring apart): a small 3D texture and its corner and
@@ -146,6 +149,8 @@ export class FarCover {
    * A far point's view z (negative in front) for its depth: in the near field's edge ring, at least as far as the
    * near field's farthest corner from the camera, so every near fragment (no farther than that) is in front of
    * it and the far field shows there only through a gap, though its coarser surface may lie above the near one.
+   * Only for a depth the near field is tested against (the frame's): it puts an edge-ring hit behind every other
+   * far hit within that reach too, so a depth that sorts far hits among themselves must not take it.
    */
   behindNear(world: N, viewZ: N): N {
     const chunkM = float(this.grid.edge * VOXEL_SIZE_M);
@@ -153,7 +158,7 @@ export class FarCover {
     const hi = this.at.add(this.size.mul(chunkM));
     const reach = length(max(abs(cameraPosition.sub(lo)), abs(cameraPosition.sub(hi))));
     const v = this.value(world);
-    return select(v.greaterThan(0.25).and(v.lessThan(0.75)), min(viewZ, reach.negate()), viewZ);
+    return select(v.greaterThan(0.25).and(v.lessThan(0.75)), min(viewZ, reach.negate()), viewZ).toVar(BEHIND_NEAR_NAME);
   }
 
   dispose(): void {
