@@ -587,7 +587,16 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
   `FloodEdit`, `FloodValue`, `BrushEdit`, `VoxelEditCommand`); the types page passed its size bound and split
   (`types-s-w.md` → `types-s-v.md`, `types-v-w.md`), six manual links repointed. The behaviour API typings were
   regenerated and did not change. Manual: `features/voxel-worlds.md` (flood, smooth and flatten, paint).
-- **Gate:** the one check runs after this commit; its line follows.
+- **Gate:** `tools/gate.sh check` once: RED in 248 s (build 26 s, lint 6 s, unit 189 s: 965 files passed, 2 failed;
+  boot 5 passed, 26 s). (1) Real, this item's: `tools/manual-links.test.mjs`: the reference's type pages are cut by
+  size, the new types moved `MaterialDef` to the next page and one guide's link pointed at the old one (the links to
+  the renamed last page had been repointed, this one not looked for); repointed. (2) Not this item's code:
+  `corrupt-project-startup.test.ts` threw `RangeError` in the shared worker and passes alone. Cause measured, not
+  guessed: its document is nested 4,000 deep and the strict JSON parser reads about 4,100 levels before the stack
+  ends while it is not yet compiled, about 8,400 once it is, so its answer was the files before it, which two new
+  unit files moved. The file now runs in a process of its own (`ISOLATED_FILES`, with why), and the product's side
+  is **D836** (the parser's recursion has no bound; a deeper document takes the startup scan down). `check
+  --failed` once: GREEN in 33 s (5e5465ac). The two HTTP files grew by about 4 s together.
 - **Not built, and why:** a strength for smooth and flatten, a 3D smooth of overhangs and cave walls, a flood wider
   than the work bound of one stroke, a flood on `ctx.voxels` (none named by G4; lines for after the merge). The
   structure tool's Paint still sends a role (D762, 47b.5).
