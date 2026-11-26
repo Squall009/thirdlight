@@ -162,9 +162,13 @@ in the foreground afterwards ran 1.5 to 6.7 hours each without a cut.
   silently dropped.
 - An edit that changes nothing is refused with `no_change`; a script that re-sends values treats it as done.
 - Archive with `git mv` into `archive/`, not `git rm`.
-- Most unit files share a vitest worker (`vitest.config.mts`, project `shared`): a file that leaves state behind
-  (a `vi.mock`, a faked clock, output compared with stored digests of process-wide counters) goes in its
-  `ISOLATED_FILES` with why. A bench test loads a generated world with `loadAreaCached` (cached on disk).
+- Most unit files share a vitest worker (`vitest.config.mts`, project `shared`), so a file can pass or fail only
+  because of the files run before it. Isolation is by kind, read from each file's text (`ISOLATED_KINDS`: stored
+  WGSL digests, measures of process-wide memory, `vi.mock`), plus the named `ISOLATED_FILES` (each with why) and
+  the bench and crash folders. A file red in `check` with nothing changed is order-dependent: `check --failed` runs
+  it alone and stays RED even when it passes there ("passed alone, failed in the shared pool, unchanged"). Then
+  find the state it shares and fix it, or add the file to `ISOLATED_FILES` with why (or a new kind); never call
+  it green. A bench test loads a generated world with `loadAreaCached` (cached on disk).
 
 `archive/` is historical record only. It is not authoritative; do not read it unless you need a specific past
 detail.

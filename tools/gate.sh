@@ -7,7 +7,10 @@
 #   tools/gate.sh check --failed   the fix loop after a real fix: the build and lint again (seconds when warm),
 #                                  then only what failed in the last check (its failed unit files, its failed boot
 #                                  tests; everything after a failed build). Under 1 min. Not a "see if it passes
-#                                  this time" rerun: a red is fixed, or the test goes.
+#                                  this time" rerun: a red is fixed, or the test goes. A failed unit file whose
+#                                  text and code are unchanged since the failing run runs alone, and is RED even
+#                                  when it passes there (order-dependent: isolate it or fix it;
+#                                  tools/gate-failed.mjs).
 #                                  A red step does not stop the run (only a red build does): one run shows every
 #                                  failure.
 #   tools/gate.sh phase            once, at a phase's close: the full build, full lint (no cache), every unit test
@@ -134,22 +137,31 @@ FAILED=()
 fail() { # fail <step> <message> [items]: the step's failure, and for `check --failed` what to run again (empty: all of it)
   FAILED+=("$1: $2")
   say "$1: RED: $2"
-  if [ "$mode" = check ]; then mkdir -p "$STATE" && printf '%s\n' "${3:-}" > "$STATE/$1"; fi
+  if [ "$mode" = check ]; then
+    mkdir -p "$STATE"
+    # Unit failures add to what an earlier step of this run recorded (a file run alone, then the changed ones).
+    if [ "$1" = unit ] && [ -e "$STATE/unit" ]; then printf '%s\n' "${3:-}" >> "$STATE/unit"; else printf '%s\n' "${3:-}" > "$STATE/$1"; fi
+    # The digests `--failed` compares (its files' text and the code), taken now, at the failing run.
+    [ "$1" = unit ] && [ -n "${3:-}" ] && node tools/gate-failed.mjs record "$STATE" $(cat "$STATE/unit")
+  fi
 }
 strip() { sed 's/\x1b\[[0-9;]*m//g' "$1"; }
 
 # check --failed: what the last check recorded as failed. Build and lint always run (warm, they take seconds and
 # catch a fix that broke the build); the unit and boot steps run only where they failed, and only their failures.
-WANT_UNIT=1 WANT_BOOT=1 UNIT_FILES=() BOOT_ARGS=()
+WANT_UNIT=1 WANT_BOOT=1 UNIT_FILES=() ALONE_FILES=() BOOT_ARGS=()
 if [ -n "$failed_only" ]; then
   [ -d "$STATE" ] && [ -n "$(ls "$STATE")" ] || { echo "nothing failed in the last check (or it went green): run tools/gate.sh check"; exit 2; }
-  say "check --failed: the last check's failures: $(ls "$STATE" | tr '\n' ' ')"
+  say "check --failed: the last check's failures: $(ls "$STATE" | grep -v '^unit-digests.json$' | tr '\n' ' ')"
   if [ -e "$STATE/build" ]; then :; # nothing after the build ran: everything runs again
   else
     if [ -e "$STATE/unit" ]; then
-      # A failed file the fix deleted (or archived) has nothing left to run.
-      for f in $(cat "$STATE/unit"); do [ -e "$f" ] && UNIT_FILES+=("$f"); done
-      [ -n "$(tr -d ' \n' < "$STATE/unit")" ] && [ ${#UNIT_FILES[@]} -eq 0 ] && { say "unit: the files that failed are gone"; WANT_UNIT=''; }
+      # A failed file the fix deleted (or archived) has nothing left to run; one with nothing changed since the
+      # failing run runs alone (a pass there is order dependence, not a fix); a changed one runs as before.
+      while read -r kind f; do
+        case "$kind" in alone) ALONE_FILES+=("$f") ;; rerun) UNIT_FILES+=("$f") ;; esac
+      done < <(node tools/gate-failed.mjs plan "$STATE" $(cat "$STATE/unit"))
+      [ -n "$(tr -d ' \n' < "$STATE/unit")" ] && [ ${#UNIT_FILES[@]} -eq 0 ] && [ ${#ALONE_FILES[@]} -eq 0 ] && { say "unit: the files that failed are gone"; WANT_UNIT=''; }
     else WANT_UNIT=''; fi
     if [ -e "$STATE/boot" ]; then BOOT_ARGS=(--last-failed); else WANT_BOOT=''; fi
   fi
@@ -189,6 +201,17 @@ unit() { # unit <set> [files…]: a set of tests/slow-unit-files.json's split (f
     strip "$L/vitest.log" | grep -E '^ *(FAIL|×)' | head -20
     fail unit "$line; failed: ${failed:-see vitest.log}" "$failed"
   else say "$line"; fi
+}
+
+unit_alone() { # unit_alone <file>: one failed file with nothing changed since, alone in its own run; red either way
+  local t=$(date +%s) f=$1 log out
+  log=$L/vitest-alone-$(echo "$f" | tr '/' '_').log
+  if TL_UNIT_SET=all npx vitest run --maxWorkers=1 --reporter=default "$f" > "$log" 2>&1 && strip "$log" | grep -qE 'Test Files .*passed' && ! strip "$log" | grep -qE 'Test Files .*failed'; then
+    out=$(node tools/gate-failed.mjs verdict "$f" passed)
+  else
+    out=$(node tools/gate-failed.mjs verdict "$f" failed)
+  fi
+  fail unit "unit (alone): $out ($(secs "$t"); ${log##*/})" "$f"
 }
 
 BOOT=tests/e2e/boot.e2e.ts
@@ -245,7 +268,10 @@ case "$mode" in
     [ -z "$failed_only" ] && rm -rf "$STATE"
     build
     lint
-    if [ -n "$WANT_UNIT" ]; then if [ ${#UNIT_FILES[@]} -gt 0 ]; then unit all "${UNIT_FILES[@]}"; else unit fast; fi; fi
+    if [ -n "$WANT_UNIT" ]; then
+      for f in "${ALONE_FILES[@]}"; do unit_alone "$f"; done
+      if [ ${#UNIT_FILES[@]} -gt 0 ]; then unit all "${UNIT_FILES[@]}"; elif [ ${#ALONE_FILES[@]} -eq 0 ]; then unit fast; fi
+    fi
     [ -n "$WANT_BOOT" ] && boot "${BOOT_ARGS[@]}"
     verdict ;;
   phase)

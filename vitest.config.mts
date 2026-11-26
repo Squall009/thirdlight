@@ -1,10 +1,10 @@
 /**
  * Root vitest configuration.
  *
- * Timeouts: 30 s for a test and a hook, not vitest's 5 s. The gate runs the
- * suite on 4 workers beside browsers, and tests with real workers and files
- * on disk that take 3–4 s alone ran past 5 s there (failed once, passed
- * alone). A test must not assert wall-clock time; the limit only catches a hang.
+ * Timeouts: 30 s for a test and a hook, not vitest's 5 s. The check runs the
+ * suite on six workers on a shared host, and tests with real workers and files
+ * on disk that take 3–4 s alone ran past 5 s under load. A test must not
+ * assert wall-clock time; the limit only catches a hang.
  *
  * Global test-root hygiene: disposable test
  * roots live on ext4 under /home/dadmin (/tmp is tmpfs); in-process cleanup
