@@ -26,6 +26,22 @@ page in the same commit.
   roof, foundation, stair, pillar, opening), shape 4 bits (the fill for terrain, the fill level for liquid, the
   integrity for construction roles), wetness 3 bits, 9 reserved bits (two are held, unspent, for a vegetation
   density value).
+- **What a role does is one row of the role traits table** (`@thirdlight/voxel` `role-traits.ts`, a row for each of
+  the 16 values of the role bits; the six unassigned read as plain open space): drawn as a body, stops light, blocks
+  walkers, collides, the medium it holds (liquid; gas when it comes), what its shape bits mean (none, fill, level,
+  integrity, density), a portal's gap, whether the placeholder rules read beams and rails from it, and how it holds a
+  cell of a coarser level (by its cells, by any fill, by its share, as a gap, never) with its rank. Every consumer asks
+  the table through its predicates (`isBodyRole`, `isMediumRole`, `isLiquidRole`, `isPortalRole`, `isFillRole`,
+  `isConstructionRole`, `roleStopsLight`, the per-role lookups a hot loop indexes, the mips' `MIP_ROLE_PRIORITY` and
+  `MIP_MEDIUM_ROLES` made from the rows) and none compares a role id; `npm run build` refuses a comparison outside the
+  table and the files that own a role's own behaviour (`tools/check-role-traits.mjs`: the record's constants, the roof's
+  words and its relay in the mips, the kit cases' vocabulary, catalogue and piece order, the building generator, the
+  water fill and bodies; each entry names its roles and why, and one nothing needs fails). A role added later is a row.
+  Two limits a new row meets: a level-0 cell's mesh, collision, navigation and light coverage are all read from the one
+  class a body derives to, so the table refuses a row whose light stop, walkers or collision differ from `body` until
+  the derive carries them apart (47p's `prop` needs that); and nothing on the GPU reads a role today (the walk reads the
+  occupancy the CPU derives), so the 16-entry lookup made from the same rows (`roleTraitBits`, `roleTraitsWgsl`) has no
+  shader reading it yet.
 - **Derived data is never stored**: meshes, collision, navigation, light coverage, occupancy, detail pieces and
   open regions (region labels, chunk face connectivity, sky columns) are rebuilt in workers from voxels. The one stored derivative is the **far cache** (levels 2 and up of the mips,
   and baked bricks down to the world's bake level).
@@ -161,8 +177,10 @@ page in the same commit.
   grid's changed chunks, `voxelsChanged.grids`), and a click on a grid's cells selects its object (the worker's walk
   through the worlds and their grids). Measured: plan-47a §8a "47a.5a".
 - **Known limits to design around:** mips keep a non-solid cell only where no solid shares its parent, so shore
-  water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); `liquid` is
-  excluded by scattered checks, not one predicate; a brick cannot hold rule-built crisp geometry exactly. Since
+  water and ground fog vanish from the 2 m level up (far water and fog need a far-cache channel); a brick cannot
+  hold rule-built crisp geometry exactly. A medium (`liquid`) is open space by its row of the role traits table
+  (above), which every consumer asks; the far ground alone reads every non-medium cell that holds a material as
+  ground, an opening's too (as before the table). Since
   47a.9 (F7) every derived output but the liquid part reads a liquid cell as the air it stands in (proved on the
   test worlds' lakes and pools), so a change only between air and liquid, or of a liquid's fill or material, feeds
   the **liquid part** alone (`changeFeeds`, `EditOutcome.parts`): no mesh, collision, navigation, light, shader

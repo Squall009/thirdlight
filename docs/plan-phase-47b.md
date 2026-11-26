@@ -134,7 +134,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 
 | Item | Status |
 |---|---|
-| 47b.0 | not started |
+| 47b.0 | done 2026-11-26: three.js still 0.187.0 (nothing newer); the three files split (1,909 → 1,347, 1,879 → 1,303, 1,857 → 1,730 lines); the role traits table (`role-traits.ts`, 16 rows) asked by every consumer, `tools/check-role-traits.mjs` in the build (10 owner files); 688 derived digests equal before and after. Results §9 |
 | 47b.1 | not started |
 | 47b.2 | not started |
 | 47b.3 | not started |
@@ -205,6 +205,14 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
      the detail ring: known limitations.
   7. **The order sticks through 48 and the merge; nothing more is inserted before it.** The demo scene stays at
      48 (its assets are being made ahead; its scenes and rules wait for the merged version).
+- **2026-11-26 — 47b.0, defaults chosen, owner to confirm** (item agent): (1) **an unassigned role value reads as
+  plain open space** in every consumer (before, each fell through differently: solid to the mesher's fill, a wall
+  to the placeholder rules, open to the kit cases). No stored cell can hold one (decoders refuse it), so no world
+  changes. (2) **The table refuses a row whose light stop, walkers or collision differ from "drawn as a body"**:
+  level 0 derives all four from one class, so such a row would be read wrongly without an error; 47p's `prop` row
+  needs the derive to carry them apart first, and removes the refusal then. (3) **The roof's special handling is a
+  predicate in the roof's file, not a column** (it is the roof's own form, as the item's row allows). (4) **The build
+  check reads `packages/*/src` only**: tests and `tools/voxel-bench` may compare roles.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -219,6 +227,64 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   version list ends at 0.187.0; the registry entry last changed 2026-10-30). Nothing newer exists, so there are
   no release notes to read against `docs/three-upgrade-checklist.md`: no hook, pixel or fix to assess. three
   stays at 0.187.0; no update was made or proposed.
+- **Splits** (pure moves; public exports unchanged; dede5a0c): `workspace/src/voxel-worlds.ts` 1,909 → 1,347 lines
+  (the manifest in `voxel-world-manifest.ts` 158, the answers and the open world's state in `voxel-world-answers.ts`
+  390, the kit test scene's write in `voxel-kit-scene-write.ts` 64); `project-model/src/index.ts` 1,879 → 1,303 (the
+  names of block layers, terrain, splines, scatter and architecture in `index-level-building.ts` 582: the index is
+  only re-exports, and those retire in 48); `runtime/src/runtime.ts` 1,857 → 1,730 (`RuntimeArgs` and the timing steps
+  in `runtime-args.ts` 153, the voxel worlds' wiring in `runtime-voxels.ts` 70). The stroke path itself
+  (`VoxelWorlds.apply`) stays in the class: it reads a dozen private members and 47b.3's kinds are added in
+  `@thirdlight/voxel` (`edit-command.ts`, `edit-apply.ts`), not there. `ctx.voxels` already lives in
+  `runtime/voxel-api.ts` (672 lines) and the material's voxel block in its own project-model module: 47b.2, 47b.4 and
+  47b.8 add there. `tools/size-ratchet.json`: no entry changed (`RuntimeInstance` keeps its 147 members).
+- **The role traits table** (392f086f): `packages/voxel/src/role-traits.ts`, no imports, 16 rows. Columns: `name`,
+  `body` (drawn as a body), `stopsLight`, `blocksWalkers`, `collides`, `medium` (none, liquid, gas), `shape` (none,
+  fill, level, integrity, density), `portal`, `frame` (the placeholder rules read beams and rails from it), `mip`
+  (how it holds a coarser cell: cells, fill, share, gap, never) and `mipRank`. `record.ts` checks at load that the
+  rows are its role ids and that no row past `VOXEL_ROLE_COUNT` is assigned. Gas (47b.2) is one row: `medium: gas`,
+  `shape: density`, `mip: share` with a rank after liquid's (the test builds that table and reads its lookup).
+- **Consumers converted** (87 role ids named on 59 lines in 27 source files, hand-made role lists among them): record
+  (construction, fill level, integrity, the narrowed feeds), the placeholder rules' classes, the terrain rules' fill,
+  the terrain mesher, kit cases, edge cases, case forms, roof words, kit rules, the liquid part, shader data,
+  structure stamps, grid resample, open regions, the mips (priority, whole-cell bodies, the medium fallback as a loop
+  over the media by rank, the opening fallback), far faces, far ground, far tree, edit strokes, the world and spline
+  writers, the kit test scene's list; workspace water (two sites); runtime portals; the editor's edit label.
+  `OPEN_ROLE` moved from `assembly.ts` into the table's module (made from the rows).
+- **The GPU light walk tests no role** (found, not changed): `voxelWalkWgsl` reads the occupancy and cover words the
+  CPU derives (from the classes the table now feeds), and no WGSL or TSL in three-adapter reads a role. So there was
+  nothing to convert; the 16-entry lookup the row asks for exists, made from the same rows (`roleTraitBits`: a 16-bit
+  word a column; `roleTraitsWgsl`: the consts and `role_has`), tested against the rows, and **read by no shader
+  yet**. It was not added to the walk's text: unused there, it would only change stored WGSL digests.
+- **Disagreements between consumers, kept as they were:** (1) the placeholder rules read beams and rails from the
+  construction roles but the roof, the kit cases from all six: the `frame` column. (2) The far ground reads every
+  cell that holds a material and is not a medium as ground, an opening's too, where collision reads only bodies:
+  `!isMediumRole` there, not `roleCollides`. (3) A structure stamp stops light by half coverage (a block by its
+  integrity's coverage, ground by half its fill) while the mesher's surface is at the iso: each keeps its own rule
+  under `roleStopsLight`. (4) The editor's local edit label calls every filled cell that is not ground "built", a
+  liquid too. (5) The roof is special in the mips, the far faces, the far tree and the kit rules: one predicate in the
+  roof's own file (`isRoofRole`; the mips' `isRelaidRole`), not a column.
+- **Behaviour unchanged, measured:** a one-off run on the tree before and after (the same test file, the packages
+  stashed for the first run): 688 digests of everything derived from the town (128 m, with ponds, houses, openings),
+  the hills (lakes) and the hard-case row, each chunk under four rule sets (placeholder, terrain, edges, world), its
+  sections, the mips to level 3 under two, the far bricks from faces at two scales, and the value-level answers:
+  **0 differ**. The worlds hold eight of the ten roles (no pillar, which shares its row's answers with the
+  foundation but for its rank; air trivially).
+- **The build check** (b82e5c27): `tools/check-role-traits.mjs`, a step of `npm run build` (1.4 s, 1,719 files).
+  Owner files and why: `record.ts` (the format's constants), `role-traits.ts` (the table), `roof-words.ts` (roof:
+  the roof's own form), `voxel-mips.ts` (roof: laid again at each level), `kit-cases.ts` (the six construction roles:
+  the case vocabulary by name), `kit-case-catalogue.ts` (roof: its edge cases), `edge-cases.ts` (the six: piece order),
+  `structures/building.ts` (the generator writes each part's role), `water/level-fill.ts` and `water/body.ts`
+  (liquid). Openings as portals and stairs needed no entry: their files ask `isPortalRole` or only write.
+  Scope: `packages/*/src`, no tests; `tools/voxel-bench` is not scanned (benches build worlds and compare roles).
+- **Tests** (17 new): `tools/voxel-bench/role-traits.test.ts` (8: the rows against the record; 21 consumer
+  questions for each assigned role against the old expression kept in the test; the six unassigned values through
+  every consumer; whole-value consumers over every role, shape and material; the mips on made cases; the lookup and
+  a table with a gas row; a broken table refused; every cell of the three cached worlds, 32 distinct values, against
+  the old checks) and `tools/check-role-traits.test.mjs` (9: what counts, what passes, the owner list, the tool run
+  on a failing and a passing checkout, this repository). Two rows broken by hand (wall and foundation ranks swapped;
+  the roof made a frame role) each turned the first file red.
+- **Not done, and why:** the role spec has no pointer to the table (an approved spec is not edited for it; the
+  design page carries it). `AGENTS.md` does not name the new check (the rules page is the lead's to change).
 
 ## 10. The proposed plan's questions and how each stands
 
