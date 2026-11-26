@@ -42,8 +42,9 @@
  *   A transparent draw inside a bank is fogged or not by that order, never
  *   per pixel.
  * - **The density overlay** (an editor's switch): the hull drawn nearly
- *   opaque, each face in a colour for its own cell's density, so thin fog
- *   can be found and erased; the eye's layer is off under it.
+ *   opaque, each face in a colour for its own cell's density (blue the
+ *   thinnest, green half, red the full density), so thin fog can be found
+ *   and erased; the eye's layer is off under it.
  * - **Cost.** One draw a chunk that shows gas and the eye's layer (three
  *   vertices, no pixels while the eye is outside). Its programs, and the
  *   depth copy they read, are made with the first gas part: a world with no
@@ -80,12 +81,15 @@ export const GAS_EYE_FADE_M = 1;
 /** The least cosine between the view ray and a face's normal the first cell's length is made with (a grazing ray would cross it for ever). */
 const GAS_GRAZE_COS = 0.05;
 
-/** The overlay's opacity, and its colours from the thinnest density to the full one. */
+/**
+ * The overlay's opacity, and its colours from the thinnest density through half to the full one: blue, green, red
+ * (the blends between them stay coloured: teal, then olive; blue to yellow would pass through grey).
+ */
 const GAS_OVERLAY_ALPHA = 0.85;
 const GAS_OVERLAY_RAMP: ReadonlyArray<readonly [number, number, number]> = [
-  [0.05, 0.2, 1],
-  [1, 0.85, 0.05],
-  [1, 0.05, 0.02],
+  [0.05, 0.25, 1],
+  [0.1, 0.85, 0.15],
+  [1, 0.1, 0.05],
 ];
 
 /** How many chunks up or down a run is followed across chunk and section borders (far more than a detail ring is tall). */

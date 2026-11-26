@@ -72,7 +72,7 @@ export const PICTURES: readonly PictureEntry[] = Object.freeze([
   world('L21', 'ref-100m', 'day', 'Reference house at 100 m', 'the same house at 100 m: ridges and roofs at the ring change, no sparkle'),
   world('L22', 'ref-150m', 'day', 'Reference house at 150 m', 'the same house at 150 m: its shape and colour kept as the levels coarsen'),
   world('L23', 'fog-bank', 'day', 'A fog bank in a hollow', 'a dug hollow filled with mist by day, from 17 m off: the bank reads as a volume (thin at its edge on the hollow\'s sides, thick over its middle), no hard box edges, no cards, no banding by cell rows'),
-  world('L24', 'fog-inside', 'day', 'The fog bank from inside', 'the same bank from 1.7 m over the hollow\'s floor: the hollow\'s wall, its rim and the sky seen through mist, the near ground clearer than the far, no clear patches and no seam where the bank\'s surface is'),
+  world('L24', 'fog-inside', 'day', 'The fog bank from inside', 'the same bank from 1.7 m over the hollow\'s floor, looking up at its rim: houses and sky through mist that thins toward the top of the picture (a ray leaves the bank sooner there), no clear patches and no seam where the bank\'s surface is'),
   screen('E1', 'editor', 'The editor with a scene', 'the default editor: Scene and Game tabs, Hierarchy, Inspector, Project dock, a house selected with its gizmo, panels not overlapping'),
   screen('E2', 'structure', 'Structure mode', 'a two-storey house with a door and a window, the Shape tool\'s corner and edge handles on it, the mode\'s panel and Done button'),
   screen('E3', 'water', 'A water body', 'a lake filling a dug hollow, selected: its level handle, the Inspector\'s water state, the water surface drawn'),

@@ -244,9 +244,10 @@ export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   ...([['town-100m', 'shot20', 100], ['town-150m', 'shot21', 150], ['town-250m', 'shot22', 250], ['town-600m', 'shot23', 600], ['town-2km', 'shot24', 2000]] as const).map(([name, command, d]): LightingCamera => ({ name, command, eye: [d, 4 + d * 0.35, 0], yaw: yawOf(-1, 0), pitch: Math.atan2(d * 0.35, d), preset: 'bench-noon', near: d <= 150, shows: `at noon, the town's middle from ${d} m east and ${Math.round(d * 0.35)} m up: its houses as the ${d <= 150 ? 'mesh rings' : 'far field'} draw them` })),
   ...REF_CAMERAS,
   // The fog bank (FOG_HOLLOW) at noon: from 17 m south-east of the hollow and 6 m up, looking down into it; and from
-  // inside it, 1.7 m over its floor and 2.8 m under the fog's top, looking east and a little up at its wall and rim.
+  // inside it, 1.7 m over its floor and 2.8 m under the fog's top, looking east and up (about 29°) at its rim and the sky:
+  // toward the top of the picture a view ray leaves the bank sooner, so the mist thins upward.
   { name: 'fog-bank', command: 'shot29', eye: [-6.5, 6, 14], yaw: yawOf(-12, -13), pitch: Math.atan2(6.5, Math.hypot(12, 13)), preset: 'bench-noon', near: true, shows: 'at noon, a hollow in an empty lot filled with mist to just under its rim, from 17 m off and 6 m up: the bank\'s surface, where it meets the hollow\'s sides, the grass and houses round it' },
-  { name: 'fog-inside', command: 'shot30', eye: [-18.5, -3.3, 1], yaw: yawOf(1, 0.2), pitch: -0.25, preset: 'bench-noon', near: true, shows: 'at noon, from inside the same bank, 1.7 m over the hollow\'s floor: the hollow\'s wall and rim and the sky through the mist' },
+  { name: 'fog-inside', command: 'shot30', eye: [-18.5, -3.3, 1], yaw: yawOf(1, 0.2), pitch: -0.5, preset: 'bench-noon', near: true, shows: 'at noon, from inside the same bank, 1.7 m over the hollow\'s floor, looking up at its rim: the houses beyond and the sky through the mist, thinner toward the top of the picture' },
   { name: 'props-table', command: 'shot16', eye: [0.5, 1.9, 3.5], yaw: yawOf(-3.9, -2.7), pitch: 0.3, preset: 'bench-noon', near: true, shows: 'at noon, the bench table under the room camera’s window wall and the floor under it' },
 ]);
 
