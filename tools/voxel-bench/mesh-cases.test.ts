@@ -12,7 +12,7 @@ import { REFERENCE_GOLDENS, TERRAIN_NORMAL_GOLDENS } from './mesh-goldens';
 import { creaseAngles, goldenFailures, meshFeatures, meshFeaturesAtLevel, measureCases, measureNormals, referenceMesher, terrainMesher, type CaseResult, type NormalResult, type WorldMesh } from './mesh-cases';
 import { featureSpecs, measurePatch, type SeamResult } from './lod-seams';
 import { chunkMesherOf, MESHER_CANDIDATES, mesherCandidate } from './mesher-candidates';
-import { loadArea } from './regions';
+import { loadAreaCached } from './world-cache';
 import { compareSilhouettes, raysOut, SHELL_HOUSES, SHELL_VIEWS, shellMesh, shellStore, silhouette, unbalancedEdges } from './shell-cases';
 import { townWorld } from './town';
 import { MAT } from './world-kit';
@@ -224,7 +224,7 @@ describe('the terrain mesher', () => {
   it('makes hilly ground chunks heightfields where the reference makes none', () => {
     const grid = chunkGrid(32);
     const hilly = createWorldStore(grid);
-    loadArea(hillyWorld({ footprint: 512 }).grids[0]!, hilly, 0, 0, 160, 160);
+    loadAreaCached(hillyWorld({ footprint: 512 }).grids[0]!, hilly, 0, 0, 160, 160);
     const count = (mesh: (s: typeof hilly, cx: number, cy: number, cz: number) => SurfaceBuffer): number => {
       let n = 0;
       for (let cx = 1; cx < 4; cx++) for (let cz = 1; cz < 4; cz++) for (let cy = -4; cy < 8; cy++) {
@@ -291,7 +291,7 @@ describe('mip levels through the same mesher', () => {
   it('keeps ground on the column lattice at every level: hilly nodes collide as heightfields at levels 1 and 2', { timeout: 60_000 }, () => {
     const grid = chunkGrid(32);
     const hilly = createWorldStore(grid);
-    loadArea(hillyWorld({ footprint: 512 }).grids[0]!, hilly, -128, -128, 384, 384);
+    loadAreaCached(hillyWorld({ footprint: 512 }).grids[0]!, hilly, -128, -128, 384, 384);
     const tree = new MipTree(hilly);
     for (const level of [1, 2]) {
       const span = grid.edge << level;
@@ -472,7 +472,7 @@ describe('the base surface (built cells: coplanar faces merged)', () => {
 
   it('meshes the town\'s houses (walls with windows and doors, floors, stairs, roofs, beams, banisters) to the same faces with fewer triangles: no T-junction, the same open edges, cell for cell', () => {
     const s = createWorldStore(chunkGrid(32));
-    loadArea(townWorld({ footprint: 128 }).grids[0]!, s, 0, 0, 128, 128);
+    loadAreaCached(townWorld({ footprint: 128 }).grids[0]!, s, 0, 0, 128, 128);
     const { mesh, faces } = meshBase(s, [0, 3, -1, 1, 0, 3], 16);
     expect(faces.length).toBeGreaterThan(20000);
     expect(tJunctions(mesh)).toBe(0);
@@ -484,7 +484,7 @@ describe('the base surface (built cells: coplanar faces merged)', () => {
 
   it('fails a merge that leaves T-junctions or a gap', () => {
     const s = createWorldStore(chunkGrid(32));
-    loadArea(townWorld({ footprint: 128 }).grids[0]!, s, 0, 0, 64, 64);
+    loadAreaCached(townWorld({ footprint: 128 }).grids[0]!, s, 0, 0, 64, 64);
     const { mesh, faces } = meshBase(s, [0, 1, 0, 0, 0, 1], 16);
     // A neighbour's long edge over the vertices of the triangles beside it: drop a vertex shared along a straight edge.
     const P = mesh.positions;

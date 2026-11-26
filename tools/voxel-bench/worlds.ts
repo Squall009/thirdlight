@@ -10,7 +10,7 @@
 import { fractalNoise01, valueNoise01 } from '@thirdlight/shared';
 import { type ChunkGrid, type DenseChunk, localIndex, SHAPE_FULL, VOXEL_ROLE } from '@thirdlight/voxel';
 import { townWorld } from './town';
-import { CoarseField, ColumnCache, MAT, clamp01, fillGroundColumn, shapeByte, type GroundColumn, type TestGrid, type TestWorld } from './world-kit';
+import { CoarseField, ColumnCache, MAT, clamp01, fillGroundColumn, keyedWorld, shapeByte, type GroundColumn, type TestGrid, type TestWorld } from './world-kit';
 
 /** Options every world takes: its seed and its footprint in cells per side. */
 export interface WorldOptions {
@@ -68,7 +68,7 @@ function groundGrid(name: string, footprint: number, x0: number, top: number, ba
 export function plainWorld(opts: WorldOptions = {}): TestWorld {
   const seed = opts.seed ?? 11;
   const footprint = opts.footprint ?? 512;
-  return {
+  return keyedWorld({
     name: 'plain',
     description: `plain terrain ${footprint / 2} m square: surface 2 m ± 1 m, grass/soil/rock, base −64 m`,
     seed,
@@ -83,7 +83,7 @@ export function plainWorld(opts: WorldOptions = {}): TestWorld {
         liquidLevel: -Infinity,
       })),
     ],
-  };
+  }, { seed, footprint });
 }
 
 /** Surface height in cells of the hilly world. */
@@ -98,7 +98,7 @@ export function hillyWorld(opts: WorldOptions = {}): TestWorld {
   const footprint = opts.footprint ?? 4000;
   // Lake surfaces sit inside a cell, so their top liquid cells are partly filled.
   const lake = 24.6;
-  return {
+  return keyedWorld({
     name: 'hilly',
     description: `hilly terrain ${footprint / 2000} km square: hills to ~120 m, rock on steep slopes, lakes at 12 m, base −64 m`,
     seed,
@@ -118,7 +118,7 @@ export function hillyWorld(opts: WorldOptions = {}): TestWorld {
         };
       }),
     ],
-  };
+  }, { seed, footprint });
 }
 
 /**
@@ -130,7 +130,7 @@ export function hillyWorld(opts: WorldOptions = {}): TestWorld {
 export function cliffWorld(opts: WorldOptions = {}): TestWorld {
   const seed = opts.seed ?? 31;
   const footprint = opts.footprint ?? 512;
-  return {
+  return keyedWorld({
     name: 'cliff',
     description: `a 20 m cliff on a diagonal, ${footprint / 2} m square, base −64 m`,
     seed,
@@ -142,7 +142,7 @@ export function cliffWorld(opts: WorldOptions = {}): TestWorld {
         return { surface: (high ? 60 : 20) + 4 * (fractalNoise01(x / 48, z / 48, 2, seed) - 0.5), base: SHALLOW_BASE, top: high ? MAT.rock : MAT.grass, soilDepth: high ? 0 : 6, liquidLevel: -1000 };
       }),
     ],
-  };
+  }, { seed, footprint });
 }
 
 /** Writes one terrain-or-air cell from a signed density (cells; > 0 inside) and its depth below the ground surface. */
@@ -228,14 +228,14 @@ export function cavesWorld(opts: WorldOptions = {}): TestWorld {
       return any;
     },
   };
-  return {
+  return keyedWorld({
     name: 'caves',
     description: `caves ${footprint / 2} m square: ground to ~30 m with 3D overhangs, tunnels and caverns, water pools below −40 m, base −64 m`,
     seed,
     areaM2: footprint * footprint * M2_PER_CELL2,
     benchFootprint: Math.min(footprint, 512),
     grids: [world],
-  };
+  }, { seed, footprint });
 }
 
 /** The town lives in its own module; re-exported so every world comes from here. */
@@ -350,14 +350,14 @@ export function verticalWorld(opts: WorldOptions = {}): TestWorld {
       return any;
     },
   };
-  return {
+  return keyedWorld({
     name: 'vertical',
     description: `2 km tall, ${footprint / 2} m square: base −1,000 m, mountain to ~+925 m, deep caverns with water below −850 m, a 300 m tower of 0.5 m walls`,
     seed,
     areaM2: footprint * footprint * M2_PER_CELL2,
     benchFootprint: Math.min(footprint, 128),
     grids: [world],
-  };
+  }, { seed, footprint });
 }
 
 /** Every test world at its full size, in report order. */

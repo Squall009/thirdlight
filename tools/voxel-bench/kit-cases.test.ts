@@ -36,7 +36,7 @@ import {
   type VoxelRecord,
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
-import { loadArea } from './regions';
+import { loadAreaCached } from './world-cache';
 import { dabDetailRoles, placeWallBeamBanister, randomAssemblyWorld, randomTerrainWorld } from './scenes';
 import { townWorld } from './town';
 
@@ -215,7 +215,7 @@ describe('extraction cost', () => {
   it('measures µs a 16³ section on the town, keys seen and cases', () => {
     const town = createWorldStore(grid);
     const tw = townWorld({ footprint: 128 });
-    loadArea(tw.grids[0]!, town, 0, 0, 128, 128);
+    loadAreaCached(tw.grids[0]!, town, 0, 0, 128, 128);
     // A catalogue with rules (the edge catalogue has none): the extraction's cost with a cache and real matches.
     const cat = new CaseCatalogue(FALLBACK_TEST_CATALOGUE);
     const SE = 16;

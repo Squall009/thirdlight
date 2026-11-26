@@ -42,7 +42,7 @@ import { join } from 'node:path';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, writeWorldRegions } from './stream-node';
 import { pickStore } from './regions';
 import { crc32 } from '@thirdlight/shared';
-import { loadArea } from './regions';
+import { loadAreaCached } from './world-cache';
 import { putVoxel } from './scenes';
 import { MAT } from './world-kit';
 import { cavesWorld, hillyWorld } from './worlds';
@@ -148,7 +148,7 @@ describe('liquid is open space to every consumer but its own', () => {
       ['caves', cavesWorld({ footprint: 256 }), [0, 0, 256, 256]],
     ] as const) {
       const store = createWorldStore(grid);
-      loadArea(w.grids[0]!, store, area[0], area[1], area[2], area[3]);
+      loadAreaCached(w.grids[0]!, store, area[0], area[1], area[2], area[3]);
       const near = chunksNearLiquid(store);
       expect(near.cells, `${name}: liquid cells`).toBeGreaterThan(1000);
       const diff = differences(store, drained(store), near.chunks);
@@ -298,7 +298,7 @@ describe('the liquid part: faces against open space, merged into quads', () => {
 
   it('joins a chunk\'s 16³ sections into the faces the whole chunk draws (the same area by face and material)', () => {
     const s = createWorldStore(grid);
-    loadArea(hillyWorld().grids[0]!, s, 800, 832, 960, 992);
+    loadAreaCached(hillyWorld().grids[0]!, s, 800, 832, 960, 992);
     const sections = sectionGrid(16);
     let compared = 0;
     for (const key of s.chunkKeys()) {

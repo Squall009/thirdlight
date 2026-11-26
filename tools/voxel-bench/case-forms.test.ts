@@ -57,7 +57,7 @@ import {
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { bodiesOnly, bodySurface } from './base-cases';
-import { loadArea } from './regions';
+import { loadAreaCached } from './world-cache';
 import { dabDetailRoles, placeBalcony, placeWallBeamBanister, randomAssemblyWorld, randomTerrainWorld } from './scenes';
 import { townWorld } from './town';
 
@@ -194,7 +194,7 @@ function sceneStore(place: (s: PaletteStore) => void): PaletteStore {
 
 function townStore(): PaletteStore {
   const s = createWorldStore(grid);
-  loadArea(townWorld({ footprint: 128 }).grids[0]!, s, 0, 0, 128, 128);
+  loadAreaCached(townWorld({ footprint: 128 }).grids[0]!, s, 0, 0, 128, 128);
   return s;
 }
 

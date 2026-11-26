@@ -50,7 +50,8 @@ import {
 } from '@thirdlight/voxel';
 import { defaultWriteOps } from '@thirdlight/workspace';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addressName, addressOf, loadArea, pickStore, surfaceY, zstdCompress, zstdDecompress } from './regions';
+import { addressName, addressOf, pickStore, surfaceY, zstdCompress, zstdDecompress } from './regions';
+import { loadAreaCached } from './world-cache';
 import { DiskUndoSpill, listRegionFiles, openShippedWorld, readVoxelWorldManifest, RegionWorld, ShippedWorld, updateSave, writeVoxelWorld, type WorldDirOptions } from '@thirdlight/workspace';
 import { MAT } from './world-kit';
 import { townWorld } from './worlds';
@@ -72,7 +73,7 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 function townStore(): PaletteStore {
   const s = pickStore(grid);
-  loadArea(town.grids[0]!, s, 0, 0, 400, 400);
+  loadAreaCached(town.grids[0]!, s, 0, 0, 400, 400);
   return s;
 }
 

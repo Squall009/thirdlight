@@ -14,7 +14,7 @@
  */
 import { latticeHash } from '@thirdlight/shared';
 import { GridFrame, type ChunkGrid, type DenseChunk, type GridPlacement, localIndex, SHAPE_FULL, VOXEL_ROLE, type VoxelRecord } from '@thirdlight/voxel';
-import { MAT, fillGroundColumn, shapeByte, type GroundColumn, type TestGrid, type TestWorld } from './world-kit';
+import { fillGroundColumn, keyedWorld, MAT, shapeByte, type GroundColumn, type TestGrid, type TestWorld } from './world-kit';
 
 /** Lot pitch in cells (20 m). */
 export const LOT = 40;
@@ -308,12 +308,12 @@ export function townWorld(opts: { seed?: number; footprint?: number; houses?: To
     });
   }
 
-  return {
+  return keyedWorld({
     name: 'town',
     description: `dense town ${footprint / 2} m square: ${lots * lots} lots of 20 m, houses of 1–3 storeys with 0.5 m walls, 45° roofs, openings, beams, balconies with banisters, fences, ponds; ${grids.length - 1} houses in their own 30°/45° grids`,
     seed,
     areaM2: footprint * footprint * 0.25,
     benchFootprint: Math.min(footprint, 512),
     grids,
-  };
+  }, { seed, footprint, houses });
 }

@@ -30,7 +30,6 @@
     {"path": "tools/voxel-bench/relief-ring.test.ts", "s": 16},
     {"path": "tools/check-boundaries.test.mjs", "s": 15},
     {"path": "packages/voxel/src/walk-graph-links.test.ts", "s": 15},
-    {"path": "tools/voxel-bench/edits.test.ts", "s": 15},
     {"path": "packages/backend/src/play.test.ts", "s": 14},
     {"path": "tools/voxel-bench/kit-cases.test.ts", "s": 14},
     {"path": "tests/integration/voxel-world/voxel-world.test.ts", "s": 14},
@@ -42,7 +41,6 @@
     {"path": "packages/voxel/src/structures/spline-writer.test.ts", "s": 10},
     {"path": "tests/integration/voxel-world/voxel-structures.test.ts", "s": 10},
     {"path": "packages/backend/src/fbx.test.ts", "s": 10},
-    {"path": "packages/commands/src/create.test.ts", "s": 10},
-    {"path": "tools/voxel-bench/walk-feed.test.ts", "s": 10}
+    {"path": "packages/commands/src/create.test.ts", "s": 10}
   ]
 }

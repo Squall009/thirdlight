@@ -16,7 +16,8 @@ import { chunkGrid, createWorldStore, TERRAIN_RULES, VOXEL_SIZE_M } from '@third
 import { describe, expect, it } from 'vitest';
 import { FEATURE_BASE, FEATURE_PAD, FEATURE_TOP, FEATURE_WIDTH, featuresStore } from './features';
 import { levelMaterialMismatch, levelSurfaces, type LevelMaterialResult } from './level-materials';
-import { loadArea, surfaceY } from './regions';
+import { surfaceY } from './regions';
+import { loadAreaCached } from './world-cache';
 import { hillyWorld } from './worlds';
 
 const grid = chunkGrid(32);
@@ -39,7 +40,7 @@ describe('the material shown at every level', () => {
     // A hilly 64 m square of the slice world (its generator, slopes on every side, above the lakes), a level-2 node of margin round it.
     const [x0, z0] = [-256, 0];
     const size = 128;
-    loadArea(hillyWorld({ footprint: 1024 }).grids[0]!, store, x0 - 128, z0 - 128, x0 + size + 128, z0 + size + 128);
+    loadAreaCached(hillyWorld({ footprint: 1024 }).grids[0]!, store, x0 - 128, z0 - 128, x0 + size + 128, z0 + size + 128);
     let lo = Infinity, hi = -Infinity;
     for (let x = x0; x < x0 + size; x += 8) for (let z = z0; z < z0 + size; z += 8) {
       const y = surfaceY(store, x, z, 400, -64)!;

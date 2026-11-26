@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import * as esbuild from 'esbuild';
 import { chunkOfKey, RegionChunkSource, WORLD_GRID_ID, type ChunkGrid, type PaletteStore, type PoolWorker, type RegionByteSource, type RegionFootprint, type RegionLayout } from '@thirdlight/voxel';
-import { loadArea, pickStore, RegionSet } from './regions';
+import { pickStore, RegionSet } from './regions';
+import { loadAreaCached } from './world-cache';
 import { TEST_WORLD_ID } from './test-world-id';
 import type { TestGrid } from './world-kit';
 
@@ -100,7 +101,7 @@ export function writeWorldRegions(g: TestGrid, grid: ChunkGrid, dir: string, lay
   for (let rx = Math.floor(x0 / footprint); rx * footprint < x1; rx++) {
     for (let rz = Math.floor(z0 / footprint); rz * footprint < z1; rz++) {
       const store = pickStore(grid);
-      chunks += loadArea(g, store, Math.max(x0, rx * footprint), Math.max(z0, rz * footprint), Math.min(x1, (rx + 1) * footprint), Math.min(z1, (rz + 1) * footprint));
+      chunks += loadAreaCached(g, store, Math.max(x0, rx * footprint), Math.max(z0, rz * footprint), Math.min(x1, (rx + 1) * footprint), Math.min(z1, (rz + 1) * footprint));
       if (into !== undefined) for (const c of keysOf(grid, store.chunkKeys())) into.adoptPayload(c.cx, c.cy, c.cz, store.chunkPayload(c.cx, c.cy, c.cz, true));
       const set = new RegionSet(store, layout, footprint, TEST_WORLD_ID);
       for (const [name, b] of set.allFiles()) {

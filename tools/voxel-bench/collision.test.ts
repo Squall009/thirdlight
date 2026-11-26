@@ -52,7 +52,7 @@ import {
 } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { VoxelCollision } from '../../packages/editor/src/voxel-world/collision';
-import { loadArea } from './regions';
+import { loadAreaCached } from './world-cache';
 import { flatGround, placeBalcony, placeWallBeamBanister, putVoxel } from './scenes';
 import { MAT } from './world-kit';
 import { townWorld } from './town';
@@ -104,9 +104,9 @@ describe('collision alone', () => {
   it('is the full derive\'s collision and ground byte for byte, per section and joined, on the town (houses, roofs, a kit), hills and the hard cases', () => {
     const KIT = worldPieceTable([fullTestKit('all', Array.from({ length: 255 }, (_, k) => k + 1), 1)], 0);
     const town = createWorldStore(grid);
-    loadArea(townWorld({ footprint: 512 }).grids[0]!, town, 32, 32, 128, 128);
+    loadAreaCached(townWorld({ footprint: 512 }).grids[0]!, town, 32, 32, 128, 128);
     const hills = createWorldStore(grid);
-    loadArea(hillyWorld({ footprint: 96 }).grids[0]!, hills, -48, -48, 48, 48);
+    loadAreaCached(hillyWorld({ footprint: 96 }).grids[0]!, hills, -48, -48, 48, 48);
     const seen = { chunks: 0, sections: 0, ground: 0, boxes: 0, ramps: 0 };
     const c = { cx: 0, cy: 0, cz: 0 };
     for (const [name, s, table] of [['town', town, KIT], ['town without a kit', town, null], ['hills', hills, null], ['hard cases', featuresStore(), null]] as const) {
@@ -329,7 +329,7 @@ describe('ground as a heightfield', () => {
 
   it('in the town, ground collides as heightfield patches and lands drops and sweeps as the meshes do, houses and all', async () => {
     const s = createWorldStore(grid);
-    loadArea(townWorld({ footprint: 512 }).grids[0]!, s, 0, 0, 224, 224);
+    loadAreaCached(townWorld({ footprint: 512 }).grids[0]!, s, 0, 0, 224, 224);
     const chunks: Array<[number, number, number]> = [];
     const c = { cx: 0, cy: 0, cz: 0 };
     const seen = new Set<string>();
@@ -556,7 +556,7 @@ describe('the collision ring', () => {
   it('gives bodies only to chunks near a moving focus: nearest first in, farthest first out past the hysteresis, counted as a part; the heap stops growing', async () => {
     // A hilly strip 480 m along x and 48 m across, every chunk of it resident.
     const s = createWorldStore(grid);
-    loadArea(hillyWorld({ footprint: 1024 }).grids[0]!, s, -480, -48, 480, 48);
+    loadAreaCached(hillyWorld({ footprint: 1024 }).grids[0]!, s, -480, -48, 480, 48);
     const groundY = (x: number, z: number): number => {
       const v = { material: 0, role: 0, shape: 0, wetness: 0 };
       for (let y = 300; y > -140; y--) if (s.voxelAt(x, y, z, v).material !== 0) return y + 1;

@@ -463,7 +463,8 @@ describe('walk graph against the brute force', () => {
     expect(pairs).toBeGreaterThan(40);
     expect(unreachable).toBeGreaterThan(0);
     expect(worst).toBeLessThanOrEqual(1.08);
-  });
+    // About 28 s of brute force on a loaded host: the suite's 30 s limit (it only catches a hang) is too close.
+  }, 120_000);
 
   it('reaches the brute force’s cells within a cost', () => {
     const w = scrap(21);

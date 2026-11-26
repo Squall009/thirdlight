@@ -43,6 +43,11 @@ export interface TestGrid {
   readonly bounds: CellBounds;
   /** Writes one chunk into `out` (every cell) and returns whether any cell is not air. */
   fill(grid: ChunkGrid, cx: number, cy: number, cz: number, out: DenseChunk): boolean;
+  /**
+   * What fixes this grid's cells for the world cache (world-cache.ts): the generator and every parameter it was
+   * given. Unset (a grid a test makes itself): never cached.
+   */
+  readonly cacheKey?: string;
 }
 
 /** A synthetic test world: one or more grids plus what it stands for. */
@@ -197,4 +202,10 @@ export class ColumnCache<T> {
     }
     return this.value;
   }
+}
+
+/** `world` with each grid keyed for the world cache by the generator's name and every parameter it was given. */
+export function keyedWorld(world: TestWorld, params: Record<string, string | number>): TestWorld {
+  const key = `${world.name}(${Object.entries(params).map(([k, v]) => `${k}=${v}`).join(',')})`;
+  return { ...world, grids: world.grids.map((g) => ({ ...g, cacheKey: `${key}/${g.name}` })) };
 }

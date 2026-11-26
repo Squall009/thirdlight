@@ -10,7 +10,8 @@
  */
 import { chunkGrid, createWorldStore, POSITION_STEPS_PER_CELL, RELIEF_SUBDIVISIONS, reliefNeighbourBit, type PaletteStore, type ReliefOptions } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
-import { loadArea, surfaceY } from './regions';
+import { surfaceY } from './regions';
+import { loadAreaCached } from './world-cache';
 import { canonicalEqual, creaseDisagreements, deriveReliefSections, drawnSurface, RELIEF_SECTION_EDGE, watertight, worldMesh, type ReliefSection } from './relief-checks';
 import { buildSliceWorld } from './slice-world';
 import { townWorld } from './town';
@@ -30,7 +31,7 @@ interface Window {
 
 function loaded(g: TestGrid, x0: number, z0: number, x1: number, z1: number): PaletteStore {
   const s = createWorldStore(grid);
-  loadArea(g, s, x0, z0, x1, z1);
+  loadAreaCached(g, s, x0, z0, x1, z1);
   return s;
 }
 

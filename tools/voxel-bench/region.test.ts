@@ -29,7 +29,8 @@ import {
 } from '@thirdlight/voxel';
 import { crc32 } from '@thirdlight/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { FileSource, HttpSource, importRead, loadArea, pickStore, RegionSet, startRangeServer, storeEntry, zstdDecompress } from './regions';
+import { FileSource, HttpSource, importRead, pickStore, RegionSet, startRangeServer, storeEntry, zstdDecompress } from './regions';
+import { loadAreaCached } from './world-cache';
 import { townWorld, verticalWorld } from './worlds';
 import { MAT } from './world-kit';
 
@@ -44,7 +45,7 @@ const town = townWorld({ footprint: 200 });
 /** The town's world grid in one store, and a set of 256 m column region files over it. */
 function townStore(): PaletteStore {
   const store = pickStore(grid);
-  loadArea(town.grids[0]!, store, 0, 0, 512, 512);
+  loadAreaCached(town.grids[0]!, store, 0, 0, 512, 512);
   return store;
 }
 
@@ -229,7 +230,7 @@ describe('region files', () => {
   it('splits a 2 km tall column into stacked cubes that hold the same chunks', () => {
     const tall = verticalWorld({ footprint: 64 });
     const store = pickStore(grid);
-    loadArea(tall.grids[0]!, store, 0, 0, 64, 64);
+    loadAreaCached(tall.grids[0]!, store, 0, 0, 64, 64);
     const column = onlyFile(new RegionSet(store, 'column', 512, WORLD));
     const stacks = new RegionSet(store, 'stacked', 512, WORLD).allFiles();
     // 4,000 cells of height in 256 m cubes: 8 stacks; air above the peak and below the base allocates nothing.
@@ -260,7 +261,7 @@ describe('region files', () => {
     expect(house).toBeDefined();
     const store = pickStore(grid);
     const b = house!.bounds;
-    loadArea(house!, store, b.min[0], b.min[2], b.max[0], b.max[2]);
+    loadAreaCached(house!, store, b.min[0], b.min[2], b.max[0], b.max[2]);
     const files = new RegionSet(store, 'column', 512, WORLD, 7).allFiles();
     expect(files.size).toBeGreaterThan(0);
     const back = pickStore(grid);

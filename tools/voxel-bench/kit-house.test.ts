@@ -71,7 +71,7 @@ import {
   type DerivedData,
   type PaletteStore,
 } from '@thirdlight/voxel';
-import { loadArea } from './regions';
+import { loadAreaCached } from './world-cache';
 import { dabDetailRoles, putVoxel, randomAssemblyWorld } from './scenes';
 import { townWorld } from './town';
 import { fullTestKit } from './test-kits';
@@ -275,7 +275,7 @@ describe('pieces on edges only', () => {
 
   it('the town and random worlds: no piece on a flat face anywhere, one piece an edge', () => {
     const town = createWorldStore(grid);
-    loadArea(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 64, 64);
+    loadAreaCached(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 64, 64);
     const random = createWorldStore(grid);
     randomAssemblyWorld(random, 5, 24);
     dabDetailRoles(random, 5);

@@ -17,8 +17,8 @@
  * distance near the joins of two parts.
  */
 import { type ChunkGrid, chunkGrid, createWorldStore, type DenseChunk, localIndex, type PaletteStore, SHAPE_FULL, VOXEL_ROLE } from '@thirdlight/voxel';
-import { loadArea } from './regions';
-import { MAT, shapeByte, type TestGrid, type TestWorld } from './world-kit';
+import { loadAreaCached } from './world-cache';
+import { keyedWorld, MAT, shapeByte, type TestGrid, type TestWorld } from './world-kit';
 
 /** Signed distance in cells, positive inside the solid. */
 export type Sdf = (x: number, y: number, z: number) => number;
@@ -306,19 +306,19 @@ export function featuresWorld(): TestWorld {
       return any;
     },
   };
-  return {
+  return keyedWorld({
     name: 'features',
     description: `the terrain mesher's hard cases: ${cases.map((c) => c.name).join(', ')}, each on a 32 m pad in a row ${FEATURE_WIDTH / 2} m long`,
     seed: 0,
     areaM2: FEATURE_WIDTH * FEATURE_PAD * 0.25,
     benchFootprint: FEATURE_PAD,
     grids: [grid],
-  };
+  }, {});
 }
 
 /** The hard-case row in a store of 32³ chunks. */
 export function featuresStore(): PaletteStore {
   const store = createWorldStore(chunkGrid(32));
-  loadArea(featuresWorld().grids[0]!, store, 0, 0, FEATURE_WIDTH, FEATURE_PAD);
+  loadAreaCached(featuresWorld().grids[0]!, store, 0, 0, FEATURE_WIDTH, FEATURE_PAD);
   return store;
 }

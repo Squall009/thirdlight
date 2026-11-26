@@ -104,7 +104,8 @@ import { crc32 } from '@thirdlight/shared';
 import { listRegionFiles, RegionWorld } from '@thirdlight/workspace';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { bodiesOnly, bodySurface, coverage, exposedFaces, naiveOpenSegments, openSegments, tJunctions, weldBase } from './base-cases';
-import { loadArea, zstdDecompress } from './regions';
+import { zstdDecompress } from './regions';
+import { loadAreaCached } from './world-cache';
 import { instanceList, triangleList } from './mesh-compare';
 import { houseVoxel, townWorld, type House } from './town';
 import { FEATURE_GROUND, FEATURE_PAD, featureCases, featuresStore } from './features';
@@ -720,7 +721,7 @@ describe('the world rule set\'s case pass', () => {
     const strip = (d: DerivedData): DerivedData => ({ ...d, rules: { id: '', version: 0, radius: 0 }, instances: { count: 0, data: new Uint8Array(0) } as DerivedData['instances'] });
     const bytes = (d: DerivedData): Uint8Array => encodeDerived(strip(d));
     const town = createWorldStore(grid);
-    loadArea(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 128, 128);
+    loadAreaCached(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 128, 128);
     const stores: Array<[string, PaletteStore, Array<[number, number, number]>]> = [
       ['scene', wallBeamBanister(), [[-1, -1, -1], [-1, 0, -1], [0, 0, 0], [-1, 0, 0]]],
       ['town', town, [[0, 0, 0], [1, 0, 1], [2, 1, 2], [3, 0, 1], [1, 1, 3]]],
@@ -770,7 +771,7 @@ describe('the world rule set\'s case pass', () => {
 
   it('joins a chunk\'s 16³ and 8³ sections into the whole chunk\'s case grid, cell for cell (the reach margin included)', () => {
     const town = createWorldStore(grid);
-    loadArea(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 128, 128);
+    loadAreaCached(townWorld({ footprint: 128 }).grids[0]!, town, 0, 0, 128, 128);
     const stores: Array<[string, PaletteStore, Array<[number, number, number]>]> = [
       ['scene', wallBeamBanister(), [[-1, 0, -1], [0, 0, 0]]],
       ['town', town, [[1, 0, 1], [2, 1, 2]]],
@@ -979,7 +980,7 @@ function joinedBodies(store: PaletteStore, cx: number, cy: number, cz: number, e
 function groundEdges(draw: (s: PaletteStore, cx: number, cy: number, cz: number) => SurfaceBuffer): { edges: Map<string, number>; tris: number; surface: number } {
   const s = createWorldStore(grid);
   const world = hillyWorld({ footprint: 96 });
-  loadArea(world.grids[0]!, s, -48, -48, 48, 48);
+  loadAreaCached(world.grids[0]!, s, -48, -48, 48, 48);
   const edges = new Map<string, number>();
   let tris = 0;
   let surface = 0;
@@ -1033,10 +1034,10 @@ describe('meshes', () => {
 
   it('joins a chunk\'s 16³ and 8³ sections (terrain rules and mesher) into the whole-chunk derive\'s ground triangles, instances and shader grid, and its base faces (merged per section: same faces, no T-junction); joined chunks meet without cracks', () => {
     const hilly = createWorldStore(grid);
-    loadArea(hillyWorld({ footprint: 96 }).grids[0]!, hilly, -48, -48, 48, 48);
+    loadAreaCached(hillyWorld({ footprint: 96 }).grids[0]!, hilly, -48, -48, 48, 48);
     const town = createWorldStore(grid);
     const tw = townWorld({ footprint: 128 });
-    loadArea(tw.grids[0]!, town, 0, 0, 128, 128);
+    loadAreaCached(tw.grids[0]!, town, 0, 0, 128, 128);
     const scene = wallBeamBanister();
     const cases: Array<[string, PaletteStore, number, number, number, number, number, number]> = [
       ['hilly', hilly, -1, 0, -2, 1, -1, 0],
@@ -1177,7 +1178,7 @@ describe('voxel mips', () => {
 
   it('marks every ancestor of an edited chunk stale, and rebuilding those equals rebuilding the whole tree', () => {
     const s = createWorldStore(grid);
-    loadArea(hillyWorld({ footprint: 256 }).grids[0]!, s, -64, -64, 64, 64);
+    loadAreaCached(hillyWorld({ footprint: 256 }).grids[0]!, s, -64, -64, 64, 64);
     const maxLevel = 2;
     const nodeData = (store: PaletteStore, n: MipNode, tree: Map<string, DenseChunk | null>): DenseChunk | null => {
       if (n.level === 0) {
@@ -1225,7 +1226,7 @@ describe('voxel mips', () => {
 
   it('keeps solid/empty/mixed flags of every chunk-tree node from the derived chunks, stale ancestors refreshed after an edit', () => {
     const s = createWorldStore(grid);
-    loadArea(hillyWorld({ footprint: 256 }).grids[0]!, s, -64, -64, 64, 64);
+    loadAreaCached(hillyWorld({ footprint: 256 }).grids[0]!, s, -64, -64, 64, 64);
     const maxLevel = 2;
     const chunks: Array<{ cx: number; cy: number; cz: number }> = [];
     // Two level-1 nodes across, seven high: their chunks are all here (level 2 also sees chunks never loaded: empty).
@@ -1467,7 +1468,7 @@ describe('mesh format v2 and shader data', () => {
   it('meshes, instances and collision carry no material: a material and wetness paint changes only the shader data, within its border', () => {
     const s = createWorldStore(grid);
     const world = hillyWorld({ footprint: 96 });
-    loadArea(world.grids[0]!, s, -48, -48, 48, 48);
+    loadAreaCached(world.grids[0]!, s, -48, -48, 48, 48);
     applyEdit({ store: () => s }, canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-3, 0, -6], max: [2, 60, -5], mode: 'place', voxel: { material: MAT.stone, role: C.wall, wetness: 0 } }));
     const b = world.grids[0]!.bounds;
     const chunks: Array<[number, number, number]> = [];
@@ -1511,7 +1512,7 @@ describe('mesh format v2 and shader data', () => {
   it("a chunk's shader grid holds its cells and a border of its neighbours' cells, so blends cross chunk faces", () => {
     const s = createWorldStore(grid);
     const world = hillyWorld({ footprint: 96 });
-    loadArea(world.grids[0]!, s, -48, -48, 48, 48);
+    loadAreaCached(world.grids[0]!, s, -48, -48, 48, 48);
     applyEdit({ store: () => s }, canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-2, 0, -2], max: [1, 40, 1], mode: 'paint', voxel: { material: MAT.gravel, role: C.terrain, wetness: 7 } }));
     const v = { material: 0, role: 0, shape: 0, wetness: 0 };
     let checked = 0;
