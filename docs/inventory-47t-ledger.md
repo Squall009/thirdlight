@@ -17,6 +17,8 @@ tests/integration, `ex/` packages/exporter/src, …).
   and one assertion, C 15), at the code boundary: pure functions, the runtime in Node, commands over HTTP against a
   real backend, Node WebSocket clients, the editor's pointer tools with a camera and a stand-in canvas, a child
   process (`tools/start.mjs`). The inventory's "covered" was wrong for about one logic file in four (each row says).
+  At the phase's review four more gaps were closed with 10 unit tests (script-libraries' route refusal over HTTP; the
+  Scene view's pick; the controller from a model's first clip; the editor's reconnect timer: their rows say so).
 - **No longer checked by anything** (browser-only, accepted by the owner: found in the pictures or by hand):
   1. what is drawn: post effects, skies, fog, tone mapping and node-material pixels; shadows, contact shadows and
      reflections; instanced = not instanced, culling on = off, FSR and TAAU; decals, kit pieces, fades, letterboxes;

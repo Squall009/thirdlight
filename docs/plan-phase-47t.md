@@ -441,6 +441,26 @@ run's "previous".
   drop deletes only there; no thumbnails (full PNGs, lazily loaded); the closed defect list's and old plans' links
   to old work folders do not keep them; 47L's section carries a page-form head quoted from its acceptance text.
 
+- **2026-11-26 — the independent review and what was done** (fresh agent, `~/.cache/thirdlight-phase47t/review.md`;
+  fixes 47T.7-fixes). Q1, logic archived without a unit test: 35 ledger rows sampled, 30 ok, 4 gaps, 1 wrong claim;
+  19 of 42 new tests read, none a tautology, a sleep, a wall-clock or a pixel bound. Q2, rules against commands: they
+  agree except two live docs and one rule. Q3, gating on a pixel or a time: no unit or boot test does; still
+  time-dependent are the picture settle timeout, about 50 fixed sleeps and two kept wall-clock ratios. Findings and
+  fixes: STATUS's "Done" taught Playwright (rewritten to AGENTS'); script-libraries' route refusal had no test (an
+  HTTP test after an applied change); the Scene view's pick, the controller from a model's first clip (moved into
+  `newAnimatorController`) and the 2 s reconnect were reachable in Node (tested); the three upgrade checklist named
+  archived browser tests and both renderers (now check, phase run, WGSL digests, pictures before and after, WebGPU
+  only); the ledger's "no longer checked" missed the GPU-against-CPU fine bricks and more groups, and had the boot
+  numbers wrong (fixed); three tests whose bound went claimed more than they checked (the socket's 1001 close, the
+  budget's plan rules, the ray's height reads now asserted); `far-world`'s window reading checked nothing under load
+  (dropped, listed); `check --failed` could pass an order-dependent file in the shared pool (an unchanged file now
+  runs alone and stays RED, `tools/gate-failed.mjs`; AGENTS' Traps names isolation by kind); fixed sleeps (play's 10
+  of 12 and ws' 1.1 s replaced, the other 52 in 33 files tracked as D833); the Profiler screen's 2 s became its
+  timeline's frames, and `pictures.md` says the settle timeout is the suite's only time-dependent red. Not changed:
+  §2's "about 15 min" for the phase run is not met: the trial without pictures took 946 s and the pictures 868 s,
+  so a phase run is about 25–30 min against that budget (owner to know). The core voxel real-scale tests (derived,
+  world-host with its collision case, collision, stream) run once a phase (the slow list), no longer per commit.
+
 ## 9. Open questions for the owner (each with the default that stands if unanswered)
 
 
