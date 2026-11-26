@@ -28,7 +28,6 @@
     {"file":"tests/crash/m3-storage-child.ts","name":"editTags"},
     {"file":"tests/crash/m3-storage-crash.test.ts","name":"editRequest"},
     {"file":"tests/crash/ownership-child.ts","name":"mutation"},
-    {"file":"tests/e2e/import-extensions.e2e.ts","name":"command"},
     {"file":"tests/integration/m15-handles/handles.test.ts","name":"run"},
     {"file":"tests/integration/m15-inspector/inspector-fields.test.ts","name":"run"},
     {"file":"tests/integration/m2-builds/publication.test.ts","name":"createDeclaration"},

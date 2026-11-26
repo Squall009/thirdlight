@@ -7,6 +7,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { closureCacheStats } from '@thirdlight/exporter';
+import { WS_OUT_FRAME_MAX } from '@thirdlight/protocol';
 import { join } from 'node:path';
 import type { PlayArtifact } from './play-content';
 
@@ -97,6 +98,50 @@ describe('play start', () => {
       await tb.teardown();
     }
   });
+
+  it('a snapshot over the WebSocket frame bound goes by reference: play.started fits a frame, the owner fetches it whole from the snapshot route', async () => {
+    const tb = await startBackend();
+    try {
+      const sid = mkSessionId();
+      const est = await establish(tb, sid);
+      const ws = await upgrade(tb, sid, est.wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const editor = new FakeEditor(ws);
+      // Plain boxes with long names until the scene alone is past the bound (in requests under the request cap).
+      const pad = 'x'.repeat(100);
+      let revision = 0;
+      for (let b = 0; b < 20; b += 1) {
+        const entities = Array.from({ length: 250 }, (_, i) => ({ kind: 'box', name: `Extra ${b * 250 + i} ${pad}`, transform: { position: [i * 0.5, 0, b] } }));
+        const r = await api(`${tb.authUrl}/api/v1/projects/demo-0001/commands`, {
+          body: { op: 'createEntities', projectId: 'demo-0001', requestId: `req-${(0xa000 + b).toString(16).padStart(32, '0')}`, expectedRevision: revision, args: { sceneId: 'scene-main', entities }, origin: { kind: 'mcp', clientId: 'harness' } },
+          token: tb.authToken,
+          origin: null,
+        });
+        expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
+        revision = (r.json as { revision: number }).revision;
+      }
+      const r = await playStart(tb);
+      expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
+      const psid = String(r.json.playSessionId);
+      const started = await editor.waitForEvent('play.started');
+      expect(started.snapshot).toBeUndefined();
+      const ref = started.snapshotRef as { path: string; bytes: number };
+      expect(ref.path).toBe(`/api/v1/projects/demo-0001/play/${psid}/snapshot`);
+      expect(ref.bytes).toBeGreaterThan(WS_OUT_FRAME_MAX);
+      expect(JSON.stringify(started).length).toBeLessThanOrEqual(WS_OUT_FRAME_MAX);
+      const whole = await fetch(`${tb.authUrl}${ref.path}`, { headers: { authorization: `Bearer ${tb.authToken}` } });
+      expect(whole.status).toBe(200);
+      const bytes = new Uint8Array(await whole.arrayBuffer());
+      expect(bytes.length).toBe(ref.bytes);
+      const snap = JSON.parse(new TextDecoder().decode(bytes)) as { snapshotId: string; scene: { entities: unknown[] } };
+      expect(snap.snapshotId).toBe(`demo-0001@r${revision}`);
+      expect(snap.scene.entities.length).toBeGreaterThan(5000);
+      expect((await fetch(`${tb.authUrl}${ref.path}`)).status).toBe(401);
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  }, 120_000);
 
   it('a second concurrent play ⇒ 409 play_already_active with activePlaySessionId', async () => {
     const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });

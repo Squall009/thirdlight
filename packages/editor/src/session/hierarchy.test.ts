@@ -88,6 +88,17 @@ describe('effective flags and the projection', () => {
     expect(f.get('b')).toMatchObject({ active: true, locked: false });
   });
 
+  it('a kept object keeps its children loaded with it, saying from where; clearing its flag lets them go', () => {
+    const ents = tree();
+    ents[1] = e('a', 'F', 'box', { keepLoaded: true });
+    const f = effectiveFlagsOf(ents);
+    expect(f.get('a')).toMatchObject({ keepLoaded: true });
+    expect(f.get('a')!.inheritedFrom.keepLoaded).toBeUndefined();
+    expect(f.get('a1')).toMatchObject({ keepLoaded: true, inheritedFrom: { keepLoaded: 'a' } });
+    expect(f.get('b')).toMatchObject({ keepLoaded: false });
+    expect(effectiveFlagsOf(tree()).get('a1')).toMatchObject({ keepLoaded: false });
+  });
+
   it('applies moveEntities and flag changes from the change data alone', () => {
     const p = new Projection();
     const T = { position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } as { position: [number, number, number]; rotation: [number, number, number, number]; scale: [number, number, number] };

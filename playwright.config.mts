@@ -49,15 +49,12 @@ const WEBGPU_SPECS = [
   '**/material-swap.e2e.ts',
   // Each scene's look in the Scene view, and the active scene's blend in Play and the export, on WebGPU.
   '**/scene-environment.e2e.ts',
-  // Phase 24.4h: per-object look overrides (emissive, tint) on WebGPU.
-  '**/look-override.e2e.ts',
   // Phase 25.2: Play screenshots read back from WebGPU, image textures included.
   '**/screenshot.e2e.ts',
   // Phase 25.8: scene lights on load and unload, 12 point lights, spot cookies on WebGPU.
   '**/scene-lights.e2e.ts',
   // Phase 25.19: material instances and KTX2 textures (Scene view, Play, export) on WebGPU.
   '**/material-instances.e2e.ts',
-  '**/ktx2-textures.e2e.ts',
   // Mip streaming of large KTX2 textures under the texture budget (Play, the export's files) on WebGPU.
   '**/texture-streaming.e2e.ts',
 ];

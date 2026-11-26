@@ -7,8 +7,10 @@
  * stay), and a publishAsset of uploaded bytes lands in the folder it names.
  * A game folder outside the data root: a file already in it is imported in
  * place (nothing copied), a rebuilt file is reported changed and the check
- * imports it again.
+ * imports it again. An FBX (uploaded with its texture inside, or in the game
+ * folder) is converted through the same tools and filed as the asset's file.
  */
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -38,6 +40,9 @@ const GLB_V2 = join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v2.glb');
 const GLB = new Uint8Array(readFileSync(GLB_V1));
 const sha = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
 const REACH_TOKEN = 'folder-import-reach-token';
+const FBX_TOKEN = 'folder-import-fbx-token';
+const FBX = join(REPO, 'fixtures', 'import-ext', 'fbx');
+const haveBlender = spawnSync(process.env.THIRDLIGHT_BLENDER ?? 'blender', ['--version']).status === 0;
 
 let root: DisposableRoot;
 let bp: BackendProcess;
@@ -54,6 +59,7 @@ beforeAll(async () => {
     { token: AUTH_TOKEN, scope: `authoring:${V3_PROJECT}` },
     { token: ADMIN_TOKEN, scope: 'admin' },
     { token: REACH_TOKEN, scope: 'authoring:reach' },
+    { token: FBX_TOKEN, scope: 'authoring:fbxgame' },
   ]);
   mcp = await createMcp(bp.origin);
 }, 90_000);
@@ -156,4 +162,53 @@ describe('folder import through MCP', () => {
       await agent.close();
     }
   }, 60_000);
+});
+
+describe.skipIf(!haveBlender)('FBX through MCP (needs Blender on the backend host, THIRDLIGHT_BLENDER)', () => {
+  it('an uploaded FBX (embedded texture) and a game-folder FBX are converted and published; both are the assets\' files', async () => {
+    mkdirSync(join(root.root, 'games'), { recursive: true });
+    const game = join(root.root, 'games', 'fbxgame');
+    const made = await http(`${bp.origin}/api/v1/admin/projects`, { token: ADMIN_TOKEN, body: { projectId: 'fbxgame', name: 'FBX', folder: game } });
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    mkdirSync(join(game, 'assets'), { recursive: true });
+    copyFileSync(join(FBX, 'crate.fbx'), join(game, 'assets', 'crate.fbx'));
+    copyFileSync(join(FBX, 'crate_checker.png'), join(game, 'assets', 'crate_checker.png'));
+    const agent = await createMcp(bp.origin, 'fbxgame', FBX_TOKEN, 'folder-fbx');
+    const publish = async (up: { body: Record<string, unknown> }, assetId: string) => {
+      const p = up.body.proposal as Record<string, unknown>;
+      const rev = Number((await agent.call('tl_inspect', { target: 'project' })).body.revision);
+      return agent.call('tl_command', {
+        op: 'publishAsset',
+        expectedRevision: rev,
+        args: { mode: 'create', assetId, kind: 'model', sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, convertedFrom: up.body.convertedFrom, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: '2026-09-29T00:00:00Z' },
+      });
+    };
+    try {
+      const uploaded = await agent.call('tl_content_upload', { dataBase64: base64(new Uint8Array(readFileSync(join(FBX, 'crate-embedded.fbx')))), displayName: 'Uploaded crate' });
+      expect(uploaded.isError, JSON.stringify(uploaded.body)).toBe(false);
+      expect(uploaded.body.convertedFrom).toMatchObject({ format: 'fbx', converter: { name: 'blender' } });
+      expect((uploaded.body.convertedFrom as { sourcePath?: string }).sourcePath).toBeUndefined();
+      const up = await publish(uploaded, 'uploaded-crate');
+      expect(up.isError, JSON.stringify(up.body)).toBe(false);
+
+      const inFolder = await agent.call('tl_content_upload', { projectPath: 'assets/crate.fbx' });
+      expect(inFolder.isError, JSON.stringify(inFolder.body)).toBe(false);
+      expect(inFolder.body.convertedFrom).toMatchObject({ format: 'fbx', sourcePath: 'assets/crate.fbx' });
+      const fp = await publish(inFolder, 'folder-crate');
+      expect(fp.isError, JSON.stringify(fp.body)).toBe(false);
+
+      const integrity = await agent.call('tl_content_query', { target: 'integrity' });
+      const entries = integrity.body.entries as Array<{ assetId: string; status: string; convertedFrom?: { sourcePath?: string; status: string } }>;
+      expect(entries.map((e) => [e.assetId, e.status, e.convertedFrom?.sourcePath ?? null, e.convertedFrom?.status])).toEqual([
+        ['folder-crate', 'ok', 'assets/crate.fbx', 'ok'],
+        // An uploaded FBX is filed into the game folder when it is published: it is the asset's file too.
+        ['uploaded-crate', 'ok', 'assets/uploaded-crate.fbx', 'ok'],
+      ]);
+      expect(JSON.parse(readFileSync(join(game, 'assets', 'crate.fbx.tlasset'), 'utf8'))).toMatchObject({ kind: 'model', importSettings: { convert: { from: 'fbx', to: 'glb' } } });
+      // The converted GLB lives in the import cache; nothing is copied into sources/.
+      expect(existsSync(join(game, 'thirdlight', 'sources', 'sha256'))).toBe(false);
+    } finally {
+      await agent.close();
+    }
+  }, 300_000);
 });
