@@ -19,27 +19,21 @@
  *   action sampling and fail-stop with no rollback.
  */
 import { threadProfiler as P } from '@thirdlight/shared';
-import { RuntimeVoxels } from './voxel-worlds';
-import { propLightShape } from './prop-light-shape';
-import { worldTransformOf } from './world-transform';
-import type { VoxelWorldPorts } from './voxel-world-host';
+import { runtimeVoxels } from './runtime-voxels';
+import type { RuntimeArgs } from './runtime-args';
 import { RuntimeGrid, isOneWayGridCollider, worldStreamSources, type GridCutawayState, type GridRenderChange } from './grid';
 import type { TerrainSimData } from './scatter-copies';
 import { fail } from './runtime-config';
-import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
+import { RuntimeMaterials, type MaterialRenderChange } from './material-params';
 import { RuntimeAssetHandles, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
 import { PresentationRequests } from './presentation-requests';
 import { saveSectionsPort } from './save-sections';
 import { RuntimeSaves, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
-import { projectFrameRateCap, seeThroughSettingsOfProject, type SaveSchema } from '@thirdlight/project-model';
+import { projectFrameRateCap, seeThroughSettingsOfProject } from '@thirdlight/project-model';
 
 import { type InputBindingRequest } from './input-status';
-import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
-  ENGINE_TIMING_DEFAULTS,
   type EntityV3,
-  type PrefabDefinition,
-  type RuntimeUiDocumentRow,
 } from '@thirdlight/project-model';
 import {
   neutralFrame,
@@ -50,7 +44,7 @@ import {
   } from './actions';
 
 import { type RuntimeError } from './errors';
-import { RuntimeSim, cloneCurr, messageOf, type ModuleEntry } from './runtime-sim';
+import { RuntimeSim, cloneCurr, messageOf } from './runtime-sim';
 import { RuntimeFaults, behaviorDebugOf, behaviorPropertiesOf } from './runtime-faults';
 import { RuntimeScenes } from './runtime-scenes';
 import { RuntimeEntities } from './runtime-entities';
@@ -67,11 +61,10 @@ import type { FramePacingStats } from './frame-pacing';
 import { FrameLoop } from './frame-loop';
 import { ModeState, type ModeView } from './modes';
 import type { BehaviorDebugView, BehaviorPropertyView } from './behavior';
-import { type LiveTagIndex } from './scene-set';
 import type { BehaviorLogLevel } from './intents';
 
 
-import { type AnimatorControllerLike, type AnimatorPose } from './animator';
+import { type AnimatorPose } from './animator';
 import { AnimatorSystem } from './animator-system';
 import { randomSeedOf } from './random';
 import { AudioMixer, type AudioCommand } from './audio-mixer';
@@ -83,10 +76,8 @@ import { RuntimeViews } from './views';
 import { KeptObjects } from './kept';
 import { EnvironmentDirector } from './environment-director';
 import { type EnvironmentBlendView } from './environment-blend';
-import type { ScriptStop } from './types';
 import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
-import type { TimelineAsset } from '@thirdlight/project-model';
 import { blocksCharacterOf, GameplayBlocks } from './blocks';
 import { createGameControl } from './game-control';
 import { createShellControl } from './scene-list';
@@ -95,30 +86,26 @@ import { EntityAccess, type LightOverride } from './entity-access';
 import { StepReads, type DrawnSteps } from './step-reads';
 import { arbiterFollows, STEP_SPAN as S } from './step-spans';
 import { PlayerControllers } from './player-controllers';
-import type { PhysicsPort3D, Vec2 } from './ports';
+import type { Vec2 } from './ports';
 import {
   type CameraInfo,
-  type RuntimeSceneRow,
   type SceneLoadOptions,
   type SceneLoadRequest,
   type SceneSetView,
   type EffectRequest,
   type DecalRequest,
-  type GameplaySettings,
   type InterpolatedState,
   type InterpolatedVisitor,
   type StepPairVisitor,
-  type ModelBounds,
   type Runtime,
   type RuntimeDiagnostics,
   type RuntimeDiagnosticsHead,
-  type SimEntityData,
   type SimState,
   type SimulationModule,
   type SimulationPhaseModule,
   type TransformState,
   type DebugCommandState,
-  } from './types';
+} from './types';
 
 export type { HeldPointer } from './runtime-input';
 
@@ -126,107 +113,7 @@ export { PHYSICS_QUERY_LIMIT } from './physics-query-args';
 
 export { EFFECT_MAX_QUEUED_REQUESTS } from './presentation-requests';
 export { catchUpSteps, MAX_CATCHUP_SECONDS } from './frame-clock';
-/**
- * The M2 settle pre-roll at 120 Hz — the engine's settle time
- * (0.1 s, `ENGINE_TIMING_DEFAULTS.settleTime`) converted at the step rate.
- */
-export const SETTLE_PREROLL_STEPS = 12;
-/** Steps a one-way platform lets the character drop through at 120 Hz (`ENGINE_TIMING_DEFAULTS.dropThroughTime`, 0.125 s). */
-export const DROP_THROUGH_STEPS = 15;
-
-/**
- * The engine timing in whole steps at `hz` (120 Hz gives
- * `SETTLE_PREROLL_STEPS` and `DROP_THROUGH_STEPS`).
- */
-export function engineTimingSteps(hz: number): { settleSteps: number; dropThroughSteps: number } {
-  return {
-    settleSteps: Math.max(0, Math.round(ENGINE_TIMING_DEFAULTS.settleTime * hz)),
-    dropThroughSteps: Math.max(1, Math.round(ENGINE_TIMING_DEFAULTS.dropThroughTime * hz)),
-  };
-}
-
-export interface BehaviorLogSink {
-  handler: ((moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void) | null;
-  stopped?: (moduleId: string, stop: ScriptStop) => void;
-}
-
-
-/** What the runtime is made of: `instantiateRuntime`'s validated, resolved inputs. */
-export interface RuntimeArgs {
-  snapshotId: string;
-  revision: number;
-  hz: number;
-  clock: () => number;
-  clockLabel: 'performance' | 'injected';
-  driverKind: 'raf' | 'manual';
-  onFrame?: () => void;
-  modules: string[];
-  entries: ModuleEntry[];
-  isM2: boolean;
-  /** The engine timing in steps. */
-  timing: { settleSteps: number; dropThroughSteps: number };
-  actions: ActionSource;
-  /** The physics port (absent: a game without physics). */
-  physics3d?: PhysicsPort3D;
-  /** How the scenes' voxel worlds are opened (absent: they stream nothing). */
-  voxels?: VoxelWorldPorts;
-  settings: GameplaySettings;
-  /** The player controllers' objects, in snapshot order. */
-  controllerEntityIds: readonly string[];
-  order: string[];
-  entities: Map<string, SimEntityData>;
-  /** The project's lens (its camera settings): the view's while no camera sets its own. */
-  viewLens: { fovY: number; near: number; far: number };
-  prev: Map<string, TransformState>;
-  curr: Map<string, TransformState>;
-  logSink: BehaviorLogSink;
-  sceneRows: readonly RuntimeSceneRow[] | null;
-  startBatches: readonly { sceneId: string; entities: EntityV3[] }[];
-  liveTags: LiveTagIndex | null;
-  queryTags: LiveTagIndex | null;
-  /** The controllers, and the snapshot scene's entities (their `animator` components). */
-  animatorControllers: readonly AnimatorControllerLike[];
-  initialEntities: readonly EntityV3[];
-  /** The prefab definitions scripts spawn. */
-  prefabs: readonly PrefabDefinition[];
-  /** Model assetId -> its recorded bounds. */
-  modelBounds: Readonly<Record<string, ModelBounds>>;
-  /** audio assetId -> its recorded duration (ms). */
-  audioDurations: Readonly<Record<string, number>>;
-  /** Model rigs (sockets are resolved on them). */
-  rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
-  /** The models' `_COL` parts (colliders `{type: 'model'}` are made of them). */
-  modelColliders?: import('@thirdlight/project-model').ModelColliderTable;
-  /** Generated architecture's style and preset graphs. */
-  architectureStyles?: readonly import('@thirdlight/project-model').ArchitectureGraphLike[];
-  /** Injected script variables (validated; ctx.save from step 0). */
-  variables?: Readonly<Record<string, unknown>>;
-  /** The block types and cell fields of the project's block layers. */
-  blockTypes: readonly BlockType[];
-  cellFields: readonly CellField[];
-  /** The graph materials' parameters (ctx.materials). */
-  materialCatalog?: RuntimeMaterialCatalog;
-  /** Every project material the game ships (what a material swap may name). */
-  materialIds?: readonly string[];
-  /** The project save schema and the stored project settings document. */
-  saveSchema?: SaveSchema;
-  projectSettings?: Readonly<Record<string, unknown>>;
-  /** The project's UI documents (id, layer, modal). */
-  uiDocuments: readonly RuntimeUiDocumentRow[];
-  /** The compiled conversations, speakers and dialogue settings. */
-  dialogue?: import('@thirdlight/project-model').RuntimeDialogueData;
-  /** The project's game modes (absent: none) and the mode runs start in. */
-  modes?: import('@thirdlight/project-model').RuntimeModes;
-  startMode?: string;
-  /** The project's timelines. */
-  timelines?: readonly TimelineAsset[];
-  /** The event → cue table. */
-  eventCues?: readonly import('./types').RuntimeEventCue[];
-  /** The shell's ordered scene list. */
-  sceneList?: readonly import('./types').ListedScene[];
-  /** The environment preset ids (ctx.environment). */
-  environmentPresets: readonly string[];
-}
+export * from './runtime-args';
 
 const NO_LOOKS: ReadonlyMap<string, import('./primitives').EntityLook> = new Map();
 
@@ -436,27 +323,13 @@ export class RuntimeInstance implements Runtime {
       intentAxes: () => rt.phases.intents.axes,
       sceneOf: (id) => rt.scenes.sceneOf(id),
       sceneSetChanged: () => rt.scenes.changed(),
-    }, args.prefabs, new RuntimeVoxels(args.voxels ?? null, args.physics3d, {
-      // Worlds stream around where the camera looks (its target, else itself), else around their objects.
-      camera: () => {
-        const v = this.views.main.hasView() ? this.views.main.view() : null;
-        if (v === null || v.live === null) return null;
-        return (v.target !== undefined ? this.sim.curr.get(v.target)?.position : undefined) ?? v.position;
-      },
-      positionOf: (id) => this.sim.curr.get(id)?.position,
-      characters: () => this.controllers.ids,
-      // The last step's displacement over its length (a placement reads as a jump, which the lead points ignore).
-      velocityOf: (id) => {
-        const a = this.sim.prev.get(id)?.position;
-        const b = this.sim.curr.get(id)?.position;
-        if (a === undefined || b === undefined) return undefined;
-        const hz = this.sim.hz;
-        return [(b[0]! - a[0]!) * hz, (b[1]! - a[1]!) * hz, (b[2]! - a[2]!) * hz];
-      },
-      worldTransform: (id) => worldTransformOf(id, this.sim.curr, (x) => this.sim.parentOf(x)),
-      propShape: (id, components, world) => propLightShape(id, components, world, this.chars.colliders.ctx, args.modelBounds)?.shape ?? null,
-      portalOpen: (id) => this.entityAccess.portalOpen(id),
-      warn: (message) => this.faults.log('thirdlight.runtime:voxels', 'warn', message),
+    }, args.prefabs, runtimeVoxels(args, {
+      get views() { return rt.views; },
+      get sim() { return rt.sim; },
+      get controllers() { return rt.controllers; },
+      get chars() { return rt.chars; },
+      get entityAccess() { return rt.entityAccess; },
+      get faults() { return rt.faults; },
     }));
     // The start scenes' block layers; their chunks collide.
     this.grid = new RuntimeGrid(

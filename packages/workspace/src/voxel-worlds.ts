@@ -45,8 +45,6 @@ import { REQUEST_ID_RE } from '@thirdlight/project-model/request-id';
 import { sceneStructures, sceneWaterBodies, structureDefinitionOf, structurePlacements, voxelWorldBakeLevel, voxelWorldBakeLevels, type SceneWaterBody } from '@thirdlight/project-model';
 import {
   canonicalEditCommand,
-  chunkGrid,
-  CHUNK_EDGES,
   editBounds,
   editChunks,
   materialSwap,
@@ -54,22 +52,13 @@ import {
   swapTo,
   EditCommandError,
   EditRefused,
-  isRegionFootprint,
-  REGION_FOOTPRINTS,
-  kitTestScene,
-  liftVersion,
-  MATERIAL_ID_MAX,
-  valueOf,
   valueRole,
   VOXEL_ROLE,
   CellSet,
-  WORLD_RULES,
   UndoStore,
   VOXEL_WORLD_NAME_RE,
   WORLD_GRID_ID,
   VOXEL_GRID_ID_MAX,
-  WORLD_ID_BYTES,
-  FAR_MAX_LEVEL,
   FAR_MIN_LEVEL,
   DEFAULT_FAR_BAKE_LEVEL_M,
   farBakeLevelOf,
@@ -80,525 +69,35 @@ import {
   type GridPlacement,
   type StructureDefinition,
   type StructureGenerator,
-  type StructureMisfit,
   type CellBox,
   type ChunkCoord,
-  type ChunkEdge,
   type ChunkUndo,
-  type PaletteStore,
-  type RegionFootprint,
-  type RegionLayout,
-  type KitTestLabel,
-  type VoxelEditCommand,
-  type VoxelRecord,
 } from '@thirdlight/voxel';
 import { isVoxelWorldOp, type VoxelWorldOp } from '@thirdlight/commands/mutation-ops';
 import type { StructureOverrides } from '@thirdlight/voxel';
 import { parseOrigin } from '@thirdlight/commands';
-import { hexToBytes } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
-import { commitWorldsStaged, DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, REGION_WORLD_RESIDENT_BYTES, RegionWorld, replaceFile, ShippedWorld, addressName, addressOf, type StagedFile, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
-import { applyStructureChanges, capturedOverrides, readOverrides, StructureWriteRefused, STRUCTURE_OVERRIDES_FILE, type HeldOverrides, type StructureChange, type StructureChangeReport, type StructureGridHost } from './voxel-structure-writes';
-import { writeAtomic, type WriteOps } from './write';
-import { farBricksFolder, type FarBricksRebuild } from './voxel-far-bake';
-import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCacheStale, farLevelFolder, FarWorldSource, placedGridChunks, readFarCacheManifest, swapFarCache, type FarCacheManifest } from './voxel-far-cache';
+import { commitWorldsStaged, DiskUndoSpill, REGION_FILE_NAME_RE, RegionWorld, replaceFile, addressName, addressOf, type StagedFile, type StagedOutcome } from './voxel-world-files';
+import { applyStructureChanges, capturedOverrides, readOverrides, StructureWriteRefused, STRUCTURE_OVERRIDES_FILE, type StructureChange, type StructureChangeReport, type StructureGridHost } from './voxel-structure-writes';
+import { farBricksFolder } from './voxel-far-bake';
+import { FAR_EXPORT_WAIT_MS, farCacheBuildDir, farCacheDir, farCacheFiles, farCacheStale, FarWorldSource, placedGridChunks, readFarCacheManifest, swapFarCache, type FarCacheManifest } from './voxel-far-cache';
 import { farFineComplete, farFinePending, farFineProgress, rebakeFarFine, startFarFine, writeFarFineColumn, type FarFineResult } from './voxel-far-fine';
 import { FarFollow } from './voxel-far-follow';
 import { inProcessFarJobs, type FarCacheJobs } from './voxel-far-jobs';
 import { gridBoxInWorld, WaterBodies, type WaterBodyReport, type WaterChange, type WaterWorld } from './voxel-water';
 import { applySplineChanges, listedSplineRecords, readSplineRecord, splineRecordFile, SPLINE_RECORDS_FOLDER, type HeldRecord, type SplineChange, type SplineChangeReport } from './voxel-spline-writes';
 
-/** The project folder holding its voxel worlds, one folder each. */
-export const VOXEL_WORLDS_FOLDER = 'voxels';
-/** A world's description and revision, next to its grids' folders. */
-export const VOXEL_WORLD_MANIFEST = 'world.json';
-/** The world manifest's format; a newer one is refused, an older one lifted ({@link liftManifest}). */
-export const VOXEL_WORLD_FORMAT = 3;
-/**
- * The voxel world ops' arguments, as {@link VoxelWorlds.command} reads them
- * (unknown fields refused). `world` names the folder `voxels/<world>/`.
- */
-export type VoxelWorldOpArgs =
-  | {
-      op: 'editVoxels';
-      /** One stroke; `command` is the voxel edit command format (`v`, `grid`, `kind`, …), rebuilt field by field. */
-      args: { world: string; command: VoxelEditCommand };
-    }
-  | {
-      op: 'writeKitTestScene';
-      /**
-       * Writes the kit test scene (@thirdlight/voxel `kitTestScene`: every
-       * case of the world rules' catalogue built from voxels, a row a role,
-       * a column a case) into the box from `origin` (world cells, its lowest
-       * corner), emptying the box first; every built cell in `material` (a
-       * kit's bound material, so the kit's pieces draw). One change: one
-       * `undo` takes it back. The answer's `scene` labels each
-       * exhibit's centre with its role, case and run section.
-       */
-      args: { world: string; origin: [number, number, number]; material: number };
-    };
+import { gridFolder, liftManifest, manifestBytes, parseVoxelWorldManifest, worldOptions, VOXEL_WORLD_MANIFEST, VOXEL_WORLDS_FOLDER, type VoxelWorldManifest } from './voxel-world-manifest';
+import { fileStamp, isFarLevel, NO_CELLS, refuse, splineReportAt, strokeRecords, waitAtMost, worldKey, type FarBuild, type FarRebuilt, type FineBake, type HistoryEntry, type OpenWorld, type RegionFileAnswer, type ShippedWorldFiles, type StructureGridReport, type VoxelCommandApplied, type VoxelCommandResult, type VoxelFarInfo, type VoxelFineBake, type VoxelStepDirection, type VoxelWaterAnswer, type VoxelWorldError, type VoxelWorldInfo, type VoxelWorldsOptions, type WorldState, SPLINE_WRITE_OP, STRUCTURE_WRITE_OP, WATER_WRITE_OP } from './voxel-world-answers';
+import { writeKitTestScene } from './voxel-kit-scene-write';
+
+export * from './voxel-world-manifest';
+export * from './voxel-world-answers';
 
 /** Answers kept per world for request ids sent again. */
 const ANSWERS_KEPT = 256;
 /** Refusals of a step that mean the world no longer holds its strokes. */
 const STROKES_LOST = new Set(['world_changed', 'world_not_found', 'world_unreadable', 'project_not_found']);
-
-/** The folder of a grid's region files inside a world's folder. */
-export function gridFolder(gridId: number): string {
-  return `grid-${gridId}`;
-}
-
-/** A structure grid of a world as its manifest lists it: its id (≥ 1) and its region files (sorted names). */
-export interface VoxelWorldGrid {
-  readonly id: number;
-  readonly regions: readonly string[];
-}
-
-export interface VoxelWorldManifest {
-  readonly format: number;
-  /** The world id the region files carry (hex, 16 bytes). */
-  readonly worldId: string;
-  readonly edge: ChunkEdge;
-  readonly layout: RegionLayout;
-  readonly footprint: RegionFootprint;
-  /** The world grid's region files (sorted names): any other region is air. */
-  readonly regions: readonly string[];
-  /** The structure grids, sorted by id, each with its region files listed as the world grid's are. */
-  readonly grids: readonly VoxelWorldGrid[];
-  /** Moves by one with every applied change. */
-  readonly revision: number;
-}
-
-/**
- * A manifest of an older format lifted to this one, add-only. Format 1
- * listed no region files: lifting it lists the world grid's region files in
- * the folder at that moment (the most an old world can say). Format 2 had
- * no structure grids: it reads as a world without any.
- */
-export function liftManifest(value: Record<string, unknown>, worldDir: string): Record<string, unknown> {
-  const format = value.format;
-  if (typeof format !== 'number' || !Number.isInteger(format) || format < 1) throw new Error(`unknown world manifest format ${String(format)}`);
-  const steps = [
-    { from: 1, lift: (o: Record<string, unknown>) => ({ ...o, format: 2, regions: listRegionFiles(join(worldDir, gridFolder(WORLD_GRID_ID))) }) },
-    { from: 2, lift: (o: Record<string, unknown>) => ({ ...o, format: 3, grids: [] }) },
-  ];
-  return liftVersion('world manifest', format, VOXEL_WORLD_FORMAT, steps, value, (o) => o.format as number);
-}
-
-/** Whether `v` is a sorted list of region file names, each once. */
-const regionList = (v: unknown): v is string[] => Array.isArray(v) && !v.some((n, i) => typeof n !== 'string' || !REGION_FILE_NAME_RE.test(n) || (i > 0 && v[i - 1] >= n));
-
-/** Reads a manifest of this format, refusing anything but its exact fields. */
-export function parseVoxelWorldManifest(value: unknown): VoxelWorldManifest {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('a world manifest is an object');
-  const o = value as Record<string, unknown>;
-  const keys = Object.keys(o).sort().join(',');
-  if (keys !== 'edge,footprint,format,grids,layout,regions,revision,worldId') throw new Error(`world manifest fields ${keys}`);
-  if (o.format !== VOXEL_WORLD_FORMAT) throw new Error(`unknown world manifest format ${String(o.format)}`);
-  const regions = o.regions;
-  if (!regionList(regions)) throw new Error('regions is a sorted list of region file names, each once');
-  const grids = o.grids;
-  if (!Array.isArray(grids)) throw new Error('grids is a list of { id, regions }');
-  const out: VoxelWorldGrid[] = [];
-  for (const [i, g] of grids.entries()) {
-    if (typeof g !== 'object' || g === null || Array.isArray(g) || Object.keys(g).sort().join(',') !== 'id,regions') throw new Error(`grids[${i}] is { id, regions }`);
-    const { id, regions: listed } = g as Record<string, unknown>;
-    if (typeof id !== 'number' || !Number.isInteger(id) || id < 1 || id > VOXEL_GRID_ID_MAX) throw new Error(`grids[${i}].id is a whole number 1 … ${VOXEL_GRID_ID_MAX} (0 is the world grid)`);
-    if (i > 0 && out[i - 1]!.id >= id) throw new Error('grids are sorted by id, each once');
-    if (!regionList(listed)) throw new Error(`grids[${i}].regions is a sorted list of region file names, each once`);
-    out.push({ id, regions: listed });
-  }
-  if (typeof o.worldId !== 'string' || !new RegExp(`^[0-9a-f]{${WORLD_ID_BYTES * 2}}$`).test(o.worldId)) throw new Error('worldId is 32 hex digits');
-  if (!(CHUNK_EDGES as readonly unknown[]).includes(o.edge)) throw new Error(`chunk edge ${String(o.edge)}`);
-  if (o.layout !== 'stacked' && o.layout !== 'column') throw new Error(`layout ${String(o.layout)}`);
-  if (!isRegionFootprint(o.footprint)) throw new Error(`footprint ${String(o.footprint)} (cells a region side, one of ${REGION_FOOTPRINTS.join(', ')})`);
-  if (typeof o.revision !== 'number' || !Number.isSafeInteger(o.revision) || o.revision < 0) throw new Error('revision is a whole number ≥ 0');
-  return { format: VOXEL_WORLD_FORMAT, worldId: o.worldId, edge: o.edge as ChunkEdge, layout: o.layout, footprint: o.footprint as RegionFootprint, regions, grids: out, revision: o.revision };
-}
-
-function manifestBytes(m: VoxelWorldManifest): Uint8Array {
-  const ordered = { format: m.format, worldId: m.worldId, edge: m.edge, layout: m.layout, footprint: m.footprint, regions: m.regions, grids: m.grids.map((g) => ({ id: g.id, regions: g.regions })), revision: m.revision };
-  return new TextEncoder().encode(`${JSON.stringify(ordered, null, 2)}\n`);
-}
-
-/**
- * Writes a new world folder from a store's chunks: the world grid's region
- * files, then the manifest at revision 0. Refuses a folder that already
- * holds a world.
- */
-export function writeVoxelWorld(dir: string, m: Omit<VoxelWorldManifest, 'format' | 'revision' | 'regions' | 'grids'>, store: PaletteStore): { files: number } {
-  if (existsSync(join(dir, VOXEL_WORLD_MANIFEST))) throw new Error(`${dir} already holds a voxel world`);
-  let manifest = parseVoxelWorldManifest({ format: VOXEL_WORLD_FORMAT, revision: 0, regions: [], grids: [], ...m });
-  if (store.grid.edge !== manifest.edge) throw new Error(`the store's chunk edge ${store.grid.edge} is not the world's ${manifest.edge}`);
-  const world = RegionWorld.create(join(dir, gridFolder(WORLD_GRID_ID)), worldOptions(manifest), store);
-  manifest = { ...manifest, regions: world.listedRegions() };
-  const out = writeAtomic({ dir, target: VOXEL_WORLD_MANIFEST, bytes: manifestBytes(manifest), allowedPreHashes: null, previousHash: null });
-  if (!out.ok) throw new Error(`${join(dir, VOXEL_WORLD_MANIFEST)}: not written`);
-  return { files: world.files.size };
-}
-
-/**
- * Writes a world folder's manifest at revision 0 listing region files
- * already written into its grids' folders (a generator writing a large
- * world tile by tile, never holding it whole): the world grid's `regions`,
- * and each structure grid's in `grids`. Refuses a folder that already holds
- * a world, and a listed file that is not there.
- */
-export function writeVoxelWorldManifest(dir: string, m: Omit<VoxelWorldManifest, 'format' | 'revision' | 'regions' | 'grids'>, regions: readonly string[], grids: readonly VoxelWorldGrid[] = []): void {
-  if (existsSync(join(dir, VOXEL_WORLD_MANIFEST))) throw new Error(`${dir} already holds a voxel world`);
-  const sorted = (names: readonly string[]): string[] => [...new Set(names)].sort();
-  const listed = [{ id: WORLD_GRID_ID, regions: sorted(regions) }, ...[...grids].sort((a, b) => a.id - b.id).map((g) => ({ id: g.id, regions: sorted(g.regions) }))];
-  for (const g of listed) for (const name of g.regions) if (!existsSync(join(dir, gridFolder(g.id), name))) throw new Error(`${gridFolder(g.id)}/${name}: listed but not written`);
-  const manifest = parseVoxelWorldManifest({ format: VOXEL_WORLD_FORMAT, revision: 0, ...m, regions: listed[0]!.regions, grids: listed.slice(1) });
-  const out = writeAtomic({ dir, target: VOXEL_WORLD_MANIFEST, bytes: manifestBytes(manifest), allowedPreHashes: null, previousHash: null });
-  if (!out.ok) throw new Error(`${join(dir, VOXEL_WORLD_MANIFEST)}: not written`);
-}
-
-function worldOptions(m: VoxelWorldManifest, gridId: number = WORLD_GRID_ID): WorldDirOptions {
-  return { grid: chunkGrid(m.edge), worldId: hexToBytes(m.worldId), layout: m.layout, footprint: m.footprint, gridId };
-}
-
-/** A world folder's manifest, lifted to this format and checked; throws when it is missing or refused. */
-export function readVoxelWorldManifest(dir: string): VoxelWorldManifest {
-  const bytes = readFileSync(join(dir, VOXEL_WORLD_MANIFEST));
-  return parseVoxelWorldManifest(liftManifest(JSON.parse(bytes.toString('utf8')) as Record<string, unknown>, dir));
-}
-
-/**
- * The shipped world a game save is made against, from a world folder: its
- * world grid's region files as its manifest lists them, each checked
- * against the world id and tile it must hold.
- */
-export function openShippedWorld(dir: string): ShippedWorld {
-  const m = readVoxelWorldManifest(dir);
-  return new ShippedWorld(join(dir, gridFolder(WORLD_GRID_ID)), worldOptions(m), m.regions);
-}
-
-/** Why a world, a file or a command was refused. */
-export interface VoxelWorldError {
-  readonly code: string;
-  readonly cls: 'validation' | 'conflict' | 'not_found' | 'internal';
-  readonly message: string;
-  readonly path?: string;
-  /** `revision_conflict`: the revision the command expected and the world's. */
-  readonly expectedRevision?: number;
-  readonly currentRevision?: number;
-}
-
-/** A world's manifest and its listed region files with their tags (null: listed, but missing or unreadable): the world grid's (`files`), each structure grid's (`grids`). */
-export type VoxelWorldInfo =
-  | {
-      ok: true;
-      world: string;
-      manifest: VoxelWorldManifest;
-      files: Array<{ name: string; etag: string | null }>;
-      /** Each structure grid the manifest lists: its files, where its structure object stands (absent: no object owns it), its last regenerate's report this backend holds (absent: none since the world was opened, or undone since), and how many cells its hand edits (overrides) hold. */
-      grids: Array<{ id: number; files: Array<{ name: string; etag: string | null }>; place?: GridPlacement; lastRegenerate?: StructureGridReport; overrides: number }>;
-      /** Each water body of the world (its object placed): its state after the last step that wrote it, or as the fill finds it now (filled, drained by a leak and where, its start cell blocked). Memory only, never stored. */
-      bodies: WaterBodyReport[];
-      /** Each spline writing into the world: the cells its record holds, and its last rewrite's report this backend holds (absent: none since the world was opened, or undone since). */
-      splines: Array<{ entityId: string; written: number; recordBytes: number; lastWrite?: SplineReportAt }>;
-    }
-  | { ok: false; error: VoxelWorldError };
-
-/** A world's files as an export ships them (`VoxelWorlds.shippedFiles`). */
-export type ShippedWorldFiles =
-  | {
-      ok: true;
-      world: { world: string; worldId: string; edge: ChunkEdge; layout: RegionLayout; footprint: RegionFootprint; revision: number };
-      files: Array<{ name: string; path: string; digest: string; byteLength: number }>;
-      /** The structure grids placed by the project's structure objects: each grid's region files and where it stands (absent: none). Never their definitions or overrides. */
-      grids?: Array<{ id: number; position: [number, number, number]; yawRad: number; files: Array<{ name: string; path: string; digest: string; byteLength: number }> }>;
-      /** The world's far cache, current with its revision: what the far field draws (its files named `L<level>/<name>`). */
-      far?: { minLevel: number; maxLevel: number; files: Array<{ name: string; path: string; digest: string; byteLength: number }>; bakeLevel?: number };
-      /** Why the world ships without its far cache, or without the fine levels its bake level asks (still being built when the export stopped waiting). */
-      farNote?: string;
-    }
-  | { ok: false; code: string; message: string };
-
-export type RegionFileAnswer = { ok: true; path: string; etag: string } | { ok: false; error: VoxelWorldError };
-
-/**
- * A world's far cache as served: its manifest and its files (`L<level>/<name>`)
- * with their tags, current with the world's revision. While it is being
- * built (missing, or of an older revision) the answer is `far_cache_building`.
- */
-export type VoxelFarInfo = { ok: true; world: string; manifest: FarCacheManifest; files: Array<{ name: string; etag: string }>; fine?: VoxelFineBake; follow?: VoxelFarFollow } | { ok: false; error: VoxelWorldError };
-
-/** The last far rebuild that followed commands after their answers (voxel-far-follow.ts), as the far info reports it. */
-export interface VoxelFarFollow {
-  /** Changes it built (an edit, an undo, a structure step: a structure made or changed gives its stroke and its place), and the world chunks it built again over. */
-  readonly commands: number;
-  readonly chunks: number;
-  /** When it landed (ms since the epoch). */
-  readonly at: number;
-  /** What it built (null: there was no far cache). */
-  readonly result: FarRebuilt | { readonly stale: string } | null;
-}
-
-/** A world's fine bake as the far info answers it: the level asked, whether it is baking now, and per fine level the region columns baked of all. */
-export interface VoxelFineBake {
-  readonly bakeLevel: number;
-  readonly baking: boolean;
-  /** Paused by the editor: the columns baked stay, and nothing bakes until it is resumed. */
-  readonly paused: boolean;
-  /** Why the last bake stopped with an error (a full disk, a failed read): it waits for a resume or a new bake level. */
-  readonly failed?: string;
-  readonly levels: ReadonlyArray<{ readonly level: number; readonly done: number; readonly total: number }>;
-}
-
-/** A far cache's level file folder name (`L<level>`: its nodes; `B<level>`: their baked bricks). */
-const FAR_LEVEL_RE = /^[LB](\d{1,2})$/;
-const isFarLevel = (level: string): boolean => {
-  const m = FAR_LEVEL_RE.exec(level);
-  return m !== null && Number(m[1]) <= FAR_MAX_LEVEL;
-};
-
-/** Waits for `p` or `ms`, whichever is first (a timer that keeps no process alive). */
-async function waitAtMost(p: Promise<unknown>, ms: number): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const elapsed = new Promise<void>((ok) => {
-    timer = setTimeout(ok, ms);
-    timer.unref();
-  });
-  await Promise.race([p, elapsed]);
-  clearTimeout(timer);
-}
-
-/** A structure command's writes to a world (voxel-structure-writes.ts), its own op on the world's line of strokes. */
-export const STRUCTURE_WRITE_OP = 'writeStructures';
-/** A command's splines written into a world (voxel-spline-writes.ts), its own op on the world's line of strokes. */
-export const SPLINE_WRITE_OP = 'writeSplines';
-
-/** A spline rewrite's report with its left-alone cells and misfits placed in the world (metres, the cell's middle). */
-export interface SplineReportAt extends Omit<SplineChangeReport, 'leftAlone' | 'misfits'> {
-  readonly leftAlone: ReadonlyArray<SplineChangeReport['leftAlone'][number] & { readonly at: readonly [number, number, number] }>;
-  readonly misfits: ReadonlyArray<SplineChangeReport['misfits'][number] & { readonly at: readonly [number, number, number] }>;
-}
-/** A command's water (voxel-water.ts: bodies made, changed or deleted, and those round the structures it wrote), its own op on the world's line of strokes. */
-export const WATER_WRITE_OP = 'writeWater';
-
-/** The water a stroke wrote after its edit, in the same stroke: what a client derives again for it (the liquid part, round `box`), and each body's report. */
-export interface VoxelWaterAnswer {
-  readonly box: Readonly<CellBox>;
-  readonly parts: number;
-  readonly chunks: ReadonlyArray<readonly [number, number, number]>;
-  readonly bodies?: readonly WaterBodyReport[];
-  /** Milliseconds the water took (inside `ms.apply`). */
-  readonly ms?: number;
-}
-
-/** An empty cell box: a change of structure grids only touches no cell of the world grid. */
-const NO_CELLS: Readonly<CellBox> = Object.freeze({ minX: 0, minY: 0, minZ: 0, maxX: -1, maxY: -1, maxZ: -1 });
-
-/** A misfit of a regenerate: its cell in the structure's grid, and where that cell's middle stands in the world now (metres; null: the structure is not placed). */
-export interface StructureMisfitAt extends StructureMisfit {
-  readonly at: readonly [number, number, number] | null;
-}
-
-/** What a structure command did to one grid (its last regenerate's report, held in memory and answered again by {@link VoxelWorlds.info}). */
-export interface StructureGridReport extends Omit<StructureChangeReport, 'misfits'> {
-  readonly misfits: readonly StructureMisfitAt[];
-}
-
-/** What an applied voxel command answers. */
-export interface VoxelCommandApplied {
-  readonly ok: true;
-  /** The op applied: a forward op (a structure command's writes: {@link STRUCTURE_WRITE_OP}; its splines: {@link SPLINE_WRITE_OP}; its water: {@link WATER_WRITE_OP}), or `undo` / `redo` of one of the world's strokes ({@link VoxelWorlds.step}). */
-  readonly op: VoxelWorldOp | VoxelStepDirection | typeof STRUCTURE_WRITE_OP | typeof SPLINE_WRITE_OP | typeof WATER_WRITE_OP;
-  readonly requestId: string | null;
-  readonly world: string;
-  /** The world's revision after the change. */
-  readonly revision: number;
-  /**
-   * The far cache after the change: `queued`, the world chunks now waiting
-   * to be built again after the answer (voxel-far-follow.ts; a rebuild's
-   * own answer: the nodes rebuilt and the ms it took, from
-   * {@link VoxelWorlds.farSettled}), or why it will not be (it is then built
-   * again whole when next read); null when the world has none yet.
-   */
-  readonly far: FarRebuilt | { readonly queued: number } | { readonly stale: string } | null;
-  /** Cells whose voxel changed. */
-  readonly cells: number;
-  /** The world grid's chunks whose content changed ([cx, cy, cz] each): what a client re-reads. */
-  readonly chunks: ReadonlyArray<readonly [number, number, number]>;
-  /** The structure grids' chunks that changed, by grid (absent: none). */
-  readonly grids?: ReadonlyArray<{ readonly grid: number; readonly chunks: ReadonlyArray<readonly [number, number, number]> }>;
-  /** A structure command's writes, a grid each: cells, kept and absorbed overrides, misfits (in the grid's cells and in world metres). */
-  readonly structures?: readonly StructureGridReport[];
-  /** A spline command's writes, a spline each: cells put back, written, left alone (edited since), kept and misfits by the fit rule. */
-  readonly splines?: readonly SplineReportAt[];
-  /**
-   * The water bodies the stroke followed after its edit (absent: none met): the cells their liquid took or left,
-   * which feed the liquid part alone (`box` and `parts` above are the edit's own). A {@link WATER_WRITE_OP} step
-   * answers its bodies here too, its `box` and `parts` its own.
-   */
-  readonly water?: VoxelWaterAnswer;
-  /**
-   * The cells the change can have touched (inclusive; an undo answers the
-   * box of the edit it undoes): what a client derives again from, only the
-   * results within the rules' radius of it.
-   */
-  readonly box: Readonly<CellBox>;
-  /**
-   * The derived parts the change makes stale (DERIVED_PART bits of
-   * @thirdlight/voxel, from the fields that changed): a client rebuilds
-   * only these (only `shader` when only material or wetness changed: the
-   * shader data of the chunks within its border of the box, nothing else).
-   */
-  readonly parts: number;
-  /**
-   * The distinct material changes (@thirdlight/voxel `materialSwap`: from,
-   * to; an undo answers its edit's turned round): what tells a client
-   * whether a shader-only change moves cells to another kit's pieces.
-   */
-  readonly materialSwaps: readonly number[];
-  /** The region files rewritten, with their new entity tags. */
-  readonly files: ReadonlyArray<{ readonly name: string; readonly etag: string | null }>;
-  /** Edits that can still be undone. */
-  readonly undoable: number;
-  /** Edits undone that can be applied again. */
-  readonly redoable: number;
-  /** The stroke the command made (a forward op) or took back or applied again (a step): what the project's undo timeline names. */
-  readonly stroke: number;
-  /** True when this answers a request id seen before (nothing was applied again). */
-  readonly duplicated: boolean;
-  /** Milliseconds: the apply, and the region and manifest writes. */
-  readonly ms: { readonly apply: number; readonly save: number };
-  /** `writeKitTestScene` only: the scene's box (inclusive) and its labels. */
-  readonly scene?: { readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number]; readonly labels: readonly KitTestLabel[] };
-}
-
-export type VoxelCommandResult = VoxelCommandApplied | { ok: false; error: VoxelWorldError };
-
-/** Which way {@link VoxelWorlds.step} goes: take a stroke back, or apply an undone one again. */
-export type VoxelStepDirection = 'undo' | 'redo';
-
-/**
- * One edit in a world's history: its stroke (an id unique in this process, kept through undo and redo), the id of
- * the record that steps it (undo: what it changed, as it was before; redo: what the undo found), the cells it
- * changed, the box it could change and the derived parts it made stale.
- */
-interface HistoryEntry {
-  readonly stroke: number;
-  readonly id: number;
-  readonly cells: number;
-  readonly box: Readonly<CellBox>;
-  readonly parts: number;
-  readonly materialSwaps: readonly number[];
-  /** Structure grids' overrides files the stroke changed: their bytes before and after (null: no file). */
-  readonly overrides?: ReadonlyArray<{ readonly grid: number; readonly before: Uint8Array | null; readonly after: Uint8Array | null }>;
-  /** Splines' record files the stroke changed: their bytes before and after (null: no file). */
-  readonly records?: ReadonlyArray<{ readonly entityId: string; readonly before: Uint8Array | null; readonly after: Uint8Array | null }>;
-  /** A structure command's writes: the far field under its grids is the command's to build again (its objects may come or go with it). */
-  readonly structural?: true;
-  /** The water a stroke wrote after its edit (answered again by its undo and redo). */
-  readonly water?: { readonly box: Readonly<CellBox>; readonly parts: number; readonly chunks: ReadonlyArray<readonly [number, number, number]> };
-}
-
-/** What a world folder holds as this process last read or wrote it. */
-interface WorldState {
-  manifest: VoxelWorldManifest;
-  /** Hash of the manifest's bytes. */
-  manifestHash: string;
-  world: RegionWorld;
-  /** The structure grids' region files by grid id (a grid a command made is here before the manifest lists it). */
-  grids: Map<number, RegionWorld>;
-  /** The structure grids' overrides as read or written (read on first use). */
-  overrides: Map<number, HeldOverrides>;
-  /** The last regenerate's report of each structure grid (memory only: answered again, never stored). */
-  reports: Map<number, StructureChangeReport>;
-  /** The splines' records as read or written, by object id (read on first use). */
-  records: Map<string, HeldRecord>;
-  /** The last rewrite's report of each spline (memory only). */
-  splineReports: Map<string, SplineChangeReport>;
-  undo: UndoStore;
-  history: HistoryEntry[];
-  /** Strokes undone, newest last: a redo applies the last again; a new edit drops them all. */
-  redo: HistoryEntry[];
-  /**
-   * File stamps (inode, size, change times) of the manifest and every listed
-   * region file, by path ('absent' for a missing one): a file whose stamp
-   * moved is checked by hash, and one whose bytes differ was changed by
-   * someone else (a git checkout, a restore, another program).
-   */
-  stamps: Map<string, string>;
-}
-
-interface OpenWorld extends WorldState {
-  readonly projectId: string;
-  readonly name: string;
-  readonly dir: string;
-  /** The world's far cache folder. */
-  readonly farDir: string;
-  /** Far cache file tags by path, with the stamp they were taken at. */
-  readonly farTags: Map<string, { stamp: string; hash: string }>;
-  readonly answers: Map<string, VoxelCommandApplied>;
-  queue: Promise<unknown>;
-}
-
-/** A far rebuild's answer: the nodes rebuilt (the changed chunks' ancestors), the ms it took, its bricks and fine nodes. */
-export type FarRebuilt = { readonly nodes: number; readonly ms: number; readonly bricks?: FarBricksRebuild; readonly fine?: FarBricksRebuild };
-
-const refuse = (code: string, cls: VoxelWorldError['cls'], message: string, path?: string): { ok: false; error: VoxelWorldError } => ({ ok: false, error: { code, cls, message, ...(path !== undefined ? { path } : {}) } });
-
-export interface VoxelWorldsOptions {
-  /** The project's folder (null: the project cannot be opened). */
-  projectDir(projectId: string): string | null;
-  /** The file operations of region and manifest writes (tests inject failures here). */
-  readonly writeOps?: WriteOps;
-  /** Store bytes each open world keeps of its clean region files (default {@link REGION_WORLD_RESIDENT_BYTES}). */
-  readonly residentBytes?: number;
-  /** Where far cache builds and rebuilds run (the backend's worker thread; default this thread). */
-  readonly farJobs?: FarCacheJobs;
-  /** How long an export waits for a far cache being built (default {@link FAR_EXPORT_WAIT_MS}). */
-  readonly farExportWaitMs?: number;
-  /** How long a command's far changes wait for more before they are built (default `FAR_FOLLOW_SETTLE_MS`). */
-  readonly farFollowSettleMs?: number;
-  /**
-   * The project's scenes as stored: their voxel world components name each world's bake level (the finest any of them
-   * sets; absent: the default, 2 m, no fine level baked).
-   */
-  scenes?(projectId: string): readonly unknown[];
-  /** The structures' generator (default the building generator; tests give one of another version). */
-  readonly structureGenerator?: StructureGenerator<StructureDefinition>;
-}
-
-/**
- * A fine bake under way (voxel-far-fine.ts): it runs outside the world's queue, a region column at a time, each
- * column written in the queue; the chunks commands change meanwhile are built again in each column as it lands (a
- * column read the world's files while they changed).
- */
-interface FineBake {
-  readonly level: number;
-  readonly changed: ChunkCoord[];
-  done: Promise<void>;
-  /** Stopped (paused, or the level asked changed): no further column lands; the columns written stay. */
-  stopped: boolean;
-}
-
-/**
- * A full far cache build under way: it runs outside the world's queue, so
- * commands go on meanwhile; the chunks they change are noted and built
- * again once the new cache has landed, and a change on disk by someone else
- * (`lost`) leaves the new cache stale, built again when next read.
- */
-interface FarBuild {
-  readonly changed: Map<string, ChunkCoord>;
-  lost: boolean;
-  done: Promise<void>;
-}
-
-const worldKey = (w: { projectId: string; name: string }): string => `${w.projectId}\u0000${w.name}`;
-
-function fileStamp(path: string): string {
-  try {
-    const s = statSync(path, { bigint: true });
-    return `${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;
-  } catch {
-    return 'absent';
-  }
-}
 
 /**
  * The voxel worlds of every project this process serves, opened on first
@@ -1455,7 +954,7 @@ export class VoxelWorlds {
         throw e;
       }
     } else if (op === 'writeKitTestScene') {
-      const made = await this.writeScene(w, a);
+      const made = await writeKitTestScene(w.world, a);
       if (!made.ok) return made;
       ({ record, cells, box, parts, materialSwaps } = made);
       scene = made.scene;
@@ -1605,55 +1104,6 @@ export class VoxelWorlds {
       if (w.answers.size > ANSWERS_KEPT) w.answers.delete(w.answers.keys().next().value!);
     }
     return answer;
-  }
-
-  /**
-   * The kit test scene's edits applied as one change: the undo record holds
-   * each edit's, newest first, so writing it back takes them back in turn.
-   * Cells counts the cells of the box that end different from before, so a
-   * scene written over itself changes nothing and is refused as any such
-   * edit is. Nothing stays applied when a step is refused.
-   */
-  private async writeScene(w: OpenWorld, a: Record<string, unknown>): Promise<{ ok: true; record: ChunkUndo[]; cells: number; box: CellBox; parts: number; materialSwaps: number[]; scene: NonNullable<VoxelCommandApplied['scene']> } | { ok: false; error: VoxelWorldError }> {
-    const origin = a.origin;
-    if (!Array.isArray(origin) || origin.length !== 3 || !origin.every((v) => Number.isSafeInteger(v))) return refuse('invalid_args', 'validation', 'origin is [x, y, z], whole world cells', '/args/origin');
-    const material = a.material;
-    if (typeof material !== 'number' || !Number.isInteger(material) || material < 1 || material > MATERIAL_ID_MAX) return refuse('invalid_args', 'validation', `material is a voxel material id (1-${MATERIAL_ID_MAX})`, '/args/material');
-    const made = kitTestScene(WORLD_RULES, { origin: origin as [number, number, number], material });
-    const [x0, y0, z0] = made.min;
-    const [x1, y1, z1] = made.max;
-    const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
-    const s = w.world.opts.grid.shift;
-    const chunks: ChunkCoord[] = [];
-    for (let cx = x0 >> s; cx <= x1 >> s; cx++) for (let cy = y0 >> s; cy <= y1 >> s; cy++) for (let cz = z0 >> s; cz <= z1 >> s; cz++) chunks.push({ cx, cy, cz });
-    await w.world.ensure(chunks);
-    const store = w.world.store;
-    const before: number[] = [];
-    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) before.push(valueOf(store.voxelAt(x, y, z, v)));
-    const record: ChunkUndo[] = [];
-    let parts = 0;
-    const swaps = new Set<number>();
-    try {
-      for (const cmd of made.commands) {
-        const out = w.world.edit(canonicalEditCommand(cmd));
-        record.unshift(...out.chunks);
-        parts |= out.parts;
-        for (const sw of out.materialSwaps) swaps.add(sw);
-      }
-    } catch (e) {
-      w.world.undo(record);
-      if (e instanceof EditRefused) return refuse(e.code, e.code === 'chunk_not_loaded' ? 'conflict' : 'validation', e.message);
-      throw e;
-    }
-    let cells = 0;
-    let k = 0;
-    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) if (valueOf(store.voxelAt(x, y, z, v)) !== before[k++]) cells++;
-    if (cells === 0) {
-      w.world.undo(record);
-      return refuse('no_change', 'validation', 'the kit test scene is already there: it changes no voxel');
-    }
-    const box: CellBox = { minX: x0, minY: y0, minZ: z0, maxX: x1, maxY: y1, maxZ: z1 };
-    return { ok: true, record, cells, box, parts, materialSwaps: [...swaps].sort((p, q) => p - q), scene: { min: made.min, max: made.max, labels: made.labels } };
   }
 
   /** A chunk's region file name as answers name it: the world grid's by name, a structure grid's `grid-<id>/<name>`. */
@@ -1894,16 +1344,4 @@ export class VoxelWorlds {
     if (projectId === undefined) this.bakeAsked.clear();
     else this.bakeAsked.delete(projectId);
   }
-}
-
-/** The object ids whose records a stepped stroke changed. */
-function strokeRecords(e: HistoryEntry | null): string[] {
-  return (e?.records ?? []).map((r) => r.entityId);
-}
-
-/** A spline report with its cells' places (metres, a cell's middle). */
-function splineReportAt(r: SplineChangeReport): SplineReportAt {
-  const m = VOXEL_SIZE_M;
-  const at = (c: { x: number; y: number; z: number }): readonly [number, number, number] => [(c.x + 0.5) * m, (c.y + 0.5) * m, (c.z + 0.5) * m];
-  return { ...r, leftAlone: r.leftAlone.map((c) => ({ ...c, at: at(c) })), misfits: r.misfits.map((c) => ({ ...c, at: at(c) })) };
 }
