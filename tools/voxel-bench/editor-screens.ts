@@ -101,7 +101,7 @@ async function densityView(page: Page, mode: Locator, file: string): Promise<Rec
  * The bench's meadow on the yard's grass (its stand-in models imported, its dressing set on the material), the Scene
  * view waited for and a picture of it taken into `file`: what the view says it holds of cover then.
  */
-async function yardCover(be: E2EBackend, page: Page, file: string): Promise<Record<string, unknown>> {
+async function yardCover(be: E2EBackend, page: Page, file: string, house: string): Promise<Record<string, unknown>> {
   const cmd = (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => mustCommand(be, op, args, { clientId: 'pictures' });
   const dir = join(be.projectDir, ...BENCH_COVER_FOLDER.split('/'));
   mkdirSync(dir, { recursive: true });
@@ -121,12 +121,17 @@ async function yardCover(be: E2EBackend, page: Page, file: string): Promise<Reco
     return sceneSettled(page);
   }, 60_000);
   await page.screenshot({ path: file });
+  // The house framed too (a structure in its own grid: the view keeps its box clear, where a game reads its stamp).
+  await select(page, house);
+  await frame(page, 7);
+  const framed = await until(page, () => sceneSettled(page), 30_000);
+  await page.screenshot({ path: file.replace(/\.png$/, '-house.png') });
   const held = await cover();
   // Taken off: the material names no dressing, so every column lets its cover go, and the dressings are deleted.
   await cmd('setMaterial', { material: grass() });
   for (const d of dressings) await cmd('deleteDressing', { dressingId: d.dressingId });
   const gone = await until(page, async () => ((await cover())?.points === 0 ? sceneSettled(page) : 'cover still in the Scene view'), 60_000);
-  return { grown: grown.ok, ...(grown.ok ? {} : { why: grown.what }), file, models, cover: held, takenOff: gone.ok };
+  return { grown: grown.ok, ...(grown.ok ? {} : { why: grown.what }), file, houseFramed: framed.ok, models, cover: held, takenOff: gone.ok };
 }
 
 async function shoot(page: Page, file: string, wait: Wait, facts: Record<string, unknown>, id: string, waited: string): Promise<PictureResult> {
@@ -512,7 +517,7 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
       await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
       // The yard's grass given the bench's meadow, a picture of the Scene view with it kept beside this one (the raw
       // folder), and the meadow taken off again: the screens after this one show the yard as they always have.
-      (shot.facts as Record<string, unknown>)['meadow'] = await yardCover(be, page, files('world-mode').replace(/\.png$/, '-cover.png')).catch((e: unknown) => ({ grown: false, why: String(e).slice(0, 300) }));
+      (shot.facts as Record<string, unknown>)['meadow'] = await yardCover(be, page, files('world-mode').replace(/\.png$/, '-cover.png'), ids['house']!).catch((e: unknown) => ({ grown: false, why: String(e).slice(0, 300) }));
     }
     if (want.includes('world-fill')) {
       // After the other screens: the hollows are not part of their yard.

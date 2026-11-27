@@ -297,8 +297,16 @@ export class SceneVoxels {
     const read = this.host.coverClear;
     if (read === undefined) return;
     this.clearFrom = entities;
-    const { boxes, pending } = read(entities);
-    this.clearPending = pending;
+    const props = read(entities);
+    this.clearPending = props.pending;
+    // The view runs no structure stamps (a game's world reads a house through its stamp: nothing grows under its
+    // floor): each structure's box is kept clear instead, a little more than the house where it is turned.
+    const houses: number[] = [];
+    for (const id of this.structures.keys()) {
+      const b = this.structureBox(id);
+      if (b !== null) houses.push(b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z);
+    }
+    const boxes = houses.length === 0 ? props.boxes : new Float32Array([...props.boxes, ...houses]);
     const key = boxes.join(',');
     if (key === this.clearKey) return;
     this.clearKey = key;
