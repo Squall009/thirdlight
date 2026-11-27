@@ -92,6 +92,14 @@ Sure: high / medium / low, and why when not high.
 Then five lines at the top: how many pictures, how many with something wrong, the three things most worth the
 owner's eye.
 
+**The set is a baseline for deviation** (owner, 2026-11-27). The reader opens each picture beside the previous
+phase's of the same id and reports what CHANGED: a picture that looks as it did is "as before" in one line, whatever
+it shows, and nothing in it is listed as wrong or filed again. Only a change for the worse, a new picture's own
+faults, or something the owner has named gets a Wrong line and a D-row. The reader does not know how a scene was
+set up (what is a bench's hollow, a stand-in model, an unfinished look): "cannot tell if intended" is not a
+finding. Lighting above all is left alone until the owner says otherwise: nobody has used it in a game or seen it
+in motion, and its revisit is on the roadmap's after-the-merge list.
+
 The honesty rule: write what the picture shows, not what the code should produce. Never "looks correct" without
 saying what was looked at. "Cannot tell" with the reason is an answer. A read is a first pass for the owner, not
 a verdict. The speck count beside a world picture is a recorded number for comparing one camera across phases,

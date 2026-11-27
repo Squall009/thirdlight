@@ -140,6 +140,9 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 - A general unification of structure grids, props and splines into one authoring workflow (they already share
   "a definition generates voxels, hand edits are overrides"; storage differs because a turned building keeps its
   own lattice).
+- **Lighting revisited as a whole** (owner, 2026-11-27): after it has been used in a real scene and seen in motion.
+  Until then the lighting pictures are a baseline, not a defect list: specks (D808's kind, the one fault the owner
+  sees in many shots), blotchy indirect light, dark rooms, the cave's slow settle (D852) and the rest wait here.
 - From 47b (2026-11-26), not built: the level-0 derive carries light stop, walkers and collision apart from "drawn
   as a body", so a role can differ per column (47p's plan needs it for the `prop` row); the role check also scans
   `tools/voxel-bench`; a roof kit with wall-top fill for the bench town, or the owner's word on that default (D829);
