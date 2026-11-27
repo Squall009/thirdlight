@@ -184,7 +184,7 @@ describe('the bench cover', () => {
 
   it("is placed through the commands (the kit, the two materials, the two strokes) and taken out by the undo, newest first, only the steps it made; a step that is not the one expected stops it", async () => {
     const dir = `${process.env['TMPDIR'] ?? '.'}/bench-cover-test-${process.pid}`;
-    const { mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const { mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } = await import('node:fs');
     mkdirSync(`${dir}/assets/materials`, { recursive: true });
     for (const [id, vid] of [['voxel-grass', MAT.grass], ['voxel-gravel', MAT.gravel]] as const) writeFileSync(`${dir}/assets/materials/${id}.material.json`, JSON.stringify({ data: material(id, vid) }));
     const rig = (o: { pack?: Record<string, unknown>; undos?: Record<string, unknown>[] } = {}) => {
@@ -195,6 +195,11 @@ describe('the bench cover', () => {
         projectDir: dir,
         addPack: (id: string) => {
           calls.push(`addPack ${id}`);
+          // An added kit's files land in its folder of the game folder.
+          if (o.pack === undefined) {
+            mkdirSync(`${dir}/assets/basic-kit`, { recursive: true });
+            writeFileSync(`${dir}/assets/basic-kit/Grass-clump-Basic-Kit.glb`, 'glb');
+          }
           return Promise.resolve(o.pack ?? { ok: true, added: Array(36).fill(0) });
         },
         raw: (op: string, args: Record<string, unknown>) => {
@@ -222,6 +227,15 @@ describe('the bench cover', () => {
     await placed.undo();
     expect(a.calls).toEqual(['undo', 'undo', 'undo', 'undo', 'far']);
     expect(a.logs.filter((t) => t.includes('NOT TAKEN OUT'))).toEqual([]);
+    // The files the add wrote go with it (an undo leaves an asset's source file on the disk).
+    expect(existsSync(`${dir}/assets/basic-kit`)).toBe(false);
+    // A kit folder that was there before keeps what it held: only what this add wrote is removed.
+    mkdirSync(`${dir}/assets/basic-kit`, { recursive: true });
+    writeFileSync(`${dir}/assets/basic-kit/mine.glb`, 'kept');
+    const again = rig({ undos: [{ ok: true, voxels: { ok: true, cells: 5 } }] });
+    await (await placeBenchCover(again.api, 'far', again.log)).undo();
+    expect(readdirSync(`${dir}/assets/basic-kit`)).toEqual(['mine.glb']);
+    rmSync(`${dir}/assets/basic-kit`, { recursive: true, force: true });
     // The kit in the project already: it is not this run's to take out (three undos: the road, the two materials).
     const b = rig({ pack: { ok: false, error: { code: 'pack_present' } }, undos: [{ ok: true, voxels: { ok: true, cells: 5 } }] });
     const kept = await placeBenchCover(b.api, 'far', b.log);

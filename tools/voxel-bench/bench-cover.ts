@@ -10,7 +10,7 @@
  *
  * Engine-owned test data for pictures and measuring, not a product feature.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,9 +30,11 @@ export const BENCH_SPECIES = Object.freeze({ grass: 0, patchFlowers: 1, vergeFlo
 
 const PACK_DIR = join(dirname(dirname(dirname(fileURLToPath(import.meta.url)))), 'packs', BENCH_COVER_PACK);
 
+const packFile = (): { folder: string; commands: { op: string; args: Record<string, unknown> }[] } => JSON.parse(readFileSync(join(PACK_DIR, 'pack.json'), 'utf8')) as never;
+
 /** The kit's dressings as its pack holds them (what a project receives). */
 export function benchCoverDressings(): DressingDef[] {
-  const pack = JSON.parse(readFileSync(join(PACK_DIR, 'pack.json'), 'utf8')) as { commands: { op: string; args: Record<string, unknown> }[] };
+  const pack = packFile();
   return pack.commands.filter((c) => c.op === 'setDressing').map((c) => c.args['dressing'] as DressingDef);
 }
 
@@ -95,6 +97,10 @@ const codeOf = (r: Record<string, unknown>): string | undefined => (r['error'] a
 export async function placeBenchCover(b: BenchCoverApi, world: string, log: (s: string) => void = console.log): Promise<{ readonly facts: Record<string, unknown>; undo(): Promise<void> }> {
   /** The steps this call put on the project's undo line, oldest first. */
   const steps: ('pack' | 'material' | 'stroke')[] = [];
+  // The kit's files land in its folder of the game folder, and an undo leaves them there (it takes the assets out of
+  // the project, not their source files off the disk): what this call's add wrote is removed with it.
+  const folder = join(b.projectDir, ...packFile().folder.split('/'));
+  const there = existsSync(folder) ? new Set(readdirSync(folder)) : null;
   const pack = await b.addPack(BENCH_COVER_PACK);
   if (pack['ok'] === true) steps.push('pack');
   else if (codeOf(pack) !== 'pack_present') throw new Error(`the bench cover's kit: ${JSON.stringify(pack).slice(0, 400)}`);
@@ -131,6 +137,10 @@ export async function placeBenchCover(b: BenchCoverApi, world: string, log: (s: 
           break;
         }
         log(`bench cover: undo of ${kind}${kind === 'stroke' ? `, ${String(voxels?.cells ?? '?')} cells` : ''}`);
+        if (kind === 'pack' && existsSync(folder)) {
+          if (there === null) rmSync(folder, { recursive: true, force: true });
+          else for (const name of readdirSync(folder)) if (!there.has(name)) rmSync(join(folder, name), { recursive: true, force: true });
+        }
       }
       await b.settleFar?.().catch((e: unknown) => log(`bench cover: the far cache was not read after the undo: ${String(e)}`));
       log('bench cover: taken out');
