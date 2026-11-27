@@ -1,7 +1,7 @@
 # Plan — phase 47b: the world edit mode, the fill, fog as voxels, dressing rules and ground cover
 
 **Status: APPROVED by the owner 2026-11-26, with the changes of that conversation (§8). A fresh session builds
-it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D842.
+it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D844.
 
 The roadmap's line (owner, 2026-11-12): "**47b World edit mode**: one mode on the brush kit in the Scene view;
 fields derived from voxels; the height-based fill for water and fog; the fog role and fog painting with a plain
@@ -1243,6 +1243,129 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
 - **Left out, and why:** light, shade, a march, drift, fog past the detail ring (51); where a bank ends in the
   air (D841: a second depth for the hull's far side, or 51's march); a density overlay of a bank's inner cells; a
   fog tint that follows the camera's exposure or the sky.
+
+### 47b.8
+
+- **What exists.** A material grows what its dressing says, as data and as points; nothing is drawn yet (47b.9) and
+  nothing in the editor shows it (47b.10).
+  - **The dressing asset, format 1** (project-model `dressing.ts`; spec: render spec §1 *The dressing asset*):
+    `{dressingFormat: 1, dressingId, name, species: [...]}`, a species `{model, class: cover | large, density,
+    spacing?, scale?: [min, max], yaw?, align?, seed?, conditions?}`, conditions `{material?: [voxel ids], role?:
+    [role names], slope?, height?, sky?: boolean, wetness?, waterDepth?, materialEdge?, construction?, noise?: range +
+    {scale, seed?}}`, a range `{min?, max?, fade?}`. A resource kind `dressing` (`content.dressings`, a file
+    `assets/dressings/<id>.dressing.json`), unknown fields and an eleventh condition refused.
+  - **`voxel.dressing`** on the material's voxel block, last in canonical order, resolved along an instance chain
+    with the kit (`mergeMaterialVoxel`); `dressing_missing` for one the project lacks, refused on a liquid or a gas;
+    `voxelDressingIds` gives each voxel id's dressing.
+  - **Commands**: `setDressing {dressing}` (create or replace) and `deleteDressing {dressingId}`, one undo each, the
+    same for the editor's route and MCP's `tl_command`; a material's dressing is `setMaterial`'s. Reference text in
+    `tool-docs.ts` and the generated pages (content block `dressings`, the two ops, `DressingDef`, `DressingSpecies`,
+    `DressingConditions`, `DressingNoise`, `FadeRange`); the behaviour API typings did not change.
+  - **The schema**: stays 8, with the recorded step `dressing` (§8 "47b.8" 1): 37 fixture files and
+    the two templates gained the name, by the fixtures' own generator.
+  - **The rules' one arithmetic** (`@thirdlight/voxel` `dressing-rules.ts`, no three, no `node:`):
+    `dressingRule(conditions): DressingRule` (the sets as lookups, `distances`: whether the fields must be read with
+    theirs); `dressingShare(rule, p: SurfacePoint, x, z): number` (0 … 1, the product); `dressingWhyNot(rule, p, x,
+    z, clear?): DressingConditionName | 'prop' | null`; `dressingConditionAt(rule, name, p, x, z)` (one condition's
+    value, for the Rules rail); `dressingNoise`; `propClearances(shapes: PropShape[]): Float32Array` and
+    `clearedByProp(clear, x, y, z)`. Share and reason read one table of checks.
+  - **The voxel source of the scatter core** (project-model `voxel-dressing-source.ts`):
+    `voxelScatterSurface(reader, species): ScatterSurface` (every floor of a column through `at` and `under`);
+    `voxelCoverTable(content): VoxelCoverTable` (plain data: the named dressings and `[voxel id, dressing index]`
+    pairs); `voxelCoverPoints(input: {fields: SurfaceFieldsInput, rows?: [cy0, cy1], table, clear?: Float32Array},
+    decompress?): {sets: [{dressing, species, rule: ScatterRule, points: CoverPointSet}]}`; `voxelCoverOfCells`
+    (the same from a box of cells); `voxelCoverJobHandlers` (`'voxel-cover'`) and `voxelCoverTransfer`.
+  - **What 47b.9 is handed**: for a chunk column (or the rows of one chunk), one set a cover species that grows
+    there, each the pair the point-set path takes today (`CoverRows`' `rule` and a `CoverPointSet`, 16 bytes a
+    point, in the grid's metres, sorted by threshold), named by its dressing id and the species' place in the list.
+    It sends `surfaceFieldsInputOf(store, cx, cz, cy0, cy1)`'s input with the table and the props' boxes, as a pool
+    job of kind `voxel-cover` once a worker entry serves `voxelCoverJobHandlers`.
+- **Reused, not rebuilt**: `bakeCoverPoints`, `ScatterSurface`, `ScatterRule` and their hashes untouched
+  (`scatter.ts`, `cover-points.ts`: no line changed); the surface fields' kernel (one function added beside it,
+  `surfaceNormal`, from the slope's own two gradients; `surfaceFieldsCells` takes its ring as an argument); the
+  brush mask's noise (`valueNoise01`); the rule range (`ruleRangeAt` moved to `@thirdlight/shared` as `fadeRangeAt`,
+  `RuleRange` now its alias: one definition, no behaviour change); the resource files, the record ops' shape and
+  the catalog blocks as voxel kits use them; `propBounds`.
+- **Stored beyond G5:** nothing. No per-plant list, no painted density, no record bit (the two reserved bits
+  unspent), no clearance field, no manifest key of a voxel world. The build's catalog gains the block `dressings`
+  (shipped, derived from what is stored).
+- **Tests** (new: `packages/voxel/src/dressing-rules.test.ts` 13, `packages/project-model/src/dressing.test.ts` 9,
+  `packages/project-model/src/voxel-dressing-source.test.ts` 8, `tools/voxel-bench/dressing-cover.test.ts` 14; one
+  added to `tests/integration/voxel-world/voxel-world.test.ts` and to `exporter/src/closure-materials.test.ts`;
+  changed for the new kind or step: `descriptors.test.ts`, `manifest-v5.test.ts`, `upgrade-interactor.test.ts`,
+  `format-upgrade.test.ts`, `create-scan.test.ts`, `m41-platformer/upgrade.test.ts`, `editor-op-reach.test.ts`):
+  - **the evaluator on the research's examples**, each a world of real cells read by the fields' kernel: grass on
+    grass under sky (not the path, not under a roof, not under water); reeds in a depth range (dry and deep out, a
+    faded edge a share); moss on a cave's wet floor (the meadow over it: `sky`; the dry half: `wetness`); flowers
+    within 1.5 m of a path (and the converse, nothing within 2 m); a fringe within 1 m of a wall on both sides (the
+    wall's top: `role`); nothing under a foundation (the ground there is no surface, the slab's top is not ground)
+    nor in a stamped footprint (no surface at all); a prop's box (a turned crate, a chest on the storey above that
+    does not clear the ground floor, a prop sunk half a metre); a slope limit and its fade; a height band, wetness
+    and the product of two soft conditions; noise patches (about half the ground, neighbours a metre apart agree
+    over 90 % at an 8 m scale and under 70 % at 0.5 m, another seed another pattern, unmoved by sculpting); each
+    of the ten conditions alone named as the reason, the first in order when two fail.
+  - **the asset**: every field kept through the content validator's canonical round trip given with every level's
+    keys reversed, byte for byte; defaults left out; 46 bad values refused each at its path (38 of them a species'); the kind's row; the
+    species as a scatter rule the core's own validator takes; `voxel.dressing` canonical, `dressing_missing`, a
+    liquid and a gas refused; an instance's own dressing and its parent's; the models a build ships; **the recorded
+    step on an old project's documents** (pending on an 8 without it, the content the same object, no note, named
+    after), and through a real backend on files (`format-upgrade.test.ts`: a manifest set back to `['planes']`
+    opens with `dressing` among its upgrades).
+  - **over HTTP against a real backend** (about 1 s more in that file): a dressing made (its file on disk holding the
+    record whole), four bad ones refused, edited and undone (the file follows), set on a material, a missing one
+    refused, a variant naming another, both dressings refused deletion while named, the variant undone and redone,
+    MCP's `tl_command` and `tl_content_query`, a spare one deleted (file gone) and undone, a restart reading the
+    files, and **an export** shipping the two named dressings, the variant's voxel block folded, the species' model
+    among the project-wide dependencies (the export's bundle scan ran as it does for every export).
+  - **the source**: every floor of a column in turn with its height; the layer share's answer; the normal on a
+    45° slope; 1,024 candidates of 16 m × 16 m at 4 a m² all kept, sized and turned in range, sorted by threshold;
+    spacing held; a share of one half keeps 512 ± 96 of 1,024, a subset of the full set, the same again; the large
+    class skipped where it stands (and placed when called cover). **On a made world in a real chunk store** (a
+    rolling meadow, two road strips, a pond, a dry-grass variant, a hill with a wet cave, a house with an upper
+    storey): each point on a surface whose material names its species' dressing; reeds only in the shallows; flowers
+    at the verge, thistles nowhere within 7.8 m of it, clover in soft patches; moss on the cave floor and lichen on
+    the hill over it in one column; dust on the storey's boards and no grass on the ground floor under them; the
+    oak never; a cart's box clear, the same cart hung 6 m up clearing nothing; the same bytes twice and from the
+    world built again; **chunk borders against one bake over the whole world** (four middle chunks, and the pair
+    the thistle's reach straddles: every point has its twin, in either order; the same species judged from a box
+    cut at the fields' own reach gives other points, asserted); the rows of a column part its points (a top face on
+    the chunk border stays with its cells); **an edit elsewhere leaves five other chunks byte for byte**, the
+    edited chunk loses only the repaved square's plants.
+  - **same answer on page and worker**: five jobs (the cave's, the pond's and the house's chunks, a row range, a
+    prop) through a real `worker_threads` worker running the bundled worker: every set's rule and point bytes equal
+    this thread's. A browser build of a worker serving the job alone (46,414 bytes minified) passes the export scan.
+  - **Broken on purpose, each run once** (30; `~/.cache/thirdlight-phase47b/work/47b.8/breaks.log`): 26 red at
+    once (sky inverted → 14 tests; each distance, the water depth and the role never read → 3–4; the noise without
+    its seed or its scale → 1; the reason the last failing condition → 2; the prop's box without its height, or
+    never → 2; the share never thinning → 1; only the top floor → 4; the large class placed → 2; the material never
+    checked → 7; the normal always up → 2; the canonical form dropping `align`, a condition, or `voxel.dressing` →
+    1–3; an unknown condition accepted → 1; an instance unable to override → 4; `dressing_missing` unchecked → 2;
+    the step unrecorded → 1; the undo restoring nothing, the export's block empty, the models not captured, a named
+    dressing deletable → 1 each). **Four stayed green and their tests were sharpened until red**: the share's pick
+    reading the box's origin (no species with a soft share crossed a border: clover added); rows cut by height
+    (no surface lay on a chunk border: the hill's top moved to one); species reordered by model (the test's two
+    were already in that order); the box cut at the fields' reach (a wrongly kept candidate past a border rarely
+    outranks its neighbours: a case and a seed where it does, with the difference asserted).
+- **Cost** (the bench test's line, this shared box, reported and not asserted): a chunk column of the made world,
+  nine cover species in the table, in this thread: 10.4 ms for 936 points of 5 species, 9.7–10.1 ms for 751, 14.0 ms
+  for 1,247 (the box of nine columns read and tabled each time: about half, by 47b.4's split). Not run on the town.
+- **Gate:** before it, the generators (reference: 17 pages changed; typings and graph API: nothing), `npm run
+  build` (24 s), `npm run lint` (97 s, uncached) and the manual's links test (1 s) green. `tools/gate.sh check`
+  once: GREEN in 264 s (build 25 s, lint 12 s, unit 199 s: 980 files passed; boot 5 passed, 28 s). No second call.
+  The four new unit files take about 9 s together; the HTTP file grew by about 1 s.
+- **Found on the way:** the editor's icon registry asks a picture of every resource kind: `dressing.webp` is a
+  copy of the kit's (as the voxel kit's is), a stand-in until 47b.10 draws one. The descriptor size ledger's bound
+  rose 390,200 → 394,400 with its line (the dressings block and the field, 4.1 KB).
+- **Not built, and why:** cover in the derive workers and any draw (47b.9: the worker entries do not serve the job
+  yet, and nothing gathers a scene's props into boxes); the Dressing card, the Rules rail, a starter dressing and
+  the manual page (47b.10); the large class's placement (47p); a yaw range that starts past 0, a sink, a priority
+  between species, a clearance radius a prop, "no dressing" on a variant (none named by G5; lines for after the
+  merge); a dressing check in Problems (D843).
+- **Unverified:** nothing here draws, so there is no picture and nobody has seen a plant. The Scene view, Play
+  and exports do not read `voxel.dressing` yet. The cover job was run in a Node worker, not in a browser's. Its
+  cost was read on a made world of four chunks a side, three columns once each. D842's case (16-cell chunks) was
+  reasoned, not run. The material section's voxel fields in the editor keep a `dressing` they are handed (the
+  section spreads the block) but show no field for it, and were not opened in a browser.
 
 ## 10. The proposed plan's questions and how each stands
 
