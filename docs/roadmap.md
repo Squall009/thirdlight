@@ -116,6 +116,10 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
    near mesher skips prop cells and the object's own model is drawn, while light, paths and collision read the
    cells and the far bake includes them, so forests and rocks show in the far bricks. Collision from the voxels,
    rough, for now. No fade between model and brick: a known limitation until the rings phase.
+   **Owner, 2026-11-27: dressing never writes voxels** (run-time placement only: it receives light, force and wind
+   and contributes to none; optional shadow casting, off by default). So only placed objects are stamped; the
+   "rule-placed large plants stamped alike" above is withdrawn, and the plan asks what the dressing's `large` class
+   becomes (a rule-placed tree would then stop no light, block no path and be absent from the far bricks).
    Its plan opens with what 47b's review found the role traits table still lacks for this row (plan-47b §8, the
    review's note 12): light stop, walkers and collision carried apart from "drawn as a body" in the level-0
    derive, a mip kind for "not drawn near, kept far", and whether a prop's cells close the sky for dressing rules.
