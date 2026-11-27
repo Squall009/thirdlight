@@ -1780,5 +1780,18 @@ describe('voxel world routes', () => {
     expect(deps).not.toContain('basic-pebbles');
     expect(PLANTS.length).toBe(4);
     expect(content.materials!.map((m) => m.materialId)).toContain('basic-cover');
+    // What it ships of them is the kit's own files, byte for byte: each plant's GLB and the one compressed atlas
+    // (an export re-encodes neither), by the lengths the pack records.
+    const pack = JSON.parse(readFileSync(join(REPO, 'packs', 'basic-kit', 'pack.json'), 'utf8')) as { assets: { assetId: string; bytes: number }[] };
+    const shippedBytes = new Map<string, number>();
+    const seek = (o: unknown, depth: number): void => {
+      if (o === null || typeof o !== 'object' || depth > 6) return;
+      const r = o as Record<string, unknown>;
+      if (typeof r['assetId'] === 'string' && typeof r['sourceByteLength'] === 'number') shippedBytes.set(r['assetId'], r['sourceByteLength']);
+      for (const v of Array.isArray(o) ? o : Object.values(r)) seek(v, depth + 1);
+    };
+    seek(content, 0);
+    for (const id of ['basic-grass', 'basic-flower', 'basic-reed', 'basic-cover-albedo']) expect(shippedBytes.get(id), id).toBe(pack.assets.find((x) => x.assetId === id)!.bytes);
+    expect(shippedBytes.has('basic-pebbles')).toBe(false);
   }, 120_000);
 });

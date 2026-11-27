@@ -1,7 +1,7 @@
 # Plan — phase 47b: the world edit mode, the fill, fog as voxels, dressing rules and ground cover
 
 **Status: APPROVED by the owner 2026-11-26, with the changes of that conversation (§8). A fresh session builds
-it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D847.
+it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D849.
 
 The roadmap's line (owner, 2026-11-12): "**47b World edit mode**: one mode on the brush kit in the Scene view;
 fields derived from voxels; the height-based fill for water and fog; the fog role and fog painting with a plain
@@ -144,7 +144,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.7 | done 2026-11-26: the gas part (hull quads with the density behind them, and runs; the quads shared with liquid; derived 35) and its plain draw: flat colour, opacity from the scene's depth behind each face, a screen-wide layer with the eye in a bank, a density view in the world mode. In Play, exports and the Scene view. L23, L24, E8 read; cost not resolved (about 1 ms). D841. Results §9 |
 | 47b.8 | done 2026-11-27: the dressing asset (format 1: ordered species, cover or large, ten conditions) as a resource file, `voxel.dressing` through instances, `setDressing` / `deleteDressing`, a recorded schema step; the rules' one arithmetic with "why not"; the voxel source of the scatter core (a chunk's point sets, same bytes in a worker); props kept clear. D842, D843. Results §9 |
 | 47b.9 | done 2026-11-27: cover drawn on voxel chunks: a `voxel-cover` job a chunk column after its chunks' draws (the pool's background queue, never before a mesh), sent in the draw batch, drawn as point sources of the point-set path (rows of the culled table); made again by the feeds, dressings, stamps and static props; a memory entry and a slice a tier. L25, L26 read. D844–D846. Results §9 |
-| 47b.10 | not started |
+| 47b.10 | done 2026-11-27: the Dressing card on a material (pick, create, clear; species and the ten conditions, each edit the dressing's command), the world mode's Rules rail with "why not" built (the rules' own answer at the cursor), four starter cover plants and the dressings Meadow, Shore, Gravel in the Basic Kit, manual pages. E9, L25, L26 read. D847, D848. Results §9 |
 | 47b.11 | not started |
 
 ## 7. How this phase is run
@@ -562,6 +562,61 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
      starter plants. **L25 and L26 are a picture run of their own** (`cover`), so the 24 older world pictures keep
      their bare ground.
   10. **D842 stays open**: the scheme (a column and the eight round it) is 47b.8's.
+- **2026-11-27 — 47b.10, defaults chosen, owner to confirm** (item agent; nothing is stored beyond G5, no command or
+  command field was added; the phase's third cut, the Rules rail's "why not", was **not used**: it is built):
+  1. **The card edits the dressing where the material is shown.** It sits in the material Inspector's voxel
+     section, under the kit, for a ground or construction material; a dressing has no editor tab or window of its
+     own (a dressing chosen in the Project window shows its name, file and delete, as every resource does). The card
+     says who shares the dressing (the materials naming it and the variants that take it from their parent).
+  2. **Every edit sends the whole dressing** (`setDressing`, 47b.8's command: one undo each); which dressing a
+     material names is `setMaterial`. **New** is two commands and two undo steps: an empty dressing named after the
+     material, then the material naming it.
+  3. **Plain fields.** A range is three number fields (min, max, fade; an emptied field is an open end, a
+     condition with none left is off), the material and role sets are ticks over the project's voxel materials
+     and the role names, the sky a three-way choice. No sliders, no curve, no preview of its own: the Scene view
+     grows each change (47b.9's re-make on a table change).
+  4. **Reordering says what it costs**: the up and down buttons' hints say an entry's plants move with its place
+     (47b.8 decision 8). A removed entry moves the ones after it too.
+  5. **The Rules rail reads the world's own ground**: the pointer over a structure reads nothing (a structure's
+     floors grow nothing: 47b.9 decision 5). Moving reads, a click holds the read (so the pointer can go to the
+     column), Esc lets go. The read stands at the picked cell's middle: the noise is read there, and a species'
+     real plants sit anywhere in the cell, so at a patch's very edge the rail and a plant can differ by a cell.
+  6. **The surface read always carries the two distances** (a rule may ask either): about 30,000 cell reads a
+     point in the view's worker, one read in flight, a cell asked once while the pointer rests on it. Not measured.
+  7. **The keep-clear boxes the rail answers "a static prop stands here" from are the Scene view's own** (the ones
+     it sent its cover job), so the rail agrees with what the view draws, and differs from a game where the view
+     does (D846).
+  8. **One source for the per-point form**: the streamer's cells as the kernel reads them moved from the runtime
+     into `@thirdlight/voxel` (`streamerSurfaceSource`); `ctx.voxels.surfaceAt` reads through it (its tests green,
+     no behaviour change) and so does the view's worker. A new page ↔ worker message, `surface`, beside `pick`
+     and `cells`.
+  9. **The starter plants are fully modelled strips and fans, no alpha cards**: the 3D starter's meadow grass is
+     made the same way (`templates/starter-3d/tools/grass.py`), and see-through cards cost overdraw on the floor
+     GPU. **One 128 × 128 colour atlas** for the four (a column a part, 3,995 bytes as ETC1S KTX2). **No normal
+     map**: a blade is 3–4 cm wide and seen from 2 m to 40 m; a tangent-space map carries nothing there that the
+     upward-bent vertex normals do not. No ORM map (one roughness on the material). **No collision** (cover never
+     collides). Budgets a level are in the script and checked by it; the pebbles wear a standard material and
+     carry no foliage data.
+  10. **Where the art's source lives**: `packs/basic-kit/tools/cover-plants.py` (headless Blender through the art
+      pipeline's `bpipe`, run from the engine repo; art-factory was not edited), its manifest kept as
+      `packs/basic-kit/source/cover-plants.json`; `build-basic-kit.mts --cover <dir>` takes its output.
+  11. **The Meadow also grows reeds in shallow water** (the item named reeds under Shore alone): a pond dug or
+      filled in a meadow gets reeds without a second material, which is what the plan's §2 describes. Its flowers
+      are two entries of one model (patches by noise; a verge by the distance to another material). Shore is for
+      a bank material, Gravel for a road or yard.
+  12. **The kit carries plants and dressings, never a voxel material** (47b.6 decision 8 stands): the dressings
+      ride in the pack as `setDressing` commands and name no voxel material id. A fresh project gets a meadow by
+      **Make a grass material** (an empty Add or Paint palette offers it; the Rules rail offers grass, shore and
+      gravel while no material names their dressing). Checked, and said in the manual: a species with no
+      `material` condition grows on every material that names its dressing.
+  13. **A project that added the Basic Kit before this build does not get the starter cover**: a pack is added
+      once, and a second add is refused naming the ids it already has. No pack upgrade was built (a line for after
+      the merge).
+  14. **The bench cover is the kit's own**: staging's project gets the kit by the pack route and loses it by the
+      undo (five steps, newest first), and the code-made stand-in plants are deleted. The yard's side pictures of
+      E7 (the Scene view with cover, 47b.9) are dropped: E9 shows that view.
+  15. **The editor may import project-model's `dressing` module** (the boundary rule, changed in a commit of its
+      own): the card edits inside the model's own bounds, classes and format.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -1594,6 +1649,166 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
   own cover distance, shadow casting and bend (G5 names none: owner); cover on a structure grid's own floors;
   narrowing an edit's re-make to the cells it touched; following a static prop a script moves; D844's fixes (the
   path's first draw: found by the last reading); the Dressing card, the Rules rail, the starter plants (47b.10).
+
+### 47b.10
+
+- **What exists.** A person can say what grows on a material and see why a spot is bare, and a fresh project can
+  have a meadow without an artist.
+  - **The Dressing card** (`ui/material/DressingCard.tsx`; its edits `session/dressing-edits.ts`): in the material
+    Inspector's voxel section. The material's dressing picked, made new or cleared (an instance: its own, else
+    "the parent's"); the dressing's name; who shares it; each species as a folded line with up, down and remove;
+    unfolded: model, class (large says "stored; placed in a later phase"), density, spacing, scale, turn, lean,
+    seed, and the ten conditions. Every change is `setDressing` or `setMaterial`.
+  - **The Rules rail** (the world mode's fifth; `viewport/voxel-rules-probe.ts`, `session/world-rules.ts`): the
+    Read tool reads the surface under the pointer from the Scene view's worker and lists, for the material there,
+    each species as growing (with its share and what thins it) or not (the failing condition and the value read
+    against what it asks), then the nine field values at that point. A click holds the read. **"Why not" is
+    built.**
+  - **Starter cover in the Basic Kit**: four plant models, two materials, three dressings (below).
+  - **Make a grass / shore / gravel material** in the world mode.
+  - **Manual**: `features/dressing.md`, `features/fog.md` (new), `features/world-editor.md` (the Rules rail, each
+    tool's command), and the voxel materials' `voxel.dressing`. The reference was regenerated and did not change
+    (its dressing entries are 47b.8's).
+- **Stored beyond format 1:** nothing. No dressing or material field, no condition, no per-plant list, no voxel
+  material in a kit. The Basic Kit's `pack.json` gains assets and commands of kinds it already carried, and
+  `setDressing`.
+- **The four assets** (game-ready ground cover; made by `packs/basic-kit/tools/cover-plants.py` in headless
+  Blender 5.2 through the art pipeline; five runs of about 32 s; each file is the one the script wrote):
+
+  | Asset | Triangles LOD0 / 1 / 2 (budget) | Size (m) | GLB | Material | Collision |
+  |---|---|---|---|---|---|
+  | `basic-grass` (a clump of 14 blades) | 42 / 15 / 3 (48 / 16 / 4) | 0.5 across, 0.32 tall | 7,804 B | foliage | none |
+  | `basic-flower` (three daisies over leaves) | 39 / 14 / 5 (40 / 14 / 5) | 0.4 across, 0.56 tall | 7,076 B | foliage | none |
+  | `basic-reed` (six leaves, two seed heads) | 42 / 16 / 5 (44 / 18 / 6) | 0.5 across, 1.25 tall | 7,616 B | foliage | none |
+  | `basic-pebbles` (three stones) | 45 / 12 / 7 (48 / 14 / 7) | 0.45 across, 0.075 tall | 9,364 B | standard | none |
+
+  - **Levels**: three each, nodes `<model>_LOD0..2`, switched by the engine's default screen sizes (8 % and 3 % of
+    the view's height, the cover path's own switch with hysteresis and a cross-fade). By arithmetic from the
+    models' bounds at the engine's 50° reference view, before a tier's bias: grass and flowers to LOD1 at about
+    10 m and LOD2 at about 28 m, pebbles 8 m and 20 m, reeds 19 m and 50 m (past the cover's 40 m reach: reeds
+    draw LOD0 and LOD1). Not measured in a run; the picture's count agrees in kind: 6,271 clumps drew 77,240
+    triangles in L25, about 12 a clump.
+  - **Texture**: one 128 × 128 colour atlas for all four, eight columns; **3,995 B** as KTX2 (ETC1S, sRGB, 8 mip
+    levels), from a 14,330 B PNG that is not kept. No alpha, no normal map, no ORM map (§8 9).
+  - **What an export ships**: the same bytes (a build re-encodes neither a GLB nor a KTX2): the three plants a
+    Meadow names and the atlas, 26,491 B in all; pebbles only when a material names Gravel or Shore (the HTTP test
+    reads the lengths from the export).
+  - **Vertex data**: position, the upward-bent normal, one UV set, and on the three plants COLOR_0 as the foliage
+    shader's data (bend, phase, flutter, thinness). No tangents. Pivot on the ground in the clump's middle; no
+    hidden faces (single-sided strips drawn two-sided; stones have no underside).
+  - **The kit with them**: 10 files, 2,783,311 B (it was 2,747,456 B: + 35,855 B), 20 commands.
+- **How a fresh project gets a meadow** (a person's steps): Create → Basic Kit; select the voxel world object,
+  **Edit world**; on Sculpt (Add) or Paint, **Make a grass material**; add or paint ground with it. Over MCP: the
+  pack route, then one `setMaterial` naming `basic-meadow` (`features/dressing.md`).
+- **Tests** (new: `session/dressing-edits.test.ts` 12, `session/world-rules.test.ts` 23,
+  `viewport/voxel-rules-tool.test.ts` 6, `tools/voxel-bench/starter-cover.test.ts` 4; one added to
+  `tests/integration/voxel-world/voxel-world.test.ts`; changed: `backend/src/packs.test.ts` (+5),
+  `tools/voxel-bench/bench-cover.test.ts`):
+  - **the card's commands**: every edit's result read by the model's validator and canonical form: a species
+    added, removed, reordered (and no such move sending nothing), each placement field set and emptied, a cover
+    spacing held to its bound, the ten conditions set in any order and stored in the format's, a condition gone
+    with its last field, the noise's range, scale and seed, the sets' ticks, a row a range condition inside the
+    format's bounds; a material naming, changing and clearing its dressing, a variant's override and its clearing,
+    who shares a dressing.
+  - **the Rules rail's answer**, made fields through the real rules: grows at full density; a variant by its
+    parent's dressing; **each of the ten conditions alone named as the reason with the value read**; the first of
+    two; a share where a condition fades and only the conditions that thin it named; the noise by where the
+    cursor is; a prop's box; a large species; no dressing, a missing one, an empty one; the nine field rows; what
+    the rail arms; the starter grounds.
+  - **the probe on the real tool** (pointer events, a fake pick, the surface read the worker runs over a made
+    world): the read under the pointer said once a cell; a click holds it while the pointer wanders and leaves,
+    another click moves it, Esc lets go; nothing read over another world, in Navigate or once the rail is left; an
+    overtaken answer dropped; nothing ever sent. **The page ↔ worker read**: the kernel's own fields for open
+    ground, a verge, a pond's bed, a wall's foot and a half-filled cell; "not loaded" where a cell it needs is
+    not, never a guess.
+  - **the kit**: each plant three levels inside its budget, its counts and bytes the script's, on the ground, no
+    collider, not moved, one mapped material, foliage data on the plants and none on the stones, no image in the
+    file; the atlas 128 × 128 sRGB with its mips; the dressings valid, canonical, cover only, no material id;
+    **on made ground through the real cover source**: the Meadow's grass off the road and out of the pond, its
+    reeds in the pond alone, flowers thicker at the verge and in patches; the Shore's reeds at 0.5 m of water and
+    none at 1 m; the Gravel's tufts within a metre of its edge.
+  - **over HTTP against a real backend**: the kit added (36 commands, one undo and redo, the dressings with it,
+    the models wearing the cover's materials, no voxel material brought); the world mode's grass made with the
+    project's next free id; the Meadow grown on that material's cells by the cover source and on no other
+    material; **seven card edits as commands** (density, a condition, noise, a species added, reordered, removed,
+    made large), each stored, seven undos back to the kit's record, the same record again refused `no_change`; a
+    variant inheriting, overriding and clearing; **an export** shipping the Meadow alone, its three plants and
+    the atlas at the pack's own byte lengths.
+  - **Broken on purpose, each run once** (31; `~/.cache/thirdlight-phase47b/work/47b.10/breaks.log`): **all red
+    at once**: a move that moves nothing; a condition never set; a fade kept alone; a cleared material keeping
+    its dressing; users without inheriting variants; a cover spacing past its bound; the slope's reason reading
+    the height; a large species judged as cover; the prop boxes not passed; a variant not answered by its
+    parent; the share always full; every faded condition named; the rail arming no probe; a starter ground
+    naming no dressing; a held read following the pointer; an overtaken answer shown; a read asked every move;
+    another world's ground read; a click not held; unloaded cells read as "no surface"; the read without its
+    distances; an unloaded chunk read as air; a species growing on any material; the bench's undo unchecked, its
+    files left, a kit it did not add undone; and in the pack's data: grass under water, reeds in deep water, a
+    material id in a kit species, a budget lowered under the model, another file in a plant's place.
+  - **Not tested by a unit test**: the card's and the column's React drawing (driven in a real page: below); the
+    worker's `surface` message handler itself (four lines round the function the test calls; it answered in the
+    page run).
+- **Pictures** (three takes of E9, L25, L26 in one run each: 204 s, 121 s, 151 s; low tier, WebGPU; all settled;
+  staging stopped after each, the kit taken out by the undo; `~/.cache/thirdlight-phase47b/work/47b.10/`):
+  - Take 1 (`pictures-1/`): the meadow a carpet of pale straw-yellow blades lighter than the ground, no flower to
+    be seen (the flowers were shorter than the grass), and E9 taken from inside the yard's house. Fixed: greens
+    darkened, grass 0.40 → 0.34 m, flowers 0.36 → 0.56 m, the lane framed.
+  - Take 2 (`pictures-2/`): flowers show; the grass's tips still pale against dark roots; E9 from about 25 m up
+    (plants as specks); a range's fields stacked on the card. Fixed: the greens brought to the ground's own, the
+    row laid out, the view moved in.
+  - **L25** `pictures-3/L25-cover-meadow.png` (take 3; 6,271 clumps and 77,240 triangles drawn; 79,046 points
+    resident in 141 sets of 6 species). Sees: from 2.4 m up a field of short grass over the empty lots, close to
+    the ground's green; a grey gravel road across it with no meadow grass on it; small white flowers along both
+    its verges and scattered beyond; eight houses, hills and mountains behind. Every clump stands on the ground,
+    none on or in a house; the field thins with distance and is gone by about 40 m with no line and no
+    chunk-shaped patch. **Wrong**: the grass is greyer than the ground it stands on and peppered with dark
+    blue-green blades (blades seen from behind: D847), so it reads as a speckled layer, not as lit grass; near
+    the camera the same clump shape repeats visibly, wide flat blades; the flowers are specks at this distance and
+    the pebbles on the road cannot be made out; no shadow under anything; soft at this render scale. Triangles
+    are a quarter of the stand-ins' (289,278 → 77,240) for more clumps. Sure: high for what is there.
+  - **L26** `pictures-3/L26-cover-reeds.png` (take 3; 4,813 clumps, 54,980 triangles). Sees: the pond in its
+    stone rim from 8.5 m; olive reeds with dark brown seed heads standing in the water all round inside the rim,
+    readable against the blue; the middle mostly open; grass on the lot up to the rim; two white flower heads in
+    the foreground. No reed on dry ground. **Wrong**: the flower heads close up are flat white hexagons (paper
+    discs); a few blades at the rim's foot still cut into its stone; the grass's light and dark blades as in L25;
+    a few reeds stand nearer the middle than a shore would have them (the bench's shelf is wide). Sure: high.
+  - **E9** `pictures-3/E09-dressing-card.png` (take 3). Sees: the editor on the yard, the Scene view a close-up
+    of grass blades and white flower heads from a few metres up, and in the Inspector the card: "Dressing: what
+    grows on it", the picker on Meadow, new, the name, "Shared: a change here changes every material that names
+    this dressing (Grass)…", the first species unfolded (Grass clump (Basic Kit) · cover · 7 /m² · 3 conditions;
+    model, class, density 7, spacing, scale 0.75 and 1.3 in a row, turn, lean 0.3, seed) and the top of "Where it
+    grows". The Project window shows the grass material chosen. **Wrong**: **the view is too close**: no house,
+    no lane and no door for scale (take 2 was too far; the script now sits between, at 3 notches in, **not
+    taken**); in this view the blades are dark blue-green on a bright flat green ground (D847 at its plainest);
+    the flower heads are paper hexagons; the conditions are below the fold of the Inspector; the Inspector's own
+    title bar is scrolled out. Sure: high for what is there; the card's look in use, low.
+  - **The Rules rail** (`pictures-2.raw/screen-dressing-card-rules.png`, take 2's; take 3's is the same screen
+    from closer). Sees: the world mode's Rules column: Read armed, "Here … held", a "Starter ground" section
+    offering a shore material, "What grows here: Grass · Meadow" with four lines (✓ grass, ✓ flowers at 8 % "a
+    condition is fading here", ✓ flowers at full density, ✗ reeds "does not grow: the water depth here is 0 m; it
+    grows where it is 0.05–0.7 m"), and the field list; in the view the meadow with daisies along the lane's
+    bank, the probe's ring on the bank. Take 3's read: verge flowers "does not grow: the distance to another
+    material here is 3 m; it grows where it is at most 1.5 m, fading over 0.5 m".
+  - **Driven with the real pointer** (Playwright's mouse and keys on the page; take 2, whole): the grass
+    material found in the Project window and clicked; the card's first species unfolded; **density typed 7 → 2
+    and Enter: the Scene view's cover went from 28,712 to 9,837 points**; the dressing cleared in the card's
+    picker: 490 points left (the road's Gravel); picked again: 9,837; then Edit world, the Rules tab, Read, the
+    pointer moved until a read with a growing and a not growing species, a click to hold it. In take 3 the
+    script's last step (typing the density back) could not find its field, because the card folds its entries
+    when the dressing is cleared and picked again; the script now unfolds first (**not run again**).
+- **Found on the way:** an undo of the kit's add left its source files in staging's game folder (three runs: 30
+  files, 8 MB, removed by hand; D848); the bench removes what its own add wrote. The voxel materials' manual line
+  gave a gas's default density as 0.1 (it is 0.5 since 47b.7): corrected.
+- **Gate:** the item's one check follows this commit (its line is added with it).
+- **Unverified:** picture E9 at its final framing; the card with a real pointer beyond what is listed (reorder,
+  remove, add species, the model picker, the condition rows, ticks, a variant's card, "new"); the Rules rail's Esc
+  and its ring's look while moving; Make a grass / shore / gravel material in a browser (unit and HTTP tests only);
+  the starter plants in motion (wind, bending under an interactor), at night, in an export's page, and on a
+  ground texture other than the town's and the yard's flat colour; the LOD switch distances (arithmetic); a
+  project that already holds the old Basic Kit; D847's cause (reasoned).
+- **Left out, and why:** a fix of the foliage shading (D847: a lit program, measured; not this item's); a pack
+  upgrade for projects that hold the kit (§8 13); a dressing editor of its own, a view of where a condition
+  holds before a species grows there (an overlay), copying a species between dressings; a dressing check in
+  Problems (D843 stays open); any large-class placement, cover past 40 m, new conditions, wind tuning.
 
 ## 10. The proposed plan's questions and how each stands
 

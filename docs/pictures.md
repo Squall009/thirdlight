@@ -19,32 +19,37 @@ one line of what to look for.
   bank, 1.7 m over the hollow's floor, looking up at its rim. Their facts hold the gas as drawn (the hull's
   triangles, whether the eye stood in gas) and what the bench wrote. **L25 and L26** are the bench cover
   (`bench-cover.ts`), in a third run of their own (`cover`: the other runs' pictures keep the bare ground they
-  have had from phase to phase): four stand-in plant models made in code and imported, two dressings set on the
-  town's grass and gravel materials, a gravel road painted across the town's three empty lots and a shelf of ground
-  set under a pond's rim, all through the commands before Play and taken out after (the strokes by the project's
-  undo, the materials set back, the dressings and models deleted, the far cache read once so it is current when
-  the backend stops); L25 the meadow from 2.4 m up with the road across it, L26 the pond's reeds from 8.5 m off.
-  Their facts hold the cover as the page's cover path holds it (species, sets, points) and the profiler's count of
-  clumps and triangles the view drew.
-- **E1–E8, editor screens**, 1600 × 900: the editor with a scene, structure mode, a water body, a spline road (a
+  have had from phase to phase): the engine's Basic Kit added to the project (its four starter plants and its
+  dressings), the kit's Meadow set on the town's grass and its Gravel on the town's gravel, a gravel road painted
+  across the town's three empty lots and a shelf of ground set under a pond's rim, all through the commands before
+  Play and taken out after by the project's undo, newest first (the strokes, the two materials, the kit; the files
+  the kit's add wrote are removed, and the far cache is read once so it is current when the backend stops); L25
+  the meadow from 2.4 m up with the road across it, L26 the pond's reeds from 8.5 m off. Their run's own JSON
+  (`<pack>.raw/cover/light-shots.json`) holds the cover as the page's cover path holds it (species, sets, points)
+  and the count of clumps and triangles the view drew.
+- **E1–E9, editor screens**, 1600 × 900: the editor with a scene, structure mode, a water body, a spline road (a
   fresh backend's made yard), the voxel world page and Play with the Profiler (staging's town), and the world mode
-  (E7, last on the yard: a hill raised, smoothed and painted there by the strokes the mode's brush sends, then one
+  (E7, on the yard: a hill raised, smoothed and painted there by the strokes the mode's brush sends, then one
   Add stroke dragged with the real pointer; the view before that drag is kept beside it in the raw folder as
-  `screen-world-mode-before-drag.png`, and the picture's facts say what the drag did), and its Fill rail (E8, after
+  `screen-world-mode-before-drag.png`, and the picture's facts say what the drag did), its Fill rail (E8, after
   E7: two hollows dug by commands, a gas material made; then with the real pointer one stroke of the fog brush, a
   fog fill of the far hollow with its level dragged down, and a fill of the near hollow, which a trench breaches, so
   it is refused and its leak marked. The facts hold each command's answer and the Scene view's gas as drawn; the
   same view with the panel's fog view switched to Density is kept beside it in the raw folder as
-  `screen-world-fill-density.png`). After E7's picture the bench's meadow is set on the yard's grass, the Scene
-  view with its cover grown is kept in the raw folder (`screen-world-mode-cover.png`, and the yard's house framed:
-  `…-cover-house.png`), and the meadow is taken off again before E8.
+  `screen-world-fill-density.png`), and the Dressing card (E9, last on the yard: the Basic Kit added, the yard's
+  grass naming its Meadow and the lane's road its Gravel, the lane framed, the grass material chosen in the
+  Project window so its Inspector's Dressing card stands beside the Scene view. After the picture, with the real
+  pointer: the grass's density typed lower on the card, the material's dressing cleared in the card's picker and
+  picked again, and the world mode's Rules rail reading a point of the meadow, kept in the raw folder as
+  `screen-dressing-card-rules.png`; the facts say what the Scene view's cover did at each step and what the
+  rail listed).
 
 Every picture waits for the engine's own settle signals: streaming still, nothing pending in the simulation, no
 texture level loading and the light volume settled (world pictures); the Scene view's worlds and grids settled
 with no frame wanted, the page's `settle`, or Play's counts still and the light volume settled (screens). A
 picture that does not settle in time is kept as `<id>-…-UNSETTLED.png` and listed "did not settle: <what>".
 
-Changing the list: add an entry (a new id, never a reused one), keep it about 30 pictures (the owner's default; 34 with 47b.7's two and 47b.9's two),
+Changing the list: add an entry (a new id, never a reused one), keep it about 30 pictures (the owner's default; 35 with 47b.7's two, 47b.9's two and 47b.10's one),
 and say in the phase's results what was added or dropped.
 
 ## Running it
