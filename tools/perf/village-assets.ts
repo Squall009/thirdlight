@@ -425,7 +425,7 @@ export function pebbleGlb(name: string, radius = 0.09, height = 0.06): Buffer {
       scenes: [{ nodes: [0] }],
       nodes: [{ name, mesh: 0 }],
       meshes: [mesh],
-      materials: [{ name, pbrMetallicRoughness: { baseColorFactor: [0.52, 0.5, 0.47, 1], metallicFactor: 0, roughnessFactor: 0.9 } }],
+      materials: [{ name, pbrMetallicRoughness: { baseColorFactor: [0.2, 0.19, 0.17, 1], metallicFactor: 0, roughnessFactor: 0.9 } }],
       accessors: g.accessors,
       bufferViews: g.views,
       buffers: [{ byteLength: bin.length }],

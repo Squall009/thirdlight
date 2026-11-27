@@ -23,10 +23,11 @@ import { MAT } from './world-kit';
 
 /** The folder the stand-in models are imported from, and the files in it (a file a species). */
 export const BENCH_COVER_FOLDER = 'assets/bench-cover';
+/** Each model's colour is its glTF base colour factor: linear, so a mid green reads as (0.07, 0.17, 0.03). */
 export const BENCH_COVER_MODELS = Object.freeze({
-  grass: Object.freeze({ file: 'bench-grass.glb', glb: () => plantGlb('bench-grass', 11, { blades: 12, segments: 3, height: 0.42, spread: 0.16, color: [0.3, 0.5, 0.18] }), triangles: 60 }),
-  flower: Object.freeze({ file: 'bench-flower.glb', glb: () => plantGlb('bench-flower', 12, { blades: 6, segments: 2, height: 0.55, spread: 0.07, color: [0.93, 0.8, 0.22] }), triangles: 18 }),
-  reed: Object.freeze({ file: 'bench-reed.glb', glb: () => plantGlb('bench-reed', 13, { blades: 8, segments: 3, height: 1.7, spread: 0.1, color: [0.46, 0.44, 0.2] }), triangles: 40 }),
+  grass: Object.freeze({ file: 'bench-grass.glb', glb: () => plantGlb('bench-grass', 11, { blades: 12, segments: 3, height: 0.42, spread: 0.16, color: [0.07, 0.17, 0.03] }), triangles: 60 }),
+  flower: Object.freeze({ file: 'bench-flower.glb', glb: () => plantGlb('bench-flower', 12, { blades: 8, segments: 2, height: 0.6, spread: 0.09, color: [0.9, 0.6, 0.03] }), triangles: 24 }),
+  reed: Object.freeze({ file: 'bench-reed.glb', glb: () => plantGlb('bench-reed', 13, { blades: 8, segments: 3, height: 1.7, spread: 0.1, color: [0.17, 0.15, 0.03] }), triangles: 40 }),
   pebble: Object.freeze({ file: 'bench-pebble.glb', glb: () => pebbleGlb('bench-pebble'), triangles: 10 }),
 });
 export type BenchCoverModel = keyof typeof BENCH_COVER_MODELS;
@@ -47,11 +48,11 @@ export function benchCoverDressings(models: Readonly<Record<BenchCoverModel, str
       name: 'Bench meadow',
       species: [
         { model: models.grass, class: 'cover', density: 6, scale: [0.7, 1.3], align: 0.3, conditions: { sky: true, slope: { max: 40, fade: 10 }, waterDepth: { max: 0 } } },
-        { model: models.flower, class: 'cover', density: 1.5, spacing: 0.5, scale: [0.8, 1.25], seed: 3, conditions: { sky: true, waterDepth: { max: 0 }, materialEdge: { max: 1.5 }, construction: { min: 3 } } },
+        { model: models.flower, class: 'cover', density: 2.5, spacing: 0.4, scale: [0.8, 1.25], seed: 3, conditions: { sky: true, waterDepth: { max: 0 }, materialEdge: { max: 1.5 }, construction: { min: 3 } } },
         { model: models.reed, class: 'cover', density: 4, spacing: 0.25, scale: [0.75, 1.3], seed: 5, conditions: { waterDepth: { min: 0.05, max: 0.6 } } },
       ],
     },
-    { dressingFormat: 1, dressingId: BENCH_ROAD_DRESSING, name: 'Bench road', species: [{ model: models.pebble, class: 'cover', density: 5, scale: [0.6, 1.8], conditions: { sky: true, materialEdge: { max: 0.75 } } }] },
+    { dressingFormat: 1, dressingId: BENCH_ROAD_DRESSING, name: 'Bench road', species: [{ model: models.pebble, class: 'cover', density: 5, scale: [0.5, 1.4], conditions: { sky: true, materialEdge: { max: 0.75 } } }] },
   ];
 }
 
