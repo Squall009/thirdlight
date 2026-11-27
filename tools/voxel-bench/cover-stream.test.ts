@@ -401,6 +401,18 @@ describe('ground cover as a voxel world streams', () => {
     await r.settle();
     expect(dust()).toEqual([]);
     expect(r.held.get(key(...house))!.length).toBeGreaterThan(0);
+    // The detail ring moved off a column and back: drawn again, its own cover is made, and no column beside it.
+    let jobsThen = r.cover.stats().jobs;
+    const ringColumn = [{ level: 0, nx: 1, ny: 0, nz: 1 }, { level: 0, nx: 1, ny: 1, nz: 1 }];
+    r.emit({ type: 'levels', reason: 'swap', added: [], removed: ringColumn });
+    await r.settle();
+    expect(r.held.has(key(1, 1))).toBe(false);
+    expect(r.cover.stats().jobs).toBe(jobsThen);
+    r.emit({ type: 'levels', reason: 'swap', added: ringColumn, removed: [] });
+    await r.settle();
+    expectSame(r.held.get(key(1, 1)), fresh(r.store, 1, 1), 'drawn again');
+    expect(r.cover.stats().jobs - jobsThen).toBe(1);
+    jobsThen = r.cover.stats().jobs;
     // The last chunk of the column: its cover goes in the same batch as the chunk's draw.
     const from = r.batches.length;
     r.emit({ type: 'unloaded', cx: 3, cy: 0, cz: 2 });
@@ -410,6 +422,7 @@ describe('ground cover as a voxel world streams', () => {
     expect(r.held.has(key(...house))).toBe(false);
     await r.settle();
     expect(r.cover.stats().columns).toBe(15);
+    expect(r.cover.stats().jobs).toBe(jobsThen);
     // Closed with jobs out: they are given up, and their answers are not sent.
     const jobs = r.cover.stats().jobs;
     r.cover.setTable(voxelCoverTable({ materials: MATERIALS as never, dressings: DRESSINGS.slice(0, 3) }));

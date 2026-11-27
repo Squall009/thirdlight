@@ -25,7 +25,9 @@
  *   round a change are made again with it;
  * - a chunk of it or beside it arrived (a column made at the load ring's rim
  *   read the missing chunk as air);
- * - a chunk of it was drawn or is no longer drawn at level 0;
+ * - a chunk of it was drawn or is no longer drawn at level 0 (its own
+ *   column alone: no cell changed, so the detail ring moving over a world
+ *   makes each column once as it enters);
  * - a structure's stamp over it or beside it landed or left (what `built`
  *   answers: the ground under a house is no surface);
  * - the table of what grows changed (a dressing, a material's dressing):
@@ -237,8 +239,10 @@ export class ChunkCoverStream {
     if (c === undefined) this.columns.set(key, (c = { cx, cz, drawn: new Set(), dirty: false, order: 0, job: 0, stale: false, hash: null, points: 0 }));
     const fresh = !c.drawn.has(cy);
     c.drawn.add(cy);
+    // A chunk drawn for the first time changed no cell (the columns beside read it when it loaded): its own column
+    // alone is made. A drawn chunk that changed is read by the columns round it too.
     if (fresh) this.mark(c);
-    if ((parts & COVER_FED_BY) !== 0) this.touch(cx, cz, 1);
+    else if ((parts & COVER_FED_BY) !== 0) this.touch(cx, cz, 1);
     this.pump();
   }
 
