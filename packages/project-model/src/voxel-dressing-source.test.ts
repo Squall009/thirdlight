@@ -172,7 +172,7 @@ describe('a chunk\'s cover from a box of cells', () => {
     const tree: DressingSpecies = { model: 'oak', class: 'large', density: 0.05, spacing: 6 };
     const grass: DressingSpecies = { model: 'grass', class: 'cover', density: 2 };
     const out = voxelCoverOfCells(flat, MIDDLE, table([tree, grass, { ...tree, model: 'boulder' }]));
-    // Only the cover entry, under its own place in the list (1), so its plants do not move when 47p places the others.
+    // Only the cover entry, under its own place in the list (1), so its plants do not move when the large class is placed too.
     expect(out.sets.map((s) => [s.species, s.rule.asset.assetId, s.rule.id])).toEqual([[1, 'grass', 's1']]);
     expect(voxelCoverOfCells(flat, MIDDLE, table([tree])).sets).toEqual([]);
     const asCover = voxelCoverOfCells(flat, MIDDLE, table([{ ...tree, class: 'cover' }]));

@@ -59,7 +59,8 @@ cells of 0.5 m; `level` is a height in cells, `reach` a distance in cells,
 A leak is refused with `flood_leaks`, and the error's `leaks` lists the
 places in metres. To drain, send the same with
 `"value": {"material": 0, "role": 0}` and no `fade`. One fill reaches about
-60 m at most; a wider bank is several fills.
+60 m from its seed at most, and a fill that meets its reach is refused as a
+leak: an open hollow wider than about 120 m cannot be filled yet (D850).
 
 ## Painting fog
 

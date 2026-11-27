@@ -116,6 +116,9 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
    near mesher skips prop cells and the object's own model is drawn, while light, paths and collision read the
    cells and the far bake includes them, so forests and rocks show in the far bricks. Collision from the voxels,
    rough, for now. No fade between model and brick: a known limitation until the rings phase.
+   Its plan opens with what 47b's review found the role traits table still lacks for this row (plan-47b §8, the
+   review's note 12): light stop, walkers and collision carried apart from "drawn as a body" in the level-0
+   derive, a mip kind for "not drawn near, kept far", and whether a prop's cells close the sky for dressing rules.
 6. **47c**: the world map as the far field seen from above; MCP; manual.
 7. **48**: converters, retirement of block layers, heightfield terrain and generated architecture, the merge to
    main; voxel splines move onto 47p's overlay as the old terrain splines go. The owner's demo project (real

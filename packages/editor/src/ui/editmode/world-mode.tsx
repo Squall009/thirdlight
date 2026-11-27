@@ -322,7 +322,7 @@ function FillColumn(view: SceneModeView): JSX.Element {
         <Section title="Reach">
           <SliderField label="Reach" aria="world fill reach" value={Math.min(state.reach, bound)} min={1} max={bound} step={1} unit="m" hint="How far from the point clicked the fill may spread, and how deep under it." onChange={(reach) => set({ reach })} />
           <p className="tl-hint">
-            A fill that would pass its reach, or leave the world, is a leak: nothing is written and the places are marked in red. One fill reaches at most {bound} m (the work one stroke may take); a wider bank is several fills. {state.fill === 'fog' ? 'A fog fill does not follow later ground edits.' : 'A drain in open ground leaks as a fill does; fog on open ground is erased with the fog brush (Paint, a gas picked).'}
+            A fill that would pass its reach, or leave the world, is a leak: nothing is written and the places are marked in red. One fill reaches at most {bound} m (the work one stroke may take), so a hollow wider than twice that cannot be filled yet. {state.fill === 'fog' ? 'A fog fill does not follow later ground edits.' : 'A drain in open ground leaks as a fill does; fog on open ground is erased with the fog brush (Paint, a gas picked).'}
           </p>
         </Section>
       )}
