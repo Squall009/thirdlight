@@ -38,6 +38,12 @@ export function useDocumentCommands(deps: DocumentCommandsDeps) {
     const build = (): { material: MaterialDef } => ({ material: mergeDocumentEdit(base, material, c.getMaterials().find((m) => m.materialId === material.materialId) ?? null) ?? material });
     setMaterialError(refusal(await c.command('setMaterial', build, c.projection.revision)));
   }, [clientRef]);
+  // Dressing commands (one undo step each); resolves with the refusal's words, or null.
+  const dressingCommand = useCallback(async (op: 'setDressing' | 'deleteDressing', args: Record<string, unknown>): Promise<string | null> => {
+    const c = clientRef.current;
+    if (!c) return 'not connected';
+    return refusal(await c.command(op, args, c.projection.revision));
+  }, [clientRef]);
   // Dialogue commands (one undo step each).
   const dialogueCommand = useCallback(async (op: 'setDialogue' | 'deleteDialogue' | 'setSpeaker' | 'deleteSpeaker' | 'setDialogueSettings', args: Record<string, unknown>): Promise<boolean> => {
     const c = clientRef.current;
@@ -132,7 +138,7 @@ export function useDocumentCommands(deps: DocumentCommandsDeps) {
 
   return {
     graphsError, effectError, dialogueError, timelineError, uiError, setUiError, materialError,
-    saveMaterial, saveEnvironment, saveSceneEnvironment, dialogueCommand, effectCommand, timelineCommand, onTimelinePreview, uiCommand, sendGraphEdit, graphDocCommand, showGraph,
+    saveMaterial, saveEnvironment, saveSceneEnvironment, dressingCommand, dialogueCommand, effectCommand, timelineCommand, onTimelinePreview, uiCommand, sendGraphEdit, graphDocCommand, showGraph,
   };
 }
 

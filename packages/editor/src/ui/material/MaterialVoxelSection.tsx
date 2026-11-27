@@ -2,7 +2,8 @@
  * A material's voxel use in the Inspector: whether and how the record is
  * also a voxel material (its voxel id, use, kit, tile and relief depth, a
  * gas's colour and full density),
- * and the badges of what it can be used for. Every change is one
+ * the badges of what it can be used for, and for ground and construction
+ * the Dressing card (what grows on it: DressingCard.tsx). Every change is one
  * `setMaterial` (committed on release), so each is one undo; the backend's
  * refusals (a voxel id another material has, a kit the project lacks) show
  * as every material refusal does.
@@ -15,10 +16,13 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useState, type JSX } from 'react';
+import type { JSX } from 'react';
 import type { MaterialDef } from '@thirdlight/project-model';
 import { materialBadges, VOXEL_MATERIAL_LIMITS, VOXEL_MATERIAL_USES, voxelGasLook, voxelTileMetresDefault, voxelUseTakesKit, type MaterialVoxel, type VoxelGasLook, type VoxelMaterialUse } from '@thirdlight/project-model/voxel-materials';
+import { voxelUseTakesDressing } from '../../session/dressing-edits';
 import { RefPicker } from '../catalog/RefPicker';
+import { DressingCard } from './DressingCard';
+import { NumberField } from './NumberField';
 
 /** What each badge says (the material library's tile shows the same). */
 export const BADGE_TITLES: Readonly<Record<string, string>> = {
@@ -48,33 +52,6 @@ export function freeVoxelId(materials: readonly MaterialDef[]): number | null {
   const taken = new Set(materials.flatMap((m) => (m.voxel !== undefined ? [m.voxel.id] : [])));
   for (let id = VOXEL_MATERIAL_LIMITS.idMin; id <= VOXEL_MATERIAL_LIMITS.idMax; id++) if (!taken.has(id)) return id;
   return null;
-}
-
-/** A number field committed on blur or Enter (empty: absent). */
-function NumberField(p: { aria: string; value: number | undefined; placeholder: string; min: number; max: number; step: number; onCommit: (v: number | undefined) => void }): JSX.Element {
-  const [draft, setDraft] = useState(p.value === undefined ? '' : String(p.value));
-  useEffect(() => setDraft(p.value === undefined ? '' : String(p.value)), [p.value]);
-  const commit = (): void => {
-    const t = draft.trim();
-    const v = t === '' ? undefined : Math.min(p.max, Math.max(p.min, Number(t)));
-    if (v !== undefined && !Number.isFinite(v)) return;
-    if (v !== p.value) p.onCommit(v);
-  };
-  return (
-    <input
-      className="tl-input tl-input--num"
-      type="number"
-      aria-label={p.aria}
-      min={p.min}
-      max={p.max}
-      step={p.step}
-      placeholder={p.placeholder}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-    />
-  );
 }
 
 /**
@@ -176,6 +153,7 @@ export function MaterialVoxelSection(p: { material: MaterialDef; resolved: Mater
               </label>
             </>
           )}
+          {(shownUse === undefined || voxelUseTakesDressing(shownUse)) && <DressingCard material={m} inherited={inherited?.dressing} materials={p.materials} onSave={p.onSave} />}
           <p className="tl-hint">
             {surfaces === 0 ? 'Wall, floor and ceiling draw with the material’s own look.' : `${surfaces} surface texture set${surfaces === 1 ? '' : 's'} named (wall, floor, ceiling).`} The colour above tints its voxels.
           </p>

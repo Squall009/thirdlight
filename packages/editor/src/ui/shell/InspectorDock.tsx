@@ -9,7 +9,7 @@
  * (EntityInspector, with the button of the editor that edits it), and the running Play's
  * script values for it.
  */
-import { useCallback, type JSX } from 'react';
+import { useCallback, useMemo, type JSX } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
 import { effectiveFlagsOf } from '../../session/hierarchy';
 import { addEntries } from '../../session/descriptor-fields';
@@ -38,6 +38,8 @@ import type { GizmoMode } from '../../viewport/viewport';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { InstanceBrushPanel, type useInstanceBrush } from '../instances/InstanceBrush';
 import { ItemInspector } from '../project/ItemInspector';
+import { DressingHostContext, type DressingHost } from '../material/DressingCard';
+import { freeItemId } from '../../session/project-items';
 import { VoxelBakeStatus, type FineBakeState } from '../VoxelBakeStatus';
 import type { ItemActions } from '../project/useItemActions';
 import type { ProjectItem } from '../../session/project-items';
@@ -136,6 +138,14 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
   // A preset open in the editor window shows its sliders (dragging previews in the Scene view).
   const archProps = presetSlidersHost(graphs, materials, (graphId, ops) => sendGraphEdit({ kind: 'graph', id: graphId }, ops), (p: ArchitecturePreview | null) => void props.viewportRef.current?.previewArchitecture(p));
   const item = props.inspectedItem;
+  // What a material's Dressing card reads and sends.
+  const { dressings } = props.content;
+  const { dressingCommand } = props.docCmds;
+  const { clientRef } = props;
+  const dressingHost = useMemo<DressingHost>(
+    () => ({ dressings, command: dressingCommand, newId: (name) => freeItemId(name, 'dressing', (ids) => clientRef.current?.catalog.taken(ids, ['dressing']) ?? Promise.resolve(new Set<string>())) }),
+    [dressings, dressingCommand, clientRef],
+  );
   // A kit's Inspector names its parts (built only while a kit is shown).
   const kitNames =
     item?.kind === 'kit'
@@ -260,6 +270,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
         })()}
       </div>
     ) : item !== null ? (
+      <DressingHostContext.Provider value={dressingHost}>
       <ItemInspector
         item={item}
         actions={props.items}
@@ -301,6 +312,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
           onOverrideCommit: props.prefab.commitOverride,
         }}
       />
+      </DressingHostContext.Provider>
     ) : (
     <EntityInspector {...props} />
     )}

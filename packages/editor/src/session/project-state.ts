@@ -11,7 +11,7 @@
  */
 
 import { applyGraphOpsLocal } from '../graph/model';
-import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, KitDef, PlaneLock, SaveSchema } from '@thirdlight/project-model';
+import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, DressingDef, KitDef, PlaneLock, SaveSchema } from '@thirdlight/project-model';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, SceneEnvironment, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell, LoadableEntry } from '@thirdlight/project-model';
 import type { ChangeData } from '@thirdlight/commands';
@@ -66,6 +66,8 @@ export class SessionProjectState {
   private blockStamps: BlockStamp[] = [];
   /** The kits (from queryGameConfig, then setKit changes). */
   private kits: KitDef[] = [];
+  /** The dressings: what grows on voxel materials (from queryGameConfig, then setDressing changes). */
+  private dressings: DressingDef[] = [];
   /** Every block layer's cells (queryBlocks; the chunks a change names are read again). */
   protected blockLayers = new Map<string, BlockLayerView>();
   /** Bumped whenever a layer's cells or the layer list change (the Scene view re-meshes). */
@@ -165,6 +167,8 @@ export class SessionProjectState {
     this.blockStamps = Array.isArray(blockStamps) ? structuredClone(blockStamps) : [];
     const kits = (g as { kits?: KitDef[] }).kits;
     this.kits = Array.isArray(kits) ? structuredClone(kits) : [];
+    const dressings = (g as { dressings?: DressingDef[] }).dressings;
+    this.dressings = Array.isArray(dressings) ? structuredClone(dressings) : [];
     const uiDocs = (g as { uiDocuments?: UiDocument[] }).uiDocuments;
     this.uiDocuments = Array.isArray(uiDocs) ? structuredClone(uiDocs) : [];
     const uiThemes = (g as { uiThemes?: UiTheme[] }).uiThemes;
@@ -267,6 +271,9 @@ export class SessionProjectState {
     } else if (change.type === 'setKit') {
       // One kit before/after (null = none).
       this.kits = replaced(this.kits, (k) => k.kitId, change.kitId, change.next);
+    } else if (change.type === 'setDressing') {
+      // One dressing before/after (null = none).
+      this.dressings = replaced(this.dressings, (d) => d.dressingId, change.dressingId, change.next);
     } else if (change.type === 'setEffect') {
       // One effect before/after (null = none).
       this.effects = replaced(this.effects, (e) => e.effectId, change.effectId, change.next);
@@ -428,6 +435,11 @@ export class SessionProjectState {
   /** The kits (the editor treats them as read-only values). */
   getKits(): readonly KitDef[] {
     return this.kits;
+  }
+
+  /** The dressings (the editor treats them as read-only values). */
+  getDressings(): readonly DressingDef[] {
+    return this.dressings;
   }
 
   /** The visual effects (the editor treats them as read-only values). */
