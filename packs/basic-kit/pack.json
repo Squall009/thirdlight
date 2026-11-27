@@ -62,16 +62,16 @@
       "kind": "texture",
       "displayName": "Basic cover: colour",
       "file": "textures/basic-cover-albedo.ktx2",
-      "sha256": "5666531534a49ddef451dc4ff4391bd36f3e4d892313767016720a421be5ba9e",
-      "bytes": 4234
+      "sha256": "ed452353bdd772179edfb1657aa00cb3266fa2eb116d46f66548dff541125ff1",
+      "bytes": 3995
     },
     {
       "assetId": "basic-grass",
       "kind": "model",
       "displayName": "Grass clump (Basic Kit)",
       "file": "models/basic-grass.glb",
-      "sha256": "8e8190917d434cf4d6d95b203645127048b240f4dc0004aa59929cca1c546b77",
-      "bytes": 7800,
+      "sha256": "709e3b35422850826e1f156cfd0cf58c081d7c10246cd786f90b5dd8272d512d",
+      "bytes": 7804,
       "materials": {
         "cover": "basic-cover"
       }
@@ -81,7 +81,7 @@
       "kind": "model",
       "displayName": "Flowers (Basic Kit)",
       "file": "models/basic-flower.glb",
-      "sha256": "dc626e355635ec9f8e4830b8363e99e9149683a139d33b6e204deb54ae301378",
+      "sha256": "17277182d9c59a66ee2f5ac899c5fa056fa0099ee9a4ba14dd124cacbea0afa8",
       "bytes": 7076,
       "materials": {
         "cover": "basic-cover"
@@ -92,8 +92,8 @@
       "kind": "model",
       "displayName": "Reeds (Basic Kit)",
       "file": "models/basic-reed.glb",
-      "sha256": "5e7ab384138a8fa6d115bdd75e2703bfe4936a4dc2c1028109f4802eac060d72",
-      "bytes": 7612,
+      "sha256": "57021bbc3caef2e183753b5b7f023326f909fc42b595bba8fdc50791e7d0e600",
+      "bytes": 7616,
       "materials": {
         "cover": "basic-cover"
       }
@@ -593,9 +593,9 @@
           "shader": "foliage",
           "params": {
             "color": "#ffffff",
-            "roughness": 0.7,
+            "roughness": 0.75,
             "metalness": 0,
-            "subsurface": 0.3,
+            "subsurface": 0.15,
             "windDistance": 40
           },
           "textures": {

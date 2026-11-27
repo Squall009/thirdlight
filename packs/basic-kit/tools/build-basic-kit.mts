@@ -488,7 +488,7 @@ async function takeCover(dir: string): Promise<void> {
  */
 function coverMaterials(): MaterialDef[] {
   return [
-    { materialId: IDS.cover, name: 'Basic cover plants', shader: 'foliage', params: { color: '#ffffff', roughness: 0.7, metalness: 0, subsurface: 0.3, windDistance: FOLIAGE_NEAR_METRES }, textures: { map: IDS.coverAlbedo } },
+    { materialId: IDS.cover, name: 'Basic cover plants', shader: 'foliage', params: { color: '#ffffff', roughness: 0.75, metalness: 0, subsurface: 0.15, windDistance: FOLIAGE_NEAR_METRES }, textures: { map: IDS.coverAlbedo } },
     { materialId: IDS.coverStone, name: 'Basic cover stones', shader: 'standard', params: { color: '#ffffff', roughness: 0.85, metalness: 0 }, textures: { map: IDS.coverAlbedo } },
   ];
 }

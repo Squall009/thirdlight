@@ -87,6 +87,9 @@ describe('the Rules rail: what grows at the cursor', () => {
     const s = at([cover('grass', c, 4)], point).species[0]!;
     expect(s).toMatchObject({ grows: true, share, why: null });
     expect(s.text).toBe(`grows at ${Math.round(share * 100)} % of its density (${(4 * share).toFixed(2).replace(/\.?0+$/, '')} of 4 /m²): a condition is fading here (slope)`);
+    // Only the conditions that thin it here are named: a faded range the surface sits well inside is not one.
+    const two: DressingConditions = { slope: { max: 30, fade: 10 }, height: { max: 50, fade: 10 }, noise: { min: 0, fade: 0.2, scale: 8 } };
+    expect(at([cover('grass', two, 4)], point).species[0]!.text).toContain('a condition is fading here (slope)');
   });
 
   it('reads the noise where the cursor is: the same species grows at one place and not at another', () => {

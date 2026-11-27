@@ -9,7 +9,10 @@
  * yard: a hill is raised, smoothed and painted by the strokes the mode's brush sends (`voxelStrokeCommand`), sent
  * through the backend while the editor is open, and then one stroke is dragged with the real pointer. After it the
  * Fill rail's screen: two hollows dug by commands, one filled with fog and the other, breached by a trench, refused,
- * both by the real pointer on the Fill rail's Fog tool. The voxel world
+ * both by the real pointer on the Fill rail's Fog tool. Last on the yard, the Dressing card: the Basic Kit is added
+ * (its starter plants and dressings), the yard's grass names the kit's Meadow, and the grass material is chosen in
+ * the Project window, so its Inspector's Dressing card stands beside the Scene view with the meadow grown; then the
+ * world mode's Rules rail reads a point of that meadow (kept beside it in the raw folder). The voxel world
  * page and Play are taken on staging's 8 km town (what the world pictures show), which they only read.
  *
  * Each screen waits for the editor's own settle signals (the Scene view's voxel worlds settled and no frame wanted,
@@ -17,14 +20,13 @@
  * within its timeout is saved but reported "did not settle: <what>".
  */
 import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
 import type { Browser, Locator, Page } from '@playwright/test';
 import { chunkGrid, createWorldStore, VOXEL_ROLE } from '@thirdlight/voxel';
 import { VOXEL_WORLDS_FOLDER, writeVoxelWorld } from '@thirdlight/workspace';
 import { voxelStrokeCommand, type VoxelStroke } from '../../packages/editor/src/session/voxel-brush';
 import { startBackend, type E2EBackend } from '../../tests/e2e/backend';
 import { mustCommand } from '../../tests/support/commands';
-import { BENCH_COVER_FOLDER, BENCH_COVER_MODELS, BENCH_MEADOW_DRESSING, benchCoverDressings, type BenchCoverModel } from './bench-cover';
+import { BENCH_COVER_PACK, BENCH_MEADOW_DRESSING, BENCH_ROAD_DRESSING, benchCoverModels } from './bench-cover';
 import type { ScreenName } from './picture-list';
 import type { PictureResult } from './picture-pack';
 import { flatGround } from './scenes';
@@ -97,41 +99,142 @@ async function densityView(page: Page, mode: Locator, file: string): Promise<Rec
   return { switched: on.ok, file, gas, back: off.ok };
 }
 
-/**
- * The bench's meadow on the yard's grass (its stand-in models imported, its dressing set on the material), the Scene
- * view waited for and a picture of it taken into `file`: what the view says it holds of cover then.
- */
-async function yardCover(be: E2EBackend, page: Page, file: string, house: string): Promise<Record<string, unknown>> {
-  const cmd = (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => mustCommand(be, op, args, { clientId: 'pictures' });
-  const dir = join(be.projectDir, ...BENCH_COVER_FOLDER.split('/'));
-  mkdirSync(dir, { recursive: true });
-  for (const m of Object.values(BENCH_COVER_MODELS)) writeFileSync(join(dir, m.file), m.glb());
-  await cmd('importAssets', { folder: BENCH_COVER_FOLDER });
-  const assets = ((await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 100 } }))['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>;
-  const models = Object.fromEntries(Object.entries(BENCH_COVER_MODELS).map(([name, m]) => [name, assets.find((a) => a.sourcePath === `${BENCH_COVER_FOLDER}/${m.file}`)?.assetId ?? ''])) as Record<BenchCoverModel, string>;
-  const dressings = benchCoverDressings(models);
-  for (const dressing of dressings) await cmd('setDressing', { dressing });
-  const grass = (dressing?: string): Record<string, unknown> => ({ materialId: 'mat-grass', name: 'Grass', shader: 'standard', params: { color: '#4d7a3a' }, textures: {}, voxel: { id: MAT.grass, use: 'terrain', ...(dressing !== undefined ? { dressing } : {}) } });
-  await cmd('setMaterial', { material: grass(BENCH_MEADOW_DRESSING) });
-  const cover = async (): Promise<{ species?: number; points?: number; pending?: number } | null> => ((await sceneVoxels(page)) as unknown as { cover?: { species: number; points: number; pending: number } } | null)?.cover ?? null;
-  const grown = await until(page, async () => {
-    const c = await cover();
+/** What the Scene view says it holds of ground cover (null: none told). */
+const sceneCover = async (page: Page): Promise<{ species?: number; points?: number; pending?: number } | null> => ((await sceneVoxels(page)) as unknown as { cover?: { species: number; points: number; pending: number } } | null)?.cover ?? null;
+
+/** The Scene view's cover grown and at rest (`points`: how many it must differ from, when a change is waited for). */
+async function coverGrown(page: Page, not: number | null = null, ms = 60_000): Promise<Wait> {
+  return until(page, async () => {
+    const c = await sceneCover(page);
     if ((c?.points ?? 0) === 0) return 'no cover in the Scene view';
     if ((c?.pending ?? 0) > 0) return 'cover sets waiting';
+    if (not !== null && c?.points === not) return `the cover still at ${not} points`;
     return sceneSettled(page);
-  }, 60_000);
+  }, ms);
+}
+
+/**
+ * The yard given the engine's starter cover as a project gets it: the Basic Kit added (one call), the grass naming
+ * the kit's Meadow and the road its Gravel (`setMaterial`). What the kit's add answered.
+ */
+async function yardMeadow(be: E2EBackend): Promise<Record<string, unknown>> {
+  const cmd = (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => mustCommand(be, op, args, { clientId: 'pictures' });
+  const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/packs/${BENCH_COVER_PACK}`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ origin: { kind: 'mcp', clientId: 'pictures' } }) });
+  const added = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+  if (added['ok'] !== true) throw new Error(`the Basic Kit was not added: ${JSON.stringify(added).slice(0, 300)}`);
+  await cmd('setMaterial', { material: { materialId: 'mat-grass', name: 'Grass', shader: 'standard', params: { color: '#4d7a3a' }, textures: {}, voxel: { id: MAT.grass, use: 'terrain', dressing: BENCH_MEADOW_DRESSING } } });
+  await cmd('setMaterial', { material: { materialId: 'mat-road', name: 'Road', shader: 'standard', params: { color: '#8a8070' }, textures: {}, voxel: { id: YARD_MAT.road, use: 'terrain', dressing: BENCH_ROAD_DRESSING } } });
+  return { pack: BENCH_COVER_PACK, commands: (added['added'] as unknown[] | undefined)?.length ?? null, grass: BENCH_MEADOW_DRESSING, road: BENCH_ROAD_DRESSING, models: benchCoverModels() };
+}
+
+/** The grass material chosen in the Project window: its Inspector, with the Dressing card, takes the right dock. */
+async function showGrassMaterial(page: Page): Promise<Wait> {
+  await page.locator('.tl-dock--bottom > [role=tablist] [role=tab]', { hasText: 'Project' }).click().catch(() => undefined);
+  await page.getByLabel('search the project', { exact: true }).fill('t:material Grass');
+  const tile = page.locator('li[data-item-kind="material"][data-item-id="mat-grass"]');
+  const card = page.locator('[aria-label="dressing card"]');
+  return until(page, async () => {
+    if ((await card.count()) === 0) {
+      if ((await tile.count()) === 0) return 'the grass material not listed in the Project window';
+      await tile.first().click();
+      return 'the material\'s Inspector not showing its Dressing card';
+    }
+    return (await card.getAttribute('data-dressing')) === BENCH_MEADOW_DRESSING ? null : 'the card not on the Meadow';
+  }, 30_000);
+}
+
+/**
+ * The card driven with the real pointer after its picture: the grass species' density typed lower (the Scene view's
+ * cover is made again with fewer points), then the material's dressing cleared in the card's picker (the cover goes)
+ * and picked again (it grows again). What happened is told, never asserted.
+ */
+async function driveCard(page: Page): Promise<Record<string, unknown>> {
+  const card = page.locator('[aria-label="dressing card"]');
+  const before = (await sceneCover(page))?.points ?? 0;
+  const density = card.getByLabel('species 1 density', { exact: true });
+  if ((await density.count()) === 0) return { driven: false, why: 'no density field on the card' };
+  const was = await density.inputValue();
+  await density.fill('2');
+  await density.press('Enter');
+  const thinned = await coverGrown(page, before, 45_000);
+  const thin = (await sceneCover(page))?.points ?? 0;
+  const pick = card.getByLabel('voxel dressing', { exact: true });
+  await pick.selectOption('');
+  // The grass grows nothing now; what is left is the road's own cover (its Gravel).
+  const gone = await until(page, async () => (((await sceneCover(page))?.points ?? 0) < thin / 2 ? sceneSettled(page) : 'the meadow still in the Scene view'), 45_000);
+  const left = (await sceneCover(page))?.points ?? 0;
+  await pick.selectOption(BENCH_MEADOW_DRESSING);
+  const back = await until(page, async () => (((await sceneCover(page))?.points ?? 0) > left && ((await sceneCover(page))?.pending ?? 0) === 0 ? sceneSettled(page) : 'the meadow not grown again'), 45_000);
+  // The density as the kit has it again (what the picture after this one shows). The card's entries fold when its
+  // dressing is cleared and picked again: the first one's fields are opened first.
+  const fields = card.getByRole('button', { name: 'species 1 fields', exact: true });
+  if ((await fields.getAttribute('aria-expanded').catch(() => null)) !== 'true') await fields.click({ timeout: 5000 }).catch(() => undefined);
+  const restored = await density.fill(was, { timeout: 5000 }).then(() => density.press('Enter')).then(() => true, () => false);
+  if (restored) await coverGrown(page, thin, 45_000);
+  return { driven: true, densityWas: was, pointsBefore: before, densityTyped: 2, pointsAfter: thin, remade: thinned.ok, cleared: gone.ok, pointsCleared: left, pickedAgain: back.ok, densityRestored: restored, pointsAgain: (await sceneCover(page))?.points ?? 0 };
+}
+
+/** What the Rules column says it reads (its `data-rules-probe`). */
+const rulesProbe = async (mode: Locator): Promise<{ at: number[]; pinned: boolean; state: string; grows: number[] } | null> => {
+  const text = await mode.locator('[aria-label="world rules"]').getAttribute('data-rules-probe').catch(() => null);
+  return text === null || text === '' ? null : (JSON.parse(text) as { at: number[]; pinned: boolean; state: string; grows: number[] });
+};
+
+/**
+ * The world mode's Rules rail on the yard's meadow, with the real pointer: the Read tool armed, the pointer moved
+ * over the view until it reads a surface where some species grows and some does not, a click to hold the read, a
+ * picture into `file`. What the column listed is told.
+ */
+async function rulesRead(page: Page, yard: string, file: string): Promise<Record<string, unknown>> {
+  await select(page, yard);
+  await page.locator('[data-tl-inspector]').getByRole('button', { name: 'Edit world', exact: true }).click();
+  const mode = page.getByRole('region', { name: 'edit mode', exact: true });
+  const tile = mode.locator('button.tl-tool', { hasText: 'Read' });
+  const armed = await until(page, async () => {
+    if ((await mode.getAttribute('data-edit-mode')) !== 'world') return 'world mode not open';
+    const rail = mode.getByRole('tab', { name: /Rules/ });
+    if ((await rail.getAttribute('aria-selected')) !== 'true') {
+      await rail.click();
+      return 'the Rules rail not shown';
+    }
+    if ((await tile.getAttribute('aria-pressed')) !== 'true') {
+      await tile.click();
+      return 'the Read tool not armed';
+    }
+    return (await brushStamp(page))?.navigate === false ? sceneSettled(page) : 'the probe not armed in the Scene view';
+  }, 30_000);
+  if (!armed.ok) return { read: false, why: armed.what };
+  const box = (await page.locator('canvas.tl-viewport').boundingBox())!;
+  let held: Awaited<ReturnType<typeof rulesProbe>> = null;
+  let at: { x: number; y: number } | null = null;
+  const tried: Record<string, unknown>[] = [];
+  // Over the view's ground: the first point whose read has a species that grows and one that does not (else the last surface read).
+  const points = [[0.3, 0.8], [0.5, 0.85], [0.7, 0.8], [0.2, 0.65], [0.8, 0.65], [0.4, 0.7], [0.6, 0.9], [0.5, 0.5], [0.15, 0.9]] as const;
+  for (let i = 0; i < points.length && held === null; i++) {
+    const p = { x: box.x + box.width * points[i]![0], y: box.y + box.height * points[i]![1] };
+    await page.mouse.move(p.x - 6, p.y);
+    await page.mouse.move(p.x, p.y);
+    const moved = (await rulesProbe(mode))?.at.join(',') ?? '';
+    const got = await until(page, async () => {
+      const r = await rulesProbe(mode);
+      return r !== null && r.state === 'surface' ? null : 'no surface read under the pointer';
+    }, 4000);
+    const r = got.ok ? await rulesProbe(mode) : null;
+    tried.push({ at: points[i], read: r?.state ?? null, grows: r?.grows ?? null, was: moved });
+    const mixed = r !== null && r.grows.includes(1) && r.grows.includes(0);
+    if (r !== null && (mixed || i === points.length - 1)) {
+      at = p;
+      await page.mouse.down();
+      await page.mouse.up();
+      await until(page, async () => ((await rulesProbe(mode))?.pinned === true ? null : 'the read not held'), 4000);
+      held = await rulesProbe(mode);
+    }
+  }
+  const listed = await mode.locator('ul[aria-label="species at the cursor"] li').allTextContents().catch(() => [] as string[]);
+  const fields = await mode.locator('dl[aria-label="surface fields at the cursor"] > div').allTextContents().catch(() => [] as string[]);
   await page.screenshot({ path: file });
-  // The house framed too (a structure in its own grid: the view keeps its box clear, where a game reads its stamp).
-  await select(page, house);
-  await frame(page, 7);
-  const framed = await until(page, () => sceneSettled(page), 30_000);
-  await page.screenshot({ path: file.replace(/\.png$/, '-house.png') });
-  const held = await cover();
-  // Taken off: the material names no dressing, so every column lets its cover go, and the dressings are deleted.
-  await cmd('setMaterial', { material: grass() });
-  for (const d of dressings) await cmd('deleteDressing', { dressingId: d.dressingId });
-  const gone = await until(page, async () => ((await cover())?.points === 0 ? sceneSettled(page) : 'cover still in the Scene view'), 60_000);
-  return { grown: grown.ok, ...(grown.ok ? {} : { why: grown.what }), file, houseFramed: framed.ok, models, cover: held, takenOff: gone.ok };
+  await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
+  return { read: held !== null, file, pointer: at, probe: held, species: listed, fields, tried };
 }
 
 async function shoot(page: Page, file: string, wait: Wait, facts: Record<string, unknown>, id: string, waited: string): Promise<PictureResult> {
@@ -408,12 +511,12 @@ async function select(page: Page, id: string): Promise<void> {
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
 }
 
-/** Frames the selected object (F) and backs off `notches` wheel steps over the view's middle. */
+/** Frames the selected object (F) and backs off `notches` wheel steps over the view's middle (negative: moves in). */
 async function frame(page: Page, notches: number): Promise<void> {
   const box = (await page.locator('canvas.tl-viewport').boundingBox())!;
   await page.keyboard.press('f');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  for (let k = 0; k < notches; k++) await page.mouse.wheel(0, 300);
+  for (let k = 0; k < Math.abs(notches); k++) await page.mouse.wheel(0, notches < 0 ? -300 : 300);
 }
 
 /** The authoring screens on a fresh backend's yard. */
@@ -512,12 +615,8 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
         if ((await brushStamp(page))?.cursor !== true) return 'the brush cursor not on the ground';
         return sceneSettled(page);
       });
-      const shot = await shoot(page, files('world-mode'), armed.ok ? w : armed, facts('world-mode', { tool: 'Add', hill, pointerDrag: drag }), idOf('world-mode'), 'world mode open, the Add tool armed, the brush cursor on the ground, the Scene view settled');
-      out.set('world-mode', shot);
+      out.set('world-mode', await shoot(page, files('world-mode'), armed.ok ? w : armed, facts('world-mode', { tool: 'Add', hill, pointerDrag: drag }), idOf('world-mode'), 'world mode open, the Add tool armed, the brush cursor on the ground, the Scene view settled'));
       await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
-      // The yard's grass given the bench's meadow, a picture of the Scene view with it kept beside this one (the raw
-      // folder), and the meadow taken off again: the screens after this one show the yard as they always have.
-      (shot.facts as Record<string, unknown>)['meadow'] = await yardCover(be, page, files('world-mode').replace(/\.png$/, '-cover.png'), ids['house']!).catch((e: unknown) => ({ grown: false, why: String(e).slice(0, 300) }));
     }
     if (want.includes('world-fill')) {
       // After the other screens: the hollows are not part of their yard.
@@ -589,6 +688,35 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
       const density = armed.ok ? await densityView(page, mode, files('world-fill').replace(/\.png$/, '-density.png')) : { switched: false, why: 'the mode did not open' };
       out.set('world-fill', await shoot(page, files('world-fill'), armed.ok ? w : armed, facts('world-fill', { gasDrawn, densityView: density, tool: 'Fog', reachField: reach, fogBrushStroke: fog, wholeHollow: whole, breachedHollow: breached, revisionBefore: before, revisionAfterTheFogStroke: afterFog, revisionAfterTheFirstFill: afterWhole, revisionAtTheEnd: await revision(), status: status?.slice(0, 300) ?? null, note: 'the far hollow\'s fill and the fog brush\'s stroke in the near one are drawn as fog (gasDrawn: the Scene view\'s gas triangles); densityView: the same view with the fog view switched to Density, kept beside this picture' }), idOf('world-fill'), 'world mode\'s Fill rail open, the Fog tool armed, a leak marked, the level ring on the ground, the Scene view settled'));
       await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
+    }
+    if (want.includes('dressing-card')) {
+      // Last on the yard: the kit and the meadow stay in its project.
+      const meadow = await yardMeadow(be);
+      // The lane from close by (F frames a curve by its bounds: the view looks at its middle, where cover is made
+      // round): the meadow up to its verge, the gravel's own cover, the house's corner for the plants' scale.
+      await select(page, ids['lane']!);
+      await frame(page, -3);
+      await select(page, ids['house']!);
+      const grown = await coverGrown(page);
+      const shown = await showGrassMaterial(page);
+      const card = page.locator('[aria-label="dressing card"]');
+      // The first species' fields opened (the grass: its placement and its conditions).
+      const fields = card.getByRole('button', { name: 'species 1 fields', exact: true });
+      if (shown.ok && (await fields.getAttribute('aria-expanded')) !== 'true') await fields.click();
+      await card.scrollIntoViewIfNeeded().catch(() => undefined);
+      const w = await until(page, async () => {
+        if ((await card.getByLabel('species 1 density', { exact: true }).count()) === 0) return 'the species\' fields not open on the card';
+        return sceneSettled(page);
+      }, 30_000);
+      const wait: Wait = !grown.ok ? grown : !shown.ok ? shown : w;
+      const cover = await sceneCover(page);
+      const users = await card.locator('[aria-label="dressing users"]').textContent().catch(() => null);
+      const species = await card.locator('[data-species]').count().catch(() => 0);
+      const shot = await shoot(page, files('dressing-card'), wait, facts('dressing-card', { meadow, cover, card: { dressing: await card.getAttribute('data-dressing').catch(() => null), species, users } }), idOf('dressing-card'), 'the Basic Kit added, the Meadow grown in the Scene view, the grass material\'s Dressing card open with its first species\' fields, the Scene view settled');
+      out.set('dressing-card', shot);
+      const f = shot.facts as Record<string, unknown>;
+      f['cardDriven'] = shown.ok ? await driveCard(page).catch((e: unknown) => ({ driven: false, why: String(e).slice(0, 300) })) : { driven: false, why: 'the card was not shown' };
+      f['rules'] = await rulesRead(page, ids['yard']!, files('dressing-card').replace(/\.png$/, '-rules.png')).catch((e: unknown) => ({ read: false, why: String(e).slice(0, 300) }));
     }
     await context.close();
   } finally {

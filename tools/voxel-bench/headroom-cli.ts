@@ -265,7 +265,7 @@ async function main(): Promise<void> {
   // The bench cover: its strokes are the project's newest undo steps but the fog's.
   // After a bench's undo the far cache is read once, so the backend builds what the undo left before it is stopped.
   const settleFar = (): Promise<unknown> => api(`voxels/${WORLD}/far`, {}, 'GET');
-  const cover = !COVER ? null : await placeBenchCover({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw, settleFar, assets: async () => ((await api('commands', { op: 'queryAssets', projectId: PROJECT, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>, projectDir: join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT) }, WORLD);
+  const cover = !COVER ? null : await placeBenchCover({ raw, addPack: async (id) => (await api(`packs/${id}`, { origin: { kind: 'mcp', clientId: 'voxel-bench-headroom' } })).json, settleFar, projectDir: join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT) }, WORLD);
   // The bench fog, placed last and taken out first (its strokes are then the project's newest undo steps).
   const fog = !FOG ? null : await placeBenchFog({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw, settleFar }, WORLD);
   const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });

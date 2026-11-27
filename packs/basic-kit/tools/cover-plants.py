@@ -47,15 +47,16 @@ TEX = 128
 COLUMN = 16
 
 # The atlas's columns, sRGB stops from root to tip (stones: underside to top). Muted, plausible albedos: the greens
-# sit a little yellow of a mown-grass ground texture so a blade reads as grass on it, not as a dark stroke.
+# are a grass ground's own green, a little darker at the root and a little lighter and yellower at the tip, so a
+# clump reads as grass standing on that ground (lighter stops read as straw laid over it, bluer ones as dark strokes).
 COLUMNS = {
     # Neighbours are alike (the small mips blend a column into the ones beside it, and the atlas wraps).
     "head": ["#3a2a1b", "#4a3421", "#573d26", "#4a3421"],
-    "reed": ["#66722f", "#85913c", "#a9aa55", "#c8bb76"],
-    "stem": ["#567030", "#67843a", "#7b9a44", "#8eaa50"],
-    "green0": ["#5f7a34", "#75933c", "#93ad4b", "#b3c268"],
-    "green1": ["#587436", "#6d8c3c", "#89a548", "#a8ba60"],
-    "dry": ["#6c7438", "#8f9448", "#b0ab5f", "#c9bf80"],
+    "reed": ["#55642c", "#6f7f35", "#8f9645", "#b0a862"],
+    "stem": ["#3f6229", "#4a6e2e", "#557a33", "#5f8238"],
+    "green0": ["#3f6229", "#4a6e2e", "#557a33", "#618539"],
+    "green1": ["#3c5e2a", "#466a2e", "#507532", "#5b7f37"],
+    "dry": ["#4f5f2c", "#62702f", "#78803a", "#8c9046"],
     "petal": ["#f1eee2", "#f6f3ea", "#efd35c", "#e0ae22"],
     "stone": ["#5f5c56", "#7c7971", "#99968d", "#b0ada4"],
 }
@@ -145,8 +146,8 @@ def add_blades(fb, bl, segments, widen, height_ref, thin=THIN):
 
 
 def grass(atlas, mat, rng):
-    """A clump of blade grass, 0.4 m at its tallest."""
-    bl = blades(rng, 14, 0.40, 0.14, (0.2, 0.75), (0.032, 0.046), ["green0", "green1", "green0", "dry"])
+    """A clump of blade grass, 0.34 m at its tallest."""
+    bl = blades(rng, 14, 0.34, 0.14, (0.2, 0.75), (0.030, 0.042), ["green0", "green1", "green0", "green1", "dry"])
     ref = bl[0]["h"]
     # Two segments a blade up close: more blades for the same triangles reads fuller than rounder blades.
     levels = [(14, 2, 1.0), (5, 2, 1.6), (3, 1, 2.6)]
@@ -172,8 +173,8 @@ def flower_head(fb, at, tilt, radius, sides, phase, ref):
 
 
 def flower(atlas, mat, rng):
-    """Three flowers on thin stems over a few low leaves, 0.36 m: white heads with a yellow eye."""
-    stems = blades(rng, 3, 0.36, 0.07, (0.15, 0.45), (0.012, 0.014), ["stem"], h_var=(0.7, 1.0))
+    """Three flowers on thin stems over a few low leaves, 0.56 m (their heads stand over a meadow's grass): white with a yellow eye."""
+    stems = blades(rng, 3, 0.56, 0.07, (0.12, 0.35), (0.014, 0.016), ["stem"], h_var=(0.75, 1.0))
     leaves = blades(rng, 3, 0.16, 0.07, (0.5, 0.95), (0.034, 0.044), ["green1", "green0"], h_var=(0.7, 1.0))
     ref = stems[0]["h"]
     # (stems kept, stem segments, leaves kept, leaf segments, head sides, widen)
@@ -185,7 +186,7 @@ def flower(atlas, mat, rng):
             pts = spine(s["base"], s["dir"], s["h"], s["lean"], seg_stem)
             # A stem keeps its width to the head.
             fb.strip(pts, [s["w"] * widen] * (seg_stem + 1), "stem", CENTER, s["phase"], ref, thin=0.4)
-            flower_head(fb, pts[-1], s["dir"], 0.055 * (1.0 + 0.35 * (widen - 1.0)), sides, s["phase"], ref)
+            flower_head(fb, pts[-1], s["dir"], 0.065 * (1.0 + 0.35 * (widen - 1.0)), sides, s["phase"], ref)
         add_blades(fb, leaves[:n_leaf], seg_leaf, widen, ref)
         objs.append(fb.build(f"basic-flower_LOD{lod}", mat))
     return objs

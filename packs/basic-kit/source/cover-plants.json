@@ -4,8 +4,8 @@
  "models": {
   "basic-grass": {
    "file": "basic-grass.glb",
-   "bytes": 7800,
-   "digest": "8e8190917d434cf4d6d95b203645127048b240f4dc0004aa59929cca1c546b77",
+   "bytes": 7804,
+   "digest": "709e3b35422850826e1f156cfd0cf58c081d7c10246cd786f90b5dd8272d512d",
    "triangles": [
     42,
     15,
@@ -17,9 +17,9 @@
     4
    ],
    "halfExtentAndHeight": [
-    0.278,
-    0.232,
-    0.376
+    0.244,
+    0.262,
+    0.316
    ],
    "material": "cover",
    "collision": "none"
@@ -27,7 +27,7 @@
   "basic-flower": {
    "file": "basic-flower.glb",
    "bytes": 7076,
-   "digest": "dc626e355635ec9f8e4830b8363e99e9149683a139d33b6e204deb54ae301378",
+   "digest": "17277182d9c59a66ee2f5ac899c5fa056fa0099ee9a4ba14dd124cacbea0afa8",
    "triangles": [
     39,
     14,
@@ -40,16 +40,16 @@
    ],
    "halfExtentAndHeight": [
     0.175,
-    0.172,
-    0.365
+    0.203,
+    0.563
    ],
    "material": "cover",
    "collision": "none"
   },
   "basic-reed": {
    "file": "basic-reed.glb",
-   "bytes": 7612,
-   "digest": "5e7ab384138a8fa6d115bdd75e2703bfe4936a4dc2c1028109f4802eac060d72",
+   "bytes": 7616,
+   "digest": "57021bbc3caef2e183753b5b7f023326f909fc42b595bba8fdc50791e7d0e600",
    "triangles": [
     42,
     16,
@@ -97,8 +97,8 @@
    128,
    128
   ],
-  "bytes": 15097,
-  "digest": "a70adab7d726963f13008eb8938712b84ccfd638ae72495adfa0eeeb6756edd6",
+  "bytes": 14330,
+  "digest": "eb04e1684054fdd82d048405bc802a96ea7fc6af7b5d78656dfa46281708ab97",
   "columns": [
    "head",
    "reed",
@@ -112,7 +112,7 @@
   "maps": "albedo only (no alpha, no normal, no ORM)",
   "ktx2": {
    "file": "textures/basic-cover-albedo.ktx2",
-   "bytes": 4234,
+   "bytes": 3995,
    "encoding": "ETC1S, sRGB, mipmapped"
   }
  }

@@ -41,15 +41,17 @@ function RangeRow(p: { row: ConditionRangeRow; value: FadeRange | undefined; ari
   const { row, value } = p;
   const span = row.max - row.min;
   return (
-    <div className="tl-field tl-dressing__range" title={row.hint}>
+    <div className="tl-field" title={row.hint}>
       <span className="tl-field__label">
         {row.label}
         {row.unit !== '' ? ` ${row.unit}` : ''}
       </span>
-      <NumberField aria={`${p.aria} min`} value={value?.min} placeholder="min" min={row.min} max={row.max} step={row.step} onCommit={(min) => p.onChange(rangeWith(value, { min }))} />
-      <NumberField aria={`${p.aria} max`} value={value?.max} placeholder="max" min={row.min} max={row.max} step={row.step} onCommit={(max) => p.onChange(rangeWith(value, { max }))} />
-      <NumberField aria={`${p.aria} fade`} value={value?.fade} placeholder="fade" min={0} max={span} step={row.step} onCommit={(fade) => p.onChange(rangeWith(value, { fade }))} />
-      {p.children}
+      <span className="tl-dressing__range">
+        <NumberField aria={`${p.aria} min`} value={value?.min} placeholder="min" min={row.min} max={row.max} step={row.step} onCommit={(min) => p.onChange(rangeWith(value, { min }))} />
+        <NumberField aria={`${p.aria} max`} value={value?.max} placeholder="max" min={row.min} max={row.max} step={row.step} onCommit={(max) => p.onChange(rangeWith(value, { max }))} />
+        <NumberField aria={`${p.aria} fade`} value={value?.fade} placeholder="fade" min={0} max={span} step={row.step} onCommit={(fade) => p.onChange(rangeWith(value, { fade }))} />
+        {p.children}
+      </span>
     </div>
   );
 }
@@ -57,7 +59,7 @@ function RangeRow(p: { row: ConditionRangeRow; value: FadeRange | undefined; ari
 /** A set condition as ticks (none ticked: any). */
 function TickSet<T extends string | number>(p: { label: string; aria: string; options: readonly { id: T; label: string }[]; value: readonly T[] | undefined; hint: string; onChange: (v: T[] | undefined) => void }): JSX.Element {
   return (
-    <div className="tl-field tl-dressing__set" title={p.hint}>
+    <div className="tl-field" title={p.hint}>
       <span className="tl-field__label">{p.label}</span>
       <span className="tl-dressing__ticks" role="group" aria-label={p.aria}>
         {p.options.map((o) => (
@@ -121,10 +123,12 @@ function SpeciesEntry(p: { dressing: DressingDef; index: number; species: Dressi
             <span className="tl-field__label">spacing m</span>
             <NumberField aria={`${aria} spacing`} value={s.spacing} placeholder="0" min={0} max={spacingMax} step={0.05} onCommit={(v) => set({ spacing: v })} />
           </label>
-          <div className="tl-field tl-dressing__range" title="Each plant's size: a random uniform scale between these.">
+          <div className="tl-field" title="Each plant's size: a random uniform scale between these.">
             <span className="tl-field__label">scale</span>
-            <NumberField aria={`${aria} scale min`} value={s.scale?.[0]} placeholder="1" min={L.scale.min} max={L.scale.max} step={0.05} onCommit={(v) => set({ scale: scaleWith(s.scale, 0, v) })} />
-            <NumberField aria={`${aria} scale max`} value={s.scale?.[1]} placeholder="1" min={L.scale.min} max={L.scale.max} step={0.05} onCommit={(v) => set({ scale: scaleWith(s.scale, 1, v) })} />
+            <span className="tl-dressing__range">
+              <NumberField aria={`${aria} scale min`} value={s.scale?.[0]} placeholder="1" min={L.scale.min} max={L.scale.max} step={0.05} onCommit={(v) => set({ scale: scaleWith(s.scale, 0, v) })} />
+              <NumberField aria={`${aria} scale max`} value={s.scale?.[1]} placeholder="1" min={L.scale.min} max={L.scale.max} step={0.05} onCommit={(v) => set({ scale: scaleWith(s.scale, 1, v) })} />
+            </span>
           </div>
           <label className="tl-field" title="Each plant is turned about up by a random angle from 0 to this many degrees.">
             <span className="tl-field__label">turn °</span>

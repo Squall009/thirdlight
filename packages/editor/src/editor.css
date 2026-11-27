@@ -1000,8 +1000,7 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-dressing { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 4px; }
 .tl-dressing__species { border-left: 2px solid var(--border); margin: 4px 0; padding-left: 6px; }
 .tl-dressing__range { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.tl-dressing__range .tl-input--num { width: 4.6em; min-width: 0; }
-.tl-dressing__set { display: flex; gap: 4px; align-items: flex-start; }
+.tl-dressing__range .tl-input--num { width: 4.4em; min-width: 0; }
 .tl-dressing__ticks { display: flex; flex-wrap: wrap; gap: 2px 8px; }
 .tl-dressing__tick { display: inline-flex; gap: 3px; align-items: center; white-space: nowrap; }
 .tl-material-params .tl-subhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }

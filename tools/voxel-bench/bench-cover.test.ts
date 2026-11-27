@@ -1,16 +1,17 @@
 /**
  * The bench cover on the town's own ground (the generated town, shifted as the 8 km world holds it): its strokes
- * are commands the format takes and its dressings records the model takes; with them the cover job grows grass on
- * the empty lots and none on the road, flowers along the road's verge, pebbles on its shoulder, reeds in the pond's
- * raised shallows and none in its open middle, and nothing inside a house; its cameras stand in clear air and are
- * in the picture list; placing and taking out go through the commands in the order the undo needs. One line says
+ * are commands the format takes and its dressings are the Basic Kit's own (Meadow on the town's grass, Gravel on
+ * its gravel); with them the cover job grows grass on the empty lots and none on the road, flowers along the
+ * road's verge and in patches, pebbles on the road and grass tufts at its edge, reeds in the pond's raised shallows
+ * and none in its open middle, and nothing inside a house; its cameras stand in clear air and are in the picture
+ * list; placing and taking out go through the commands, taken out by the undo newest first. One line says
  * what the cover job costs a chunk column of the town.
  */
 import { applyEdit, canonicalEditCommand, chunkGrid, createWorldStore, surfaceFieldsInputOf, VOXEL_ROLE, VOXEL_SIZE_M, type PaletteStore } from '@thirdlight/voxel';
 import { canonicalDressings, coverPointAt, validateDressings, voxelCoverPoints, voxelCoverTable, type CoverPoint, type VoxelCoverOutput } from '@thirdlight/project-model';
 import { describe, expect, it } from 'vitest';
 
-import { BENCH_COVER_FOLDER, BENCH_COVER_MODELS, BENCH_MEADOW_DRESSING, BENCH_ROAD_DRESSING, benchCoverDressings, coverRoadStroke, coverShelfStroke, placeBenchCover } from './bench-cover';
+import { BENCH_COVER_PACK, BENCH_MEADOW_DRESSING, BENCH_ROAD_DRESSING, BENCH_SPECIES, benchCoverDressings, benchCoverModels, coverRoadStroke, coverShelfStroke, placeBenchCover } from './bench-cover';
 import { FAR_TOWN_SHIFT_CELLS } from './far-world';
 import { BENCH_COVER, LIGHT_CHECK_CAMERAS } from './lighting-cameras';
 import { PICTURE_RUNS, PICTURES } from './picture-list';
@@ -21,8 +22,8 @@ import { MAT } from './world-kit';
 const grid = chunkGrid(32);
 const M = VOXEL_SIZE_M;
 const SHIFT = FAR_TOWN_SHIFT_CELLS / grid.edge;
-const MODELS = { grass: 'm-grass', flower: 'm-flower', reed: 'm-reed', pebble: 'm-pebble' };
-const DRESSINGS = benchCoverDressings(MODELS);
+const DRESSINGS = benchCoverDressings();
+const SP = BENCH_SPECIES;
 const material = (materialId: string, id: number, dressing?: string): Record<string, unknown> => ({ materialId, name: materialId, shader: 'standard', params: {}, textures: {}, voxel: { id, use: 'terrain', ...(dressing !== undefined ? { dressing } : {}) } });
 const TABLE = voxelCoverTable({ materials: [material('voxel-grass', MAT.grass, BENCH_MEADOW_DRESSING), material('voxel-gravel', MAT.gravel, BENCH_ROAD_DRESSING), material('voxel-soil', MAT.soil)] as never, dressings: DRESSINGS });
 
@@ -60,21 +61,26 @@ describe('the bench cover', () => {
     expect([BENCH_COVER.pond.x, BENCH_COVER.pond.z]).toEqual([(6 * LOT - FAR_TOWN_SHIFT_CELLS + LOT / 2 - 0.5) * M, (4 * LOT - FAR_TOWN_SHIFT_CELLS + LOT / 2 - 0.5) * M]);
   });
 
-  it('names dressings the model takes, and models of the triangle counts it says', () => {
+  it("uses the Basic Kit's dressings and plants: records the model takes, the species its checks name where they say, four models of three levels", () => {
     const errors: unknown[] = [];
     validateDressings(DRESSINGS, '/dressings', errors as never);
     expect(errors).toEqual([]);
-    expect(canonicalDressings(DRESSINGS)).toEqual(DRESSINGS);
-    for (const [name, m] of Object.entries(BENCH_COVER_MODELS)) {
-      const glb = m.glb();
-      const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8')) as { meshes: { primitives: { indices: number }[] }[]; accessors: { count: number }[] };
-      expect(json.meshes.length, name).toBe(1);
-      expect(json.accessors[json.meshes[0]!.primitives[0]!.indices]!.count / 3, name).toBe(m.triangles);
-      expect(glb.length, name).toBeLessThan(8192);
+    expect(canonicalDressings(DRESSINGS).map((d) => d.dressingId)).toEqual(['basic-gravel', 'basic-meadow', 'basic-shore']);
+    const meadow = DRESSINGS.find((d) => d.dressingId === BENCH_MEADOW_DRESSING)!;
+    const road = DRESSINGS.find((d) => d.dressingId === BENCH_ROAD_DRESSING)!;
+    expect([meadow.species[SP.grass]!.model, meadow.species[SP.patchFlowers]!.model, meadow.species[SP.vergeFlowers]!.model, meadow.species[SP.reeds]!.model]).toEqual(['basic-grass', 'basic-flower', 'basic-flower', 'basic-reed']);
+    expect(meadow.species[SP.vergeFlowers]!.conditions!.materialEdge).toBeDefined();
+    expect([road.species[SP.pebbles]!.model, road.species[SP.edgeGrass]!.model]).toEqual(['basic-pebbles', 'basic-grass']);
+    const models = benchCoverModels();
+    expect(Object.keys(models).sort()).toEqual(['basic-flower', 'basic-grass', 'basic-pebbles', 'basic-reed']);
+    for (const [id, m] of Object.entries(models)) {
+      expect(m.triangles.length, id).toBe(3);
+      expect(m.triangles[0]!, id).toBeLessThanOrEqual(48);
+      expect(m.bytes, id).toBeLessThan(16_384);
     }
   });
 
-  it('grows a meadow with a road through it: no grass on the gravel, flowers at its verge alone, pebbles on its shoulder, nothing inside a house', () => {
+  it('grows a meadow with a road through it: no grass on the gravel, flowers thick at its verge, pebbles on it and grass tufts only at its edge, nothing inside a house', () => {
     const s = town(-7, -3, -2, 1);
     const road = canonicalEditCommand(coverRoadStroke() as never);
     const painted = applyEdit({ store: () => s }, road);
@@ -86,28 +92,38 @@ describe('the bench cover', () => {
     // Chunk column (-5, 0) holds the road's middle: x -80 … -64 m, z 0 … 16 m; (-5, -1) its other half.
     const onRoad = (p: CoverPoint): boolean => p.x > r.x0 && p.x < r.x1 && p.z > r.z0 + 0.01 && p.z < r.z1 - 0.01;
     let grass = 0;
-    let flowers = 0;
+    let verge = 0;
     let pebbles = 0;
+    let tufts = 0;
     for (const cz of [-1, 0]) {
       const out = cover(s, -5, cz);
-      const g = points(out, BENCH_MEADOW_DRESSING, 0);
+      const g = points(out, BENCH_MEADOW_DRESSING, SP.grass);
       grass += g.length;
       expect(g.filter(onRoad)).toEqual([]);
       for (const p of g) expect(p.y).toBeCloseTo(0, 5);
-      const f = points(out, BENCH_MEADOW_DRESSING, 1);
-      flowers += f.length;
-      // Within 1.5 m of the road's edge (the lots hold no other material), never on it.
-      for (const p of f) expect(p.z > r.z0 - 1.6 && p.z < r.z1 + 1.6 && !onRoad(p), `${p.x},${p.z}`).toBe(true);
-      const pb = points(out, BENCH_ROAD_DRESSING, 0);
+      const f = points(out, BENCH_MEADOW_DRESSING, SP.vergeFlowers);
+      verge += f.length;
+      // Within 1.5 m of the road's edge and half a metre of fade (the lots hold no other material), never on it.
+      for (const p of f) expect(p.z > r.z0 - 2.1 && p.z < r.z1 + 2.1 && !onRoad(p), `${p.x},${p.z}`).toBe(true);
+      // The patches' flowers stand on the meadow, wherever its noise lets them.
+      expect(points(out, BENCH_MEADOW_DRESSING, SP.patchFlowers).filter(onRoad)).toEqual([]);
+      const pb = points(out, BENCH_ROAD_DRESSING, SP.pebbles);
       pebbles += pb.length;
-      for (const p of pb) expect(onRoad(p) && (p.z < r.z0 + 0.8 || p.z > r.z1 - 0.8), `${p.x},${p.z}`).toBe(true);
-      expect(points(out, BENCH_MEADOW_DRESSING, 2)).toEqual([]);
+      // On the gravel (a point may stand on the edge cell's rim).
+      const strip = (p: CoverPoint): boolean => p.x >= r.x0 && p.x <= r.x1 && p.z >= r.z0 && p.z <= r.z1;
+      for (const p of pb) expect(strip(p), `${p.x},${p.z}`).toBe(true);
+      const t = points(out, BENCH_ROAD_DRESSING, SP.edgeGrass);
+      tufts += t.length;
+      // Grass creeps onto the gravel from its edge (0.75 m and a quarter of fade: all of a road 2 m wide), never past it.
+      for (const p of t) expect(strip(p), `${p.x},${p.z}`).toBe(true);
+      expect(points(out, BENCH_MEADOW_DRESSING, SP.reeds)).toEqual([]);
     }
-    // About six clumps a square metre over the two columns' meadow (512 m² less the road's 32).
-    expect(grass / 480).toBeGreaterThan(5);
-    expect(grass / 480).toBeLessThan(6.5);
-    expect(flowers).toBeGreaterThan(40);
-    expect(pebbles).toBeGreaterThan(60);
+    // About seven clumps a square metre over the two columns' meadow (512 m² less the road's 32).
+    expect(grass / 480).toBeGreaterThan(6);
+    expect(grass / 480).toBeLessThan(7.5);
+    expect(verge).toBeGreaterThan(40);
+    expect(pebbles).toBeGreaterThan(30);
+    expect(tufts).toBeGreaterThan(10);
     // A house of the world grid (lot (4, 6), east of the empty lots): no plant on its floor or under its roof.
     const lot = lotOf(4, 6, TOWN_SEED);
     expect(lot.house !== null && lot.yaw === 0).toBe(true);
@@ -128,15 +144,15 @@ describe('the bench cover', () => {
     const p = BENCH_COVER.pond;
     const before = cover(s, 0, -3);
     // The pond as generated is as deep at its rim as in its middle: no shallows, no reeds.
-    expect([0, -1].flatMap((cx) => [-3, -2].flatMap((cz) => points(cover(s, cx, cz), BENCH_MEADOW_DRESSING, 2)))).toEqual([]);
+    expect([0, -1].flatMap((cx) => [-3, -2].flatMap((cz) => points(cover(s, cx, cz), BENCH_MEADOW_DRESSING, SP.reeds)))).toEqual([]);
     const shelf = applyEdit({ store: () => s }, canonicalEditCommand(coverShelfStroke() as never));
     expect(shelf.cells).toBeGreaterThan(200);
     const reeds: CoverPoint[] = [];
     const grass: CoverPoint[] = [];
     for (const cx of [-1, 0]) for (const cz of [-3, -2]) {
       const out = cover(s, cx, cz);
-      reeds.push(...points(out, BENCH_MEADOW_DRESSING, 2));
-      grass.push(...points(out, BENCH_MEADOW_DRESSING, 0));
+      reeds.push(...points(out, BENCH_MEADOW_DRESSING, SP.reeds));
+      grass.push(...points(out, BENCH_MEADOW_DRESSING, SP.grass));
     }
     const off = (q: CoverPoint): number => Math.hypot(q.x - p.x, q.z - p.z) / M;
     expect(reeds.length).toBeGreaterThan(60);
@@ -147,7 +163,7 @@ describe('the bench cover', () => {
     }
     expect(grass.filter((q) => off(q) < p.radius - 0.5)).toEqual([]);
     expect(grass.filter((q) => off(q) > p.radius + 2.5 && off(q) < p.radius + 8).length).toBeGreaterThan(100);
-    expect(points(before, BENCH_MEADOW_DRESSING, 0).length).toBeGreaterThan(0);
+    expect(points(before, BENCH_MEADOW_DRESSING, SP.grass).length).toBeGreaterThan(0);
   });
 
   it('puts its cameras in clear air over what they show, in a picture run of their own', () => {
@@ -166,37 +182,63 @@ describe('the bench cover', () => {
     expect(PICTURE_RUNS.cover).toEqual([]);
   });
 
-  it('is placed through the commands and taken out in the order the undo needs: strokes first, then the materials, the dressings, the models', async () => {
+  it("is placed through the commands (the kit, the two materials, the two strokes) and taken out by the undo, newest first, only the steps it made; a step that is not the one expected stops it", async () => {
     const dir = `${process.env['TMPDIR'] ?? '.'}/bench-cover-test-${process.pid}`;
-    const { mkdirSync, writeFileSync, rmSync, existsSync } = await import('node:fs');
+    const { mkdirSync, writeFileSync, rmSync } = await import('node:fs');
     mkdirSync(`${dir}/assets/materials`, { recursive: true });
     for (const [id, vid] of [['voxel-grass', MAT.grass], ['voxel-gravel', MAT.gravel]] as const) writeFileSync(`${dir}/assets/materials/${id}.material.json`, JSON.stringify({ data: material(id, vid) }));
-    const calls: string[] = [];
-    let imported = false;
-    const api = {
-      projectDir: dir,
-      command: (op: string, args: Record<string, unknown>) => {
-        const m = args['material'] as { materialId: string; voxel: { dressing?: string } } | undefined;
-        calls.push(op === 'setMaterial' ? `setMaterial ${m!.materialId} ${m!.voxel.dressing ?? '-'}` : op === 'setDressing' ? `setDressing ${(args['dressing'] as { dressingId: string }).dressingId}` : op === 'deleteDressing' ? `deleteDressing ${String(args['dressingId'])}` : op === 'deleteAsset' ? `deleteAsset ${String(args['assetId'])}` : op);
-        if (op === 'importAssets') imported = existsSync(`${dir}/${BENCH_COVER_FOLDER}/${BENCH_COVER_MODELS.reed.file}`);
-        return Promise.resolve();
-      },
-      raw: (op: string, args: Record<string, unknown>) => {
-        calls.push(op === 'editVoxels' ? `stroke ${String((args['command'] as { kind: string }).kind)}` : op);
-        // The shelf is there already (a run before left it): only the road is this run's to undo.
-        if (op === 'editVoxels' && (args['command'] as { kind: string }).kind === 'set') return Promise.resolve({ ok: false, error: { code: 'no_change' } });
-        return Promise.resolve(op === 'undo' ? { ok: true, voxels: { ok: true, cells: 5 } } : { ok: true, cells: 5, parts: 16 });
-      },
-      assets: () => Promise.resolve(Object.entries(BENCH_COVER_MODELS).map(([name, m]) => ({ assetId: `a-${name}`, sourcePath: `${BENCH_COVER_FOLDER}/${m.file}` }))),
+    const rig = (o: { pack?: Record<string, unknown>; undos?: Record<string, unknown>[] } = {}) => {
+      const calls: string[] = [];
+      const undos = [...(o.undos ?? [])];
+      const logs: string[] = [];
+      const api = {
+        projectDir: dir,
+        addPack: (id: string) => {
+          calls.push(`addPack ${id}`);
+          return Promise.resolve(o.pack ?? { ok: true, added: Array(36).fill(0) });
+        },
+        raw: (op: string, args: Record<string, unknown>) => {
+          const m = args['material'] as { materialId: string; voxel: { dressing?: string } } | undefined;
+          calls.push(op === 'editVoxels' ? `stroke ${String((args['command'] as { kind: string }).kind)}` : op === 'setMaterial' ? `setMaterial ${m!.materialId} ${m!.voxel.dressing ?? '-'}` : op);
+          // The shelf is there already (a run before left it): only the road is this run's to undo.
+          if (op === 'editVoxels' && (args['command'] as { kind: string }).kind === 'set') return Promise.resolve({ ok: false, error: { code: 'no_change' } });
+          if (op === 'undo') return Promise.resolve(undos.shift() ?? { ok: true });
+          return Promise.resolve({ ok: true, cells: 5, parts: 16 });
+        },
+        settleFar: () => {
+          calls.push('far');
+          return Promise.resolve();
+        },
+      };
+      return { api, calls, logs, log: (t: string) => void logs.push(t) };
     };
-    const placed = await placeBenchCover(api, 'far', () => undefined);
-    expect(imported).toBe(true);
-    expect(calls).toEqual(['importAssets', `setDressing ${BENCH_MEADOW_DRESSING}`, `setDressing ${BENCH_ROAD_DRESSING}`, `setMaterial voxel-grass ${BENCH_MEADOW_DRESSING}`, `setMaterial voxel-gravel ${BENCH_ROAD_DRESSING}`, 'stroke fill', 'stroke set']);
-    expect((placed.facts['models'] as Record<string, { assetId: string }>)['reed']!.assetId).toBe('a-reed');
-    calls.length = 0;
+    // The kit added here, the shelf left by a run before: four steps, undone newest first (the stroke's undo is a voxel step).
+    const a = rig({ undos: [{ ok: true, voxels: { ok: true, cells: 5 } }] });
+    const placed = await placeBenchCover(a.api, 'far', a.log);
+    expect(a.calls).toEqual([`addPack ${BENCH_COVER_PACK}`, `setMaterial voxel-grass ${BENCH_MEADOW_DRESSING}`, `setMaterial voxel-gravel ${BENCH_ROAD_DRESSING}`, 'stroke fill', 'stroke set']);
+    expect(placed.facts['shelfStroke']).toBe('there already (a run before this one left it)');
+    expect(Object.keys(placed.facts['models'] as object).length).toBe(4);
+    a.calls.length = 0;
     await placed.undo();
-    expect(calls).toEqual(['undo', 'setMaterial voxel-grass -', 'setMaterial voxel-gravel -', `deleteDressing ${BENCH_MEADOW_DRESSING}`, `deleteDressing ${BENCH_ROAD_DRESSING}`, 'deleteAsset a-grass', 'deleteAsset a-flower', 'deleteAsset a-reed', 'deleteAsset a-pebble']);
-    expect(existsSync(`${dir}/${BENCH_COVER_FOLDER}`)).toBe(false);
+    expect(a.calls).toEqual(['undo', 'undo', 'undo', 'undo', 'far']);
+    expect(a.logs.filter((t) => t.includes('NOT TAKEN OUT'))).toEqual([]);
+    // The kit in the project already: it is not this run's to take out (three undos: the road, the two materials).
+    const b = rig({ pack: { ok: false, error: { code: 'pack_present' } }, undos: [{ ok: true, voxels: { ok: true, cells: 5 } }] });
+    const kept = await placeBenchCover(b.api, 'far', b.log);
+    b.calls.length = 0;
+    await kept.undo();
+    expect(b.calls).toEqual(['undo', 'undo', 'undo', 'far']);
+    // Another refusal of the kit stops the bench before anything is written.
+    const c = rig({ pack: { ok: false, error: { code: 'unavailable' } } });
+    await expect(placeBenchCover(c.api, 'far', c.log)).rejects.toThrow(/kit/);
+    expect(c.calls).toEqual([`addPack ${BENCH_COVER_PACK}`]);
+    // An undo that is not the step expected (a material's undo answering as a voxel step): nothing more is undone, and it says so.
+    const d = rig({ undos: [{ ok: true, voxels: { ok: true, cells: 5 } }, { ok: true, voxels: { ok: true, cells: 9 } }] });
+    const odd = await placeBenchCover(d.api, 'far', d.log);
+    d.calls.length = 0;
+    await odd.undo();
+    expect(d.calls).toEqual(['undo', 'undo', 'far']);
+    expect(d.logs.filter((t) => t.includes('NOT TAKEN OUT')).length).toBe(1);
     rmSync(dir, { recursive: true, force: true });
   });
 

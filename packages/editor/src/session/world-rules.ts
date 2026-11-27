@@ -13,7 +13,7 @@
  */
 import type { DressingDef, DressingSpecies, MaterialDef } from '@thirdlight/project-model';
 import { voxelDressingIds } from '@thirdlight/project-model/voxel-materials';
-import { DRESSING_CONDITIONS, dressingNoise, dressingRule, dressingShare, dressingWhyNot, roleTraits, SURFACE_DISTANCE_CAP_M, type DressingConditions, type DressingWhyNot, type SurfacePoint } from '@thirdlight/voxel';
+import { DRESSING_CONDITIONS, dressingConditionAt, dressingNoise, dressingRule, dressingShare, dressingWhyNot, roleTraits, SURFACE_DISTANCE_CAP_M, type DressingConditions, type DressingWhyNot, type SurfacePoint } from '@thirdlight/voxel';
 import type { FadeRange } from '@thirdlight/shared';
 
 /** One species of the dressing at the point. */
@@ -141,7 +141,8 @@ export function rulesAt(input: { readonly materials: readonly MaterialDef[]; rea
     const why = dressingWhyNot(rule, p, x, z, clear);
     if (why !== null) return { ...base, grows: false, share: 0, why, text: `does not grow: ${whyNotText(why, s.conditions ?? {}, p, x, z, materialName)}` };
     const share = dressingShare(rule, p, x, z);
-    const fading = share < 1 ? DRESSING_CONDITIONS.filter((k) => k !== 'material' && k !== 'role' && k !== 'sky' && s.conditions?.[k]?.fade !== undefined) : [];
+    // The conditions thinning it here: those whose own value is under 1 (the rules' own reading of each).
+    const fading = share < 1 ? DRESSING_CONDITIONS.filter((k) => dressingConditionAt(rule, k, p, x, z) < 1) : [];
     return { ...base, grows: true, share, why: null, text: share >= 1 ? `grows at its full density (${num(s.density, 2)} /m²)` : `grows at ${Math.round(share * 100)} % of its density (${num(s.density * share, 2)} of ${num(s.density, 2)} /m²): a condition is fading here (${fading.join(', ')})` };
   });
   return { material, dressing, note: null, species, fields };

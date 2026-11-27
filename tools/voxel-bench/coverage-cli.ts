@@ -604,7 +604,7 @@ async function prepare(b: BenchApi, path: CoveragePath, stopAt: number): Promise
   await addProbeBody(b, PROJECT_DIR, [WAYPOINTS[0]![0], ground[0]! + PROBE.dropAboveM, WAYPOINTS[0]![1]]);
   const unplace = SCENE === null ? null : await placeManyLamps(SCENE, (op, args) => b.command(op, args), () => JSON.parse(readFileSync(sceneFile, 'utf8')).scene.entities as Array<{ id: string; name: string }>);
   // `--cover`: the bench cover (its dressing on the world's grass grows cover wherever the flight stops or slows).
-  const cover = !COVER ? null : await placeBenchCover({ command: (op, args) => b.command(op, args), raw: async (op, args) => (await b.api('commands', commandEnvelope(op, PROJECT, op === 'editVoxels' ? undefined : await b.revision(), args, 'voxel-bench-coverage'))).json, settleFar: () => b.api(`voxels/${WORLD}/far`, {}, 'GET'), assets: async () => ((await b.api('commands', { op: 'queryAssets', projectId: PROJECT, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>, projectDir: PROJECT_DIR }, WORLD);
+  const cover = !COVER ? null : await placeBenchCover({ raw: async (op, args) => (await b.api('commands', commandEnvelope(op, PROJECT, op === 'editVoxels' ? undefined : await b.revision(), args, 'voxel-bench-coverage'))).json, addPack: async (id) => (await b.api(`packs/${id}`, { origin: { kind: 'mcp', clientId: 'voxel-bench-coverage' } })).json, settleFar: () => b.api(`voxels/${WORLD}/far`, {}, 'GET'), projectDir: PROJECT_DIR }, WORLD);
   benchCover = cover?.facts ?? null;
   return async () => {
     await cover?.undo().catch((e: unknown) => console.error(`bench cover not taken out: ${String(e)}`));

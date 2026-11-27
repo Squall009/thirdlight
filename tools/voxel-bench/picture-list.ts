@@ -27,7 +27,7 @@ export const PICTURE_RUNS = Object.freeze({
 export type PictureRun = keyof typeof PICTURE_RUNS;
 
 /** The editor screens (editor-screens.ts takes each). */
-export const SCREEN_NAMES = ['editor', 'structure', 'water', 'spline', 'voxel-world-page', 'play-profiler', 'world-mode', 'world-fill'] as const;
+export const SCREEN_NAMES = ['editor', 'structure', 'water', 'spline', 'voxel-world-page', 'play-profiler', 'world-mode', 'world-fill', 'dressing-card'] as const;
 export type ScreenName = (typeof SCREEN_NAMES)[number];
 
 interface PictureBase {
@@ -76,7 +76,7 @@ export const PICTURES: readonly PictureEntry[] = Object.freeze([
   world('L22', 'ref-150m', 'day', 'Reference house at 150 m', 'the same house at 150 m: its shape and colour kept as the levels coarsen'),
   world('L23', 'fog-bank', 'day', 'A fog bank in a hollow', 'a dug hollow filled with mist by day, from 17 m off: the bank reads as a volume (thin at its edge on the hollow\'s sides, thick over its middle), no hard box edges, no cards, no banding by cell rows'),
   world('L24', 'fog-inside', 'day', 'The fog bank from inside', 'the same bank from 1.7 m over the hollow\'s floor, looking up at its rim: houses and sky through mist that thins toward the top of the picture (a ray leaves the bank sooner there), no clear patches and no seam where the bank\'s surface is'),
-  world('L25', 'cover-meadow', 'cover', 'A meadow', 'grass clumps over three empty lots at noon, a gravel road across them: the cover stands on the ground (nothing floating or buried), none on the road, flowers along its verge and pebbles on its shoulder, none under the houses, lit like the ground it stands on, thinning away with distance without a hard edge or chunk-shaped patches'),
+  world('L25', 'cover-meadow', 'cover', 'A meadow', 'grass clumps over three empty lots at noon, a gravel road across them: the cover stands on the ground (nothing floating or buried), no meadow grass on the road, flowers along its verge and in patches, pebbles and thin tufts on the gravel, none under the houses, lit like the ground it stands on, thinning away with distance without a hard edge or chunk-shaped patches'),
   world('L26', 'cover-reeds', 'cover', 'Reeds at a shore', 'a pond from 8.5 m off at noon: reeds standing in its shallow water inside the stone rim, none in the open water of its middle or on dry ground, grass on the lot up to the rim'),
   screen('E1', 'editor', 'The editor with a scene', 'the default editor: Scene and Game tabs, Hierarchy, Inspector, Project dock, a house selected with its gizmo, panels not overlapping'),
   screen('E2', 'structure', 'Structure mode', 'a two-storey house with a door and a window, the Shape tool\'s corner and edge handles on it, the mode\'s panel and Done button'),
@@ -86,6 +86,7 @@ export const PICTURES: readonly PictureEntry[] = Object.freeze([
   screen('E6', 'play-profiler', 'Play with the Profiler', 'Play in the editor on the town, the Profiler tab open under it: the game drawn, the timeline and the frame\'s spans readable'),
   screen('E7', 'world-mode', 'World edit mode', 'the world mode on the yard: a hill raised and smoothed by brush strokes with a patch of another material painted on its top, the Sculpt rail\'s tools and palette, the brush panel, the brush cursor on the ground'),
   screen('E8', 'world-fill', 'World mode: a fog fill and a leak', 'the world mode\'s Fill rail on the yard: two dug hollows, the farther one filled with fog by a click and a drag of the level (the fog drawn in it), the nearer breached by a trench so its fill is refused and its leak marked in red; the level ring, the Fill panel with its fog view switch, the status line'),
+  screen('E9', 'dressing-card', 'The Dressing card beside a meadow', 'the yard with the Basic Kit\'s Meadow grown on its grass (grass clumps, flowers, none against the house) and the grass material\'s Inspector beside it: the voxel section\'s Dressing card naming Meadow, who shares it, its species list with the first entry\'s fields and conditions open; the plants\' size against the house\'s door'),
 ]);
 
 /** What is wrong with a picture list (empty: nothing): ids unique, every entry has its title and its line, every camera and screen known. */

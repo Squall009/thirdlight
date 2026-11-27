@@ -383,57 +383,6 @@ export function clumpKitGlb(seed: number, height = 0.8): Buffer {
   );
 }
 
-/**
- * One clump of blades as a model of its own: a single level, one flat
- * colour, no vertex colours (an imported standard material would draw them
- * as a tint). A stand-in plant for a bench's ground cover, not art.
- */
-export function plantGlb(name: string, seed: number, o: { readonly blades: number; readonly segments: number; readonly height: number; readonly spread: number; readonly color: readonly [number, number, number] }): Buffer {
-  const g = new GlbData();
-  const m = bladeClump(seed, o.blades, o.segments, o.height, o.spread);
-  const n = m.pos.length / 3;
-  const POS = g.accessor(m.pos, FLOAT, n, 'VEC3', { min: [-m.radius, 0, -m.radius], max: [m.radius, m.height, m.radius] }, ARRAY);
-  const NRM = g.accessor(m.nrm, FLOAT, n, 'VEC3', {}, ARRAY);
-  const UV = g.accessor(m.uv, FLOAT, n, 'VEC2', {}, ARRAY);
-  const IDX = g.accessor(m.idx, U16, m.idx.length, 'SCALAR', {}, ELEMENTS);
-  const bin = g.bin();
-  return packGlb(
-    {
-      asset: { version: '2.0', generator: 'thirdlight bench plant' },
-      scene: 0,
-      scenes: [{ nodes: [0] }],
-      nodes: [{ name, mesh: 0 }],
-      meshes: [{ name, primitives: [{ attributes: { POSITION: POS, NORMAL: NRM, TEXCOORD_0: UV }, indices: IDX, material: 0 }] }],
-      materials: [{ name, doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [...o.color, 1], metallicFactor: 0, roughnessFactor: 0.85 } }],
-      accessors: g.accessors,
-      bufferViews: g.views,
-      buffers: [{ byteLength: bin.length }],
-    },
-    bin,
-  );
-}
-
-/** A pebble as a model of its own: a low five-sided lump of `radius` and `height` m, ten triangles, one grey. A stand-in for a bench. */
-export function pebbleGlb(name: string, radius = 0.09, height = 0.06): Buffer {
-  const g = new GlbData();
-  const mesh = latheMesh(g, name, lathe(1, 5, height, (t) => radius * (1 - t * 0.75) + 0.005), height, 0);
-  const bin = g.bin();
-  return packGlb(
-    {
-      asset: { version: '2.0', generator: 'thirdlight bench pebble' },
-      scene: 0,
-      scenes: [{ nodes: [0] }],
-      nodes: [{ name, mesh: 0 }],
-      meshes: [mesh],
-      materials: [{ name, pbrMetallicRoughness: { baseColorFactor: [0.2, 0.19, 0.17, 1], metallicFactor: 0, roughnessFactor: 0.9 } }],
-      accessors: g.accessors,
-      bufferViews: g.views,
-      buffers: [{ byteLength: bin.length }],
-    },
-    bin,
-  );
-}
-
 /** The figure's clip length (s). */
 export const FIGURE_CLIP_SECONDS = 2;
 
