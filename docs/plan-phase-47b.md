@@ -1866,6 +1866,57 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
   holds before a species grows there (an overlay), copying a species between dressings; a dressing check in
   Problems (D843 stays open); any large-class placement, cover past 40 m, new conditions, wind tuning.
 
+### 47b.11 — the phase run's two unsettled pictures
+
+The phase run at c86b5332 (`~/.cache/thirdlight-logs/gate-phase-20261127-035742/`) took 33 of 35 pictures settled.
+Work folder `~/.cache/thirdlight-phase47b/work/close-fix/`.
+
+- **E8 (the Fill rail): the script's, fixed (9f64e54f).** Cause: F keeps the view's distance, and every yard
+  screen framed its object and then backed off some wheel notches on the one page they shared, so a screen's view
+  depended on the screens before it. E8 had only ever been taken alone (from the editor's opening view); after
+  E2–E4 and E7 it stood so far off that the yard was 350 px wide (the pack's `E08-world-fill-UNSETTLED.png`), the
+  scan for a point over a hollow's floor found none, nothing was clicked (`fogBrushStroke`, `wholeHollow`,
+  `breachedHollow`: no point; revision 17 throughout), and the wait for the level ring ran out. The product did
+  what it was asked: no pick missed, no fill was sent. E9 in that run settled but showed the yard from far off
+  with no meadow in view (the same cause); E7 showed the hill from far off. Fix: E7, E8 and E9 each open the
+  editor anew in a browser context of their own, so each frames from the opening view whatever was taken before;
+  E1–E4 keep their shared page (each framed from the one before, as since 47T). No unit test exists for the
+  screens' script.
+- **Run 2** (`pictures --only E1,E2,E3,E4,E7,E8,E9`, the fresh backend's screens in their order; 46 s; 7 of 7
+  settled): `close-fix/pictures-2/`. Opened: **E8** the Fill rail with the Fog tool, the far hollow holding fog
+  under its rim, a block-edged patch of fog in the near hollow (the brush stroke, 303 cells), a red ring with a
+  post on the ground at the lower left, in front of the near hollow where the trench runs, the status line naming
+  the leak at (21.0, −1.3, 8.8) m, `error flood_leaks`; the house's wall fills the left quarter and the hill shows
+  behind it. Wrong: the brush stroke's fog is blocky at its edge (as in 47b.7's take); the picture does not say
+  whether the red ring is the level ring or the leak's mark, and no second red mark is in view.
+  Facts as the takes alone: fog stroke ok, the fill ok at −0.5 m, the breached fill refused with one leak, 290 gas
+  triangles. **E7** the hill close by with its dry-grass top, the grey mound of the dragged stroke under the brush
+  cursor, the Brush panel, the Sculpt column. Wrong: the mound's sides are faceted where it meets the hill.
+  **E9** the meadow close by (grass clumps, white flowers, the gravel lane at the left edge), the Dressing card
+  with the first species' fields. Wrong: the Problems tab shows a count of 1, not looked into; the Inspector's
+  left edge is cut by the view's border. Sure: high for what is in each; nothing in motion was seen.
+- **L3 (the cave): the product's, not fixed: D852.** The bench's fog is not it: its hollow and flood are written
+  before Play, the volume's marks in the cave are 5,023 against 47T's 5,188, and **run 1** (`pictures --only
+  L1,L2,L3`, no fog cameras, so no fog written; 236 s; L3 again not settled, 722 of 4,336 bricks stale after
+  120 s) showed the same. No brick is restarted; the update is slow. The light volume's pacing takes a wait that
+  nearly every reading holds in the cave (a dispatch reads 3–3.6 ms whether it holds 2 bricks or 5; two 2-brick
+  dispatches of the same 16 read 0.07 ms) for the bricks' cost and falls to 4 bricks a dispatch; the same bricks
+  went 34–40 a dispatch in the one run of 47T that settled in 23.8 s. 47T's other two runs were in the same
+  state at 6 a dispatch and settled at 91 and 95 s of the bench's 120 s; this phase's two are at 3.9–4.1. The
+  day run's cameras with full windows (street, room, night lamps, the cart, the houses, the four refs) cost what
+  they did in 47T (0.05–0.13 ms a brick, each within 0.02). The walk, the volume
+  and its pacing are unchanged since 47T (no diff); which change of 47b lengthened the wait is not traced, and
+  near the live share a little is enough (`close-fix/pacing-model.ts` on the real `VolumePacing`: a wait of 2.6
+  ms on every reading gives 10 bricks a frame, 3.0 ms gives 2). By reading only: a gas-only edit reaches the page
+  as a `gas` entry and the volume is marked by walk blocks alone, which a gas does not change (gas is open space
+  to the occupancy since derived 34); not put under a test here.
+- **Why L3 is left red.** A pacing that tells a per-dispatch wait from the bricks' cost changes a measured
+  default path (D690's history; headroom A B A B on the GPU): not a close's fix. The bench's 120 s was not
+  widened: it would hide the difference. The lead decides between a pacing item and taking L3 off the list.
+  L7 (`lamps-room`, 108–109 s in both phase runs, 5.7 bricks a dispatch) stands 11 s from the same red.
+- **Runs:** two picture runs (236 s, 46 s), both in a capped scope; staging stopped after each by the command
+  (run 1 wrote nothing to staging's world: the cave was there, the props are placed and taken off by the bench).
+
 ## 10. The proposed plan's questions and how each stands
 
 1. **One phase or two?** Two: 47b ends at ground cover; 47p (props in the world) follows with its own plan.
