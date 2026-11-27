@@ -79,12 +79,15 @@ function rig(table: VoxelCoverTable = TABLE): {
   resident: Set<string>;
   /** What stands on the world besides its voxels (a structure's stamp), as the stream asks it a chunk at a time. */
   stamps: { built: ((cx: number, cy: number, cz: number) => Uint8Array | null) | null };
+  /** Jobs of the near field said to wait in the pool (what the stream reads before it asks). */
+  near: { queued: number };
 } {
   const store = world();
   const listeners: Array<(e: StreamEvent) => void> = [];
   const resident = new Set<string>();
   const joins = { count: 0 };
   const stamps: { built: ((cx: number, cy: number, cz: number) => Uint8Array | null) | null } = { built: null };
+  const near = { queued: 0 };
   const joined = (cx: number, cy: number, cz: number, cells: Uint16Array): JoinedDraw => {
     joins.count++;
     const n = grid.edge / SECTION;
@@ -112,7 +115,7 @@ function rig(table: VoxelCoverTable = TABLE): {
   );
   const made = new ChunkCoverStream({
     stream: { grid, gridId: 0, tracker: new DirtyTracker(), on: (l) => void listeners.push(l as (e: StreamEvent) => void), isResident: (cx, cy, cz) => resident.has(`${cx},${cy},${cz}`), store, overlay: new VoxelOverlay(store, 'runtime') },
-    pool,
+    pool: { submit: (job) => pool.submit(job), cancelQueued: (id) => pool.cancelQueued(id), size: pool.size, get queued() { return pool.queued + near.queued; } },
     send: (w) => batcher.cover(w),
     built: (cx, cy, cz) => stamps.built?.(cx, cy, cz) ?? null,
   });
@@ -132,7 +135,7 @@ function rig(table: VoxelCoverTable = TABLE): {
   };
   for (let cx = 0; cx < 4; cx++) for (let cy = 0; cy < 2; cy++) for (let cz = 0; cz < 4; cz++) emit({ type: 'loaded', cx, cy, cz });
   for (let cx = 0; cx < 4; cx++) for (let cy = 0; cy < 2; cy++) for (let cz = 0; cz < 4; cz++) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false, reliefOnly: false, parts: ALL_DERIVED_PARTS });
-  return { store, cover: made, batches, held, joins, emit, settle, wires: (from) => batches.slice(from).flatMap((b) => b.cover ?? []), resident, stamps };
+  return { store, cover: made, batches, held, joins, emit, settle, wires: (from) => batches.slice(from).flatMap((b) => b.cover ?? []), resident, stamps, near };
 }
 
 /** The cover of column (cx, cz) made in this thread from the store as it is (what a job answers for chunk rows 0 and 1). */
@@ -313,6 +316,18 @@ describe('ground cover as a voxel world streams', () => {
     r.cover.setTable(voxelCoverTable({ materials: MATERIALS as never, dressings: sparse }));
     await r.settle();
     expect(r.cover.stats().jobs - jobs).toBe(16);
+    // Coverage first: while work of the near field waits for a worker, cover asks for none; once it has gone, it does.
+    r.near.queued = 3;
+    r.cover.setTable(TABLE);
+    for (let i = 0; i < 100; i++) await tick();
+    expect(r.cover.stats().jobs - jobs).toBe(16);
+    expect(r.cover.stats().live).toBe(0);
+    expect(r.cover.stats().waiting).toBe(16);
+    r.near.queued = 0;
+    await r.settle();
+    expect(r.cover.stats().jobs - jobs).toBe(32);
+    r.cover.setTable(table);
+    await r.settle();
     // Two changes in a row, the second while the first one's job runs: that job's answer is of a table that is gone
     // and is never sent; the columns end on what they held, so nothing is sent at all.
     from = r.batches.length;

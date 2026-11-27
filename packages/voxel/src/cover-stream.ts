@@ -8,8 +8,8 @@
  * the stream jobs) asked once the column's chunks are drawn. It sits on the
  * shared foundations it needs and adds none: the surface fields job's input
  * ({@link surfaceFieldsInputOf}: the column and the eight round it), the
- * world's worker pool in its background queue (a derive or a load always goes
- * first, so a mesh never waits for cover), and the chunk draw batches, which
+ * world's worker pool in its background queue, asked only while no load or
+ * derive waits for a worker (so a mesh never waits for cover), and the chunk draw batches, which
  * carry each answer to where the world is drawn ({@link ChunkCoverWire}).
  *
  * **The unit is a chunk column.** The job answers the points whose surface
@@ -64,7 +64,7 @@ export const COVER_FED_BY = SURFACE_FIELDS_FED_BY & ~DERIVED_PART.gas;
 /** Bytes a cover point takes in a set (four floats: the point-set path's own form). */
 export const COVER_POINT_BYTES = 16;
 
-/** ms before a column whose job found the pool's queue full is asked again. */
+/** ms before a column that could not be asked (the pool's queue full, or work of the near field waiting) is asked again. */
 const RETRY_MS = 250;
 
 /** One species' points over a chunk column as the cover job answers them: opaque here but for the buffer handed over. */
@@ -93,7 +93,7 @@ export interface ChunkCoverFeed {
 
 export interface ChunkCoverStreamOptions {
   readonly stream: ChunkCoverFeed;
-  readonly pool: Pick<WorkerPool, 'submit' | 'cancelQueued' | 'size'>;
+  readonly pool: Pick<WorkerPool, 'submit' | 'cancelQueued' | 'size' | 'queued'>;
   /** A column's cover leaves for where the world is drawn (the draw batcher's `cover`). */
   send(w: ChunkCoverWire): void;
   /** 1 a cell (a chunk's local index) where something not in the voxels stands (a structure's stamp); absent or null: nothing. */
@@ -315,6 +315,12 @@ export class ChunkCoverStream {
     const most = Math.max(1, Math.floor(this.o.pool.size * BACKGROUND_WORKER_SHARE));
     if (this.live >= most) return;
     const waiting = [...this.columns.values()].filter((c) => c.dirty && c.job === 0).sort((a, b) => a.order - b.order);
+    // Coverage first: while a load or a derive waits for a worker, cover asks for none (a background job would take
+    // one of them); asked again a little later.
+    if (waiting.length > 0 && this.table !== null && this.o.pool.queued > 0) {
+      this.later();
+      return;
+    }
     for (const c of waiting) {
       if (this.live >= most) return;
       if (this.table === null) {
@@ -333,6 +339,15 @@ export class ChunkCoverStream {
       this.busy = false;
       this.o.idle?.();
     }
+  }
+
+  /** The waiting columns are asked again in a while (nothing else may wake the stream by then). */
+  private later(): void {
+    if (this.retry !== null || this.closed) return;
+    this.retry = setTimeout(() => {
+      this.retry = null;
+      this.submit();
+    }, RETRY_MS);
   }
 
   private ask(c: Column): void {
@@ -366,10 +381,7 @@ export class ChunkCoverStream {
     if (out.status !== 'done') {
       // A full queue or a lost worker: asked again, a little later when nothing else will wake the stream.
       this.mark(c);
-      if (this.retry === null) this.retry = setTimeout(() => {
-        this.retry = null;
-        this.submit();
-      }, RETRY_MS);
+      this.later();
       return;
     }
     this.counts.jobs++;
