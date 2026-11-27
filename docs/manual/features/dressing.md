@@ -190,6 +190,9 @@ construction materials, not for a liquid or a gas.
   An emptied field is an open end; a condition with every field empty is
   off.
 - **add species**: pick a model.
+- A dressing is **deleted** in the Project window (select it, **delete**).
+  It is refused while a material still names it: clear that material's
+  dressing first.
 
 There is no Apply and no preview window: each change is one command and one
 undo step, and the Scene view grows the cover again as it arrives. Cover

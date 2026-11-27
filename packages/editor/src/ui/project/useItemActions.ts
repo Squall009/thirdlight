@@ -88,6 +88,7 @@ const DELETE_OP: Readonly<Record<string, string>> = {
   dialogue: 'deleteDialogue',
   timeline: 'deleteTimeline',
   kit: 'deleteKit',
+  dressing: 'deleteDressing',
 };
 
 export interface ItemActionsDeps {

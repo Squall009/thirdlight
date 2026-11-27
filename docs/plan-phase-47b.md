@@ -617,6 +617,9 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
       E7 (the Scene view with cover, 47b.9) are dropped: E9 shows that view.
   15. **The editor may import project-model's `dressing` module** (the boundary rule, changed in a commit of its
       own): the card edits inside the model's own bounds, classes and format.
+  16. **A dressing is deleted in the Project window**, by the delete every resource kind has there
+      (`deleteDressing`; refused, with the reason shown, while a material names it). Added after the item's check
+      showed the editor could make a dressing and not remove one.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -1798,7 +1801,14 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
 - **Found on the way:** an undo of the kit's add left its source files in staging's game folder (three runs: 30
   files, 8 MB, removed by hand; D848); the bench removes what its own add wrote. The voxel materials' manual line
   gave a gas's default density as 0.1 (it is 0.5 since 47b.7): corrected.
-- **Gate:** the item's one check follows this commit (its line is added with it).
+- **Gate:** before it, the generators (reference, behaviour API typings, graph API: nothing changed; 17 s), `npm
+  run build` (25 s), `npm run lint` (96 s, uncached) and the manual's links test (1 s) green. `tools/gate.sh check`
+  once: **RED in 262 s** (build 26 s, lint 10 s, unit 199 s: 986 files passed, 1 failed; boot 5 passed, 27 s):
+  `tests/editor-op-reach.test.ts` still listed `setDressing` and `deleteDressing` as ops the editor never sends,
+  and the card sends the first. The cause fixed: the list's two entries taken off, and the Project window's
+  delete given `deleteDressing` (§8 16), so the editor sends both. `tools/gate.sh check --failed` once: **GREEN
+  in 39 s** (build 28 s, lint 6 s, the one file 5 s). The four new unit files take about 9 s together; the HTTP
+  file grew by about 3 s, `packs.test.ts` by about 1 s. Picture time 476 s (three takes); Blender about 160 s.
 - **Unverified:** picture E9 at its final framing; the card with a real pointer beyond what is listed (reorder,
   remove, add species, the model picker, the condition rows, ticks, a variant's card, "new"); the Rules rail's Esc
   and its ring's look while moving; Make a grass / shore / gravel material in a browser (unit and HTTP tests only);
