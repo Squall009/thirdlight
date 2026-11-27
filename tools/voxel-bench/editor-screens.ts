@@ -12,7 +12,10 @@
  * both by the real pointer on the Fill rail's Fog tool. Last on the yard, the Dressing card: the Basic Kit is added
  * (its starter plants and dressings), the yard's grass names the kit's Meadow, and the grass material is chosen in
  * the Project window, so its Inspector's Dressing card stands beside the Scene view with the meadow grown; then the
- * world mode's Rules rail reads a point of that meadow (kept beside it in the raw folder). The voxel world
+ * world mode's Rules rail reads a point of that meadow (kept beside it in the raw folder). Each of those three
+ * opens the editor anew, in a browser context of its own, so its view is the same whichever screens were taken
+ * before it: F keeps the view's distance, and on a page the earlier screens had backed away on, the Fill rail's
+ * hollows stood too small for the pointer to find their floors. The voxel world
  * page and Play are taken on staging's 8 km town (what the world pictures show), which they only read.
  *
  * Each screen waits for the editor's own settle signals (the Scene view's voxel worlds settled and no frame wanted,
@@ -20,7 +23,7 @@
  * within its timeout is saved but reported "did not settle: <what>".
  */
 import { join } from 'node:path';
-import type { Browser, Locator, Page } from '@playwright/test';
+import type { Browser, BrowserContext, Locator, Page } from '@playwright/test';
 import { chunkGrid, createWorldStore, VOXEL_ROLE } from '@thirdlight/voxel';
 import { VOXEL_WORLDS_FOLDER, writeVoxelWorld } from '@thirdlight/workspace';
 import { voxelStrokeCommand, type VoxelStroke } from '../../packages/editor/src/session/voxel-brush';
@@ -525,15 +528,28 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
   const be = await startBackend('pictures-yard');
   try {
     const ids = await makeYard(be);
-    const context = await browser.newContext({ viewport: SCREEN_VIEWPORT, deviceScaleFactor: 1 });
-    const page = await context.newPage();
     const errors: string[] = [];
-    page.on('console', (m) => void (m.type() === 'error' && errors.push(m.text().slice(0, 200))));
-    page.on('pageerror', (e) => void errors.push(e.message.slice(0, 200)));
     const url = `${be.origin}/?project=${be.projectId}&renderer=webgpu#token=${be.token}`;
     const facts = (screen: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ screen, backend: 'fresh backend, made yard (64 m of grass, a house, a lake, a lane)', viewport: SCREEN_VIEWPORT, consoleErrors: errors.slice(0, 5), ...extra });
-    const opened = await editorOpen(page, url);
-    if (!opened.ok) throw new Error(`the editor did not open: ${opened.what}`);
+    let context: BrowserContext | null = null;
+    /**
+     * The editor opened anew on the yard's project, in a browser context of its own: the opening view and nothing an
+     * earlier screen left (F keeps the view's distance, so a screen framed after others stands as far off as they
+     * backed away; a context also keeps the brush's settings and the panels' places).
+     */
+    const open = async (): Promise<Page> => {
+      await context?.close();
+      context = await browser.newContext({ viewport: SCREEN_VIEWPORT, deviceScaleFactor: 1 });
+      const fresh = await context.newPage();
+      errors.length = 0;
+      fresh.on('console', (m) => void (m.type() === 'error' && errors.push(m.text().slice(0, 200))));
+      fresh.on('pageerror', (e) => void errors.push(e.message.slice(0, 200)));
+      const opened = await editorOpen(fresh, url);
+      if (!opened.ok) throw new Error(`the editor did not open: ${opened.what}`);
+      return fresh;
+    };
+    // The first four screens share a page: each is framed from the one before, as they have been from phase to phase.
+    let page = await open();
     if (want.includes('editor')) {
       // The lane framed (F frames a curve by its bounds; a world or structure object by its origin) and backed off to
       // see the yard, then the house selected: its gizmo over the overview.
@@ -587,6 +603,8 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
     }
     if (want.includes('world-mode')) {
       // After the other screens: the hill is not part of their yard.
+      // A page of its own: the view this screen frames starts from the editor's opening view, whatever was taken before.
+      page = await open();
       const hill = await makeHill(be);
       // The view on the hill (the curve over it framed by its bounds; without it, the lane and back off).
       await select(page, hill.view ?? ids['lane']!);
@@ -620,6 +638,8 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
     }
     if (want.includes('world-fill')) {
       // After the other screens: the hollows are not part of their yard.
+      // A page of its own: the view this screen frames starts from the editor's opening view, whatever was taken before.
+      page = await open();
       const hollows = await makeHollows(be);
       await select(page, hollows.view ?? ids['lane']!);
       await frame(page, hollows.view !== null ? 4 : 8);
@@ -691,6 +711,8 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
     }
     if (want.includes('dressing-card')) {
       // Last on the yard: the kit and the meadow stay in its project.
+      // A page of its own: the view this screen frames starts from the editor's opening view, whatever was taken before.
+      page = await open();
       const meadow = await yardMeadow(be);
       // The lane from close by (F frames a curve by its bounds: the view looks at its middle, where cover is made
       // round): the meadow up to its verge, the gravel's own cover, the house's corner for the plants' scale.
@@ -718,7 +740,7 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
       f['cardDriven'] = shown.ok ? await driveCard(page).catch((e: unknown) => ({ driven: false, why: String(e).slice(0, 300) })) : { driven: false, why: 'the card was not shown' };
       f['rules'] = await rulesRead(page, ids['yard']!, files('dressing-card').replace(/\.png$/, '-rules.png')).catch((e: unknown) => ({ read: false, why: String(e).slice(0, 300) }));
     }
-    await context.close();
+    await (context as BrowserContext | null)?.close();
   } finally {
     await be.stop();
   }

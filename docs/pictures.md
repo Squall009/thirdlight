@@ -42,7 +42,9 @@ one line of what to look for.
   pointer: the grass's density typed lower on the card, the material's dressing cleared in the card's picker and
   picked again, and the world mode's Rules rail reading a point of the meadow, kept in the raw folder as
   `screen-dressing-card-rules.png`; the facts say what the Scene view's cover did at each step and what the
-  rail listed).
+  rail listed). E7, E8 and E9 each open the editor anew (a browser context of their own), so each frames its view
+  from the editor's opening view whichever screens were taken before it; E1–E4 share one page, each framed from
+  the one before.
 
 Every picture waits for the engine's own settle signals: streaming still, nothing pending in the simulation, no
 texture level loading and the light volume settled (world pictures); the Scene view's worlds and grids settled
