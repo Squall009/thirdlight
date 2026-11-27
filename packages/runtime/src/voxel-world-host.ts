@@ -49,7 +49,7 @@
  * stamp read again, its links and body following its swap), and saves
  * holding every grid's changes, restored into each grid by its id.
  */
-import { canonicalVoxelWorldRings, COLLIDER_3D_LIMITS, decodeBase64, encodeBase64, resolveVoxelWorld, validateVoxelWorldRings, type ModelErrorV2, type QualityLevelConfig, type ResolvedVoxelWorld, type VoxelWorldComponent, type VoxelWorldRings, type VoxelMaterialInfo, voxelMaterialInfos } from '@thirdlight/project-model';
+import { canonicalVoxelWorldRings, COLLIDER_3D_LIMITS, decodeBase64, encodeBase64, resolveVoxelWorld, validateVoxelWorldRings, type ModelErrorV2, type QualityLevelConfig, type ResolvedVoxelWorld, type VoxelWorldComponent, type VoxelWorldRings, type VoxelMaterialInfo, voxelMaterialInfos, type VoxelCoverTable } from '@thirdlight/project-model';
 import {
   heldWetness,
   applyWorldRings,
@@ -233,6 +233,11 @@ export interface VoxelWorldConnection {
    */
   shutOpenings?(gridId: number, openings: readonly ShutOpeningWire[]): void;
   /**
+   * The props rule-grown ground cover keeps clear of, as boxes in world metres (`propClearances`), the whole list
+   * each time it changes: what makes the world's cover makes the columns near a changed box again.
+   */
+  coverClear?(boxes: Float32Array): void;
+  /**
    * How the structure grids are stamped into the world grid's light occupancy, sun heights and regions
    * (structure-stamp.ts; absent: `STRUCTURE_STAMP_DEFAULT`; null: not stamped, a bench's comparison).
    */
@@ -247,6 +252,11 @@ export interface VoxelWorldPorts {
   readonly qualityLevels?: readonly QualityLevelConfig[];
   /** The build's materials (resolved, as it ships them): the voxel ones answer `ctx.voxels.materialOf` (absent: none). */
   readonly materials?: VoxelMaterialSources;
+  /**
+   * What grows on the worlds' ground (the build's dressings and which voxel material names which, `voxelCoverTable`;
+   * absent or without dressings: nothing grows, and no prop's box is gathered).
+   */
+  readonly cover?: VoxelCoverTable;
 }
 
 /** Materials as the build ships them, the voxel ones read by voxel id. */
@@ -899,10 +909,13 @@ export class VoxelWorldHost {
    * Props marked `affectsLighting` placed or moved (their shapes where they
    * now are) or gone (null), together: recorded now, stamped in the steps'
    * derive slices (each prop sampled once, the cells it left and entered
-   * combined again).
+   * combined again). `clear`: the boxes of the props ground cover keeps
+   * clear of, given once the world is open ({@link lightChannel} is there).
    */
-  stampProps(changes: readonly (readonly [string, PropShape | null])[], portals: readonly (readonly [string, PortalProp | null])[] = []): void {
+  stampProps(changes: readonly (readonly [string, PropShape | null])[], portals: readonly (readonly [string, PortalProp | null])[] = [], clear?: Float32Array): void {
     if (this.disposed) return;
+    // The props ground cover keeps clear of (the whole list, when it changed): what makes the world's cover hears of it.
+    if (clear !== undefined) this.conn?.coverClear?.(clear);
     // Props with a portal (voxel-portals.ts), placed, changed or gone: joined to their openings, their state applied there.
     if (portals.length > 0) {
       this.portals.set(portals);

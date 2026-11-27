@@ -431,6 +431,7 @@ export { isPieceDraw, pieceCopyData, pieceCopyMatrix, pieceDrawCopies } from './
 export { KIT_DEBUG_TEXTURE_SIDE, voxelKitDebugTexture, voxelKitImageRefs, voxelKitMeshRefs, VoxelKitMeshes, VoxelKitSet, type VoxelKitTextures, type VoxelKitBytes, type VoxelKitDraw, type VoxelKitImageRef, type VoxelKitMeshRef, type VoxelKitRecordLike } from './voxel-kit-pieces';
 export { phaseTileMetres, voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 export { VoxelFocusRooms } from './voxel-focus-rooms';
+export { VOXEL_COVER_SOURCE, VoxelCover, type PointCoverPath, type VoxelCoverStats } from './voxel-cover';
 export { capVoxelArrays, voxelTexelDensityAt, VoxelWorldDraws, type VoxelEditToScreen, type VoxelTextureResidency, type VoxelWorldDrawStats, type VoxelWorldDrawsOptions } from './voxel-world-draws';
 // GPU time per frame from timestamp queries (where the renderer records them).
 export { createGpuTiming, measuresGpuTime, type GpuTiming } from './gpu-timing';

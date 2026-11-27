@@ -12,7 +12,8 @@ import { decodeTexture, setKtx2DecoderBase, VoxelKitMeshes, type VoxelKitBytes, 
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import { voxelPieceSeedOf } from '@thirdlight/project-model/voxel-world';
 import { boundVoxelKits } from '@thirdlight/project-model/voxel-materials';
-import type { MaterialDef } from '@thirdlight/project-model';
+import type { DressingDef, MaterialDef } from '@thirdlight/project-model';
+import { voxelCoverTable, type VoxelCoverTable } from '@thirdlight/project-model/voxel-cover';
 import { worldPieceTable, type PieceTable } from '@thirdlight/voxel';
 
 /** The project route (`/api/v1/projects/<id>`) and the headers it needs. */
@@ -28,15 +29,17 @@ export interface ProjectVoxelKits {
   readonly seed: number;
   /** The material records read with them (absent: not read). */
   readonly materials?: readonly MaterialDef[];
+  /** What grows on the project's voxel ground: its dressings and the voxel materials that name them (absent: not read). */
+  readonly cover?: VoxelCoverTable;
 }
 
 /** The project's voxel kits and piece seed now, and its material records. */
 export async function readVoxelKits(r: KitRoute): Promise<ProjectVoxelKits> {
   const res = await fetch(`${r.api}/commands`, { method: 'POST', headers: { ...r.headers, 'content-type': 'application/json' }, body: JSON.stringify({ op: 'queryGameConfig', projectId: r.projectId, args: { omit: ['dialogues'] } }) });
   if (!res.ok) throw new Error(`queryGameConfig: HTTP ${res.status}`);
-  const body = (await res.json()) as { voxelKits?: VoxelKitRecordLike[]; materials?: MaterialDef[]; settings?: unknown };
+  const body = (await res.json()) as { voxelKits?: VoxelKitRecordLike[]; materials?: MaterialDef[]; settings?: unknown; dressings?: DressingDef[] };
   // Each kit with the material ids it binds: the material records' (voxel.kit), then its own test list for the rest.
-  return { kits: boundVoxelKits(body.voxelKits ?? [], body.materials ?? []), seed: voxelPieceSeedOf(body.settings), materials: body.materials ?? [] };
+  return { kits: boundVoxelKits(body.voxelKits ?? [], body.materials ?? []), seed: voxelPieceSeedOf(body.settings), materials: body.materials ?? [], cover: voxelCoverTable({ materials: body.materials ?? [], dressings: body.dressings ?? [] }) };
 }
 
 /** Reads a kit mesh's GLB from the backend: the asset's version whose source digest the mesh names, else its current one (as a build ships it). */

@@ -14,6 +14,12 @@ export type SceneVoxelsIn =
   | { readonly t: 'close'; readonly world: string }
   /** The project's kits or piece seed changed: `world` derives again what the new piece table changes. */
   | { readonly t: 'kits'; readonly world: string; readonly kits: readonly PieceKitSource[]; readonly pieceSeed: number }
+  /**
+   * What grows on the project's voxel ground from now on (the cover job's table: its dressings and the voxel
+   * materials that name them; null: nothing) and the boxes of the props rule plants keep clear of (world metres,
+   * six floats a prop; null: none): every open world, and those opened later, makes its ground cover by them.
+   */
+  | { readonly t: 'cover'; readonly table?: unknown; readonly clear?: Float32Array | null }
   /** Where the view looks (metres): every world streams around it. */
   | { readonly t: 'focus'; readonly x: number; readonly y: number; readonly z: number }
   /** A change the backend applied to `world` (the editor feed's `voxelsChanged`). */

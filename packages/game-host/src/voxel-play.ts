@@ -21,7 +21,10 @@
  * for all of them, the one the page draws the pieces from. The project's
  * quality levels go with the ports: the level the page reports scales
  * every world's distances and sets its budget; the build's voxel materials
- * go with them too (`ctx.voxels.materialOf`).
+ * go with them too (`ctx.voxels.materialOf`), and what grows on them (the
+ * build's dressings): each world's ground cover is made where it runs, a
+ * job a chunk column in its pool after the column's chunks are drawn, and
+ * leaves with its draw batches (`@thirdlight/voxel` cover-stream.ts).
  *
  * Structure grids: a world streams each of its structure grids beside its
  * world grid where the project's structure objects place them (the
@@ -32,8 +35,8 @@
  * where the grid stands. A placement for a grid the world does not list is
  * left out with a warning.
  */
-import type { QualityLevelConfig, VoxelMaterialSources, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
-import { ChunkDrawBatcher, GRID_STAMP_URL_PARAM, gridDrawName, gridPlacementProblem, parseGridPlacements, setFineBricks, STRUCTURE_STAMP_RULES, VOXEL_GRIDS_URL_PARAM, type GridPlacement, type StructureStampRule, streamerWalkBlocks, streamerWalkSource, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
+import type { QualityLevelConfig, VoxelCoverTable, VoxelMaterialSources, VoxelWorldConnection, VoxelWorldPorts } from '@thirdlight/runtime';
+import { ChunkCoverStream, ChunkDrawBatcher, STAMP_CLASS, GRID_STAMP_URL_PARAM, gridDrawName, gridPlacementProblem, parseGridPlacements, setFineBricks, STRUCTURE_STAMP_RULES, VOXEL_GRIDS_URL_PARAM, type GridPlacement, type StructureStampRule, streamerWalkBlocks, streamerWalkSource, worldPieceTable, type ChunkDrawBatch, type FarSeenWire, type PieceKitSource, type PieceTable, type VoxelStreamer } from '@thirdlight/voxel';
 
 export interface VoxelPresentation {
   /** The ports the runtime opens worlds through. */
@@ -63,7 +66,7 @@ export interface VoxelPresentation {
  * bench switch; false: each world's own `fineBuild`, until {@link VoxelPresentation.setFine} says otherwise); `walkFeed`
  * the page's walk feed to start with ({@link VoxelPresentation.setWalkFeed}; 0: off).
  */
-export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false, walkFeed = 0, grids: ReadonlyMap<string, readonly GridPlacement[]> = new Map(), gridStamp?: StructureStampRule | null): VoxelPresentation {
+export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBatch) => void, kits: readonly PieceKitSource[], seed: number, qualityLevels?: readonly QualityLevelConfig[], materials?: VoxelMaterialSources, fineBricks = false, walkFeed = 0, grids: ReadonlyMap<string, readonly GridPlacement[]> = new Map(), gridStamp?: StructureStampRule | null, cover?: VoxelCoverTable): VoxelPresentation {
   const batchers = new Map<string, ChunkDrawBatcher>();
   let walk = walkFeed;
   // The page's last focus: a world opened later answers it too.
@@ -74,15 +77,22 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
   let table: PieceTable | null = null;
   const levels = qualityLevels ?? ports.qualityLevels;
   const mats = materials ?? ports.materials;
+  // What grows on the worlds' ground (none: no cover is made, and no job is ever asked).
+  const grows = cover ?? ports.cover;
+  const growsAny = (grows?.dressings.length ?? 0) > 0;
   return {
     ports: {
       ...(levels !== undefined ? { qualityLevels: levels } : {}),
       ...(mats !== undefined ? { materials: mats } : {}),
+      ...(grows !== undefined ? { cover: grows } : {}),
       open: async (world: string): Promise<VoxelWorldConnection> => {
         const conn = await ports.open(world);
         // A world reopened while this connection still opened (a scene reload) has its own batcher under
         // the same name: this connection closes only the one it made.
         let mine: ChunkDrawBatcher | null = null;
+        // The world's ground cover: made in its pool once its chunks are drawn, sent with its batches (cover-stream.ts).
+        let growing: ChunkCoverStream | null = null;
+        let clear: Float32Array | null = null;
         const gridBatchers: Array<[string, ChunkDrawBatcher]> = [];
         const placed = await Promise.all(
           (grids.get(world) ?? conn.placements ?? []).map(async (place) => {
@@ -119,7 +129,22 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             // field stays the CPU's; the lit props in the light stop, each change of theirs a block's change) and the sky
             // heights the open regions found, for lighting on the page.
             // And the rooms the page's see-through subjects stand in, as the regions answer them.
-            const batcher = new ChunkDrawBatcher(world, stream, sectionEdge, send, { walk: { source: streamerWalkSource(stream, null, { props: props ?? null }), blocks: () => streamerWalkBlocks(stream) }, walkFeed: walk, ...(regions !== undefined ? { sky: regions, rooms: regions } : {}) });
+            const batcher = new ChunkDrawBatcher(world, stream, sectionEdge, send, {
+              walk: { source: streamerWalkSource(stream, null, { props: props ?? null }), blocks: () => streamerWalkBlocks(stream) },
+              walkFeed: walk,
+              ...(regions !== undefined ? { sky: regions, rooms: regions } : {}),
+              ...(growsAny ? { cover: { drawn: (cx: number, cy: number, cz: number, parts: number) => growing?.drawn(cx, cy, cz, parts), removed: (cx: number, cy: number, cz: number) => growing?.removed(cx, cy, cz) } } : {}),
+            });
+            if (growsAny) {
+              // A structure's stamp closes the world's cells where it stands: nothing grows under a house's floor.
+              const built = props === undefined ? undefined : (cx: number, cy: number, cz: number): Uint8Array | null => {
+                const classes = props.rooms(cx, cy, cz);
+                return classes === null ? null : classes.map((c) => (c === STAMP_CLASS.stop ? 1 : 0));
+              };
+              growing = new ChunkCoverStream({ stream, pool: conn.pool, send: (w) => batcher.cover(w), ...(built !== undefined ? { built } : {}) });
+              growing.setTable(grows);
+              if (clear !== null) growing.setClear(clear);
+            }
             if (focus !== null) batcher.setFocus(focus.n, focus.cells);
             // A structure stamp's change, or a shut door's, is one at the mip levels too (its stopping cells stop light there).
             const levels = stream.mips?.maxLevel ?? 0;
@@ -131,7 +156,13 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             batchers.set(world, mine);
             streams.set(world, stream);
           },
+          coverClear: (boxes) => {
+            clear = boxes;
+            growing?.setClear(boxes);
+          },
           close: () => {
+            growing?.close();
+            growing = null;
             for (const [name, b] of gridBatchers.splice(0)) {
               b.close();
               if (batchers.get(name) === b) batchers.delete(name);

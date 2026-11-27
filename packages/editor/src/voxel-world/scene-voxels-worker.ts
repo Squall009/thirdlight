@@ -22,8 +22,15 @@
  * objects place them (scene-voxels-grids.ts); a change naming a grid's
  * chunks reads only those again. A pick walks every world and its grids,
  * each grid in its own frame (`walkWithGrids`).
+ *
+ * Ground cover grows on a world as in a game (`@thirdlight/voxel`
+ * cover-stream.ts): the page hands over what the project's dressings grow
+ * and the props to keep clear of; a column's cover is made in the world's
+ * pool after its chunks are drawn and leaves with the draw batches. The
+ * view runs no structure stamps, so a rule's distance to construction reads
+ * the world grid's own cells only.
  */
-import { ChunkDrawBatcher, chunkDrawBatchTransfer, chunkKey, streamerWalkSource, VOXEL_SIZE_M, walkRay, walkWithGrids, worldPieceTable, worldStreamer, type ChunkCoord, type GridPlacement, type PieceKitSource, type VoxelStreamer, type WalkSource } from '@thirdlight/voxel';
+import { ChunkCoverStream, ChunkDrawBatcher, chunkDrawBatchTransfer, chunkKey, streamerWalkSource, VOXEL_SIZE_M, walkRay, walkWithGrids, worldPieceTable, worldStreamer, type ChunkCoord, type GridPlacement, type PieceKitSource, type VoxelStreamer, type WalkSource } from '@thirdlight/voxel';
 import { RangeWorld, type WorldChange } from './range-world';
 import { SceneGridStream } from './scene-voxels-grids';
 import { CELL_NOT_LOADED, type SceneVoxelsIn, type SceneVoxelsOut } from './scene-voxels-wire';
@@ -33,6 +40,8 @@ interface Streamed {
   world: RangeWorld | null;
   streamer: VoxelStreamer | null;
   batcher: ChunkDrawBatcher | null;
+  /** The world's ground cover: made in its pool once its chunks are drawn, sent with its batches. */
+  cover: ChunkCoverStream | null;
   readonly resident: Map<number, ChunkCoord>;
   /** Changes that arrived while the world opened. */
   readonly early: WorldChange[];
@@ -57,6 +66,8 @@ interface Streamed {
 const scope = self as unknown as { postMessage(m: SceneVoxelsOut, transfer?: Transferable[]): void; onmessage: ((e: MessageEvent<SceneVoxelsIn>) => void) | null };
 const post = (m: SceneVoxelsOut, transfer: Transferable[] = []): void => scope.postMessage(m, transfer);
 const worlds = new Map<string, Streamed>();
+/** What grows on the project's voxel ground and the props it keeps clear of, as the page last told (every world's). */
+const growing: { table: unknown; clear: Float32Array | null } = { table: null, clear: null };
 /** The view's focus in cells (where it looks). */
 let focus: { x: number; y: number; z: number; m: readonly [number, number, number] } | null = null;
 
@@ -71,7 +82,7 @@ function postState(w: Streamed): void {
   if (w.closed || w.world === null || w.streamer === null) return;
   const grids: Record<string, { resident: number; settled: boolean }> = {};
   for (const g of w.grids.values()) if (g instanceof SceneGridStream) grids[g.name] = { resident: g.streamer.metrics().resident, settled: g.settled };
-  post({ t: 'state', world: w.name, revision: w.world.revision, resident: w.resident.size, settled: w.settled, bytes: w.streamer.metrics().bytes.total, ...(w.grids.size > 0 ? { grids } : {}) });
+  post({ t: 'state', world: w.name, revision: w.world.revision, resident: w.resident.size, settled: w.settled && (w.cover?.settled ?? true), bytes: w.streamer.metrics().bytes.total, ...(w.grids.size > 0 ? { grids } : {}) });
 }
 
 async function stream(w: Streamed, streamer: VoxelStreamer): Promise<void> {
@@ -151,7 +162,7 @@ async function change(w: Streamed, c: WorldChange): Promise<void> {
 }
 
 async function open(m: Extract<SceneVoxelsIn, { t: 'open' }>): Promise<void> {
-  const w: Streamed = { name: m.world, world: null, streamer: null, batcher: null, resident: new Map(), early: [], relief: null, kits: null, closed: false, kick: null, open: m, pieces: { kits: m.kits, seed: m.pieceSeed }, places: new Map(), grids: new Map(), walk: null, settled: false };
+  const w: Streamed = { name: m.world, world: null, streamer: null, batcher: null, cover: null, resident: new Map(), early: [], relief: null, kits: null, closed: false, kick: null, open: m, pieces: { kits: m.kits, seed: m.pieceSeed }, places: new Map(), grids: new Map(), walk: null, settled: false };
   worlds.set(m.world, w);
   let world: RangeWorld;
   try {
@@ -176,7 +187,12 @@ async function open(m: Extract<SceneVoxelsIn, { t: 'open' }>): Promise<void> {
     else if (e.type === 'unloaded') w.resident.delete(chunkKey(world.grid, e.cx, e.cy, e.cz));
   });
   if (w.relief !== null) streamer.relief?.set(w.relief.ring);
-  w.batcher = new ChunkDrawBatcher(m.world, streamer, m.sectionEdge, (batch) => post({ t: 'batch', batch }, chunkDrawBatchTransfer(batch)));
+  // Its ground cover grows as in a game: a job a chunk column in the world's pool after the column's chunks are drawn.
+  const batcher = new ChunkDrawBatcher(m.world, streamer, m.sectionEdge, (batch) => post({ t: 'batch', batch }, chunkDrawBatchTransfer(batch)), { cover: { drawn: (cx, cy, cz, parts) => w.cover?.drawn(cx, cy, cz, parts), removed: (cx, cy, cz) => w.cover?.removed(cx, cy, cz) } });
+  w.batcher = batcher;
+  w.cover = new ChunkCoverStream({ stream: streamer, pool: world.pool, send: (c) => batcher.cover(c), idle: () => postState(w) });
+  w.cover.setTable(growing.table);
+  w.cover.setClear(growing.clear);
   if (focus !== null) streamer.setFocus(focus.x, focus.y, focus.z);
   void stream(w, streamer);
   syncGrids(w);
@@ -190,6 +206,7 @@ function close(name: string): void {
   w.closed = true;
   for (const g of w.grids.values()) void Promise.resolve(g).then((s) => s?.close());
   w.grids.clear();
+  w.cover?.close();
   w.batcher?.close();
   w.world?.pool.close();
   kick(w);
@@ -242,6 +259,14 @@ scope.onmessage = (e) => {
       }
       break;
     }
+    case 'cover':
+      if (m.table !== undefined) growing.table = m.table;
+      if (m.clear !== undefined) growing.clear = m.clear;
+      for (const w of worlds.values()) {
+        if (m.table !== undefined) w.cover?.setTable(growing.table);
+        if (m.clear !== undefined) w.cover?.setClear(growing.clear);
+      }
+      break;
     case 'grids': {
       const w = worlds.get(m.world);
       if (w === undefined) break;

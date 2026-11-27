@@ -693,6 +693,18 @@ export class CoverGpu {
     this.deps.changed?.();
   }
 
+  /**
+   * Point source `id`'s sets over chunk (cx, cz) are let go now, in every rule (the chunk is gone: nothing asks for
+   * them again and its points are not drawn until they are forgotten).
+   */
+  dropPoints(id: string, cx: number, cz: number): void {
+    const src = this.sources.get(id);
+    if (src?.kind !== 'points') return;
+    let any = false;
+    for (const atlas of src.atlases.values()) any = atlas.drop(cx, cz) || any;
+    if (any) this.deps.changed?.();
+  }
+
   ids(): string[] {
     return [...this.sources.keys()];
   }

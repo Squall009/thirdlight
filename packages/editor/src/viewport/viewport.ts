@@ -233,7 +233,7 @@ export class Viewport {
       instanceChunkSize: () => this.instanceChunk,
     });
     this.source.setCamera(this.camera);
-    this.voxels = new SceneVoxels({ adapter: () => this.adapter, requestRender: () => this.requestRender(), source: options.voxels ?? null, overlay: this.overlay, arrayBytes: (set) => this.assets.loadBytes(slotTextureKey(set)), localOf: (id) => this.source.localOf(id) });
+    this.voxels = new SceneVoxels({ adapter: () => this.adapter, requestRender: () => this.requestRender(), source: options.voxels ?? null, overlay: this.overlay, arrayBytes: (set) => this.assets.loadBytes(slotTextureKey(set)), localOf: (id) => this.source.localOf(id), coverClear: (entities) => this.queries.staticModelBoxes(entities) });
     this.look = new ViewportLook({ adapter: () => this.adapter, source: this.source, projected: () => this.projected, requestRender: () => this.requestRender() });
     this.overlay.name = 'scene-view-overlays';
     // The view's own drawing (grid, gizmo, outlines, handles, brush cursors) is never an occludee.

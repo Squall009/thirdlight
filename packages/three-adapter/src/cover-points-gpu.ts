@@ -136,6 +136,19 @@ export class CoverPointAtlas {
     e.token += 1;
   }
 
+  /** Chunk (cx, cz)'s set is let go now (its blocks freed); false: none was held. */
+  drop(cx: number, cz: number): boolean {
+    const key = `${cx},${cz}`;
+    const e = this.entries.get(key);
+    if (e === undefined) return false;
+    this.version += 1;
+    for (const s of e.slots) this.freeSlot(s);
+    // An answer on its way is for an entry that is gone.
+    e.token += 1;
+    this.entries.delete(key);
+    return true;
+  }
+
   /** Let go of the sets of chunks the view's reach has not met for a while. */
   forget(frame: number): void {
     for (const [key, e] of this.entries) {

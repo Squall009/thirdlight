@@ -141,6 +141,26 @@ export class SceneQueries {
     return box;
   }
 
+  /**
+   * The world boxes of the static model objects among `entities` (six floats each: least corner, then greatest):
+   * what rule-grown ground cover keeps clear of. `pending`: one of them draws nothing yet (its model is loading).
+   */
+  staticModelBoxes(entities: readonly ProjectedEntity[]): { boxes: Float32Array; pending: boolean } {
+    const flags = this.host.flags();
+    const out: number[] = [];
+    let pending = false;
+    let synced = false;
+    for (const e of entities) {
+      if (e.kind !== 'model' || flags.get(e.id)?.static !== true || flags.get(e.id)?.active === false || e.components['voxelPortal'] !== undefined) continue;
+      if (!synced) this.host.adapter().sync?.();
+      synced = true;
+      const box = this.boundsOf([e.id], () => true);
+      if (box.isEmpty()) pending = true;
+      else out.push(box.min.x, box.min.y, box.min.z, box.max.x, box.max.y, box.max.z);
+    }
+    return { boxes: new Float32Array(out), pending };
+  }
+
   /** The models drawn for an entity (its own and its children's), relative to its world position (null: none loaded). */
   modelBounds(entityId: string): { min: number[]; max: number[] } | null {
     this.host.adapter().sync?.();

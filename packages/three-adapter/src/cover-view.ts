@@ -37,6 +37,7 @@ import type { WarmDraw } from './program-warmer';
 import type { TerrainCoverSurface } from './terrain-view';
 import type { CullView } from './view-cull';
 import type { ModelInstance } from './visual';
+import { VoxelCover, type VoxelCoverStats } from './voxel-cover';
 
 /** Cells round a changed block column whose footprint a terrain's cover reads (a larger block's reach and the corner it shares). */
 const BLOCK_CHANGE_CELLS = 9;
@@ -69,6 +70,8 @@ export interface CoverViewDiagnostics {
   tilesSent: number;
   /** What the GPU draws. */
   gpu?: CoverGpuDiagnostics;
+  /** Voxel worlds' cover as it arrived with their draws (absent: none). */
+  voxels?: VoxelCoverStats;
 }
 
 /** A terrain with cover rules (its masks are asked for here). */
@@ -121,6 +124,8 @@ export class CoverView {
   private readonly models: CoverModels | null;
   /** The objects the simulation hides (a mesh's cover handed over later starts hidden with its object). */
   private hiddenObjects: ReadonlySet<string> = new Set();
+  /** Voxel worlds' cover: the point sets their draw batches bring, as point sources of the same path (voxel-cover.ts). */
+  readonly voxels: VoxelCover;
 
   constructor(private readonly deps: CoverViewDeps) {
     this.gpu = new CoverGpu({
@@ -133,8 +138,10 @@ export class CoverView {
       ...(deps.warm !== undefined ? { warm: deps.warm } : {}),
       maskWanted: (id, rule, tx, tz) => this.maskWanted(id, rule, tx, tz),
       mask: (id, rule, tx, tz, reply) => this.askMask(id, rule, tx, tz, reply),
-      points: (id, rule, cx, cz, reply) => this.ask({ t: 'coverPoints', job: 0, id, rule: rule.id, cx, cz }, (r) => reply(r.t === 'coverPointed' ? r.points : null)),
+      // A voxel world's sets came with its draws; the others' are baked when asked for.
+      points: (id, rule, cx, cz, reply) => (this.voxels.owns(id) ? this.voxels.ask(id, cx, cz, reply) : this.ask({ t: 'coverPoints', job: 0, id, rule: rule.id, cx, cz }, (r) => reply(r.t === 'coverPointed' ? r.points : null))),
     });
+    this.voxels = new VoxelCover(this.gpu);
     const worldMatrix = deps.worldMatrix;
     this.models = worldMatrix === undefined ? null : new CoverModels({ template: deps.template, worldMatrix, setMesh: (id, rules, origin, tris) => this.setMesh(`${id}${MODEL_MESH}`, id, rules, origin, tris), ...(deps.changed !== undefined ? { changed: deps.changed } : {}) });
   }
@@ -341,11 +348,13 @@ export class CoverView {
   update(view: CullView): void {
     if (this.disposed) return;
     this.models?.update();
+    this.voxels.frame();
     this.gpu.update(view);
   }
 
   diagnostics(): CoverViewDiagnostics {
-    return { sources: this.gpu.ids().length, tilesSent: this.sentTiles.size, ...(this.gpu.ids().length > 0 ? { gpu: this.gpu.diagnostics() } : {}) };
+    const voxels = this.voxels.stats();
+    return { sources: this.gpu.ids().length, tilesSent: this.sentTiles.size, ...(this.gpu.ids().length > 0 ? { gpu: this.gpu.diagnostics() } : {}), ...(voxels.species > 0 || voxels.received > 0 ? { voxels } : {}) };
   }
 
   meshes(): THREE.Mesh[] {
@@ -354,6 +363,7 @@ export class CoverView {
 
   dispose(): void {
     if (this.disposed) return;
+    this.voxels.dispose();
     for (const id of this.ids()) this.remove(id);
     this.gpu.dispose();
     this.disposed = true;

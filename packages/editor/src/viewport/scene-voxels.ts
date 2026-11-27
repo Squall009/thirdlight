@@ -45,6 +45,12 @@
  * at once, with nothing read or derived again. A click on a grid's voxels
  * selects its object (`pick`: the worker walks every world and its grids,
  * each in its own frame); the selection's box is the structure's.
+ *
+ * Ground cover grows as in a game: what the project's dressings grow is
+ * read with the kits (and again when a dressing or a material's dressing
+ * changes), the boxes of the static model objects it keeps clear of are
+ * read from the objects as drawn; both go to the worker, which makes each
+ * chunk column's cover and sends it with the draws.
  */
 import { resolveVoxelWorld, type VoxelWorldComponent } from '@thirdlight/project-model/voxel-world';
 import { BUILDING_GENERATOR, GridFrame, gridDrawName, gridPlacementProblem, parseStructureDefinition, VOXEL_SIZE_M, worldReliefRing, type GridPlacement, type ReliefRingSettings } from '@thirdlight/voxel';
@@ -76,6 +82,11 @@ export interface SceneVoxelsHost {
   readonly arrayBytes?: (set: TextureSlotSet) => Promise<Uint8Array>;
   /** The view's overlay group (what is drawn over the scene: where water bodies leak); absent: not drawn. */
   readonly overlay?: THREE.Object3D;
+  /**
+   * The boxes of the props ground cover keeps clear of, as drawn now (world metres, six floats a prop: least corner,
+   * greatest), and whether a prop's model is still loading (asked again then); absent: none.
+   */
+  readonly coverClear?: (entities: readonly ProjectedEntity[]) => { readonly boxes: Float32Array; readonly pending: boolean };
 }
 
 type WorldState = Extract<SceneVoxelsOut, { t: 'state' }>;
@@ -115,6 +126,9 @@ function structureCells(c: Record<string, unknown>): { min: number[]; max: numbe
 /** What of a kit read the pieces depend on (the material records read with it reach the draws through `setMaterials`). */
 const kitsKeyOf = (k: ProjectVoxelKits): string => JSON.stringify([k.kits, k.seed]);
 
+/** Frames between reads of the keep-clear boxes while a prop's model is still loading. */
+const CLEAR_RETRY_FRAMES = 30;
+
 /** The worker streaming the worlds and the voxel worker it starts, next to the editor page. */
 const WORKER_SCRIPT = 'voxel-view-worker.js';
 const DERIVE_SCRIPT = 'voxel-worker.js';
@@ -149,6 +163,15 @@ export class SceneVoxels {
   /** The open scenes' structure objects (by object id), and each world's grid places as last told to the worker. */
   private readonly structures = new Map<string, StructureDraw>();
   private readonly gridsSent = new Map<string, string>();
+  /** What grows on the project's voxel ground as last read with the kits (its key), told to the worker. */
+  private coverKey: string | null = null;
+  private coverTable: unknown = null;
+  /** The keep-clear boxes last told to the worker (their key), the objects they were read from, and whether a model was still loading. */
+  private clearKey = '';
+  private clearBoxes: Float32Array | null = null;
+  private clearFrom: readonly ProjectedEntity[] = [];
+  private clearPending = false;
+  private clearWait = 0;
   /** Who hears of the feed's voxel changes. */
   private readonly listeners = new Set<(c: VoxelsChangedPayload) => void>();
   /** Picks waiting for the worker's answer, by id. */
@@ -198,6 +221,7 @@ export class SceneVoxels {
       if (this.kits !== read) return;
       this.kitsKey = kitsKeyOf(kits);
       this.draws.setKits(this.kitSet(kits));
+      this.setCover(kits.cover ?? null);
     });
     return this.kits;
   }
@@ -244,6 +268,8 @@ export class SceneVoxels {
     this.kits = read;
     void read.then((kits) => {
       if (this.kits !== read) return;
+      // What grows changes with a dressing or a material's dressing: the worlds' cover is made again, no chunk derived.
+      this.setCover(kits.cover ?? null);
       const key = kitsKeyOf(kits);
       if (key === this.kitsKey) return;
       this.kitsKey = key;
@@ -255,6 +281,29 @@ export class SceneVoxels {
       }
       this.drawPending();
     });
+  }
+
+  /** What grows on the project's voxel ground (null: nothing): told to the worker when it differs from what it holds. */
+  private setCover(table: unknown): void {
+    const key = JSON.stringify(table);
+    if (key === this.coverKey) return;
+    this.coverKey = key;
+    this.coverTable = table;
+    this.post({ t: 'cover', table });
+  }
+
+  /** The props cover keeps clear of, read from the objects as drawn: told to the worker when a box came, went or moved. */
+  private syncClear(entities: readonly ProjectedEntity[]): void {
+    const read = this.host.coverClear;
+    if (read === undefined) return;
+    this.clearFrom = entities;
+    const { boxes, pending } = read(entities);
+    this.clearPending = pending;
+    const key = boxes.join(',');
+    if (key === this.clearKey) return;
+    this.clearKey = key;
+    this.clearBoxes = boxes;
+    this.post({ t: 'cover', clear: boxes });
   }
 
   /** A world no longer waits for the pending kits (its swap arrived, it derives nothing again, or it closed): draws them once none waits. */
@@ -283,6 +332,8 @@ export class SceneVoxels {
     return new VoxelWorldDraws({
       materials: this.materials,
       scene: () => adapter().threeScene?.() ?? null,
+      // Ground cover arrives with the draws and is drawn by the scene's point-set cover path, as in Play.
+      cover: () => adapter().cover?.()?.voxels ?? null,
       // The grids upload through the renderer once it can draw.
       renderer: () => (adapter().rendererStarting() ? null : ((adapter().currentRenderer?.() ?? null) as VoxelGridRenderer | null)),
       report: (world, bytes, coarse, kits) => this.post({ t: 'drawn', world, bytes, coarse, kits }),
@@ -343,6 +394,9 @@ export class SceneVoxels {
       }
     };
     this.worker = w;
+    // A worker started later (the first world opened after the kits were read) is told what grows and what to keep clear of.
+    if (this.coverKey !== null) w.postMessage({ t: 'cover', table: this.coverTable, clear: this.clearBoxes } satisfies SceneVoxelsIn);
+    else if (this.clearBoxes !== null) w.postMessage({ t: 'cover', clear: this.clearBoxes } satisfies SceneVoxelsIn);
     return w;
   }
 
@@ -351,6 +405,7 @@ export class SceneVoxels {
     const source = this.host.source;
     if (source === null) return;
     this.syncStructures(entities);
+    this.syncClear(entities);
     const wanted = new Map<string, string>();
     const settings = new Map<string, ReturnType<typeof resolveVoxelWorld>>();
     for (const e of entities) {
@@ -516,6 +571,11 @@ export class SceneVoxels {
   focus(at: THREE.Vector3): void {
     if (this.open.size === 0) return;
     this.followStructures();
+    // A prop whose model was still loading has no box yet: read again now and then until it has.
+    if (this.clearPending && ++this.clearWait >= CLEAR_RETRY_FRAMES) {
+      this.clearWait = 0;
+      this.syncClear(this.clearFrom);
+    }
     // The view's quality level changed: every world's relief ring follows it.
     const level = this.host.adapter().qualityLevelSettings?.()?.id ?? null;
     if (level !== this.reliefLevel) {

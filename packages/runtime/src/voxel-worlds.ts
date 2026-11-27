@@ -23,10 +23,14 @@
  * loaded world's lighting occupancy: their shape (collider, else model
  * bounds) where they are, again once they have moved by the stamp's sample
  * spacing, and out again when they leave.
+ *
+ * Where the build grows ground cover (its dressings), the props that stay
+ * where they are placed give every world their boxes, which rule plants keep
+ * clear of ({@link coverKeepsClearOf}).
  */
 import { deepFreeze, threadProfiler } from '@thirdlight/shared';
 import { frameBudgetMs, levelFrameBudget, qualityLevelsOf, resolveVoxelWorld, voxelMaterialInfos, voxelPortalOf, type VoxelPortalComponent, type EntityV3, type QualityLevelConfig, type VoxelMaterialInfo, type VoxelWorldComponent } from '@thirdlight/project-model';
-import { PROP_SAMPLES_PER_AXIS, VOXEL_SIZE_M, type PropShape } from '@thirdlight/voxel';
+import { PROP_SAMPLES_PER_AXIS, propClearances, VOXEL_SIZE_M, type PropShape } from '@thirdlight/voxel';
 import type { PhysicsPort3D } from './ports';
 import type { BehaviorVoxels, BehaviorVoxelWorld, VoxelChange, VoxelMismatch, VoxelPathAnswer, VoxelRayOptions, VoxelReachAnswer, VoxelRefused, VoxelRestoreResult, VoxelRings, VoxelSaveAnswer, VoxelSurfaceOptions, VoxelWaitAnswer, VoxelWalkOptions } from './voxel-api';
 import { noPathAnswer, noReachAnswer } from './voxel-paths';
@@ -65,6 +69,15 @@ interface HeldWorld {
   readonly host: VoxelWorldHost;
   /** The objects naming it, in arrival order (the first one is its focus without a camera). */
   readonly objects: string[];
+}
+
+/**
+ * Whether rule-grown ground cover keeps clear of an object: it is marked static (the object does not move: the
+ * hierarchy flag the editor's Static switch sets) and has a model. A portal's leaf stands in a structure's opening,
+ * where nothing grows.
+ */
+export function coverKeepsClearOf(e: { readonly static?: boolean; readonly components: Readonly<Record<string, unknown>> }): boolean {
+  return e.static === true && e.components['model'] !== undefined && e.components['voxelPortal'] === undefined;
 }
 
 /**
@@ -122,6 +135,13 @@ export class RuntimeVoxels {
   private readonly props = new Map<string, LitProp>();
   /** Props with a portal (`voxelPortal`), by object: their authored portal and what was last given the worlds. */
   private readonly portals = new Map<string, { readonly authored: VoxelPortalComponent; readonly components: Readonly<Record<string, unknown>>; sent: PortalProp | null; shape: PropShape | null; pose: number[] | null }>();
+  /**
+   * The props ground cover keeps clear of ({@link coverKeepsClearOf}), by object: each one's box where it stood when
+   * it arrived (null: not read yet). Gathered only when the build grows cover.
+   */
+  private readonly clears = new Map<string, { readonly components: Readonly<Record<string, unknown>>; box: readonly number[] | null }>();
+  private clearsDirty = false;
+  private readonly growsCover: boolean;
   private editSeq = 0;
   private waitSeq = 0;
   private saveSeq = 0;
@@ -138,6 +158,7 @@ export class RuntimeVoxels {
   ) {
     const first = (): BehaviorVoxelWorld | null => this.worlds.values().next().value?.host.api ?? null;
     this.materials = new Map([...voxelMaterialInfos(ports?.materials ?? [])].map(([id, m]) => [id, deepFreeze(m)]));
+    this.growsCover = (ports?.cover?.dressings.length ?? 0) > 0;
     const voxels = this;
     this.api = Object.freeze({
       worlds: () => Object.freeze([...this.worlds.keys()]),
@@ -216,6 +237,10 @@ export class RuntimeVoxels {
       // A prop with a portal is not stamped by its shape: its opening does the stopping, whatever its thickness.
       if (portal !== null && !this.portals.has(e.id)) this.portals.set(e.id, { authored: portal, components: e.components as unknown as Readonly<Record<string, unknown>>, sent: null, shape: null, pose: null });
       else if (model?.affectsLighting === true && !this.props.has(e.id)) this.props.set(e.id, { components: e.components as unknown as Readonly<Record<string, unknown>>, pose: null, shape: null });
+      if (this.growsCover && !this.clears.has(e.id) && coverKeepsClearOf(e as unknown as { static?: boolean; components: Readonly<Record<string, unknown>> })) {
+        this.clears.set(e.id, { components: e.components as unknown as Readonly<Record<string, unknown>>, box: null });
+        this.clearsDirty = true;
+      }
       const c = (e.components as { voxelWorld?: VoxelWorldComponent }).voxelWorld;
       if (c === undefined || this.worldOf.has(e.id)) continue;
       this.worldOf.set(e.id, c.world);
@@ -238,6 +263,7 @@ export class RuntimeVoxels {
         warn: (m) => this.view.warn(m),
       }, () => ++this.editSeq, this.materials);
       this.worlds.set(c.world, { host, objects: [e.id] });
+      this.clearsDirty ||= this.clears.size > 0;
       host.stampProps([...this.props].filter(([, p]) => p.shape !== null).map(([id, p]) => [id, p.shape] as const), [...this.portals].filter(([, p]) => p.sent !== null).map(([id, p]) => [id, p.sent] as const));
     }
   }
@@ -246,6 +272,7 @@ export class RuntimeVoxels {
   remove(ids: ReadonlySet<string>): void {
     const gone: (readonly [string, null])[] = [];
     for (const id of ids) if (this.props.delete(id)) gone.push([id, null]);
+    for (const id of ids) if (this.clears.delete(id)) this.clearsDirty = true;
     for (const held of this.worlds.values()) held.host.stampProps(gone);
     const portalsGone: (readonly [string, null])[] = [];
     for (const id of ids) if (this.portals.delete(id)) portalsGone.push([id, null]);
@@ -322,6 +349,7 @@ export class RuntimeVoxels {
     }
     this.stampProps();
     this.feedPortals();
+    this.feedClears();
     const camera = v.camera();
     for (const held of this.worlds.values()) {
       const at = camera ?? v.positionOf(held.objects[0]!) ?? [0, 0, 0];
@@ -349,6 +377,36 @@ export class RuntimeVoxels {
       changes.push([id, p.shape]);
     }
     for (const held of this.worlds.values()) held.host.stampProps(changes);
+  }
+
+  /**
+   * The boxes ground cover keeps clear of, given every world when a prop arrived or left: each prop's light shape's
+   * box (its collider, else its model's bounds) where it stood when first read. A prop a script moves later keeps
+   * that box: a static object is not moved while the game runs.
+   */
+  private feedClears(): void {
+    if (!this.clearsDirty) return;
+    this.clearsDirty = false;
+    const boxes: number[] = [];
+    for (const [id, p] of this.clears) {
+      if (p.box === null) {
+        const w = this.view.worldTransform(id);
+        // Not placed yet: read at a later step.
+        if (w === undefined) {
+          this.clearsDirty = true;
+          continue;
+        }
+        const shape = this.view.propShape(id, p.components, w);
+        p.box = shape === null ? [] : Array.from(propClearances([shape]));
+      }
+      boxes.push(...p.box);
+    }
+    const list = new Float32Array(boxes);
+    for (const held of this.worlds.values()) {
+      // A world still opening hears nothing yet: told again at a later step.
+      if (held.host.lightChannel === null) this.clearsDirty = true;
+      else held.host.stampProps([], [], list);
+    }
   }
 
   /**

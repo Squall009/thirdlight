@@ -79,7 +79,7 @@ import { chunkGrid, FloatingOrigin, MATERIAL_BITS, reliefFade, SHADER_BORDER_CEL
 import { isStreamedTexture } from './texture-streaming';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { VoxelBatchStage, voxelBatchFrameMs } from './voxel-batch-stage';
-import { DEFAULT_QUALITY_LEVELS, levelLighting, levelVoxels, qualityLevelOf, textureSlotSetKey, voxelArrayTopLevel, voxelWorldBlendMetres, VOXEL_TEXTURE_MAPS, type QualityLevelConfig, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
+import { DEFAULT_QUALITY_LEVELS, levelLighting, levelVoxels, memoryBudgetBytes, qualityLevelOf, textureSlotSetKey, voxelArrayTopLevel, voxelWorldBlendMetres, VOXEL_TEXTURE_MAPS, type QualityLevelConfig, type TextureSlotSet, type VoxelSurfaceTextures, type VoxelTextureMap } from '@thirdlight/project-model';
 import { voxelLooksKey, voxelRecordLooks, voxelRecordTextures, type VoxelLookRecord } from './voxel-material-looks';
 import type { VoxelKitSet } from './voxel-kit-pieces';
 import { voxelWorldDecalsOf } from './voxel-world-decals';
@@ -101,6 +101,7 @@ import { volumeReadFlag } from './voxel-light-volume-layout';
 import type { RegionTextureRenderer } from './region-texture';
 import { SURFACE_READ_URL_PARAM } from './adapter-surface-light';
 import type { VoxelFocusRooms } from './voxel-focus-rooms';
+import type { VoxelCover } from './voxel-cover';
 
 /** One edit's way to the screen, as this page saw it (ms). */
 export interface VoxelEditToScreen {
@@ -167,6 +168,11 @@ export interface VoxelWorldDrawsOptions {
   readonly lighting?: boolean;
   /** The page's lamps as its clustered lights gathered them last (absent or null: none; the light volume's lamps). */
   lamps?(): ClusterLights | null;
+  /**
+   * Where the worlds' ground cover is drawn: the scene's point-set cover path's voxel source (voxel-cover.ts; absent
+   * or null: the batches' cover is not drawn). Asked when a batch shows, so it may come with the adapter.
+   */
+  cover?(): Pick<VoxelCover, 'receive' | 'close' | 'setBudget'> | null;
 }
 
 /** The page's say over the voxel texture arrays' resident levels. */
@@ -585,6 +591,8 @@ export class VoxelWorldDraws {
       threadProfiler.end(VOXEL_GRIDS_SPAN);
       this.sunFrame();
       this.volumeFrame();
+      // Cover keeps to the memory the drawn level's tier gives it (the memory budget table's `voxelCover` entry).
+      this.opts.cover?.()?.setBudget(memoryBudgetBytes(this.opts.residency?.level() ?? {}, 'voxelCover'));
       this.capArrays();
       if (this.worlds.size > 0 || this.waiting.length > 0) this.loop();
     };
@@ -873,6 +881,7 @@ export class VoxelWorldDraws {
   }
 
   private close(name: string): void {
+    this.opts.cover?.()?.close(name);
     if (name === this.volumeWorld) this.dropVolume();
     this.walks.get(name)?.dispose();
     this.walks.delete(name);
@@ -926,6 +935,8 @@ export class VoxelWorldDraws {
     this.staging.commitMsMax = Math.max(this.staging.commitMsMax, performance.now() - t1);
     if (q.stage.steps > 1) this.staging.spread++;
     this.staging.framesMax = Math.max(this.staging.framesMax, q.stage.steps);
+    // The world grid's cover, after the chunks it grows on (a structure grid's batches carry none).
+    if (b.cover !== undefined && b.place === undefined) this.opts.cover?.()?.receive(b.world, b.edge, b.cover);
     this.replaced += done.chunkBytes.length / 4;
     this.applied++;
     const was = [w.coarse, w.kits];

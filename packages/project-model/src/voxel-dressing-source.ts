@@ -54,6 +54,7 @@ import {
   valueMaterial,
   valueRole,
   valueShape,
+  VOXEL_COVER_JOB,
   type DressingRule,
   type JobHandlers,
   type SurfaceCells,
@@ -342,8 +343,6 @@ export function voxelCoverTransfer(out: VoxelCoverOutput): ArrayBuffer[] {
   return out.sets.map((s) => s.points.data.buffer as ArrayBuffer);
 }
 
-/** The cover job's kind in a worker pool. */
-export const VOXEL_COVER_JOB = 'voxel-cover';
 
 /**
  * The cover job as a worker entry serves it, beside the stream jobs (the
@@ -358,3 +357,5 @@ export function voxelCoverJobHandlers(opts: { readonly decompress: (b: Uint8Arra
     },
   };
 }
+
+export { VOXEL_COVER_JOB };

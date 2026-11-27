@@ -437,6 +437,7 @@ export const NODE_SIDE_ALLOWED = {
         'material-schema', // the inspector is built from the table the model validates against
         'graph', // the graph editor's projection is the backend's own op code
         'animator-graph', // the Animator tab shows the graph the backend applies its edits to
+        'voxel-cover', // the voxel workers serve the ground cover job Play and an export serve (the Scene view grows what a game grows)
         'effects', // a new effect is built from the defaults the backend accepts
         'effect-graph-kinds', // effect graph ports resolve as the backend resolves them
         'plane-lock', // the gizmo holds a body to the plane the game locks it to
@@ -521,10 +522,14 @@ const BUNDLE_ENTRY_EDGES = {
   // The voxel worker entry (`js/voxel-worker.js` of an export whose scenes
   // name a voxel world): the voxel streaming core's job handlers, and fzstd
   // (the pinned decoder of the region files' zstd chunk frames).
+  // + project-model's `./voxel-cover` subpath only — the ground cover job a
+  // world's pool runs beside the stream jobs (the rule scatter core's voxel
+  // source: pure code, no three.js).
   'packages/exporter/src/export-voxel-worker.ts': {
-    packages: ['voxel'],
+    packages: ['voxel', 'project-model'],
     external: ['fzstd'],
     node: [],
+    subpaths: { 'project-model': ['voxel-cover'] },
   },
   // The block mesh worker entries (`js/mesh-worker.js` of an export with
   // block layers; `dist/editor/mesh-worker.js` and `dist/preview/mesh-worker.js`):

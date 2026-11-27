@@ -643,6 +643,17 @@ export const VOXEL_WALK_GPU_BUDGET_BYTES = 16 * MIB;
 export const REGION_STITCH_BUDGET_BYTES = 8 * MIB;
 
 /**
+ * Memory voxel ground cover may take by tier (bytes): the chunk columns' point sets the page holds and their rows of
+ * the culled-instance table, {@link VOXEL_COVER_POINT_BYTES} a point. Sized from the low tier's target of about
+ * 100,000 clumps in view with three times as many resident round the camera; over it the cover thins evenly (each
+ * column keeps the share of its points with the lowest thresholds), it is never cut off by place.
+ */
+export const VOXEL_COVER_BUDGET_BYTES_BY_TIER: Readonly<Record<LightingTier, number>> = Object.freeze({ low: 32 * MIB, medium: 64 * MIB, high: 96 * MIB });
+
+/** Bytes a resident cover point is counted as: its 16 bytes as it arrived, as many in its rule's point atlas, and its 16 floats as a row of the culled-instance table. */
+export const VOXEL_COVER_POINT_BYTES = 96;
+
+/**
  * Memory a voxel world's walk graph holds where the world runs (bytes): every resident chunk's standable cells with
  * their clearance and pieces (about 6 bytes a cell and a column table of 2 KB a chunk that has any), the exits between
  * pieces and the path searches' arrays. 0.64 MB over the generated town's 108 chunks (6 × 3 × 6, 58,000 cells, 994
@@ -696,6 +707,7 @@ function memoryEntries(tier: LightingTier): readonly MemoryBudgetEntry[] {
     lightVolume: e('lightVolume', 'voxel light volume (its pool of brick slots, index and lamp lists)', 'gpu', LIGHT_VOLUME_BUDGET_BYTES_BY_TIER[tier], 'LIGHT_VOLUME_BUDGET_BYTES_BY_TIER'),
     sunField: e('sunField', "voxel sun field (columns' tops and shade lines)", 'gpu', SUN_FIELD_BUDGET_BYTES, 'SUN_FIELD_BUDGET_BYTES'),
     voxelWalk: e('voxelWalk', "voxel occupancy walk's blocks on the GPU", 'gpu', VOXEL_WALK_GPU_BUDGET_BYTES, 'VOXEL_WALK_GPU_BUDGET_BYTES'),
+    voxelCover: e('voxelCover', "voxel ground cover (chunk columns' point sets and their rows of the culled-instance table)", 'page', VOXEL_COVER_BUDGET_BYTES_BY_TIER[tier], 'VOXEL_COVER_BUDGET_BYTES_BY_TIER'),
     undo: e('undo', 'voxel undo (each world, in the backend)', 'backend', UNDO_MEMORY_BUDGET_BYTES, 'UNDO_MEMORY_BUDGET_BYTES'),
   };
   return Object.freeze(MEMORY_BUDGET_IDS.map((id) => all[id]));
@@ -715,3 +727,9 @@ export const MEMORY_BUDGET_BY_TIER: Readonly<Record<LightingTier, MemoryBudget>>
   medium: memoryBudget('medium'),
   high: memoryBudget('high'),
 });
+
+/** A level's bytes for one entry of the memory budget table (its tier's). */
+export function memoryBudgetBytes(level: Pick<QualityLevelConfig, 'lighting'>, id: MemoryBudgetId): number {
+  return MEMORY_BUDGET_BY_TIER[level.lighting ?? DEFAULT_LIGHTING_TIER].entries.find((e) => e.id === id)!.bytes;
+}
+

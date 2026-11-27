@@ -32,7 +32,7 @@
  */
 import { pageFlagOn, sha256HexAsync } from '@thirdlight/shared';
 import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, streamingBudgetBytesOf, textureBudgetBytesOf, voxelPieceSeedOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument, type QualityLevelConfig, type VoxelTextureMap } from '@thirdlight/project-model';
-import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSettingsOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, fixedStepHzOf, voxelCoverTable, type VoxelCoverTable, ownRenderSettingsOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughCutFromUrl, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
@@ -504,6 +504,11 @@ function voxelMaterialsOf(manifest: GamePageManifest): VoxelMaterialSources {
   return ((manifest.materials ?? []) as unknown as VoxelMaterialSources).filter((m) => m.voxel !== undefined);
 }
 
+/** What grows on the build's voxel ground: its dressings (the catalog's `dressings` block) and the voxel materials that name them. */
+function voxelCoverOf(manifest: GamePageManifest): VoxelCoverTable {
+  return voxelCoverTable(manifest as unknown as Parameters<typeof voxelCoverTable>[0]);
+}
+
 function voxelKitsOf(manifest: GamePageManifest): VoxelKitRecordLike[] {
   return (manifest as { voxelKits?: VoxelKitRecordLike[] }).voxelKits ?? [];
 }
@@ -795,7 +800,7 @@ interface PageVoxelKits {
  * chunk drawn before its kit's meshes are there builds those pieces when
  * they arrive.
  */
-function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits, qualityLevels: readonly QualityLevelConfig[], materials: VoxelMaterialSources, textures: (map: VoxelTextureMap) => ReturnType<NonNullable<SceneAdapterOptions['materials']>['loadTexture']>, streamer: TextureStreamer, startLevel: string | undefined) {
+function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter: () => SceneAdapter | null, kits: PageVoxelKits, qualityLevels: readonly QualityLevelConfig[], materials: VoxelMaterialSources, cover: VoxelCoverTable, textures: (map: VoxelTextureMap) => ReturnType<NonNullable<SceneAdapterOptions['materials']>['loadTexture']>, streamer: TextureStreamer, startLevel: string | undefined) {
   let report: (world: string, bytes: number[], coarse: number, kits: number) => void = () => undefined;
   let farSeen: NonNullable<ConstructorParameters<typeof VoxelWorldDraws>[0]['farSeen']> = () => undefined;
   // Fine far bricks asked for on a page that cannot build them (WebGL 2): the simulation turns them off once.
@@ -824,6 +829,8 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
       limit: (t, level) => streamer.limit(t, level),
     },
     scene: () => adapter()?.threeScene?.() ?? null,
+    // Ground cover arrives with the draws and is drawn by the scene's point-set cover path.
+    cover: () => adapter()?.cover?.()?.voxels ?? null,
     // The grids upload through the renderer once it can draw.
     renderer: () => (adapter()?.rendererStarting() === false ? ((adapter()?.currentRenderer?.() ?? null) as VoxelGridRenderer | null) : null),
     report: (world, bytes, coarse, kitBytes) => report(world, bytes, coarse, kitBytes),
@@ -877,7 +884,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     /** The page's own simulation opens its worlds through these ports. */
     single(): VoxelWorldPorts {
-      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels, materials, fineBricksFromUrl(pageSearch()), draws.walkFeed, gridPlacementsFromUrl(pageSearch()), gridStampFromUrl(pageSearch()));
+      const p = presentVoxelWorlds(voxels.ports(), (b) => draws.receive(b), kits.records, kits.seed, qualityLevels, materials, fineBricksFromUrl(pageSearch()), draws.walkFeed, gridPlacementsFromUrl(pageSearch()), gridStampFromUrl(pageSearch()), cover);
       report = (world, bytes, coarse, kitBytes) => p.drawn(world, bytes, coarse, kitBytes);
       farSeen = (world, seen) => p.farSeen(world, seen);
       fineOff = () => p.setFine(false);
@@ -986,7 +993,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     let threadReason = threading.reason;
     const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
     // The voxel worlds run with the simulation; the page draws the chunks each swap sends.
-    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current, pageVoxelKitsOf(manifest, assetReader, content.catalog, o.decoderBase, pageTextureLoader(assetReader, content.catalog, textureStreamer)), qualityLevels, voxelMaterialsOf(manifest), voxelTexturesOf(manifest, pageTextureLoader(assetReader, content.catalog, textureStreamer)), textureStreamer, pinnedQuality ?? manifest.environment?.quality) : null;
+    const voxels = o.voxels !== undefined ? pageVoxelWorlds(o.voxels, () => adapterRef.current, pageVoxelKitsOf(manifest, assetReader, content.catalog, o.decoderBase, pageTextureLoader(assetReader, content.catalog, textureStreamer)), qualityLevels, voxelMaterialsOf(manifest), voxelCoverOf(manifest), voxelTexturesOf(manifest, pageTextureLoader(assetReader, content.catalog, textureStreamer)), textureStreamer, pinnedQuality ?? manifest.environment?.quality) : null;
     if (voxels !== null) releases.push(() => (voxels.draws.dispose(), voxels.kitMeshes.dispose()));
     if (threadMode === 'worker') {
       const worker = voxels === null ? createBrowserSimWorker(o.workerUrl) : voxels.worker(createBrowserSimWorker(o.workerUrl));
@@ -1010,7 +1017,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             ...(o.start?.options?.mode !== undefined && modeRows !== undefined ? { startMode: o.start.options.mode } : {}),
             // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, o.saveNamespace) } : {}),
-            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), pieceSeed: voxelPieceSeedOf(manifest.settings), qualityLevels, materials: voxelMaterialsOf(manifest), ...(fineBricksFromUrl(pageSearch()) ? { fineBricks: true } : {}), ...(voxels !== null && voxels.draws.walkFeed > 0 ? { walkFeed: voxels.draws.walkFeed } : {}), ...((g) => (g.size > 0 ? { grids: [...g].map(([world, places]) => ({ world, places })) } : {}))(gridPlacementsFromUrl(pageSearch())), ...((r) => (r !== undefined ? { gridStamp: r } : {}))(gridStampFromUrl(pageSearch())) } } : {}),
+            ...(o.voxels !== undefined ? { voxels: { root: o.voxels.root, ...(o.voxels.worlds !== undefined ? { worlds: o.voxels.worlds } : {}), kits: voxelKitsOf(manifest), pieceSeed: voxelPieceSeedOf(manifest.settings), qualityLevels, materials: voxelMaterialsOf(manifest), cover: voxelCoverOf(manifest), ...(fineBricksFromUrl(pageSearch()) ? { fineBricks: true } : {}), ...(voxels !== null && voxels.draws.walkFeed > 0 ? { walkFeed: voxels.draws.walkFeed } : {}), ...((g) => (g.size > 0 ? { grids: [...g].map(([world, places]) => ({ world, places })) } : {}))(gridPlacementsFromUrl(pageSearch())), ...((r) => (r !== undefined ? { gridStamp: r } : {}))(gridStampFromUrl(pageSearch())) } } : {}),
           },
           input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
           ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
