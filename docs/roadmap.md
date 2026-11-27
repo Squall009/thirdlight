@@ -161,6 +161,9 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 - From 47b.7: a far side for free-standing fog (D841: a second depth for the hull, or 51's march); a fog colour
   that follows the scene's light or exposure; a density view of a bank's inner cells; the fog's and the eye
   layer's cost measured on a quiet machine.
+- From 47b.8: in a dressing, a yaw range that starts past 0, a sink for cover species, priority or exclusion
+  between species, "no dressing" on a variant, a clearance radius a prop (each a format field); a dressing that
+  names a missing model listed in Problems (D843); an icon of its own for the dressing kind.
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
