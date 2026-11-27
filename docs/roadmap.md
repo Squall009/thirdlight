@@ -120,8 +120,9 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
    and never writes voxels (it receives light, force and wind and contributes to none; optional shadow casting, off
    by default). The large class stays in the same dressing asset and is placed by its rules in the editor, at edit
    time, each plant stamped as a hand-placed prop is. A turned prop is stamped by sampling its import-time stamp
-   into the world's cells (accepted: a cell off at the edges; thin parts need a rule). The plan decides whether
-   rule-placed large plants are scene objects or a generated set with overrides (as structures are).
+   into the world's cells (accepted: a cell off at the edges; thin parts need a rule). Rule-placed large plants
+   are a generated set with overrides (as structures are), never scene objects; stamping honours each plant's
+   own scale (the dressing's scale range), which the plan proves on small scales and thin trunks.
    Its plan opens with what 47b's review found the role traits table still lacks for this row (plan-47b §8, the
    review's note 12): light stop, walkers and collision carried apart from "drawn as a body" in the level-0
    derive, a mip kind for "not drawn near, kept far", and whether a prop's cells close the sky for dressing rules.

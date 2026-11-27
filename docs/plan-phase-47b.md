@@ -127,6 +127,24 @@ Each names its foundation (`voxel-engine.md` §6) and how it is proven.
 | 47b.10 | **Authoring the rules**: a Dressing card on the material (species, class, density, conditions) with the Scene view as the live preview; the world mode's **Rules** rail (what grows here and why not: the conditions at the cursor); a starter dressing in the engine's basic kit (game-ready placeholder cover plants, reported with triangle counts, LODs, texture and file sizes); manual pages for the mode, fog and dressing; the reference entries. | unit: the card's commands; the "why not" answer; picture E9 (the card beside a meadow) |
 | 47b.11 | **Close.** `tools/gate.sh phase` once; the pictures (28 and the new ones), each opened and read; one independent review; fixes; the end reading against 47T's performance report; `voxel-engine.md` brought up to date; the acceptance page with at most five questions. **Stop. 47p is not begun: its plan is written first.** | the phase run; the review; the page |
 
+### 5b. Increment after the close (owner, 2026-11-27)
+
+The owner, on reading the acceptance page: "We want the fog brush. That does need to be built with the world editor
+phase that just happened so please plan on doing another dot increment … DO NOT RERUN the full gate. Just build the
+tool and note it needs tested after the merge." And of the fill's 63 m bound (D850): "This needs solved during this
+pass as well", by a fill "based on geometric shape like dragging a large cube of fog around the world so the undo
+only has to act on the cube".
+
+| # | Entry | What changes |
+|---|---|---|
+| G7 | **A gas brush on the edit command** (approved by the owner 2026-11-27: "We want the fog brush") | Add-only to command v3's brush: a mode that writes a gas into open cells only (air, or a gas), each cell's density the brush's `density` (1–15) times its coverage under the soft rim, never lowering what is there; and its erase, which lowers gas cells' density by the coverage and touches nothing else. Brush shapes, size and points as the other modes. v3 commands written before it read as before. |
+| G8 | **The fog body record** (PROPOSED 2026-11-27; built only on the owner's yes) | A `fogBody` component on a scene object, as the water body's record is: a box (the object's position, a size in metres), a gas material, a density (1–15), an edge fade in metres (density falls to none toward the box's sides and top). Its voxels are the open cells inside the box, written by the backend from the record and written again when the box changes or the ground in it is edited; never exported as a definition (its voxels are). No leak: a fog body is not contained. |
+
+| Item | Builds | Proven by |
+|---|---|---|
+| 47b.12 | **The fog brush** (G7): the brush mode and its erase in `@thirdlight/voxel` (parse, apply, undo and redo, the narrowed feed: the gas part alone), the reference text; the world mode's fog brush sends it (paint and erase by the soft rim, no cell lists, no read of the view's copy, the 8 m cap gone); D838 and D840 closed. No phase run: `tools/gate.sh check` once; to be tried by hand after the merge. | unit: the mode on made cases (open cells only, coverage as density, never lowering, erase touching gas alone), undo exact, over HTTP in Node; the tool with a fake pick; picture E8 retaken |
+| 47b.13 | **The fog body** (G8, after the owner's yes): the component, the backend's writer (a chunk at a time, outside a stroke's undo budget, one undo step with the scene edit, written again by ground edits in its box), the world mode's Fill rail makes one by a drag and the Inspector edits it; the flood stays for small hollows. D850 closed by it. | unit: the writer on made cases, a box wider than 200 m, a ground edit inside it, undo; over HTTP in Node; a picture |
+
 **If the phase runs long, cut in this order** (each a logged decision, never a silent one): the density overlay;
 D829; the Rules rail's "why not"; the fog smooth-density brush.
 
@@ -146,6 +164,8 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.9 | done 2026-11-27: cover drawn on voxel chunks: a `voxel-cover` job a chunk column after its chunks' draws (the pool's background queue, never before a mesh), sent in the draw batch, drawn as point sources of the point-set path (rows of the culled table); made again by the feeds, dressings, stamps and static props; a memory entry and a slice a tier. L25, L26 read. D844–D846. Results §9 |
 | 47b.10 | done 2026-11-27: the Dressing card on a material (pick, create, clear; species and the ten conditions, each edit the dressing's command), the world mode's Rules rail with "why not" built (the rules' own answer at the cursor), four starter cover plants and the dressings Meadow, Shore, Gravel in the Basic Kit, manual pages. E9, L25, L26 read. D847, D848. Results §9 |
 | 47b.11 | done 2026-11-27: review (nothing stored beyond G1–G6; D849–D851); one phase run, 2,287 s: unit and boot green, RED on pictures (33 of 35: E8 the script's, fixed and retaken; L3 the cave, D852, open); 35 pictures read, 30 with something wrong; test time 87.5 min of 75; `acceptance-47b.md` published, five questions. 47p not begun |
+| 47b.12 | not started (increment, owner 2026-11-27) |
+| 47b.13 | waits for the owner's yes on G8 |
 
 ## 7. How this phase is run
 
