@@ -69,8 +69,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: commands](limits-commands.md) | `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `storage.ts` |
 | [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 33 sections |
-| [Limits and defaults: project-model (part 2, from `interactor.ts`)](limits-project-model-2.md) | 39 sections |
-| [Limits and defaults: project-model (part 3, from `ui-documents.ts`)](limits-project-model-3.md) | `ui-documents.ts`, `validate.ts`, `vertex-paint-stroke.ts`, `vertex-paint.ts`, `voxel-kit.ts`, `voxel-materials.ts`, `voxel-portal.ts`, `voxel-world.ts`, `water-body.ts`, `wind.ts`, `world-streaming.ts` |
+| [Limits and defaults: project-model (part 2, from `interactor.ts`)](limits-project-model-2.md) | 37 sections |
+| [Limits and defaults: project-model (part 3, from `trim-sheet.ts`)](limits-project-model-3.md) | 13 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `wire-change.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 27 sections |
 | [MCP tools (part 1, from tl_bake_lighting)](mcp-tools-1.md) | `tl_bake_lighting`, `tl_command` |

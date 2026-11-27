@@ -28,7 +28,7 @@ holds this build's value.
   a memory budget, not a count: `tl_inspect target="project"` shows each
   scene's `objectBytes`),
   one instance set at most 65,536 copies
-  ([`MAX_INSTANCES`](../reference/limits-project-model-2.md#limit-max-instances)),
+  ([`MAX_INSTANCES`](../reference/limits-project-model-3.md#limit-max-instances)),
   one block layer at most 1,024 × 256 × 1,024 cells of bounds
   ([`BLOCK_LIMITS`](../reference/limits-project-model-1.md#limit-block-limits)
   `layerWidth`, `layerHeight`). A big world is several scenes loaded

@@ -1,7 +1,7 @@
 # Plan — phase 47b: the world edit mode, the fill, fog as voxels, dressing rules and ground cover
 
 **Status: APPROVED by the owner 2026-11-26, with the changes of that conversation (§8). A fresh session builds
-it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D844.
+it.** Branch `phase-45`. Start commit: the commit that records the approval. Next free D-number: D847.
 
 The roadmap's line (owner, 2026-11-12): "**47b World edit mode**: one mode on the brush kit in the Scene view;
 fields derived from voxels; the height-based fill for water and fog; the fog role and fog painting with a plain
@@ -143,7 +143,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.6 | done 2026-11-26: the Fill rail (fog to a dragged level with a fade and a reach, one `flood`; a leak refused and marked; drain; Water makes a water body), the fog brush on Paint (a `set` or `dig` of the cells it names, so ground and water stay; smooth) and a Splines rail, all on the one tool. No command or stored thing added. E8 read; fog is not drawn before 47b.7. D838–D840. Results §9 |
 | 47b.7 | done 2026-11-26: the gas part (hull quads with the density behind them, and runs; the quads shared with liquid; derived 35) and its plain draw: flat colour, opacity from the scene's depth behind each face, a screen-wide layer with the eye in a bank, a density view in the world mode. In Play, exports and the Scene view. L23, L24, E8 read; cost not resolved (about 1 ms). D841. Results §9 |
 | 47b.8 | done 2026-11-27: the dressing asset (format 1: ordered species, cover or large, ten conditions) as a resource file, `voxel.dressing` through instances, `setDressing` / `deleteDressing`, a recorded schema step; the rules' one arithmetic with "why not"; the voxel source of the scatter core (a chunk's point sets, same bytes in a worker); props kept clear. D842, D843. Results §9 |
-| 47b.9 | not started |
+| 47b.9 | done 2026-11-27: cover drawn on voxel chunks: a `voxel-cover` job a chunk column after its chunks' draws (the pool's background queue, never before a mesh), sent in the draw batch, drawn as point sources of the point-set path (rows of the culled table); made again by the feeds, dressings, stamps and static props; a memory entry and a slice a tier. L25, L26 read. D844–D846. Results §9 |
 | 47b.10 | not started |
 | 47b.11 | not started |
 
@@ -511,6 +511,57 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   16. **A build ships the dressings its shipped materials name** (the catalog's `dressings` block, add-only in
       manifest 5) and their species' models, cover and large, as project-wide dependencies. A dressing nothing names
       is authoring data only.
+- **2026-11-27 — 47b.9, defaults chosen, owner to confirm** (item agent; nothing is stored, no format entry, no
+  command field):
+  1. **Cover is a job of its own a chunk column, not a derive part.** The rule scatter core is project-model's and
+     `@thirdlight/voxel` cannot import it (47b.8 12), so cover cannot be a part of a section's derive without a
+     boundary change. `@thirdlight/voxel` `cover-stream.ts` (`ChunkCoverStream`) asks the `voxel-cover` job for a
+     column once one of its chunks is drawn at level 0, for the rows of its drawn chunks; the answer leaves in the
+     chunk draw batch (`ChunkDrawBatch.cover`, applied after the batch's chunks). **The unit is a column, not a
+     chunk**: the point-set path's atlas is filed by column, and the job reads the whole column either way; a
+     column's cover goes in the batch that removes its last drawn chunk, and the points of a chunk no longer drawn
+     go with the next answer.
+  2. **What makes a column's cover again**: a drawn chunk of it or of the eight columns round it changed in shape,
+     material, wetness or liquid (`COVER_FED_BY`: the fields' feeds less gas); a chunk of it or beside it loaded;
+     one of its chunks is drawn or no longer drawn (its own column alone); a structure's stamp landed or left; the
+     table of what grows changed (every column, no chunk derived); a keep-clear box came, went or moved (the
+     columns within 8 m of it). **The cost of an edit**: nine jobs for an edit inside one chunk (more where the
+     mesher's reach makes a neighbour's sections again: each such chunk's event marks its own nine), about 13–24 ms
+     of a worker each; an answer equal to the one sent last is not sent again, so the page hears only of columns
+     whose plants changed. Narrowing it to the cells an edit touched needs the edit's box at the stream (not
+     built).
+  3. **Never before a mesh**: cover jobs wait in the pool's background queue (the far field's), at most a quarter
+     of the workers at a time, and none is asked while a load or a derive waits for a worker. An answer of cells or
+     a table that changed while its job ran is dropped and the column asked again.
+  4. **The props kept clear are the objects marked Static that have a model** (the hierarchy flag `static`: "the
+     object does not move"; a folder passes it down). A game reads each one's light shape box (its collider, else
+     its model's recorded bounds: `propBounds`) where it stands when its scene loads and when it leaves; it is not
+     followed after that (a static object is not moved while a game runs). The editor's Scene view reads the bounds
+     of what it draws, again whenever the scene's objects change, so a prop moved there makes the cover round its
+     old and new place again. An object not marked Static is grown over. Not chosen: every object with a model
+     (a character, a cart on a mover and a pick-up would each leave a bare patch where they started).
+  5. **Structures**: in a game the world's cells read a structure through its stamp (47b.4 8), so nothing grows
+     under a house's floor and a stamp landing makes the cover there again. The Scene view runs no stamps: it keeps
+     each structure's box clear (D846). **A structure's own surfaces grow nothing** (a dressing on a floor material
+     grows in the world grid only): a structure grid's draws carry no cover.
+  6. **The budget a tier is two entries of the shared tables and no new setting.** Memory: `voxelCover`
+     (`VOXEL_COVER_BUDGET_BYTES_BY_TIER`: 32, 64, 96 MiB of the page, 96 bytes a resident point); past it every set
+     hands the path only the share of its points with the lowest thresholds, in sixteenths, so cover thins evenly
+     and never ends at a place. Time: the frame arbiter's `voxelCover` slice (1 ms of the page a frame) for handing
+     arrived sets to the path. The existing tier settings do the rest: the level's `lodBias` scales the cover's
+     reach and level switches as for any cover. No count cap.
+  7. **How far cover is drawn is the scatter rule's default, 40 m**, thinning to nothing from 60 % of it: G5 gives a
+     species no cover distance (47b.8 3), so every voxel species reads `SCATTER_COVER_DISTANCE_DEFAULT`. On the low
+     tier that ends inside the detail ring (about 45 m), so cover fades out before the ring does; at medium and
+     high (64 m) it still ends at 40 m. **Cover casts no shadow** (G5 names no such field; it receives them).
+  8. **The derived data version stays 35**: no derive result's bytes or meaning changed (cover is outside them).
+     The spec's entry gains its as-built pointer.
+  9. **The pictures' plants are stand-ins made in code** (`tools/perf/village-assets.ts` `plantGlb`, `pebbleGlb`: a
+     clump of 12 blades, 60 triangles; a flower tuft, 24; a reed clump, 40; a pebble, 10; one level, one flat
+     colour, no texture), imported for the run and deleted after. Not art: 47b.10 retakes L25 and L26 with the
+     starter plants. **L25 and L26 are a picture run of their own** (`cover`), so the 24 older world pictures keep
+     their bare ground.
+  10. **D842 stays open**: the scheme (a column and the eight round it) is 47b.8's.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
@@ -1366,6 +1417,177 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
   cost was read on a made world of four chunks a side, three columns once each. D842's case (16-cell chunks) was
   reasoned, not run. The material section's voxel fields in the editor keep a `dressing` they are handed (the
   section spreads the block) but show no field for it, and were not opened in a browser.
+
+### 47b.9
+
+- **What exists.** Grass, flowers, reeds and pebbles are drawn on a voxel world by the dressings of its materials,
+  in Play, in an export's worker entry and page (the same code; an export was not looked at) and in the editor's
+  Scene view, and follow sculpting, painting, water, dressing edits and static props.
+  - **Where the points are made**: `@thirdlight/voxel` `cover-stream.ts` (`ChunkCoverStream`), where the world
+    runs. The draw batcher tells it of every level-0 chunk whose draw is sent, changed or removed
+    (`ChunkDrawBatcherOptions.cover`); it asks 47b.8's `voxel-cover` job for the chunk's column (the surface
+    fields job's input: the column and the eight round it, from a row under the lowest drawn chunk up to the
+    highest loaded one, the game's changes laid over; the table; the keep-clear boxes; a structure's stamps as
+    `built`) and hands the answer to the batcher (`ChunkDrawBatcher.cover` → `ChunkDrawBatch.cover`). A job a
+    column: not a derive part (§8 "47b.9" 1). What makes it again and what an edit costs: §8 2, 3.
+  - **How they are drawn** (foundation 6, nothing new): `three-adapter` `voxel-cover.ts` (`VoxelCover`, owned by the
+    scene's `CoverView`) makes each cover species of a world one point source of `CoverGpu` (`setPoints`), the
+    path block layers', models' and architecture's cover take: the rule's `CoverPointAtlas`, its `CoverRows` as
+    rows of the scene's culled-instance table (`writeCoverPointRow`, the table's level, thinning and culling), the
+    models' own materials (wind and the interaction field where a material asks). It holds the sets the batches
+    brought and answers the path's `points` when it asks. Added to the path: `CoverGpu.dropPoints` /
+    `CoverPointAtlas.drop` (a column let go frees its points at once instead of after 300 frames).
+  - **Wiring**: Play and exports: `game-host` `voxel-play.ts` (the stream made with the batcher in `present`, the
+    table from the build's catalog: `voxelCoverTable(manifest)`, `sim-protocol`'s `voxels.cover`), runtime
+    `voxel-worlds.ts` (`coverKeepsClearOf`: the static models' boxes, to `VoxelWorldConnection.coverClear`), the
+    page's `VoxelWorldDraws` (`cover` option → the adapter's `cover().voxels`). The Scene view:
+    `scene-voxels-worker.ts` (a `cover` message: the table and the boxes), `scene-voxels.ts` (the table read with
+    the kits by `queryGameConfig`, again on `setDressing` and on a material's dressing change; the boxes from
+    `SceneQueries.staticModelBoxes` and the structures' boxes). The three worker entries serve the job
+    (`editor/voxel-world/voxel-worker.ts`: the editor's, the Scene view's and Play's; `export-voxel-worker.ts`)
+    through project-model's new `./voxel-cover` subpath.
+  - **The budget a tier**: the memory table's `voxelCover` entry and the arbiter's `voxelCover` slice (§8 6).
+- **Stored:** nothing. No file, manifest key, record bit, far-cache channel, command field or dressing field.
+  `DERIVED_FORMAT_VERSION` stays 35.
+- **Tests** (new: `tools/voxel-bench/cover-stream.test.ts` 6, `packages/three-adapter/src/voxel-cover.test.ts` 5,
+  `tools/voxel-bench/bench-cover.test.ts` 7; one added to `tools/voxel-bench/world-host-grids.test.ts`; the made
+  world of 47b.8's test moved to `dressing-world.ts` for both; changed for the new entries:
+  `quality-levels.test.ts`, `page-memory.test.ts`, `profiler.test.ts`):
+  - **the stream, with the real batcher and the cover job in a real worker**, on 47b.8's made world: every drawn
+    column gets its cover after its draws (16 columns, 15,364 points; each column byte for byte what this thread
+    gives; grass on grass at its cell's fill height); **a road painted across a meadow** (a shader-only change):
+    its grass gone, flowers at its verge where none stood, nine jobs, fewer than nine columns sent, every column
+    equal to a pass over the edited world and the untouched ones the same objects, no chunk joined again but the
+    painted one; **a dig** (plants on the pit's floor, none in the air), **water in it** (a liquid-only change:
+    reeds, no grass), **fog** (a gas-only change: no job, no wire); **a dressing change** (16 jobs, no chunk in any
+    batch, no join; the same table again asks nothing; work of the near field waiting holds every job back; a
+    second change overtakes the first's job, whose answer is never sent; no dressing lets every column go with no
+    job); **a prop's box** (kept clear, 1–4 jobs; moved: the old place grows again, the new is clear; a stamp told
+    to the stream clears the ground under it); **the column's end** (a chunk no longer drawn but resident loses its
+    points; the last chunk's `remove` and the column's cover leave in one batch; a column drawn again asks one
+    job; closed with a job out: given up, nothing sent, nothing asked after).
+  - **the page, through the real cover view** (its atlas, its rows, a stand-in table): a point a row, each the
+    copy `writeCoverPointRow` makes, drawn by the path's row draws (`rowsPlacement`, the rule's bend); a column's
+    new set rewrites its 256 places alone; a column let go loses its rows at once; a species goes with its last
+    column and the table forgets it; a rule that reads differently is taken again; a world closed and the view
+    disposed let everything go (the resident-bytes reading back to what it was: the release test); the tier's
+    entry read by its id, half the budget hands over the half of each set with the lowest thresholds; a slice of
+    no time hands over one set a frame; a batch's cover reaches the path after its chunks, a structure grid's not,
+    a closed world's is closed.
+  - **a game through a real runtime** (region files, workers, three houses in their own grids at 0°, 30°, 45°):
+    cover arrives in the world's batches, never before its column's draw; none inside any house; a crate marked
+    Static kept clear and the same crate not marked grown over.
+  - **the bench** (below): its strokes and dressings valid, what grows where on the town's own ground, its
+    cameras in clear air, placed and taken out in the order the undo needs.
+  - **Broken on purpose, each run once** (25; `~/.cache/thirdlight-phase47b/work/47b.9/breaks.log`): 22 red at
+    once (gas feeding cover; a change making only its own column, or nothing; an equal answer sent again; a
+    column's cover kept after its last chunk; a dressing or a box change making nothing; jobs not given up at
+    close; the batcher not telling of a removed or a drawn chunk; a column let go keeping its points; the budget
+    never weighed; the slice ignored; a closed world keeping its cover; a new rule not taken; a grid's cover drawn
+    as the world's; the stamps not read by the job; every model kept clear; none kept clear; the bench's shelf a
+    row short; its flowers anywhere). **Three stayed green and were sharpened until red**: the job answering every
+    row (the test unloaded the chunk: now it is only no longer drawn), a stale answer sent (no change ever
+    overtook a job), and a stamp landing making nothing again: that one is now tested at the stream
+    (`builtChanged`), and **the line in `voxel-play.ts` that calls it for a real stamp is still green when
+    removed** (in the runtime test the stamps land before the first cover job).
+  - **Not tested by a unit test**: the Scene view's page and worker messages (seen in a picture, below); an
+    export's page (the worker entry builds and passes the bundle scan in every build; 47b.8's HTTP test ships the
+    dressings and their model, and `dressing.test.ts` shows the models are assets a build needs because a dressing
+    names them; in Play the stand-in models, named by nothing else, were loaded and drawn).
+- **The bench cover** (`tools/voxel-bench/bench-cover.ts`; §8 9): four stand-in models, two dressings (the meadow on
+  the town's grass: grass under open sky on dry ground; flowers within 1.5 m of another material and 3 m from
+  anything built; reeds where water stands 5–60 cm deep. The road on its gravel: pebbles within 0.75 m of its
+  edge), a gravel road painted across lots (2, 6) and (3, 6) and a shelf set under the rim of lot (6, 4)'s pond
+  (the town's ponds are as deep at the rim as in the middle: no shallows). Placed by commands, taken out by the
+  undo and the commands; `headroom --meadow [--cover]`, `coverage --cover`.
+- **Found on the way: staging's far cache was a revision behind** (left by 47b.7's last bench run: D845). The
+  first two takes of L25 and L26 were so taken with no far field, and the first headroom run waited seven minutes
+  and failed. The backend rebuilt the whole cache (about 25 minutes, in the background, while tests were
+  written); its baked fine levels are gone (D644; no scene of the staging project asks for a bake). The benches
+  now read the far route after their undo.
+- **Pictures** (three takes of L25 and L26: 96 s, 93 s, 92 s; low tier, WebGPU, staging's 8 km town; all settled).
+  `~/.cache/thirdlight-phase47b/work/47b.9/`:
+  - Take 1 (`pictures-1/`): the cover drawn, every plant pale grey-green and the flowers nearly invisible: the
+    stand-ins' colours were written as sRGB into glTF's linear factors. Fixed (the bench's colours).
+  - Take 2 (`pictures-2/`): the colours right; no hills or mountains behind the town (the far cache stale, D845).
+  - **L25** `pictures-3/L25-cover-meadow.png` (take 3; settled after 12.1 s; 5,058 clumps and 289,278 triangles
+    drawn by the profiler's counters; 65,129 points resident in 76 column sets of 4 species). Sees: from 2.4 m up
+    a meadow of dark grass clumps over the empty lots, a grey gravel road crossing it into the distance with
+    yellow tufts along both its edges, eight houses round it, green hills and grey mountains behind. Every clump
+    stands on the ground; none on the road, none on or in a house; the clumps get sparser with distance and are
+    gone about 35–40 m off with no line where they end; no chunk-shaped patch. **Wrong**: the blades are bluer and
+    darker than the grass they stand on (teal against yellow-green) and all one flat tone: no shading toward
+    their roots and no shadow on the ground, so the meadow reads as strokes laid over a flat floor (the stand-in's
+    near-vertical normals take the sky's light; cover casts no shadow); the ground shows between the clumps
+    everywhere; the pebbles on the road's shoulder cannot be made out; past 40 m the lots are bare (the known
+    limitation, soft here); the blades are soft at this render scale. Sure: high for what is there; nobody has
+    seen it move.
+  - **L26** `pictures-3/L26-cover-reeds.png` (take 3; settled after 5 s; 3,955 clumps, 235,120 triangles drawn).
+    Sees: the pond in its stone rim from 8.5 m off; thin olive-tan reeds standing in the water all round inside
+    the rim, the middle open water; grass clumps on the lot up to the rim; houses and a hill behind. No reed on
+    dry ground or in the middle, no grass in the water. **Wrong**: the reeds are thin lines that are hard to read
+    against the blue water, and where they meet the bed cannot be seen (the water is opaque); a few grass blades
+    at the rim's foot cut into its stone blocks (a clump leans up to 0.16 m past its point; nothing keeps cover
+    off a wall's foot unless a rule says so); the same flat teal blades with no shadow. The flat blue water is
+    47a's. Sure: high.
+  - **The Scene view** (not on the list; `pictures-e7b.raw/screen-world-mode-cover.png`, taken after E7 on the
+    made yard, 12 s; the view's state: 2 species, 22,423 points in 23 sets, nothing pending). Sees: the editor on
+    the yard with dark tufts all over the grass and up the sculpted hill, yellow tufts round the hill's tan cap
+    (where the dry-grass variant meets the grass) and none on the grey mound of road material or the lane.
+    `…-cover-house.png` frames the house: the whole yard from far above, its foot too small to judge (D846). The
+    meadow was then taken off by the commands and the view's cover went to 0 points. Wrong: at this distance the
+    tufts are specks. Sure: high that the Scene view draws cover and lets it go; low for anything close up.
+- **Readings** (never a gate; alone on this shared box, capped, low tier, WebGPU, 1280 × 720, the 30 Hz cap; load
+  1.1–2.8 at the starts; `uptime` 5 days 23 h; from committed, built code):
+  - **Headroom** (`run.mjs headroom --quality low --meadow [--cover] --copies none --scales none --rounds 1`: the
+    camera orbiting the empty lots 16 m out and 4 m up; three rounds: 207 s, 224 s, 194 s; one before them failed
+    after 421 s on the stale far cache):
+
+    | Run | Cover | Room (ballast held) | `near` ms (spread) | Sim ms a frame | Workers ms a frame | In view |
+    |---|---|---|---|---|---|---|
+    | A1 | none | 20 | 3.74 (0.85) | 7.2 | 4.8 | — |
+    | B1 | the bench meadow | 34 | 2.42 (2.0) | 10.2 | 12.1 | 4,650 clumps, 272,032 triangles |
+    | A2 | none | 3 | 4.61 (0.38) | 6.8 | 3.7 | — |
+
+    **The GPU cost of the meadow is not resolved**: the room is larger with cover than without, and the two runs
+    without differ by more (20 and 3). Resident: 65,617 points, 6.3 MB of the `voxelCover` entry's 32 MiB (share
+    1). Against the soft targets (100k clumps, 1.2 M triangles in view): a twentieth and a quarter, with this
+    dressing. **The simulation and the workers were busier with cover** (about +3 and +8 ms a frame while
+    orbiting): read from it, a chunk drawn for the first time was making the eight columns round it again; fixed
+    (3393b57b) and **not read again** (the three rounds were spent).
+  - **The cover job**: 15.9–23.5 ms a chunk column in a worker on the made world (the stream test's line over
+    five runs, other work on the box; nine species in its table); the bench meadow on the town 12.7 ms p50 in the
+    calling thread (11.6–15.0; three cover species and a road's).
+  - **Coverage at 150 m/s** (`run.mjs coverage --quality low --speed 150 [--cover]`, Play on staging; **two
+    rounds, not the one the item names**: the plan's baseline was read on an export of a world baked to 0.5 m,
+    and staging's far cache had just lost its fine levels, so a same-hour round without cover was flown; 117 s and
+    116 s):
+
+    | | With cover | Without |
+    |---|---|---|
+    | Longest frame | **949 ms** | 62 ms |
+    | Frames over 100 ms | 2 | 0 |
+    | Missed a minute, p95 | 28.4, 37.7 ms | 32.0, 38.1 ms |
+    | After the stop: ground solid | 0.02 s | 0.03 s |
+    | Full detail (level 0 still) | 8.0 s | 6.0 s |
+    | Nothing pending | 13.2 s | 11.6 s |
+    | Falls, holes | 0 of 34, 0 of 1,917 | 0 of 34, 0 of 1,964 |
+
+    **Cover hitches the page where it is first drawn** (D844): both long frames are in the flight's first quarter
+    second, where the world is still arriving. In flight nothing differs (no level 0, no cover). **Full detail
+    came back 2 s later with cover**, one round each, so not resolved; a cover job was taking one worker in four
+    while derives waited, and cover now asks for none then (e9d1269e): **not read again**.
+  - Medium and high: unverified on target hardware.
+- **Gate:** see the end of this section.
+- **Unverified:** anything in motion (wind, bending under an interactor, cover arriving round a walking camera,
+  the thinning at the reach while moving); an exported game's cover; cover at night and under lamps; cover on a
+  world of 16-cell chunks; the budget's thinning in a picture; the Scene view close up, round a structure and
+  after a prop is dragged; both fixes made from the readings (the first-draw re-makes, the wait for near work) on
+  the page.
+- **Left out, and why:** cover past its 40 m reach and LODs, impostors and fades (the rings phase); a species'
+  own cover distance, shadow casting and bend (G5 names none: owner); cover on a structure grid's own floors;
+  narrowing an edit's re-make to the cells it touched; following a static prop a script moves; D844's fixes (the
+  path's first draw: found by the last reading); the Dressing card, the Rules rail, the starter plants (47b.10).
 
 ## 10. The proposed plan's questions and how each stands
 
