@@ -31,7 +31,7 @@ const MODELS = ['grass-tuft', 'reed', 'oak-tree'].map((assetId) => ({ ...MODEL_A
 
 /** A species entry with every field of format 1 set to something its canonical form keeps, in canonical order. */
 const FULL: DressingSpecies = {
-  model: 'grass-tuft',
+  model: 'reed',
   class: 'cover',
   density: 6,
   spacing: 0.25,
@@ -55,7 +55,7 @@ const FULL: DressingSpecies = {
 const TREE: DressingSpecies = { model: 'oak-tree', class: 'large', density: 0.01, spacing: 9, scale: [0.9, 1.4], conditions: { slope: { max: 25 }, sky: true } };
 const MEADOW: DressingDef = { dressingFormat: 1, dressingId: 'meadow', name: 'Meadow', species: [FULL, TREE] };
 const SPARSE: DressingDef = { dressingFormat: 1, dressingId: 'meadow-sparse', name: 'Sparse meadow', species: [{ model: 'grass-tuft', class: 'cover', density: 1.5 }] };
-const SPARE: DressingDef = { dressingFormat: 1, dressingId: 'spare', name: 'Nothing names me', species: [{ model: 'reed', class: 'cover', density: 2 }] };
+const SPARE: DressingDef = { dressingFormat: 1, dressingId: 'spare', name: 'Nothing names me', species: [{ model: 'grass-tuft', class: 'cover', density: 2 }] };
 
 const GRASS: MaterialDef = { materialId: 'grass', name: 'Grass', shader: 'standard', params: {}, textures: {}, voxel: { id: 3, use: 'terrain', dressing: 'meadow' } };
 const DRY: MaterialDef = { materialId: 'grass-dry', name: 'Dry grass', shader: 'standard', params: {}, textures: {}, instanceOf: 'grass', voxel: { id: 4, dressing: 'meadow-sparse' } } as MaterialDef;
@@ -95,7 +95,7 @@ describe('the dressing asset (format 1)', () => {
     expect(Object.keys(meadow!.species[0]!)).toEqual(['model', 'class', 'density', 'spacing', 'scale', 'yaw', 'align', 'seed', 'conditions']);
     expect(Object.keys(meadow!.species[0]!.conditions!)).toEqual([...DRESSING_CONDITIONS]);
     expect(Object.keys(meadow!.species[0]!.conditions!.noise!)).toEqual(['min', 'scale', 'fade', 'seed']);
-    // The list by id; the species never reordered (the large one stays second, stored as given).
+    // The list by id; the species never reordered (the reed before the oak as given, the large one stored as it is).
     expect(sparse!.dressingId).toBe('meadow-sparse');
     expect(meadow!.species.map((s) => s.class)).toEqual(['cover', 'large']);
     expect(meadow!.species[1]).toEqual(TREE);
@@ -183,11 +183,11 @@ describe('the dressing asset (format 1)', () => {
 
   it('gives the scatter core each species as a ground cover rule it takes: its placement fields are the rule\'s own', () => {
     const rule = dressingSpeciesRule(FULL, 3);
-    expect(rule).toEqual({ id: 's3', asset: { assetId: 'grass-tuft' }, density: 6, spacing: 0.25, scale: [0.8, 1.3], yaw: 180, align: 0.5, seed: 7, cover: true });
+    expect(rule).toEqual({ id: 's3', asset: { assetId: 'reed' }, density: 6, spacing: 0.25, scale: [0.8, 1.3], yaw: 180, align: 0.5, seed: 7, cover: true });
     const errors: unknown[] = [];
     validateScatterRules([rule, dressingSpeciesRule(TREE, 0)], '/rules', errors as never, false);
     expect(errors).toEqual([]);
-    expect(dressingModels(MEADOW)).toEqual(['grass-tuft', 'oak-tree']);
+    expect(dressingModels(MEADOW)).toEqual(['oak-tree', 'reed']);
   });
 });
 
@@ -231,9 +231,9 @@ describe('voxel.dressing on the material record', () => {
     const c = loaded({ dressings: [MEADOW, SPARE], materials: [GRASS] });
     const scene = { sceneId: 'main', entities: [] } as never;
     const refs = collectAssetRefsV3(scene, c as never).map((r) => r.assetId);
-    expect(refs).toContain('grass-tuft');
+    expect(refs).toContain('reed');
     expect(refs).toContain('oak-tree');
-    expect(refs).not.toContain('reed');
+    expect(refs).not.toContain('grass-tuft');
     // A model the project lacks ships nothing and refuses nothing.
     const missing = loaded({ dressings: [{ ...MEADOW, species: [{ model: 'no-such-model', class: 'cover', density: 1 }] }], materials: [GRASS] });
     expect(collectAssetRefsV3(scene, missing as never).map((r) => r.assetId)).toEqual([]);

@@ -86,6 +86,7 @@ interface MutationFailure {
 | [`deleteBlockStamp`](ops-detail.md#op-deleteBlockStamp) | { stampId: string } | `blockStamps` |
 | [`deleteBlockType`](ops-detail.md#op-deleteBlockType) | { blockId: string } | `blockTypes` |
 | [`deleteDialogue`](ops-detail.md#op-deleteDialogue) | { dialogueId: string } | `dialogues` |
+| [`deleteDressing`](ops-detail.md#op-deleteDressing) | { dressingId: string } | `dressings` |
 | [`deleteEffect`](ops-detail.md#op-deleteEffect) | { effectId: string } | `effects` |
 | [`deleteEntity`](ops-detail.md#op-deleteEntity) | DeleteEntityArgs |  |
 | [`deleteGraph`](ops-detail.md#op-deleteGraph) | { graphId: string } | `graphs` |
@@ -133,6 +134,7 @@ interface MutationFailure {
 | [`setComponent`](ops-detail.md#op-setComponent) | SetComponentArgs |  |
 | [`setDialogue`](ops-detail.md#op-setDialogue) | { dialogue: { dialogueId: string; name: string; graph?: GraphData } } | `dialogues` |
 | [`setDialogueSettings`](ops-detail.md#op-setDialogueSettings) | { settings: DialogueSettings \| null } | `dialogueSettings` |
+| [`setDressing`](ops-detail.md#op-setDressing) | { dressing: DressingDef } | `dressings` |
 | [`setEffect`](ops-detail.md#op-setEffect) | { effect: EffectDef } | `effects` |
 | [`setEnvironment`](ops-detail.md#op-setEnvironment) | { environment: EnvironmentConfig \| SceneEnvironment; sceneId?: string } | `environment` |
 | [`setEventCues`](ops-detail.md#op-setEventCues) | { cues: EventCue[] } | `eventCues` |

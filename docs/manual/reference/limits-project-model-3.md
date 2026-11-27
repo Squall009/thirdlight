@@ -1,8 +1,15 @@
-# Limits and defaults: project-model (part 3, from `validate.ts`)
+# Limits and defaults: project-model (part 3, from `ui-documents.ts`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The limits and defaults `@thirdlight/project-model` defines, by source file. Values are the running build's.
+
+<a id="limits-project-model--ui-documents"></a>
+## `ui-documents.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-ui-limits"></a>`UI_LIMITS` | `{"documentBytes":49152,"widgets":512,"depth":16,"children":128,"styles":64,"tweens":32,"icons":64,"textChars":1024,"nameChars":64,"bindPathChars":128,"listItems":256,"layer":100,"px":16384,"degrees":3600}` |  |
 
 <a id="limits-project-model--validate"></a>
 ## `validate.ts`

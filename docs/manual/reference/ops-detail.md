@@ -264,6 +264,17 @@ Arguments (`args`):
 { dialogueId: string }
 ```
 
+<a id="op-deleteDressing"></a>
+## deleteDressing
+
+Writes: [`content.dressings`](content-blocks-animators.md#content-dressings).
+
+Arguments (`args`):
+
+```ts
+{ dressingId: string }
+```
+
 <a id="op-deleteEffect"></a>
 ## deleteEffect
 
@@ -1021,6 +1032,19 @@ Arguments (`args`):
 ```
 
 Types: [`DialogueSettings`](types-c-m.md#type-dialogue-settings).
+
+<a id="op-setDressing"></a>
+## setDressing
+
+Writes: [`content.dressings`](content-blocks-animators.md#content-dressings).
+
+Arguments (`args`):
+
+```ts
+{ dressing: DressingDef }
+```
+
+Types: [`DressingDef`](types-c-m.md#type-dressing-def).
 
 <a id="op-setEffect"></a>
 ## setEffect

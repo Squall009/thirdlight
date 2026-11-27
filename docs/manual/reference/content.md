@@ -20,6 +20,7 @@ The project's content: one block per kind of document. Each block lists the ops 
 | [`blockStamps`](content-blocks-animators.md#content-blockStamps) | Block stamps | `setBlockStamp`, `deleteBlockStamp` |
 | [`kits`](content-blocks-animators.md#content-kits) | Kits | `setKit`, `deleteKit` |
 | [`voxelKits`](content-blocks-animators.md#content-voxelKits) | Voxel kits | `setVoxelKit`, `deleteVoxelKit` |
+| [`dressings`](content-blocks-animators.md#content-dressings) | Dressings | `setDressing`, `deleteDressing` |
 | [`materialProfiles`](content-blocks-animators.md#content-materialProfiles) | Physical profiles | `setMaterialProfile`, `deleteMaterialProfile` |
 | [`uiDocuments`](content-blocks-animators.md#content-uiDocuments) | UI documents | `setUiDocument`, `deleteUiDocument` |
 | [`modes`](content-blocks-animators.md#content-modes) | Game modes | `setModes` |

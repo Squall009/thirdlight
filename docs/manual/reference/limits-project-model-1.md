@@ -244,6 +244,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-dialogue-defaults"></a>`DIALOGUE_DEFAULTS` | `{"textSpeed":40,"autoAdvance":false,"autoDelay":0.5,"duck":0.4,"backlog":50,"blipEvery":2,"blipVolume":0.6,"expression":"neutral","voiceMaxLateMs":1000}` | Engine defaults, each with a genre-neutral reason: - textSpeed 40 chars/s: comfortably faster than speech (~15 chars/s), so the text leads a voice and a silent line reads without waiting. - autoDelay 0.5 s: a beat after the voice ends before the next line. - duck 0.4: a voice stays clear over music and effects without silencing them. - backlog 50 lines: a scene's worth of history in a small view model. - blipEvery 2, blipVolume 0.6: a blip per syllable-ish, under the music. |
 | <a id="limit-dialogue-limits"></a>`DIALOGUE_LIMITS` | `{"nodes":1024,"portraits":32,"textChars":1024,"optionChars":256,"exprChars":512,"variables":256,"variableText":256,"bindings":16,"seen":8192,"backlog":100,"hopsPerStep":256,"frameInputs":8,"nameChars":64,"signalValueChars":256}` |  |
 
+<a id="limits-project-model--dressing"></a>
+## `dressing.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-dressing-limits"></a>`DRESSING_LIMITS` | `{"density":{"min":0.0001,"max":100},"spacingMax":100,"coverSpacingMax":8,"scale":{"min":0.01,"max":100},"slopeMax":90,"wetnessMax":7,"distanceMax":8,"noiseScaleMin":0.01,"noiseScaleMax":100000}` | Bounds of a dressing's values (dimensions of a value, not counts): the scatter rules' own where a field is one of theirs. |
+
 <a id="limits-project-model--effect-graph-kinds"></a>
 ## `effect-graph-kinds.ts`
 
@@ -329,18 +336,3 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-instance-brush-defaults"></a>`INSTANCE_BRUSH_DEFAULTS` | `{"radius":2,"density":1,"spacing":0.5,"scale":[0.8,1.2],"yaw":360,"align":0,"seed":1}` | A new brush's settings (the editor's starting point). |
 | <a id="limit-instance-brush-limits"></a>`INSTANCE_BRUSH_LIMITS` | `{"dabs":256,"samples":1536,"radius":{"min":0.05,"max":50},"density":{"min":0.001,"max":100},"spacing":{"min":0,"max":50},"scale":{"min":0.01,"max":100},"yaw":{"min":0,"max":360},"align":{"min":0,"max":1},"extent":100000}` | What one stroke may carry. `dabs` and `samples` keep a stroke (with its surface, three numbers per candidate) inside one command request; the rest are the fields' sane ranges. |
-
-<a id="limits-project-model--interactor"></a>
-## `interactor.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-interactor-defaults"></a>`INTERACTOR_DEFAULTS` | `{"margin":0.3,"strength":1,"recovery":1,"ruleBend":1}` |  |
-| <a id="limit-interactor-limits"></a>`INTERACTOR_LIMITS` | `{"radius":{"min":0.05,"max":50},"strength":{"min":0,"max":4},"recovery":{"min":0,"max":30},"ruleBend":{"min":0,"max":4}}` |  |
-
-<a id="limits-project-model--kits"></a>
-## `kits.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-kit-limits"></a>`KIT_LIMITS` | `{"descriptionChars":1024,"piecesPerSlot":8,"weightMax":1000}` |  |

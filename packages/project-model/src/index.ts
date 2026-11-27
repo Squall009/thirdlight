@@ -671,7 +671,7 @@ export {
 // Kits (content.kits): a trim sheet, presets, block types and piece slots as one editor-side item.
 export { canonicalKit, canonicalKits, kitCheckTally, kitProblems, kitSlotLabel, kitSlotPlacement, validateKit, validateKits, KIT_LIMITS, KIT_SLOT_RE, KIT_STANDARD_SLOTS, type KitDef, type KitPiece, type KitProblemContent, type KitProblemRow, type KitSlotPlacement, type KitStandardSlot } from './kits';
 // Dressings (content.dressings): what grows on the voxel materials that name them (voxel.dressing), as ordered species entries.
-export { canonicalDressing, canonicalDressings, DRESSING_CLASSES, DRESSING_FORMAT, DRESSING_LIMITS, dressingModels, dressingSpeciesRule, namedDressings, validateDressing, validateDressings, type DressingClass, type DressingDef, type DressingSpecies } from './dressing';
+export { canonicalDressing, canonicalDressings, DRESSING_CLASSES, DRESSING_FORMAT, DRESSING_LIMITS, dressingModels, dressingSpeciesRule, namedDressings, validateDressing, validateDressings, type DressingClass, type DressingConditions, type DressingDef, type DressingNoise, type DressingSpecies } from './dressing';
 // The voxel source of the rule scatter core: a chunk's cover points from its cells and its materials' dressings.
 export { VOXEL_COVER_JOB, VOXEL_COVER_REACH_M, voxelCoverJobHandlers, voxelCoverOfCells, voxelCoverPoints, voxelCoverTable, voxelCoverTransfer, voxelScatterSurface, voxelSurfaceReader, type VoxelCoverDressing, type VoxelCoverInput, type VoxelCoverOutput, type VoxelCoverSet, type VoxelCoverTable, type VoxelSpeciesSurface, type VoxelSurfaceReader } from './voxel-dressing-source';
 // Voxel kits (content.voxelKits): a material type's detail pieces as slots (one a case), shipped whole.

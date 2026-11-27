@@ -1,8 +1,23 @@
-# Limits and defaults: project-model (part 2, from `light-layers.ts`)
+# Limits and defaults: project-model (part 2, from `interactor.ts`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The limits and defaults `@thirdlight/project-model` defines, by source file. Values are the running build's.
+
+<a id="limits-project-model--interactor"></a>
+## `interactor.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-interactor-defaults"></a>`INTERACTOR_DEFAULTS` | `{"margin":0.3,"strength":1,"recovery":1,"ruleBend":1}` |  |
+| <a id="limit-interactor-limits"></a>`INTERACTOR_LIMITS` | `{"radius":{"min":0.05,"max":50},"strength":{"min":0,"max":4},"recovery":{"min":0,"max":30},"ruleBend":{"min":0,"max":4}}` |  |
+
+<a id="limits-project-model--kits"></a>
+## `kits.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-kit-limits"></a>`KIT_LIMITS` | `{"descriptionChars":1024,"piecesPerSlot":8,"weightMax":1000}` |  |
 
 <a id="limits-project-model--light-layers"></a>
 ## `light-layers.ts`
@@ -369,10 +384,3 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-instances"></a>`MAX_INSTANCES` | `65536` | Most copies in one instance set. |
 | <a id="limit-max-tags"></a>`MAX_TAGS` | `32` | At most this many tags per project: one per bit of the 32-bit tag mask queries filter by. |
 | <a id="limit-scene-limits-v3"></a>`SCENE_LIMITS_V3` | `{"playerSpawns":16,"lightsDirectional":1,"lightsAmbient":1,"audioVersions":8,"animationProfileBytes":4096}` | The v3/v4 scene limit values (contract material: fixtures reference them). |
-
-<a id="limits-project-model--ui-documents"></a>
-## `ui-documents.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-ui-limits"></a>`UI_LIMITS` | `{"documentBytes":49152,"widgets":512,"depth":16,"children":128,"styles":64,"tweens":32,"icons":64,"textChars":1024,"nameChars":64,"bindPathChars":128,"listItems":256,"layer":100,"px":16384,"degrees":3600}` |  |

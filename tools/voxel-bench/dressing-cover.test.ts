@@ -22,6 +22,7 @@ import {
   propClearances,
   recordValue,
   SHAPE_FULL,
+  surfaceFieldsCells,
   surfaceFieldsInputOf,
   valueMaterial,
   valueRole,
@@ -57,9 +58,13 @@ const WATER = 20;
 
 /** A bowl three metres deep, its water standing 0.2 m over the bowl's rim on a ring of flat ground round it. */
 const POND = { x: 88, z: 20, r: 9, rim: 9, level: 9.4, shore: 12 };
-const HILL = { x0: 8, x1: 40, z0: 40, z1: 72, top: 40 };
+/** A hill of stone whose top cells are the last row of the lower chunks: its top face lies on the chunk border. */
+const HILL = { x0: 8, x1: 40, z0: 40, z1: 72, top: 32 };
 const CAVE = { x0: 14, x1: 34, z0: 46, z1: 66, floor: 8, roof: 16, wetTo: 24 };
-const HOUSE = { x0: 100, x1: 116, z0: 60, z1: 76, ground: 9, storey: 22, roof: 36 };
+/** A house whose upper storey's floor is in the upper chunks. */
+const HOUSE = { x0: 100, x1: 116, z0: 60, z1: 76, ground: 9, storey: 33, roof: 40 };
+/** The road's two strips (columns, first and past the last): the first begins a search's reach past the border between chunk columns 0 and 1. */
+const ROADS: readonly (readonly [number, number])[] = [[48, 51], [70, 76]];
 
 /** An edit some tests make: a square of the dry meadow in chunk (3, 3) repaved as road. */
 const PAVED = { x0: 108, x1: 116, z0: 108, z1: 116 };
@@ -95,7 +100,7 @@ function cell(x: number, y: number, z: number, paved = false): number {
   // Flat round the house, rolling elsewhere.
   const nearHouse = x >= HOUSE.x0 - 2 && x < HOUSE.x1 + 2 && z >= HOUSE.z0 - 2 && z < HOUSE.z1 + 2;
   const h = nearHouse ? HOUSE.ground : 9 + 1.5 * Math.sin(x / 11) + 1.5 * Math.cos(z / 13);
-  const road = (x >= 70 && x < 76) || (paved && x >= PAVED.x0 && x < PAVED.x1 && z >= PAVED.z0 && z < PAVED.z1);
+  const road = ROADS.some(([a, b]) => x >= a && x < b) || (paved && x >= PAVED.x0 && x < PAVED.x1 && z >= PAVED.z0 && z < PAVED.z1);
   const material = road ? ROAD : z >= 96 ? DRY : GRASS;
   const whole = Math.floor(h + 1e-9);
   if (y < whole) return ground(material);
@@ -146,6 +151,8 @@ const GRASS_SPECIES = 0;
 const OAK_SPECIES = 1;
 const REED_SPECIES = 2;
 const FLOWER_SPECIES = 3;
+const CLOVER_SPECIES = 4;
+const THISTLE_SPECIES = 5;
 const DRESSINGS: DressingDef[] = [
   { dressingFormat: 1, dressingId: 'cave', name: 'Cave', species: [{ model: 'moss', class: 'cover', density: 3, conditions: { sky: false, wetness: { min: 2 } } }, { model: 'lichen', class: 'cover', density: 1, conditions: { sky: true } }] },
   { dressingFormat: 1, dressingId: 'dust', name: 'Dust', species: [{ model: 'dust', class: 'cover', density: 2, conditions: { role: ['floor'], sky: false } }] },
@@ -158,6 +165,10 @@ const DRESSINGS: DressingDef[] = [
       { model: 'oak', class: 'large', density: 0.02, spacing: 6, conditions: { sky: true } },
       { model: 'reed', class: 'cover', density: 2, spacing: 0.4, conditions: { waterDepth: { min: 0.05, max: 0.5 } } },
       { model: 'flower', class: 'cover', density: 1, spacing: 1, seed: 4, conditions: { sky: true, waterDepth: { max: 0 }, materialEdge: { max: 1.5 } } },
+      // In patches with soft edges: a share of the candidates is kept where the noise fades.
+      { model: 'clover', class: 'cover', density: 2, conditions: { sky: true, waterDepth: { max: 0 }, noise: { min: 0.45, scale: 7, fade: 0.25, seed: 2 } } },
+      // Spaced, and only far from any other material: judged at the end of the fields' reach.
+      { model: 'thistle', class: 'cover', density: 1, spacing: 2, conditions: { sky: true, waterDepth: { max: 0 }, materialEdge: { min: 7.8 } } },
     ],
   },
   { dressingFormat: 1, dressingId: 'meadow-sparse', name: 'Sparse meadow', species: [{ model: 'grass', class: 'cover', density: 1, conditions: { sky: true } }] },
@@ -208,16 +219,16 @@ describe('ground cover from the voxel source: who grows where', () => {
   });
 
   it('stands every point on a surface of a material that names its species\' dressing: grass on the meadow, none on the road, the variant\'s sparser grass on the dry meadow', () => {
-    // Chunk (2, 0) holds the road strip and the pond; chunk (1, 3) the dry meadow.
+    // Chunk (2, 0) holds a road strip and the pond; chunk (0, 3) the dry meadow.
     const out = cover(store, 2, 0);
     const grass = pointsOf(setOf(out, 'meadow', GRASS_SPECIES));
     expect(grass.length).toBeGreaterThan(300);
     for (const p of grass) {
       expect(onMaterial(p, GRASS), `${p.x},${p.y},${p.z}`).toBe(true);
-      // Never in the road's columns (35 m to 38 m), with a step of slack at its edges.
-      expect(p.x > 35.01 && p.x < 37.99).toBe(false);
+      // Never in the road's columns, with a step of slack at their edges.
+      expect(ROADS.some(([a, b]) => p.x > a * M + 0.01 && p.x < b * M - 0.01)).toBe(false);
     }
-    const dry = cover(store, 1, 3);
+    const dry = cover(store, 0, 3);
     expect(dry.sets.map((s) => s.dressing)).toEqual(['meadow-sparse']);
     const sparse = pointsOf(setOf(dry, 'meadow-sparse', 0));
     for (const p of sparse) expect(onMaterial(p, DRY)).toBe(true);
@@ -250,13 +261,23 @@ describe('ground cover from the voxel source: who grows where', () => {
     for (const p of pointsOf(setOf(out, 'meadow', GRASS_SPECIES))) expect(Math.hypot(p.x / M - POND.x, p.z / M - POND.z)).toBeGreaterThan(POND.shore - 1.5);
   });
 
-  it('grows flowers along the road\'s verge and the meadow\'s other edges, and nowhere out in the open', () => {
+  it('grows flowers along the road\'s verge and nowhere out in the open, thistles only far from it, clover in patches', () => {
     const flowers = pointsOf(setOf(cover(store, 2, 0), 'meadow', FLOWER_SPECIES));
     expect(flowers.length).toBeGreaterThan(8);
-    // The road (35 m to 38 m) is the chunk's only other material: a flower's column centre is within 1.5 m of the
-    // road's nearest column centre, so the flower itself within 2 m of the road's edge. The pond's bed is grass too.
-    for (const p of flowers) expect(Math.min(Math.abs(p.x - 35), Math.abs(p.x - 38)), `${p.x},${p.z}`).toBeLessThan(2.01);
-    expect(flowers.some((p) => p.x < 35) && flowers.some((p) => p.x > 38)).toBe(true);
+    // The road is the chunk's only other material: a flower's column centre is within 1.5 m of a strip's nearest
+    // column centre, so the flower itself within 2 m of a strip's edge. The pond's bed is grass too.
+    const toRoad = (p: CoverPoint): number => Math.min(...ROADS.flatMap(([a, b]) => [Math.abs(p.x - a * M), Math.abs(p.x - b * M)]));
+    for (const p of flowers) expect(toRoad(p), `${p.x},${p.z}`).toBeLessThan(2.01);
+    expect(flowers.some((p) => p.x < ROADS[1]![0] * M) && flowers.some((p) => p.x > ROADS[1]![1] * M)).toBe(true);
+    // The thistle is the other way round: nowhere within 7.8 m of a strip.
+    const thistles = pointsOf(setOf(cover(store, 0, 0), 'meadow', THISTLE_SPECIES));
+    expect(thistles.length).toBeGreaterThan(15);
+    // (Column centre to column centre: a plant may stand a quarter metre off its column's centre, a strip's edge another.)
+    for (const p of thistles) expect(toRoad(p)).toBeGreaterThan(7.8 - 0.51);
+    // Clover in soft-edged patches: some of the open meadow's candidates, not all of them and not none.
+    const clover = pointsOf(setOf(cover(store, 0, 0), 'meadow', CLOVER_SPECIES));
+    expect(clover.length).toBeGreaterThan(60);
+    expect(clover.length).toBeLessThan(512 - 60);
   });
 
   it('gives a cave\'s floor and the hill over it each their own answer: moss on the wet floor only, lichen on the open top only', () => {
@@ -333,55 +354,85 @@ describe('ground cover from the voxel source: the same points whoever asks', () 
   });
 
   it('agrees across chunk borders with one bake over them all, whatever order the chunks are made in', () => {
-    // The four middle chunks one by one, forwards and backwards, against a single bake over their 32 m square from the whole world.
-    const order: [number, number][] = [[1, 1], [1, 2], [2, 1], [2, 2]];
-    const forwards = order.map(([cx, cz]) => cover(store, cx, cz));
-    const backwards = [...order].reverse().map(([cx, cz]) => cover(store, cx, cz)).reverse();
-    forwards.forEach((o, i) => expectSame(backwards[i]!, o, `order ${order[i]!.join(',')}`));
-    const whole = voxelCoverOfCells(wholeBox(), [16, 16, 48, 48], TABLE);
-    const kinds = new Set(forwards.flatMap((o) => o.sets.map((s) => `${s.dressing}/${s.species}`)));
-    expect([...kinds].sort()).toEqual(whole.sets.map((s) => `${s.dressing}/${s.species}`).sort());
-    expect(kinds.size).toBeGreaterThanOrEqual(3);
-    for (const w of whole.sets) {
-      const joined = forwards.flatMap((o) => pointsOf(setOf(o, w.dressing, w.species)));
-      const one = pointsOf(w);
-      expect(joined.length, `${w.dressing}/${w.species}`).toBe(one.length);
-      // Each point of the one bake has its twin among the chunks' (places are stored in steps of 4 and 8 mm).
-      const cellOf = (p: CoverPoint): string => `${Math.round(p.x * 10)},${Math.round(p.z * 10)}`;
-      const byCell = new Map<string, CoverPoint[]>();
-      for (const p of joined) byCell.set(cellOf(p), [...(byCell.get(cellOf(p)) ?? []), p]);
-      let unmatched = 0;
-      for (const p of one) {
-        let found = false;
-        for (let dx = -1; dx <= 1 && !found; dx++) for (let dz = -1; dz <= 1 && !found; dz++) {
-          found = (byCell.get(`${Math.round(p.x * 10) + dx},${Math.round(p.z * 10) + dz}`) ?? []).some((q) => Math.abs(q.x - p.x) < 0.012 && Math.abs(q.z - p.z) < 0.012 && q.y === p.y && q.threshold === p.threshold && q.yaw === p.yaw && q.scale === p.scale);
+    const box = wholeBox();
+    /** The chunks one by one, forwards and backwards, against a single bake over their rectangle from the whole world. */
+    const agree = (order: [number, number][], rect: [number, number, number, number], must: number[]): void => {
+      const forwards = order.map(([cx, cz]) => cover(store, cx, cz));
+      const backwards = [...order].reverse().map(([cx, cz]) => cover(store, cx, cz)).reverse();
+      forwards.forEach((o, i) => expectSame(backwards[i]!, o, `order ${order[i]!.join(',')}`));
+      const whole = voxelCoverOfCells(box, rect, TABLE);
+      const kinds = new Set(forwards.flatMap((o) => o.sets.map((s) => `${s.dressing}/${s.species}`)));
+      expect([...kinds].sort()).toEqual(whole.sets.map((s) => `${s.dressing}/${s.species}`).sort());
+      expect([...kinds]).toEqual(expect.arrayContaining(must.map((s) => `meadow/${s}`)));
+      for (const w of whole.sets) {
+        const joined = forwards.flatMap((o) => pointsOf(setOf(o, w.dressing, w.species)));
+        const one = pointsOf(w);
+        expect(joined.length, `${w.dressing}/${w.species}`).toBe(one.length);
+        // Each point of the one bake has its twin among the chunks' (places are stored in steps of 4 and 8 mm).
+        const cellOf = (p: CoverPoint): string => `${Math.round(p.x * 10)},${Math.round(p.z * 10)}`;
+        const byCell = new Map<string, CoverPoint[]>();
+        for (const p of joined) byCell.set(cellOf(p), [...(byCell.get(cellOf(p)) ?? []), p]);
+        let unmatched = 0;
+        for (const p of one) {
+          let found = false;
+          for (let dx = -1; dx <= 1 && !found; dx++) for (let dz = -1; dz <= 1 && !found; dz++) {
+            found = (byCell.get(`${Math.round(p.x * 10) + dx},${Math.round(p.z * 10) + dz}`) ?? []).some((q) => Math.abs(q.x - p.x) < 0.012 && Math.abs(q.z - p.z) < 0.012 && q.y === p.y && q.threshold === p.threshold && q.yaw === p.yaw && q.scale === p.scale);
+          }
+          if (!found) unmatched++;
         }
-        if (!found) unmatched++;
+        expect(unmatched, `${w.dressing}/${w.species}`).toBe(0);
       }
-      expect(unmatched, `${w.dressing}/${w.species}`).toBe(0);
-    }
+    };
+    // The four middle chunks: the road's verge, the hill, the clover's soft patches (a share's pick must not depend on the chunk).
+    agree([[1, 1], [1, 2], [2, 1], [2, 2]], [16, 16, 48, 48], [GRASS_SPECIES, FLOWER_SPECIES, CLOVER_SPECIES]);
+    // The first two chunks of the first row: the thistle's border.
+    agree([[0, 0], [1, 0]], [0, 0, 32, 16], [THISTLE_SPECIES]);
+    // Why a chunk's cover reads the whole columns beside it. A thistle 3 m from its neighbours: the candidates
+    // within that spacing past chunk (0, 0)'s border are 6 m to 7.5 m from the road's first strip, too near to
+    // grow. Judged from a box that ends at the fields' own reach, before the strip, they are kept and outrank
+    // neighbours inside the chunk: other points. The job's answer is the whole world's.
+    const lone: VoxelCoverInput['table'] = { dressings: [{ dressingId: 'meadow', species: [{ model: 'thistle', class: 'cover', density: 1, spacing: 3, seed: 4, conditions: { sky: true, waterDepth: { max: 0 }, materialEdge: { min: 7.8 } } }] }], materials: [[GRASS, 0]] };
+    const fields = surfaceFieldsInputOf(store, 0, 0, 0, 1).input;
+    const places = (o: VoxelCoverOutput): string[] => pointsOf(o.sets[0]).map((p) => `${p.x},${p.y},${p.z}`).sort();
+    const right = places(voxelCoverPoints({ fields, table: lone }));
+    expect(right.length).toBeGreaterThan(8);
+    expect(places(voxelCoverOfCells(box, [0, 0, 16, 16], lone))).toEqual(right);
+    const short = places(voxelCoverOfCells(surfaceFieldsCells(fields, (b) => b), [0, 0, 16, 16], lone));
+    expect(short).not.toEqual(right);
   });
 
-  it('gives each point to the chunk that holds its surface: the rows of a column part its points, the cave\'s floor below and the hilltop above', () => {
-    const all = cover(store, 0, 1);
-    const low = cover(store, 0, 1, { rows: [0, 0] });
-    const high = cover(store, 0, 1, { rows: [1, 1] });
-    for (const s of all.sets) {
-      const a = pointsOf(setOf(low, s.dressing, s.species));
-      const b = pointsOf(setOf(high, s.dressing, s.species));
-      expect(a.length + b.length, `${s.dressing}/${s.species}`).toBe(s.points.count);
-      // A surface's height is in its own row: the hilltop's cells are row 39, in the lower chunk, with its top face on the border.
-      for (const p of a) expect(Math.ceil(p.y / M) - 1).toBeLessThan(E);
-      for (const p of b) expect(Math.ceil(p.y / M) - 1).toBeGreaterThanOrEqual(E);
+  it('gives each point to the chunk that holds its surface\'s cell: the rows of a column part its points, a top face on the border staying with the cells under it', () => {
+    for (const [cx, cz] of [[0, 1], [3, 2]] as const) {
+      const all = cover(store, cx, cz);
+      const low = cover(store, cx, cz, { rows: [0, 0] });
+      const high = cover(store, cx, cz, { rows: [1, 1] });
+      for (const s of all.sets) {
+        const a = pointsOf(setOf(low, s.dressing, s.species));
+        const b = pointsOf(setOf(high, s.dressing, s.species));
+        expect(a.length + b.length, `${s.dressing}/${s.species}`).toBe(s.points.count);
+        for (const p of a) expect(Math.ceil(p.y / M) - 1).toBeLessThan(E);
+        for (const p of b) expect(Math.ceil(p.y / M) - 1).toBeGreaterThanOrEqual(E);
+      }
     }
-    // The cave's moss is the lower chunk's, the lichen on the hill (surface row 39, above row 31) the upper one's.
-    expect(pointsOf(setOf(low, 'cave', 0)).length).toBe(pointsOf(setOf(all, 'cave', 0)).length);
-    expect(setOf(high, 'cave', 0)).toBeUndefined();
-    expect(pointsOf(setOf(high, 'cave', 1)).length).toBe(pointsOf(setOf(all, 'cave', 1)).length);
-    expect(setOf(low, 'cave', 1)).toBeUndefined();
+    // The hill: its top cells are row 31, the lower chunk's last, and their top face is at 16 m, the border itself.
+    // The lichen on it is the lower chunk's, with the cave's moss; the upper chunk of that column grows nothing.
+    const hill = cover(store, 0, 1);
+    const lichen = pointsOf(setOf(hill, 'cave', 1));
+    expect(lichen.length).toBeGreaterThan(40);
+    for (const p of lichen) expect(p.y).toBe(E * M);
+    expectSame(cover(store, 0, 1, { rows: [0, 0] }), hill, 'the hill, lower rows');
+    expect(cover(store, 0, 1, { rows: [1, 1] }).sets).toEqual([]);
+    // The house: the storey's boards are in the upper chunk, the meadow round it in the lower.
+    const house = cover(store, 3, 2);
+    const up = cover(store, 3, 2, { rows: [1, 1] });
+    expect(up.sets.map((s) => s.dressing)).toEqual(['dust']);
+    expect(pointsOf(setOf(up, 'dust', 0)).length).toBe(pointsOf(setOf(house, 'dust', 0)).length);
+    expect(setOf(cover(store, 3, 2, { rows: [0, 0] }), 'dust', 0)).toBeUndefined();
     // A kept set keeps its order (by threshold) and its bounds are its own points'.
-    const moss = setOf(low, 'cave', 0)!;
-    expect([moss.points.low, moss.points.high]).toEqual([(CAVE.floor + 1) * M, (CAVE.floor + 1) * M]);
+    const dust = setOf(up, 'dust', 0)!;
+    expect([dust.points.low, dust.points.high]).toEqual([(HOUSE.storey + 1) * M, (HOUSE.storey + 1) * M]);
+    const kept = pointsOf(dust);
+    for (let i = 1; i < kept.length; i++) expect(kept[i]!.threshold).toBeGreaterThanOrEqual(kept[i - 1]!.threshold);
   });
 
   it('leaves untouched chunks byte for byte after an edit elsewhere, and regrows only the edited ground', () => {
@@ -405,7 +456,7 @@ describe('ground cover from the voxel source: the same points whoever asks', () 
 describe('ground cover from the voxel source: page and worker alike', () => {
   it('gives the same bytes from a real worker as from the same job in this thread: the cave\'s, the pond\'s and the house\'s chunks, a row range and a prop', { timeout: 120_000 }, async () => {
     const cart: PropShape = { inside: () => true, min: [-1.5, 0, -1], max: [1.5, 1.6, 1], position: [8, 4.2, 8], yaw: [1, 0], scale: 1 };
-    const cases: Array<[number, number, Partial<VoxelCoverInput>]> = [[0, 1, {}], [2, 0, {}], [3, 2, {}], [0, 1, { rows: [1, 1] }], [0, 0, { clear: propClearances([cart]) }]];
+    const cases: Array<[number, number, Partial<VoxelCoverInput>]> = [[0, 1, {}], [2, 0, {}], [3, 2, {}], [3, 2, { rows: [1, 1] }], [0, 0, { clear: propClearances([cart]) }]];
     for (const [cx, cz, extra] of cases) {
       const here = cover(store, cx, cz, extra);
       expect(here.sets.length, `${cx},${cz}`).toBeGreaterThan(0);

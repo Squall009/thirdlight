@@ -239,6 +239,8 @@ interface MaterialVoxel {
   surfaces?: Partial<Record<VoxelSurface, VoxelTextureSet>>;
   /** A gas's plain look (only with the gas use; absent: the defaults). */
   gas?: VoxelGasLook;
+  /** The dressing asset whose species grow on its surfaces (absent: none; never with liquid or gas). */
+  dressing?: string;
 }
 ```
 
@@ -1144,13 +1146,8 @@ interface RuleConditions {
 Declared in `packages/project-model/src/surface-rules.ts`.
 
 ```ts
-/** A condition's range: 1 within [min, max] (an absent end is open), fading to 0 over `fade` beyond each end. */
-interface RuleRange {
-  min?: number;
-  max?: number;
-  /** How far past an end the condition fades out (the range's unit; absent or 0: a hard edge). */
-  fade?: number;
-}
+/** A condition's range (the shared definition: 1 within [min, max], fading to 0 over `fade` beyond each end). */
+type RuleRange = FadeRange;
 ```
 
 <a id="type-save-sections"></a>

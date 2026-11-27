@@ -1551,4 +1551,119 @@ describe('voxel world routes', () => {
       vi.unstubAllGlobals();
     }
   }, 120_000);
+
+  it("a dressing is its own file and a material names it: made, edited, refused, set on a material and overridden by an instance over HTTP and through MCP, one undo each, read back after a restart, shipped by an export with its species' model", async () => {
+    expect(KIT_MODEL.assetId).not.toBe('');
+    const query = async (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => (await command({ op, projectId: PROJECT, args })).json;
+    const send = async (op: string, args: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => command({ op, projectId: PROJECT, expectedRevision: (await query('queryProject'))['revision'] as number, requestId: `req-${randomBytes(16).toString('hex')}`, args });
+    const game = async (): Promise<{ dressings: Array<Record<string, unknown>>; materials: Array<Record<string, unknown>> }> => (await query('queryGameConfig', { omit: ['dialogues'] })) as never;
+    const codeOf = (r: { json: Record<string, unknown> }): string => { const e = r.json['error'] as { code: string; details?: Array<{ code: string }> }; return e.details?.[0]?.code ?? e.code; };
+    const dir = backend._test.service.projectDir(PROJECT)!;
+    const fileOf = (id: string): string => join(dir, 'assets', 'dressings', `${id}.dressing.json`);
+    const onDisk = (id: string): Record<string, unknown> => JSON.parse(readFileSync(fileOf(id), 'utf8')) as Record<string, unknown>;
+    // Every field of format 1, a cover species and a large one; the model is the project's own (the kit's pieces).
+    const meadow = {
+      dressingFormat: 1,
+      dressingId: 'meadow',
+      name: 'Meadow',
+      species: [
+        { model: KIT_MODEL.assetId, class: 'cover', density: 6, spacing: 0.25, scale: [0.8, 1.3], yaw: 180, align: 0.5, seed: 7, conditions: { material: [21, 22], role: ['terrain'], slope: { max: 35, fade: 10 }, height: { min: -4, max: 120 }, sky: true, wetness: { max: 5 }, waterDepth: { max: 0 }, materialEdge: { min: 0.5 }, construction: { min: 1, fade: 0.5 }, noise: { min: 0.4, scale: 12, fade: 0.1, seed: 5 } } },
+        { model: KIT_MODEL.assetId, class: 'large', density: 0.01, spacing: 9, conditions: { sky: true } },
+      ],
+    };
+    const made = await send('setDressing', { dressing: meadow });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    expect(made.json['change']).toMatchObject({ type: 'setDressing', dressingId: 'meadow', previous: null });
+    const stored = (await game()).dressings[0]!;
+    expect(stored).toEqual(meadow);
+    expect(JSON.stringify(stored)).toBe(JSON.stringify(meadow));
+    // Its own file in the game folder (the resource kind's folder), holding the record whole.
+    expect(onDisk('meadow')).toMatchObject({ tlresource: 1, kind: 'dressing', id: 'meadow' });
+    expect(onDisk('meadow')['data']).toEqual(meadow);
+    // Refused, nothing changed: a newer format, a field and a condition the format lacks, a cover species spaced past its reach.
+    const cover = meadow.species[0]!;
+    for (const bad of [{ ...meadow, dressingFormat: 2 }, { ...meadow, exceptions: [] }, { ...meadow, species: [{ ...cover, conditions: { cavity: { min: 1 } } }] }, { ...meadow, species: [{ ...cover, spacing: 20 }] }]) {
+      const r = await send('setDressing', { dressing: bad });
+      expect(r.status, JSON.stringify(r.json)).toBe(400);
+    }
+    expect((await game()).dressings).toEqual([stored]);
+    // Edited (the same command), then undone: the record and its file follow.
+    const denser = { ...meadow, species: [{ ...cover, density: 9 }, meadow.species[1]!] };
+    const edited = await send('setDressing', { dressing: denser });
+    expect(edited.json['change']).toMatchObject({ type: 'setDressing', dressingId: 'meadow', previous: stored });
+    expect(((onDisk('meadow')['data'] as { species: Array<{ density: number }> }).species[0]!).density).toBe(9);
+    expect((await send('undo', {})).status).toBe(200);
+    expect((await game()).dressings).toEqual([stored]);
+    expect(onDisk('meadow')['data']).toEqual(meadow);
+
+    // A material names it; one it does not have is refused; a variant names another (a sparser meadow).
+    const grass = { materialId: 'grass', name: 'Grass', shader: 'standard', params: {}, textures: {}, voxel: { id: 21, use: 'terrain', dressing: 'meadow' } };
+    expect(codeOf(await send('setMaterial', { material: { ...grass, voxel: { ...grass.voxel, dressing: 'heath' } } }))).toBe('dressing_missing');
+    expect((await send('setMaterial', { material: grass })).status).toBe(200);
+    expect((await game()).materials.find((m) => m['materialId'] === 'grass')!['voxel']).toEqual({ id: 21, use: 'terrain', dressing: 'meadow' });
+    const sparse = { dressingFormat: 1, dressingId: 'meadow-sparse', name: 'Sparse meadow', species: [{ model: KIT_MODEL.assetId, class: 'cover', density: 1.5 }] };
+    expect((await send('setDressing', { dressing: sparse })).status).toBe(200);
+    const dry = { materialId: 'grass-dry', name: 'Dry grass', shader: 'standard', params: {}, textures: {}, instanceOf: 'grass', voxel: { id: 22, dressing: 'meadow-sparse' } };
+    expect((await send('setMaterial', { material: dry })).status).toBe(200);
+    expect((await game()).materials.find((m) => m['materialId'] === 'grass-dry')!['voxel']).toEqual({ id: 22, dressing: 'meadow-sparse' });
+    // A dressing a material names is not deleted from under it (the base's, and the variant's).
+    expect(codeOf(await send('deleteDressing', { dressingId: 'meadow' }))).toBe('dressing_missing');
+    expect(codeOf(await send('deleteDressing', { dressingId: 'meadow-sparse' }))).toBe('dressing_missing');
+    expect(codeOf(await send('deleteDressing', { dressingId: 'heath' }))).toBe('reference_missing');
+    // The variant's override is one undo step: taken back, the variant is gone and its dressing can be deleted; redone, not.
+    expect((await send('undo', {})).status).toBe(200);
+    expect((await game()).materials.some((m) => m['materialId'] === 'grass-dry')).toBe(false);
+    expect((await send('redo', {})).status).toBe(200);
+    expect((await game()).materials.find((m) => m['materialId'] === 'grass-dry')!['voxel']).toEqual({ id: 22, dressing: 'meadow-sparse' });
+
+    // MCP's tl_command sends the same ops; a dressing nothing names is deleted (its file goes) and comes back by undo.
+    const server = createMcpServer({ client: new BackendClient({ authoringOrigin: base(), token: TOKEN }), projectId: PROJECT, clientId: 'dressing-mcp' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const mcp = new Client({ name: 'dressing-mcp-test', version: '0.1.0' });
+    await mcp.connect(clientTransport);
+    try {
+      const { tools } = await mcp.listTools();
+      const opEnum = (tools.find((t) => t.name === 'tl_command')!.inputSchema as { properties: { op: { enum: string[] } } }).properties.op.enum;
+      expect(opEnum).toEqual(expect.arrayContaining(['setDressing', 'deleteDressing']));
+      const spare = { dressingFormat: 1, dressingId: 'spare', name: 'Spare', species: [] };
+      const res = (await mcp.callTool({ name: 'tl_command', arguments: { op: 'setDressing', expectedRevision: (await query('queryProject'))['revision'], args: { dressing: spare } } })) as { isError?: boolean; content: Array<{ text: string }> };
+      expect(res.isError === true, res.content[0]!.text).toBe(false);
+      const g = (await mcp.callTool({ name: 'tl_content_query', arguments: { target: 'game' } })) as { content: Array<{ text: string }> };
+      expect((JSON.parse(g.content[0]!.text) as { dressings: Array<{ dressingId: string }> }).dressings.map((d) => d.dressingId)).toEqual(['meadow', 'meadow-sparse', 'spare']);
+    } finally {
+      await mcp.close();
+      await server.close();
+    }
+    expect(existsSync(fileOf('spare'))).toBe(true);
+    expect((await send('deleteDressing', { dressingId: 'spare' })).status).toBe(200);
+    expect(existsSync(fileOf('spare'))).toBe(false);
+    expect((await send('undo', {})).status).toBe(200);
+    expect(existsSync(fileOf('spare'))).toBe(true);
+
+    // A restart reads the project from its files: the dressings and the materials' fields as they were.
+    await close();
+    await start();
+    expect((await game()).dressings.map((d) => d['dressingId'])).toEqual(['meadow', 'meadow-sparse', 'spare']);
+    expect((await game()).dressings[0]).toEqual(stored);
+    expect((await game()).materials.find((m) => m['materialId'] === 'grass-dry')!['voxel']).toEqual({ id: 22, dressing: 'meadow-sparse' });
+
+    // An export (its bundle scanned as every export's is) ships the dressings its voxel materials name, the variant's
+    // too, and not the one nothing names; the variant ships with its chain folded in; the species' model is an asset
+    // of the build that the project-wide blocks need.
+    const r = await fetch(`${base()}/api/v1/admin/projects/${PROJECT}/export`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: '{}' });
+    const exported = (await r.json()) as Record<string, unknown>;
+    expect(r.status, JSON.stringify(exported).slice(0, 600)).toBe(200);
+    const out = join(root, 'exports', String(exported['outputDir']));
+    const content = readRuntimeContentSync(JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')), (path) => {
+      try {
+        return new Uint8Array(readFileSync(join(out, path)));
+      } catch {
+        return null;
+      }
+    }) as unknown as { dressings?: Array<Record<string, unknown>>; materials?: Array<Record<string, unknown>>; dependencies?: Array<{ assetId: string }> };
+    expect(content.dressings).toEqual([meadow, sparse]);
+    expect(content.materials!.find((m) => m['materialId'] === 'grass-dry')!['voxel']).toEqual({ id: 22, use: 'terrain', dressing: 'meadow-sparse' });
+    expect(content.dependencies!.map((d) => d.assetId)).toContain(KIT_MODEL.assetId);
+  }, 120_000);
 });

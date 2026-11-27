@@ -49,6 +49,8 @@ import { canonicalRuleRange, SURFACE_RULE_LIMITS, validateRuleRange, type RuleRa
 import { ID_RE, isValidName } from './validate';
 import { voxelDressingIds, type BindableMaterial } from './voxel-materials';
 
+export type { DressingConditions, DressingNoise } from '@thirdlight/voxel';
+
 /** The dressing record format this build writes and reads. */
 export const DRESSING_FORMAT = 1;
 

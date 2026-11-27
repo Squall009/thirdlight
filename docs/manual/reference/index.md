@@ -21,14 +21,14 @@ What the engine offers, generated from its source: the objects, components and c
 | [Content documents](content.md) | Content blocks |
 | [Content documents (environment to input)](content-blocks-environment.md) | environment — Environment, input — Input |
 | [Content documents (materials to materials)](content-blocks-materials.md) | materials — Materials |
-| [Content documents (animators to behaviorGroups)](content-blocks-animators.md) | animators — Animator controllers, effects — Effects, scriptLibraries — Script libraries, blockTypes — Block types, cellFields — Cell fields, blockStamps — Block stamps, kits — Kits, voxelKits — Voxel kits, materialProfiles — Physical profiles, uiDocuments — UI documents, modes — Game modes, behaviorGroups — Behavior groups |
+| [Content documents (animators to behaviorGroups)](content-blocks-animators.md) | 13 sections |
 | [Content documents (shell to lighting)](content-blocks-shell.md) | 21 sections |
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
-| [Command op arguments](ops-detail.md) | 94 sections |
+| [Command op arguments](ops-detail.md) | 96 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 74 sections |
-| [Types (CreateEntityArgs to MATERIAL_SHADERS)](types-c-m.md) | 90 sections |
+| [Types (CreateEntityArgs to MATERIAL_SHADERS)](types-c-m.md) | 98 sections |
 | [Types (MaterialDef to SettingsEngineBinding)](types-m-s.md) | 94 sections |
 | [Types (SettingsField to VoxelKitDamage)](types-s-v.md) | 83 sections |
 | [Types (VoxelKitImage to WindOctave)](types-v-w.md) | 12 sections |
@@ -68,14 +68,14 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
 | [Limits and defaults: commands](limits-commands.md) | `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `storage.ts` |
-| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 34 sections |
-| [Limits and defaults: project-model (part 2, from `light-layers.ts`)](limits-project-model-2.md) | 38 sections |
-| [Limits and defaults: project-model (part 3, from `validate.ts`)](limits-project-model-3.md) | `validate.ts`, `vertex-paint-stroke.ts`, `vertex-paint.ts`, `voxel-kit.ts`, `voxel-materials.ts`, `voxel-portal.ts`, `voxel-world.ts`, `water-body.ts`, `wind.ts`, `world-streaming.ts` |
+| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 33 sections |
+| [Limits and defaults: project-model (part 2, from `interactor.ts`)](limits-project-model-2.md) | 39 sections |
+| [Limits and defaults: project-model (part 3, from `ui-documents.ts`)](limits-project-model-3.md) | `ui-documents.ts`, `validate.ts`, `vertex-paint-stroke.ts`, `vertex-paint.ts`, `voxel-kit.ts`, `voxel-materials.ts`, `voxel-portal.ts`, `voxel-world.ts`, `water-body.ts`, `wind.ts`, `world-streaming.ts` |
 | [Limits and defaults: protocol](limits-protocol.md) | `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `wire-change.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 27 sections |
 | [MCP tools (part 1, from tl_bake_lighting)](mcp-tools-1.md) | `tl_bake_lighting`, `tl_command` |
 | [MCP tools (part 2, from tl_command: Models, bulk creation, deleting, asset options, imports, labels, addresses, files)](mcp-tools-2.md) | 17 sections |
-| [MCP tools (part 3, from tl_command: Block layers: block types, the layer component, editBlocks, stamps)](mcp-tools-3.md) | `tl_content_job`, `tl_content_query`, `tl_content_upload`, `tl_diagnostics`, `tl_docs` |
-| [MCP tools (part 4, from tl_game_control)](mcp-tools-4.md) | `tl_game_control`, `tl_game_observe`, `tl_input_exercise`, `tl_inspect`, `tl_instance_buffer`, `tl_play_start`, `tl_play_stop`, `tl_playtest`, `tl_screenshot`, `tl_script_publish`, `tl_sessions` |
+| [MCP tools (part 3, from tl_command: Block layers: block types, the layer component, editBlocks, stamps)](mcp-tools-3.md) | `tl_content_job`, `tl_content_query`, `tl_content_upload`, `tl_diagnostics` |
+| [MCP tools (part 4, from tl_docs)](mcp-tools-4.md) | `tl_docs`, `tl_game_control`, `tl_game_observe`, `tl_input_exercise`, `tl_inspect`, `tl_instance_buffer`, `tl_play_start`, `tl_play_stop`, `tl_playtest`, `tl_screenshot`, `tl_script_publish`, `tl_sessions` |
 
 The topic kinds: `component`, `components`, `content`, `ctx`, `entity`, `graph`, `graphs`, `handles`, `limit`, `limits`, `node`, `op`, `ops`, `scene-environment`, `script-type`, `script`, `tool`, `type`, `ui`.

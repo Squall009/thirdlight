@@ -286,6 +286,112 @@ interface DigEdit extends EditBase {
 }
 ```
 
+<a id="type-dressing-classes"></a>
+### DRESSING_CLASSES
+
+Declared in `packages/project-model/src/dressing.ts`.
+
+```ts
+/** What a species is placed as. */
+const DRESSING_CLASSES: readonly ["cover", "large"];
+```
+
+<a id="type-dressing-format"></a>
+### DRESSING_FORMAT
+
+Declared in `packages/project-model/src/dressing.ts`.
+
+```ts
+/** The dressing record format this build writes and reads. */
+const DRESSING_FORMAT: 1;
+```
+
+<a id="type-dressing-class"></a>
+### DressingClass
+
+Declared in `packages/project-model/src/dressing.ts`.
+
+```ts
+type DressingClass = (typeof DRESSING_CLASSES)[number];
+```
+
+<a id="type-dressing-conditions"></a>
+### DressingConditions
+
+Declared in `packages/voxel/src/dressing-rules.ts`.
+
+```ts
+/** A species' conditions, as its dressing stores them (each absent: any). */
+interface DressingConditions {
+  material?: readonly number[];
+  role?: readonly string[];
+  slope?: FadeRange;
+  height?: FadeRange;
+  sky?: boolean;
+  wetness?: FadeRange;
+  waterDepth?: FadeRange;
+  materialEdge?: FadeRange;
+  construction?: FadeRange;
+  noise?: DressingNoise;
+}
+```
+
+<a id="type-dressing-def"></a>
+### DressingDef
+
+Declared in `packages/project-model/src/dressing.ts`.
+
+```ts
+/** A dressing asset. */
+interface DressingDef {
+  dressingFormat: typeof DRESSING_FORMAT;
+  dressingId: string;
+  name: string;
+  species: DressingSpecies[];
+}
+```
+
+<a id="type-dressing-noise"></a>
+### DressingNoise
+
+Declared in `packages/voxel/src/dressing-rules.ts`.
+
+```ts
+/** The noise condition: a range over the noise's value, with the noise's own scale (metres) and seed. */
+interface DressingNoise extends FadeRange {
+  scale: number;
+  seed?: number;
+}
+```
+
+<a id="type-dressing-species"></a>
+### DressingSpecies
+
+Declared in `packages/project-model/src/dressing.ts`.
+
+```ts
+/** One species entry of a dressing. */
+interface DressingSpecies {
+  /** The model asset placed. */
+  model: string;
+  class: DressingClass;
+  /** Candidates per m². */
+  density: number;
+  /** Metres kept between the entry's copies (absent: 0). */
+  spacing?: number;
+  /** Random uniform scale between these (absent: [1, 1]). */
+  scale?: [number, number];
+  /** Random turn about up, 0 to this many degrees (absent: 360). */
+  yaw?: number;
+  /** 0 upright, 1 along the ground's normal (absent: 0). */
+  align?: number;
+  /** Picks the entry's jitter, sizes and turns with its place in the list (absent: 0). */
+  seed?: number;
+  /** Where it grows (absent: on every surface of a material that names the dressing). */
+  conditions?: DressingConditions;
+}
+```
+
 <a id="type-edges-edit"></a>
 ### EdgesEdit
 
@@ -697,6 +803,21 @@ interface EventCue {
   bus?: (typeof EVENT_CUE_BUSES)[number];
   /** How late (ms) it may still start when its file is not ready yet; later it is dropped (absent: the engine's default). */
   maxLateMs?: number;
+}
+```
+
+<a id="type-fade-range"></a>
+### FadeRange
+
+Declared in `packages/shared/src/fade-range.ts`.
+
+```ts
+/** A condition's range: 1 within [min, max] (an absent end is open), fading to 0 over `fade` beyond each end. */
+interface FadeRange {
+  min?: number;
+  max?: number;
+  /** How far past an end the condition fades out (the range's unit; absent or 0: a hard edge). */
+  fade?: number;
 }
 ```
 

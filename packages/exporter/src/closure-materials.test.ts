@@ -6,9 +6,9 @@
  * nothing unused.
  */
 import { describe, expect, it } from 'vitest';
-import type { MaterialDef } from '@thirdlight/project-model';
+import type { DressingDef, MaterialDef } from '@thirdlight/project-model';
 
-import { shippedMaterials } from './closure-materials';
+import { shippedDressingsBlock, shippedMaterials } from './closure-materials';
 
 const GLOW: MaterialDef = {
   materialId: 'glow',
@@ -67,5 +67,26 @@ describe('shippedMaterials', () => {
     expect(voxel['rock']).toEqual({ id: 2, use: 'terrain' });
     // Without a voxel world nothing names them.
     expect(shippedMaterials({ content: { materials }, entities: [], assets: [], styles: noStyles })).toEqual([]);
+  });
+
+  it('ships the dressings a voxel world\'s materials name, a variant\'s own with its chain folded in, and not one nothing shipped names', () => {
+    const species = [{ model: 'tuft', class: 'cover' as const, density: 4 }];
+    const dressings: DressingDef[] = ['meadow', 'meadow-sparse', 'spare'].map((dressingId) => ({ dressingFormat: 1, dressingId, name: dressingId, species }));
+    const materials: MaterialDef[] = [
+      { materialId: 'grass', name: 'Grass', shader: 'standard', params: {}, textures: {}, voxel: { id: 3, use: 'terrain', dressing: 'meadow' } },
+      { materialId: 'grass-dry', name: 'Dry grass', shader: 'standard', params: {}, textures: {}, instanceOf: 'grass', voxel: { id: 4, dressing: 'meadow-sparse' } } as MaterialDef,
+      { materialId: 'grass-lush', name: 'Lush grass', shader: 'standard', params: {}, textures: {}, instanceOf: 'grass', voxel: { id: 5 } } as MaterialDef,
+      { materialId: 'road', name: 'Road', shader: 'standard', params: {}, textures: {}, voxel: { id: 6, use: 'terrain' } },
+    ];
+    const shipped = shippedMaterials({ content: { materials }, entities: [{ components: { voxelWorld: { world: 'w' } } }], assets: [], styles: noStyles })!;
+    const voxel = Object.fromEntries(shipped.map((m) => [m.materialId, m.voxel]));
+    // The runtime reads no instance: each variant ships with the dressing it grows, its own or its parent's.
+    expect(voxel['grass-dry']).toEqual({ id: 4, use: 'terrain', dressing: 'meadow-sparse' });
+    expect(voxel['grass-lush']).toEqual({ id: 5, use: 'terrain', dressing: 'meadow' });
+    expect(voxel['road']).toEqual({ id: 6, use: 'terrain' });
+    expect(shippedDressingsBlock(dressings, shipped).dressings?.map((d) => d.dressingId)).toEqual(['meadow', 'meadow-sparse']);
+    // No voxel world: no voxel material ships, so no dressing does, and the catalog has no block.
+    expect(shippedDressingsBlock(dressings, shippedMaterials({ content: { materials }, entities: [], assets: [], styles: noStyles })!)).toEqual({});
+    expect(shippedDressingsBlock(undefined, shipped)).toEqual({});
   });
 });

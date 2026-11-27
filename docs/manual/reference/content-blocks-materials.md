@@ -182,3 +182,4 @@ Project materials.
 | `materials[].voxel.gas` | object |  |  | **Gas look.** A gas's plain look (only with the gas use): its colour and how dense it is at full density. (applies when `use` is `gas`) |
 | `materials[].voxel.gas.color` | color | `"#ffffff"` |  | **Colour.** The gas's colour (absent: #ffffff). (stored only when not the default) |
 | `materials[].voxel.gas.density` | number |  | 0 – 8, step 0.01 | **Full density.** Density per metre of a cell at full density, shape 15 (absent: 0.5); a cell of density d holds d/15 of it. |
+| `materials[].voxel.dressing` | string, id, 1–64 chars |  |  | **Dressing.** The dressing whose species grow on its surfaces (a dressingId; absent: nothing grows; never with liquid or gas). A variant that names another one grows the same ground sparser, denser or with other plants. (format id) |

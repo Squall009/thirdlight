@@ -304,6 +304,31 @@ The detail pieces a material type (wood, stone, …) draws a voxel world's edges
 | `voxelKits[].wallTopFill` | bool | `false` |  | **Wall-top fill.** A roof kit's: its roofs close their slab down onto the walls under them, cutting the wall tops to the roof's underside. Off: the walls keep their stepped tops under the parallel underside. |
 | `voxelKits[].gameData` | JSON |  |  | **Game data.** The game's own data for the kit (break, sound, physics defaults …): JSON nested at most 32 deep, shipped as it is, never read by the engine. |
 
+<a id="content-dressings"></a>
+## dressings — Dressings
+
+What grows on voxel materials: a dressing is an ordered list of species entries (a model, a class, a density, how its copies are spaced, sized, turned and leaned, a seed and the conditions where it grows). A voxel material names one (voxel.dressing); a material instance names another to vary the density or the plants. The cover class is made near the camera from the voxels and never stored; the large class is kept and placed by no engine code yet.
+
+- In every project: no
+- Written by: [`setDressing`](ops-detail.md#op-setDressing), [`deleteDressing`](ops-detail.md#op-deleteDressing)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `dressings` | list of objects | `[]` |  | **Dressings.** The project's dressings (each its own file). |
+| `dressings[].dressingFormat` | int | `1` | 1 – 1, step 1 | **Format.** The dressing record's format (1); a newer one is refused. (required; written by a tool) |
+| `dressings[].dressingId` | string, id, 1–64 chars |  |  | **Id.** The stable dressing id. (required; format id) |
+| `dressings[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the project window. (required; format name) |
+| `dressings[].species` | list of objects | `[]` |  | **Species.** The species entries, in order (an entry's place in the list is part of its seed: moving it moves its plants). (required) |
+| `dressings[].species[].model` | string, id, 1–64 chars |  |  | **Model.** The model asset placed. (required; format id) |
+| `dressings[].species[].class` | enum: `cover`, `large` | `"cover"` |  | **Class.** cover: grass, flowers, reeds, pebbles, made near the camera from the voxels and never stored. large: trees, bushes, boulders; stored, and placed by no engine code yet. (required) |
+| `dressings[].species[].density` | number | `1` | 0.0001 – 100, step 0.1 | **Density.** Candidates per m² (each kept where its conditions hold fully). (required) |
+| `dressings[].species[].spacing` | number |  | 0 – 100, step 0.1, m | **Spacing.** Metres kept between the entry's copies (absent: 0; a cover species at most 8, a large one 100). |
+| `dressings[].species[].scale` | JSON: `[number, number]` () |  |  | **Scale.** [min, max]: a random uniform scale between them (0.01-100; absent [1, 1]). |
+| `dressings[].species[].yaw` | number |  | 0 – 360, step 1, deg | **Yaw.** A random turn about up, 0 to this many degrees (absent: 360). |
+| `dressings[].species[].align` | number |  | 0 – 1, step 0.05 | **Align.** 0 upright, 1 along the ground's normal (absent: 0). |
+| `dressings[].species[].seed` | int |  | step 1 | **Seed.** Picks the entry's jitter, sizes and turns, with its place in the list (absent: 0). |
+| `dressings[].species[].conditions` | JSON: `DressingConditions` ([DressingConditions](types-c-m.md#type-dressing-conditions)) |  |  | **Conditions.** Where it grows, each left out meaning any: {material?: [voxel ids], role?: [terrain \| wall \| floor \| roof \| foundation \| stair \| pillar], slope?: range in degrees (0-90), height?: range in metres, sky?: true (open sky only) \| false (under cover only), wetness?: range 0-7, waterDepth?: range in metres of liquid standing on the surface (0: dry), materialEdge?: range in metres to the nearest surface of another material, construction?: range in metres to the nearest built cell (both distances 0-8: 8 also means none nearer), noise?: range 0-1 over value noise with {scale (metres, 0.01-100000), seed?}}. A range is {min?, max?, fade?}: 1 inside, fading to 0 over fade past an end; a species grows at the product of its conditions as a share of its density. |
+
 <a id="content-materialProfiles"></a>
 ## materialProfiles — Physical profiles
 

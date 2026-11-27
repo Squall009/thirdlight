@@ -1,8 +1,13 @@
-# MCP tools (part 4, from tl_game_control)
+# MCP tools (part 4, from tl_docs)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 What each tool of the MCP server takes and returns. The descriptions an agent sees in `tools/list` are short summaries pointing here; read a tool with `tl_docs {topic: "tool.<name>"}` and an area of `tl_command` with `tool.tl_command.<area>`. Op argument shapes are on [Command ops](ops.md); component fields on the component pages.
+
+<a id="tool-tl_docs"></a>
+## `tl_docs`
+
+The Thirdlight manual and the generated engine reference of the running build. No topic: the contents. topic: a page ("guides/terrain", "concepts/game-flow", "reference/ops", "deployment"), a section ("guides/terrain#sculpting"; a link from a page works as written) or a reference topic ("op.editBlocks", "component.light", "ctx.grid", "node.material.pbr", "limit.MAX_TAGS", "tool.tl_command"). query: matching topic names. A long page comes in parts: the answer names the next part to ask for. Look an op, component or script call up here before using it. Answers without a project.
 
 <a id="tool-tl_game_control"></a>
 ## `tl_game_control`
