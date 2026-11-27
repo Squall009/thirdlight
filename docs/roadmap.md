@@ -164,6 +164,11 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 - From 47b.8: in a dressing, a yaw range that starts past 0, a sink for cover species, priority or exclusion
   between species, "no dressing" on a variant, a clearance radius a prop (each a format field); a dressing that
   names a missing model listed in Problems (D843); an icon of its own for the dressing kind.
+- From 47b.9: a cover distance, a shadow and a bend a species (format fields); the cover path handed the scene
+  and its row programs made before the first draw (D844: a 949 ms hitch where cover is first drawn); a backend
+  stop that lets the far cache's follow-up land (D845); structure stamps in the Scene view, so its cover round a
+  house matches a game's (D846); an edit's cell box at the cover stream, so a stroke re-makes fewer columns; cover
+  on a structure's own floors.
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
