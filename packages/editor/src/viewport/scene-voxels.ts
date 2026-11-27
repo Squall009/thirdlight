@@ -631,7 +631,9 @@ export class SceneVoxels {
   stamp(root: HTMLElement): void {
     if (this.open.size === 0 && this.stampMark === '') return;
     const drawn = this.draws.stats();
-    const mark = this.open.size === 0 ? '' : JSON.stringify({ worlds: drawn.worlds, replaced: drawn.replaced, batches: drawn.batches, states: Object.fromEntries(this.states), problems: Object.fromEntries(this.problems), moved: this.moved });
+    // The ground cover as the view's cover path holds it (only once something grows).
+    const cover = this.host.adapter().cover?.()?.voxels.stats();
+    const mark = this.open.size === 0 ? '' : JSON.stringify({ worlds: drawn.worlds, replaced: drawn.replaced, batches: drawn.batches, states: Object.fromEntries(this.states), problems: Object.fromEntries(this.problems), moved: this.moved, ...(cover !== undefined && cover.received > 0 ? { cover } : {}) });
     if (mark === this.stampMark) return;
     this.stampMark = mark;
     if (mark === '') root.removeAttribute('data-voxels');

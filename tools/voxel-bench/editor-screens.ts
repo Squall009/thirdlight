@@ -17,12 +17,14 @@
  * within its timeout is saved but reported "did not settle: <what>".
  */
 import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import type { Browser, Locator, Page } from '@playwright/test';
 import { chunkGrid, createWorldStore, VOXEL_ROLE } from '@thirdlight/voxel';
 import { VOXEL_WORLDS_FOLDER, writeVoxelWorld } from '@thirdlight/workspace';
 import { voxelStrokeCommand, type VoxelStroke } from '../../packages/editor/src/session/voxel-brush';
 import { startBackend, type E2EBackend } from '../../tests/e2e/backend';
 import { mustCommand } from '../../tests/support/commands';
+import { BENCH_COVER_FOLDER, BENCH_COVER_MODELS, BENCH_MEADOW_DRESSING, benchCoverDressings, type BenchCoverModel } from './bench-cover';
 import type { ScreenName } from './picture-list';
 import type { PictureResult } from './picture-pack';
 import { flatGround } from './scenes';
@@ -93,6 +95,38 @@ async function densityView(page: Page, mode: Locator, file: string): Promise<Rec
   await group.getByRole('radio', { name: 'As drawn', exact: true }).click();
   const off = await until(page, async () => ((await drawn()) === 'off' ? sceneSettled(page) : 'the Scene view still drawing fog by density'), 20_000);
   return { switched: on.ok, file, gas, back: off.ok };
+}
+
+/**
+ * The bench's meadow on the yard's grass (its stand-in models imported, its dressing set on the material), the Scene
+ * view waited for and a picture of it taken into `file`: what the view says it holds of cover then.
+ */
+async function yardCover(be: E2EBackend, page: Page, file: string): Promise<Record<string, unknown>> {
+  const cmd = (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => mustCommand(be, op, args, { clientId: 'pictures' });
+  const dir = join(be.projectDir, ...BENCH_COVER_FOLDER.split('/'));
+  mkdirSync(dir, { recursive: true });
+  for (const m of Object.values(BENCH_COVER_MODELS)) writeFileSync(join(dir, m.file), m.glb());
+  await cmd('importAssets', { folder: BENCH_COVER_FOLDER });
+  const assets = ((await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 100 } }))['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>;
+  const models = Object.fromEntries(Object.entries(BENCH_COVER_MODELS).map(([name, m]) => [name, assets.find((a) => a.sourcePath === `${BENCH_COVER_FOLDER}/${m.file}`)?.assetId ?? ''])) as Record<BenchCoverModel, string>;
+  const dressings = benchCoverDressings(models);
+  for (const dressing of dressings) await cmd('setDressing', { dressing });
+  const grass = (dressing?: string): Record<string, unknown> => ({ materialId: 'mat-grass', name: 'Grass', shader: 'standard', params: { color: '#4d7a3a' }, textures: {}, voxel: { id: MAT.grass, use: 'terrain', ...(dressing !== undefined ? { dressing } : {}) } });
+  await cmd('setMaterial', { material: grass(BENCH_MEADOW_DRESSING) });
+  const cover = async (): Promise<{ species?: number; points?: number; pending?: number } | null> => ((await sceneVoxels(page)) as unknown as { cover?: { species: number; points: number; pending: number } } | null)?.cover ?? null;
+  const grown = await until(page, async () => {
+    const c = await cover();
+    if ((c?.points ?? 0) === 0) return 'no cover in the Scene view';
+    if ((c?.pending ?? 0) > 0) return 'cover sets waiting';
+    return sceneSettled(page);
+  }, 60_000);
+  await page.screenshot({ path: file });
+  const held = await cover();
+  // Taken off: the material names no dressing, so every column lets its cover go, and the dressings are deleted.
+  await cmd('setMaterial', { material: grass() });
+  for (const d of dressings) await cmd('deleteDressing', { dressingId: d.dressingId });
+  const gone = await until(page, async () => ((await cover())?.points === 0 ? sceneSettled(page) : 'cover still in the Scene view'), 60_000);
+  return { grown: grown.ok, ...(grown.ok ? {} : { why: grown.what }), file, models, cover: held, takenOff: gone.ok };
 }
 
 async function shoot(page: Page, file: string, wait: Wait, facts: Record<string, unknown>, id: string, waited: string): Promise<PictureResult> {
@@ -473,8 +507,12 @@ export async function yardScreens(browser: Browser, want: readonly ScreenName[],
         if ((await brushStamp(page))?.cursor !== true) return 'the brush cursor not on the ground';
         return sceneSettled(page);
       });
-      out.set('world-mode', await shoot(page, files('world-mode'), armed.ok ? w : armed, facts('world-mode', { tool: 'Add', hill, pointerDrag: drag }), idOf('world-mode'), 'world mode open, the Add tool armed, the brush cursor on the ground, the Scene view settled'));
+      const shot = await shoot(page, files('world-mode'), armed.ok ? w : armed, facts('world-mode', { tool: 'Add', hill, pointerDrag: drag }), idOf('world-mode'), 'world mode open, the Add tool armed, the brush cursor on the ground, the Scene view settled');
+      out.set('world-mode', shot);
       await mode.getByRole('button', { name: /^Done/ }).click().catch(() => undefined);
+      // The yard's grass given the bench's meadow, a picture of the Scene view with it kept beside this one (the raw
+      // folder), and the meadow taken off again: the screens after this one show the yard as they always have.
+      (shot.facts as Record<string, unknown>)['meadow'] = await yardCover(be, page, files('world-mode').replace(/\.png$/, '-cover.png')).catch((e: unknown) => ({ grown: false, why: String(e).slice(0, 300) }));
     }
     if (want.includes('world-fill')) {
       // After the other screens: the hollows are not part of their yard.
