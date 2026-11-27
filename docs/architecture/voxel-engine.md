@@ -43,7 +43,10 @@ page in the same commit.
   water fill and bodies; each entry names its roles and why, and one nothing needs fails). A role added later is a row:
   **gas** (47b.2) was one, and besides the row it met six places that named the liquid alone or assumed two media
   (plan-47b §9 "47b.2": the change feed, the coarser levels' order against openings, the level fill, the wetness a
-  cell may hold, a flag sharing the new part's bit, the material uses).
+  cell may hold, a flag sharing the new part's bit, the material uses). **A row is enough only for a role made of
+  trait values that already exist**: the table refuses a row whose light stop, walkers or collision differ from
+  "drawn as a body" (the level-0 derive reads all four from one class), and it has no mip kind for "not drawn near,
+  kept far", so a `prop` role needs the derive and the table widened first (plan-47b §8, the review's note 12).
   Two limits a new row meets: a level-0 cell's mesh, collision, navigation and light coverage are all read from the one
   class a body derives to, so the table refuses a row whose light stop, walkers or collision differ from `body` until
   the derive carries them apart (47p's `prop` needs that); and nothing on the GPU reads a role today (the walk reads the

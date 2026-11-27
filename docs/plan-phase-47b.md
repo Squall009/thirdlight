@@ -145,7 +145,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.8 | done 2026-11-27: the dressing asset (format 1: ordered species, cover or large, ten conditions) as a resource file, `voxel.dressing` through instances, `setDressing` / `deleteDressing`, a recorded schema step; the rules' one arithmetic with "why not"; the voxel source of the scatter core (a chunk's point sets, same bytes in a worker); props kept clear. D842, D843. Results §9 |
 | 47b.9 | done 2026-11-27: cover drawn on voxel chunks: a `voxel-cover` job a chunk column after its chunks' draws (the pool's background queue, never before a mesh), sent in the draw batch, drawn as point sources of the point-set path (rows of the culled table); made again by the feeds, dressings, stamps and static props; a memory entry and a slice a tier. L25, L26 read. D844–D846. Results §9 |
 | 47b.10 | done 2026-11-27: the Dressing card on a material (pick, create, clear; species and the ten conditions, each edit the dressing's command), the world mode's Rules rail with "why not" built (the rules' own answer at the cursor), four starter cover plants and the dressings Meadow, Shore, Gravel in the Basic Kit, manual pages. E9, L25, L26 read. D847, D848. Results §9 |
-| 47b.11 | not started |
+| 47b.11 | done 2026-11-27: review (nothing stored beyond G1–G6; D849–D851); one phase run, 2,287 s: unit and boot green, RED on pictures (33 of 35: E8 the script's, fixed and retaken; L3 the cave, D852, open); 35 pictures read, 30 with something wrong; test time 87.5 min of 75; `acceptance-47b.md` published, five questions. 47p not begun |
 
 ## 7. How this phase is run
 
@@ -669,6 +669,14 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   **Still needs the owner's eyes (nobody has seen these)**
 
   Anything in motion: brushing, wind, cover arriving at speed (D844's 949 ms hitch), walking into fog. Dig, Smooth, Flatten, Paint, Drain, Water, Erase, the three splines and every key with a real pointer; Ctrl+Z in the editor after a stroke or a fill. Fog and cover at night, under lamps, in an export, on medium and high. The Dressing card in use (reorder, remove, add, pickers, a variant's card). "Make a … material" in a browser. The structure mode's hand edits after their move. Any world larger than the 64 m yard in the mode. D837's cube corners and D841's fog cards, to judge whether they are acceptable until 51.
+
+- **2026-11-27 — the close, defaults chosen, owner to confirm** (lead): (1) **the order of the close**: the
+  review and its fixes first, then the one phase run on the final code, then the read, so no check follows the
+  phase run. (2) **L3 stays on the picture list**, unsettled and named (D852): taking a picture off the list is
+  removing a test, the owner's to decide (acceptance question 3). (3) **E7–E9 of the pack are retakes** made after
+  the picture script's fix, in the screens' order; the rest is the phase run's own. (4) **Not built, by the
+  owner's stops**: a brush form for media on the edit command (D838) and anything else a format entry does not
+  name. (5) The phase closed over its test budget (87.5 min of 75): no check was skipped to hide it.
 
 ## 9. Results
 
@@ -1865,6 +1873,34 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
   upgrade for projects that hold the kit (§8 13); a dressing editor of its own, a view of where a condition
   holds before a species grows there (an overlay), copying a species between dressings; a dressing check in
   Problems (D843 stays open); any large-class placement, cover past 40 m, new conditions, wind tuning.
+
+### 47b.11 — the close
+
+- **The review** (one fresh agent, read only): its page is in §8. Acted on before the phase run: two texts
+  corrected, one history comment, D849–D851 opened, D840 extended.
+- **The phase run**, once, at c86b5332 (`~/.cache/thirdlight-logs/gate-phase-20261127-035742/`): 2,287 s (38.1
+  min; 47T's 1,713 s); build 27 s, lint 97 s, every unit file 449 s (1,012 passed, 13 skipped), the boot check 27 s
+  (5 passed), the performance report 183 s, the pictures 1,503 s. **RED on the pictures**: 33 of 35 settled (the
+  next section). Memory peak 10.9 GB of the 12 GB cap, load mean 3.9.
+- **Test time against the budget of about 75 min: 87.5 min.** Checks 2,962 s: 47b.0 245 + 37, 47b.1 248, 47b.2
+  250 + 58, 47b.3 248 + 33, 47b.4 253, 47b.5 249, 47b.6 253, 47b.7 258, 47b.8 264, 47b.9 265, 47b.10 262 + 39 (the
+  second number a `--failed` run after a real fix: a stale generated file or list each time, and once an
+  order-dependent file moved to `ISOLATED_FILES`). The phase run 2,287 s. Beside the gate: the items' picture
+  runs about 35 min, their benches about 31 min.
+- **Performance** (the run's report against 47T's, the town, low, 720p, the 30 Hz cap, host load 8 in both): 30
+  fps and 0 frames missed in both; GPU frame 17.52 / 16.12 ms; near 4.89 / 5.38; far 3.43 / 3.86; shadows 0.99 /
+  0.37; lighting 5.69 / 5.0; post not readable; page heap 640 / 636 MiB; GPU memory 1,003 / 989 MiB; world fill
+  6.7 / 6.2 s. Recorded, not judged: within the host's noise but for shadows (+0.6 ms, not traced).
+- **The pictures**: 35 (28 and E7–E9, L23–L26), pack `~/.cache/thirdlight-phase47b/work/final-pack/` (the phase
+  run's, E7–E9 retaken), each opened by a fresh agent, its read in the pack's `read.md` and on the review page: 30
+  with something wrong or doubtful; D827, D831 and D825 seen gone; the fog and the cover as the acceptance text
+  says; D853 opened from it. Seen and not traced: L4 lacks the small orange glows of 47T's; the bench's fog
+  hollow stands in L2 and L10–L13 (bench data in view of other cameras: the references of those five changed);
+  E6 shows Problems 3 against 2.
+- **Defects**: D825, D827, D831, D832 and D762 moved to `audit-closed.md`; D835–D853 opened in the phase (19);
+  226 open (M 35, L 191); next free D854.
+- **Acceptance**: `docs/briefs/acceptance-47b.md`, on the review page under `47b` (five questions, each with its
+  default). The interim text moved to `archive/briefs/`.
 
 ### 47b.11 — the phase run's two unsettled pictures
 

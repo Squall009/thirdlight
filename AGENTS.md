@@ -73,7 +73,8 @@ Thirdlight is a self-hosted browser game editor and engine built on three.js, be
   change the boundary rule in its own commit; never copy.
 - A voxel role is asked of the role traits table (`@thirdlight/voxel` `role-traits.ts`), never compared by id:
   `tools/check-role-traits.mjs` (in `npm run build`) refuses a role comparison outside the table and its listed
-  owner files. A new role is a row.
+  owner files. A new role is a row where its traits' values already exist; a new kind of trait widens the table
+  and the derive first.
 - Units stay small: no function or closure over 400 lines, no class over 80 members, no file over 2,000 lines
   (`tools/check-size.mjs`, in `npm run build`; `tools/size-ratchet.json` lists today's larger units; an entry
   only shrinks, and goes when the unit fits). Split before growing: a change that adds to a file over 2,000
