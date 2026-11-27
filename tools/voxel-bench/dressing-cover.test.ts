@@ -345,12 +345,17 @@ describe('ground cover from the voxel source: who grows where', () => {
 describe('ground cover from the voxel source: the same points whoever asks', () => {
   it('is deterministic: the same chunk twice, and the same world built again, give the same bytes', () => {
     const again = world();
+    const ms: string[] = [];
     for (const [cx, cz] of [[0, 1], [2, 0], [3, 2]] as const) {
+      const t0 = performance.now();
       const a = cover(store, cx, cz);
+      ms.push(`(${cx}, ${cz}) ${(performance.now() - t0).toFixed(1)} ms for ${a.sets.reduce((n, s) => n + s.points.count, 0)} points of ${a.sets.length} species`);
       expect(a.sets.length).toBeGreaterThan(0);
       expectSame(cover(store, cx, cz), a, `twice ${cx},${cz}`);
       expectSame(cover(again, cx, cz), a, `again ${cx},${cz}`);
     }
+    // Reported, never asserted (this host's load decides it): a chunk column's cover in this thread, its first run.
+    process.stderr.write(`voxel cover bench: a chunk column of the made world, nine cover species in the table: ${ms.join('; ')}\n`);
   });
 
   it('agrees across chunk borders with one bake over them all, whatever order the chunks are made in', () => {
@@ -485,6 +490,6 @@ describe('ground cover from the voxel source: page and worker alike', () => {
     const scan = scanExportFiles([{ name: 'voxel-cover-worker.js', bytes }], { authoringOrigin: '', previewOrigin: '', tokenValues: [] }, 'js/main.js', { version: '', integrity: null }, null);
     expect(scan.hits).toEqual([]);
     expect(scan.ok).toBe(true);
-    console.log(`[voxel cover] a worker serving the cover job alone: ${bytes.length} bytes minified`);
+    process.stderr.write(`voxel cover bench: a worker serving the cover job alone is ${bytes.length} bytes minified\n`);
   });
 });

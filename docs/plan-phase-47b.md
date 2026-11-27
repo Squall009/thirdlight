@@ -142,7 +142,7 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
 | 47b.5 | done 2026-11-26: the world mode (Edit world on a `voxelWorld`; Sculpt: add, dig, smooth, flatten; Paint: palette with variants, wetness, noise mask) on one voxel brush tool the structure mode's hand edits now use (D762 fixed). A drag is one v3 command of thinned dabs at the release. E7 read; a real pointer drag changed the ground. D837 opened. Results §9 |
 | 47b.6 | done 2026-11-26: the Fill rail (fog to a dragged level with a fade and a reach, one `flood`; a leak refused and marked; drain; Water makes a water body), the fog brush on Paint (a `set` or `dig` of the cells it names, so ground and water stay; smooth) and a Splines rail, all on the one tool. No command or stored thing added. E8 read; fog is not drawn before 47b.7. D838–D840. Results §9 |
 | 47b.7 | done 2026-11-26: the gas part (hull quads with the density behind them, and runs; the quads shared with liquid; derived 35) and its plain draw: flat colour, opacity from the scene's depth behind each face, a screen-wide layer with the eye in a bank, a density view in the world mode. In Play, exports and the Scene view. L23, L24, E8 read; cost not resolved (about 1 ms). D841. Results §9 |
-| 47b.8 | not started |
+| 47b.8 | done 2026-11-27: the dressing asset (format 1: ordered species, cover or large, ten conditions) as a resource file, `voxel.dressing` through instances, `setDressing` / `deleteDressing`, a recorded schema step; the rules' one arithmetic with "why not"; the voxel source of the scatter core (a chunk's point sets, same bytes in a worker); props kept clear. D842, D843. Results §9 |
 | 47b.9 | not started |
 | 47b.10 | not started |
 | 47b.11 | not started |
@@ -443,6 +443,74 @@ D829; the Rules rail's "why not"; the fog smooth-density brush.
   11. To stay within the unit sizes: `VoxelWorldDraws` keeps its two view switches and its two walk-feed counters
       as one record each, `VoxelChunkView`'s tip scratch is the module's, the surface's table entry and gas row are
       module functions.
+- **2026-11-27 — 47b.8, defaults chosen, owner to confirm** (item agent; G5 names the fields, these say what each is
+  where it could be built more than one way; nothing is stored beyond G5):
+  1. **The "project schema bump" is a recorded step of schema 8 named `dressing`**, not a schema 9. Every change since
+     8 was written is such a step (`upgrade-schema-8.ts`: planes, light counts, bloom, interactor): it runs once on an
+     older project and its name joins `project.json`'s `upgrades` list. This one changes no document. What the owner
+     sees: an old project opens as it was, and its `project.json` gains one word on that open. A schema 9 would have
+     touched every fixture and the 6 → 7 → 8 chain for the same effect; it is one constant if the owner wants it.
+  2. **The asset is `{dressingFormat: 1, dressingId, name, species}`**: the three fields round the list are what every
+     resource file has (the voxel kit's `kitFormat`, id and name). A resource kind `dressing`, list
+     `content.dressings`, a file `<name>.dressing.json` in `assets/dressings/`, never loaded by address (shipped as a
+     catalog block, as voxel kits are).
+  3. **A species' placement fields are the scatter rule's own**, names, forms and bounds: `density` (0.0001–100 a m²),
+     `spacing` (m), `scale` `[min, max]`, `yaw` (a random turn of 0 to this many degrees), `align` (0 upright to 1 along
+     the normal), `seed`. So the core places a species with no code of its own. **"Yaw range" is 0 to a number**, the
+     core's form: a turn range that starts elsewhere needs the core's copy changed, which this item may not touch.
+     No `sink` and no drawing fields (shadows, wind, cover distance): G5 names none; 47b.9 and 47b.10 meet them.
+  4. **`model` is a model asset id, unchecked** (as a kit's meshes: deleting an asset is never refused). A missing
+     model grows nothing and reports nothing: D843.
+  5. **The ten conditions' forms**: `material` a set of voxel material ids; `role` a set of role names a surface can
+     have (terrain, wall, floor, roof, foundation, stair, pillar); `sky` true or false; `slope` (degrees), `height` (m,
+     the grid's frame), `wetness` (0–7), `waterDepth` (m), `materialEdge` and `construction` (m, 0–8: the fields' cap,
+     which also means "none nearer") ranges; `noise` a range over 0–1 with `scale` (m) and `seed`. **A range is the
+     engine's rule range `{min?, max?, fade?}`** (moved to `@thirdlight/shared` `FadeRange`, one definition for
+     material rules, scatter rules and these): the `fade` is what gives a share between none and all. A condition
+     left out is any: grass with no `waterDepth` grows under a lake, so a starter dressing writes `{max: 0}`.
+  6. **The noise is the brush mask's value noise at one octave, read flat** (`valueNoise01(x / scale, z / scale,
+     seed)`, no height): a patch does not move when its ground is sculpted, and a cave under a meadow has the
+     meadow's patches.
+  7. **A species grows at the product of its conditions**, and a share under 1 keeps that share of the candidates,
+     each picked by a hash of its own point and floor (never of the chunk that asks). **"Why not" names the first
+     condition, in the vocabulary's order, whose value is 0**, then `prop`; both read one table of checks.
+  8. **Order of the species**: an entry's place in the list is its identity to the core (its hashes mix `s<index>`
+     with its seed), so two entries of one model never share candidates and **moving an entry moves its plants**.
+     The order gives no priority between species: each keeps its own spacing only (G5 names no cross-species rule).
+  9. **Variants**: `voxel.dressing` resolves along an instance chain exactly as `voxel.kit` does (the nearer level
+     wins). A variant that names another dressing is "density by material variations". **A variant cannot name "no
+     dressing"** over a parent that names one (nor "no kit"): bare ground of the same look is a material of its own,
+     or a dressing with no species.
+  10. **A dressing a material names cannot be deleted** (`dressing_missing`, as a kit a material names): clear the
+      material's field first. A liquid or a gas names none (no surface).
+  11. **The core is told whether a species grows through its layer-share condition.** `scatter.ts` and
+      `cover-points.ts` are not touched: the species is handed over as a ground cover rule with one condition, "layer
+      0 at least 1", and the voxel surface answers layer 0 as 1 or 0. Every surface of a column is answered in turn
+      even where nothing grows, so a floor's place in its column (which the core's hashes read) does not change when
+      the ground over it does.
+  12. **Where the source lives**: the rules in `@thirdlight/voxel` (pure, no project-model), the surface and the job in
+      project-model beside the core they feed (`voxel-dressing-source.ts`), because `@thirdlight/voxel` cannot import
+      the core. So the cover job is **not** one of the voxel package's stream jobs: a worker entry adds
+      `voxelCoverJobHandlers` beside them (47b.9: the editor's, the preview's and the export's voxel workers; a
+      browser build of a worker serving it alone is 46 KB minified and passes the export scan).
+  13. **A chunk's cover reads its column and the eight round it, whole** (a ring of a chunk, where the fields job
+      keeps 8 m): a candidate a spacing past the border is judged from the cells its own chunk judges it from.
+      Hence **a cover species' spacing is at most 8 m** (refused above it; a large species keeps the core's 100 m),
+      and D842 on 16-cell chunks. A chunk whose neighbours are not loaded yet reads them as air: 47b.9 makes cover
+      when the columns round are there, or again when they arrive.
+  14. **A point belongs to the chunk that holds its surface's cell**, not the chunk its height falls in: a full cell's
+      top face lies on the border of the chunk above, and stays with the cell.
+  15. **Keep clear of props: the prop's box, nothing stored.** The signal is the one the light stamps use (the
+      runtime's `propLightShape`: the object's collider, else its model's recorded bounds; `propBounds`). A point
+      inside that box across the ground, from 0.5 m under its foot to its top, grows nothing. Chosen over a radius:
+      a box follows a long prop (a cart, a fence panel) where a circle would clear a disc of its length; a turned
+      prop clears its axis-aligned box, a little more than itself. A model with no collider clears its whole
+      footprint (a tree's crown: give it a trunk collider). **Which objects count is the caller's list** (47b.9):
+      proposed, every static object with a model, marked `affectsLighting` or not. No clearance field on the
+      dressing or the prop.
+  16. **A build ships the dressings its shipped materials name** (the catalog's `dressings` block, add-only in
+      manifest 5) and their species' models, cover and large, as project-wide dependencies. A dressing nothing names
+      is authoring data only.
 - **2026-11-26 — the proposed plan's five questions** (§10): 1 answered by the owner (two phases: 47b ends at
   ground cover, 47p follows); 5 answered (stamps go to 47p; the forest edge is 47p's and the rings phase's);
   2, 3 and 4 not answered one by one: their defaults stand under the roadmap's rule for unanswered defaults.
