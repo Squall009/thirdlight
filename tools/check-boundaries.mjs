@@ -444,6 +444,7 @@ export const NODE_SIDE_ALLOWED = {
         'shape-2d-3d', // a flat collider is drawn as the solid the game makes of it
         'voxel-world', // the Scene view streams a world with the settings the game resolves for it
         'voxel-materials', // the views bind kit pieces to voxel materials as the build ships them
+        'dressing', // the Dressing card edits a dressing inside the bounds, classes and format the model checks
         'content-helpers', // a content digest's format is defined once, where the model checks it
         'authoring-rules', // property values and prefab captures are checked by the commands' own rules before sending
       ],

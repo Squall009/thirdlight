@@ -27,6 +27,7 @@
     "./voxel-kit-check": "./src/voxel-kit-check.ts",
     "./voxel-materials": "./src/voxel-materials.ts",
     "./voxel-cover": "./src/voxel-dressing-source.ts",
+    "./dressing": "./src/dressing.ts",
     "./voxel-surface-textures": "./src/voxel-surface-textures.ts",
     "./model-occluders": "./src/model-occluders.ts",
     "./repeated-rows": "./src/repeated-rows.ts",
