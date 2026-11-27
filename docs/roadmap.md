@@ -169,6 +169,10 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
   stop that lets the far cache's follow-up land (D845); structure stamps in the Scene view, so its cover round a
   house matches a game's (D846); an edit's cell box at the cover stream, so a stroke re-makes fewer columns; cover
   on a structure's own floors.
+- From 47b.10: foliage shading that keeps a model's normal on its back faces (D847: starter blades seen from
+  behind shade dark and blue); a kit's new contents reaching a project that already holds the kit; whether undoing
+  a pack's add removes its files (D848); a dressing editor of its own and an overlay of where a condition holds;
+  starter flowers and clumps with more variety.
 
 Research inputs for 47–51: `docs/research/` (derived fields and shared tools, water, fog, vegetation, the
 duplication audit). Independent of the order, for an idle session: the liquid shader on today's river spline,
