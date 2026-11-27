@@ -17,7 +17,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
-import { createBehaviorModuleSpec, createSimulationRegistry, instantiateRuntime, neutralFrame, registerSimulationModule, type BehaviorArtifact, type BehaviorVoxels, type VoxelWorldConnection } from '@thirdlight/runtime';
+import { createBehaviorModuleSpec, createSimulationRegistry, instantiateRuntime, neutralFrame, registerSimulationModule, type BehaviorArtifact, type BehaviorVoxels, type VoxelWorldConnection, type VoxelWorldPorts } from '@thirdlight/runtime';
+import { presentVoxelWorlds } from '@thirdlight/game-host';
+import { coverPointAt, voxelCoverTable, type VoxelCoverSet } from '@thirdlight/project-model';
 import {
   anchoredDefinition,
   baseChunkHash,
@@ -34,6 +36,7 @@ import {
   VOXEL_ROLE,
   VOXEL_SIZE_M,
   WorkerPool,
+  type ChunkDrawBatch,
   type GridPlacement,
   type PaletteStore,
   type StructureDefinition,
@@ -143,7 +146,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 type Ctx = { voxels: BehaviorVoxels; entity(id: string): { set(component: string, patch: Record<string, unknown>): { ok: boolean; message: string } } | null };
 
 /** A running game over the test world with the houses `grids` names (each grid's folder, by its id): `inStep` runs a function in the script's next step. */
-async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder: string }>, extra: readonly Record<string, unknown>[] = []): Promise<{ inStep<R>(fn: (v: BehaviorVoxels, ctx: Ctx) => R | undefined, what: string): Promise<R>; changes: BehaviorVoxels['changes'][number][]; mismatches: BehaviorVoxels['mismatches'][number][]; walk(): { pending: boolean; grids?: { pending: number; links: number } } | undefined }> {
+async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder: string }>, extra: readonly Record<string, unknown>[] = [], play: { wrap?(ports: VoxelWorldPorts): VoxelWorldPorts; modelBounds?: Record<string, { min: number[]; max: number[] }> } = {}): Promise<{ inStep<R>(fn: (v: BehaviorVoxels, ctx: Ctx) => R | undefined, what: string): Promise<R>; changes: BehaviorVoxels['changes'][number][]; mismatches: BehaviorVoxels['mismatches'][number][]; walk(): { pending: boolean; grids?: { pending: number; links: number } } | undefined }> {
   const r = await createPhysicsPort3D({ character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } }, noCharacter: true, statics: [], solver: { hz: 60, gravityY: -9.81 }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: 0.8, minSlopeSlideRad: 0.9, autostep: false } });
   if (!r.ok) throw new Error(r.error.message);
   const ports = {
@@ -160,7 +163,8 @@ async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder:
           return { place: PLACES.find((p) => p.gridId === g.id)!, source, extent: await gridChunkExtent(source, 'stacked', names) };
         }),
       );
-      return { grid, worldId: TEST_WORLD_ID, source: disk.source(grid, 'stacked', 512), pool, grids: opened };
+      // A presentation makes the grids' connections itself, from where they are placed and each grid opened by its id.
+      return { grid, worldId: TEST_WORLD_ID, source: disk.source(grid, 'stacked', 512), pool, grids: opened, placements: opened.map((o) => o.place), openGrid: (id: number) => Promise.resolve(opened.find((o) => o.place.gridId === id) ?? null) };
     },
   };
   let job: ((v: BehaviorVoxels, ctx: Ctx) => boolean) | null = null;
@@ -208,9 +212,10 @@ async function game(grids: ReadonlyArray<{ readonly id: number; readonly folder:
       ],
     },
     scenes: [{ sceneId: 'scene-main', start: true, entityIds: ['world', 'probe', ...extra.map((e) => e['id'] as string)] }],
+    ...(play.modelBounds !== undefined ? { modelBounds: play.modelBounds } : {}),
   };
   const now = { t: 0 };
-  const res = instantiateRuntime({ snapshot, registry, modules: [spec.id], actions: { sample: (i: number) => neutralFrame(i) }, physics: r.port, settings: {}, clock: () => now.t, driver: { kind: 'manual' }, voxels: ports } as never);
+  const res = instantiateRuntime({ snapshot, registry, modules: [spec.id], actions: { sample: (i: number) => neutralFrame(i) }, physics: r.port, settings: {}, clock: () => now.t, driver: { kind: 'manual' }, voxels: play.wrap?.(ports) ?? ports } as never);
   if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify(res.error)}`);
   const rt = res.runtime;
   runtimes.push(rt);
@@ -539,6 +544,69 @@ describe('ctx.voxels in a world with structure grids', () => {
     const again = await rebuilt.inStep(() => (rebuilt.mismatches.some((m) => m.grid === 2) ? rebuilt.mismatches : undefined), 'the mismatch');
     expect(again.some((m) => m.grid === 2 && m.kept)).toBe(true);
     expect(await rebuilt.inStep((v) => v.get(...hole), 'the hole')).toMatchObject({ material: 0 });
+  }, 240_000);
+});
+
+describe('ground cover in a game with structures and props', () => {
+  it('reaches the page with the world\'s draw batches: grown on the ground, none where a house stands (0°, 30°, 45°: its stamp closes the ground), a static model\'s box kept clear and a model that is not static grown over', async () => {
+    const table = voxelCoverTable({
+      materials: [{ materialId: 'ground', name: 'Ground', shader: 'standard', params: {}, textures: {}, voxel: { id: GROUND, use: 'terrain', dressing: 'turf' } }] as never,
+      dressings: [{ dressingFormat: 1, dressingId: 'turf', name: 'Turf', species: [{ model: 'tuft', class: 'cover', density: 4 }] }],
+    });
+    const batches: ChunkDrawBatch[] = [];
+    // Two crates of one model on the open ground south of the houses: one marked static, one not.
+    const crate = (id: string, x: number, isStatic: boolean): Record<string, unknown> => ({ id, ...(isStatic ? { static: true } : {}), components: { transform: { position: [x, 0, 2], ...T }, model: { asset: { assetId: 'crate' } } } });
+    const g = await game(ALL, [crate('crate-static', -4, true), crate('crate-loose', 6, false)], {
+      wrap: (ports) => presentVoxelWorlds(ports, (b) => batches.push(b), [], 0, undefined, undefined, false, 0, new Map(), undefined, table).ports,
+      modelBounds: { crate: { min: [-1, 0, -1], max: [1, 1.5, 1] } },
+    });
+    await g.inStep(ready, 'the houses loaded and derived');
+    // What each column holds as the batches left it, once no batch brought cover for a while.
+    const held = new Map<string, readonly VoxelCoverSet[]>();
+    let read = 0;
+    let quiet = 0;
+    await g.inStep(() => {
+      const before = read;
+      for (; read < batches.length; read++) {
+        const b = batches[read]!;
+        if (b.world !== 'a') continue;
+        for (const c of b.cover ?? []) {
+          if (c.sets === undefined) held.delete(`${c.cx},${c.cz}`);
+          else held.set(`${c.cx},${c.cz}`, c.sets as unknown as VoxelCoverSet[]);
+        }
+      }
+      quiet = held.size > 0 && read === before ? quiet + 1 : 0;
+      return quiet >= 120 ? true : undefined;
+    }, 'the ground cover of the drawn columns');
+    const points = [...held.values()].flatMap((sets) => sets.flatMap((s) => Array.from({ length: s.points.count }, (_, i) => coverPointAt(s.points, i))));
+    expect(points.length).toBeGreaterThan(5000);
+    // On the ground's top (the cells' fill: 0 m), every one.
+    for (const p of points) expect(p.y).toBeCloseTo(0, 5);
+    // Each house's floor is 6 × 5 m in its own frame: nothing inside it but for the cell the stamp may be off by.
+    for (const h of HOUSES) {
+      const f = frameOf(h.id);
+      const inside = points.filter((p) => {
+        const q = f.toGrid(p.x, p.y, p.z);
+        return q[0] > 0.75 && q[0] < HOUSE.w * M - 0.75 && q[2] > 0.75 && q[2] < HOUSE.d * M - 0.75;
+      });
+      expect(inside, `house ${h.id}`).toEqual([]);
+      // And the ground round it grows: within 3 m outside its walls.
+      const round = points.filter((p) => {
+        const q = f.toGrid(p.x, p.y, p.z);
+        return q[0] > -3 && q[0] < HOUSE.w * M + 3 && q[2] > -3 && q[2] < HOUSE.d * M + 3 && (q[0] < -0.75 || q[0] > HOUSE.w * M + 0.75 || q[2] < -0.75 || q[2] > HOUSE.d * M + 0.75);
+      });
+      expect(round.length, `round house ${h.id}`).toBeGreaterThan(100);
+    }
+    const under = (x: number): number => points.filter((p) => p.x > x - 0.95 && p.x < x + 0.95 && p.z > 1.05 && p.z < 2.95).length;
+    expect(under(-4)).toBe(0);
+    expect(under(6)).toBeGreaterThan(5);
+    // A batch that brings cover never brings it before its column's chunks were drawn.
+    const drawn = new Set<string>();
+    for (const b of batches) {
+      if (b.world !== 'a') continue;
+      for (const c of b.chunks) if (c.kind === 'draw' && (c.level ?? 0) === 0) drawn.add(`${c.cx},${c.cz}`);
+      for (const c of b.cover ?? []) expect(drawn.has(`${c.cx},${c.cz}`), `cover of ${c.cx},${c.cz} before its draw`).toBe(true);
+    }
   }, 240_000);
 });
 

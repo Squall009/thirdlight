@@ -263,9 +263,11 @@ async function main(): Promise<void> {
   await orbitCamera();
   const raw = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => (await api('commands', { op, projectId: PROJECT, ...(op === 'editVoxels' ? {} : { expectedRevision: await revision() }), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'voxel-bench-headroom' }, args })).json;
   // The bench cover: its strokes are the project's newest undo steps but the fog's.
-  const cover = !COVER ? null : await placeBenchCover({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw, assets: async () => ((await api('commands', { op: 'queryAssets', projectId: PROJECT, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>, projectDir: join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT) }, WORLD);
+  // After a bench's undo the far cache is read once, so the backend builds what the undo left before it is stopped.
+  const settleFar = (): Promise<unknown> => api(`voxels/${WORLD}/far`, {}, 'GET');
+  const cover = !COVER ? null : await placeBenchCover({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw, settleFar, assets: async () => ((await api('commands', { op: 'queryAssets', projectId: PROJECT, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>, projectDir: join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT) }, WORLD);
   // The bench fog, placed last and taken out first (its strokes are then the project's newest undo steps).
-  const fog = !FOG ? null : await placeBenchFog({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw }, WORLD);
+  const fog = !FOG ? null : await placeBenchFog({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw, settleFar }, WORLD);
   const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });
   const out: Record<string, unknown> = { bench: 'headroom', lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, props: PROPS, propsUnlit: process.argv.includes('--props-unlit'), particles: PARTICLES, fog: fog?.facts ?? null, meadow: MEADOW, cover: cover?.facts ?? null, quality: QUALITY, renderer: 'webgpu', viewport: VIEWPORT, tierScale: TIER_SCALE, cap: CAP, window: WINDOW_S, world: WORLD, start: host(), rounds: [] as unknown[] };
   const browser = await launchGpuBrowser({ vsync: true });

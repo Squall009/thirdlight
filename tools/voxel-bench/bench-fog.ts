@@ -32,6 +32,12 @@ export interface BenchFogApi {
   command(op: string, args: Record<string, unknown>): Promise<unknown>;
   /** A voxel stroke or an undo, sent without waiting on its outcome: the JSON answered. */
   raw(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /**
+   * Reads the world's far cache (its route): the backend builds what the strokes left for it first, so the cache is
+   * current with the world when the bench ends. Absent: not waited for (a backend stopped before that rebuild lands
+   * leaves the cache a revision behind, and its next start builds the whole cache again).
+   */
+  settleFar?(): Promise<unknown>;
 }
 
 /**
@@ -64,6 +70,7 @@ export async function placeBenchFog(b: BenchFogApi, world: string, log: (s: stri
         log(`bench fog: undo ${k + 1} of ${written}, ${String(voxels.cells ?? '?')} cells`);
       }
       await b.command('deleteMaterial', { materialId: BENCH_FOG_MATERIAL.materialId }).catch((e: unknown) => log(`bench fog: the material was not deleted: ${String(e)}`));
+      await b.settleFar?.().catch((e: unknown) => log(`bench fog: the far cache was not read after the undo: ${String(e)}`));
     },
   };
 }

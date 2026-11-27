@@ -83,6 +83,12 @@ export interface BenchCoverApi {
   command(op: string, args: Record<string, unknown>): Promise<unknown>;
   /** A voxel stroke or an undo: the JSON answered, as it is. */
   raw(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /**
+   * Reads the world's far cache (its route): the backend builds what the strokes left for it first, so the cache is
+   * current with the world when the bench ends. Absent: not waited for (a backend stopped before that rebuild lands
+   * leaves the cache a revision behind, and its next start builds the whole cache again).
+   */
+  settleFar?(): Promise<unknown>;
   /** The project's assets (id and source path). */
   assets(): Promise<Array<{ assetId: string; sourcePath?: string }>>;
   readonly projectDir: string;
@@ -146,6 +152,7 @@ export async function placeBenchCover(b: BenchCoverApi, world: string, log: (s: 
       for (const d of dressings) await b.command('deleteDressing', { dressingId: d.dressingId }).catch((e: unknown) => log(`bench cover: dressing ${d.dressingId} was not deleted: ${String(e)}`));
       for (const id of Object.values(models)) await b.command('deleteAsset', { assetId: id! }).catch((e: unknown) => log(`bench cover: asset ${String(id)} was not deleted: ${String(e)}`));
       rmSync(dir, { recursive: true, force: true });
+      await b.settleFar?.().catch((e: unknown) => log(`bench cover: the far cache was not read after the undo: ${String(e)}`));
       log('bench cover: taken out');
     },
   };

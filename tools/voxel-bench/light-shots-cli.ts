@@ -458,11 +458,13 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   if (O.autoExposure && camEntity !== undefined && camWas !== null) await b.command('setComponent', { entityId: camEntity.id, component: 'virtualCamera', value: { ...camWas, autoExposure: true } });
   // The bench cover (the cover cameras' bench data): its strokes are the project's newest undo steps but the fog's.
   const raw = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => (await b.api('commands', commandEnvelope(op, O.project, op === 'editVoxels' ? undefined : await b.revision(), args, 'voxel-bench-light-shots'))).json;
-  const cover = !ONLY.some((n) => n.startsWith('cover-')) ? null : await placeBenchCover({ command: (op, args) => b.command(op, args), raw, assets: async () => ((await b.api('commands', { op: 'queryAssets', projectId: O.project, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>, projectDir: PROJECT_DIR }, O.world);
+  // After a bench's undo the far cache is read once, so the backend builds what the undo left before it is stopped.
+  const settleFar = (): Promise<unknown> => b.api(`voxels/${O.world}/far`, {}, 'GET');
+  const cover = !ONLY.some((n) => n.startsWith('cover-')) ? null : await placeBenchCover({ command: (op, args) => b.command(op, args), raw, settleFar, assets: async () => ((await b.api('commands', { op: 'queryAssets', projectId: O.project, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>, projectDir: PROJECT_DIR }, O.world);
   benchCover = cover?.facts ?? null;
   // The fog bank (the fog cameras' bench data), placed last and taken out first: its strokes are then the project's
   // newest undo steps when it is taken out.
-  const fog = !ONLY.some((n) => n.startsWith('fog-')) ? null : await placeBenchFog({ command: (op, args) => b.command(op, args), raw: async (op, args) => (await b.api('commands', commandEnvelope(op, O.project, op === 'editVoxels' ? undefined : await b.revision(), args, 'voxel-bench-light-shots'))).json }, O.world);
+  const fog = !ONLY.some((n) => n.startsWith('fog-')) ? null : await placeBenchFog({ command: (op, args) => b.command(op, args), raw, settleFar }, O.world);
   benchFog = fog?.facts ?? null;
   return async () => {
     await fog?.undo().catch((err: unknown) => console.error(`bench fog not taken out: ${String(err)}`));

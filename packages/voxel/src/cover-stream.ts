@@ -26,6 +26,8 @@
  * - a chunk of it or beside it arrived (a column made at the load ring's rim
  *   read the missing chunk as air);
  * - a chunk of it was drawn or is no longer drawn at level 0;
+ * - a structure's stamp over it or beside it landed or left (what `built`
+ *   answers: the ground under a house is no surface);
  * - the table of what grows changed (a dressing, a material's dressing):
  *   every column, no chunk derived;
  * - a prop's keep-clear box came, went or moved: the columns within a
@@ -238,6 +240,14 @@ export class ChunkCoverStream {
     if (fresh) this.mark(c);
     if ((parts & COVER_FED_BY) !== 0) this.touch(cx, cz, 1);
     this.pump();
+  }
+
+  /**
+   * What stands on a chunk column other than its voxels changed (a structure's stamp landed or left: `built`): the
+   * column and the eight round it are made again.
+   */
+  builtChanged(cx: number, cz: number): void {
+    if (!this.closed) this.touch(cx, cz, 1);
   }
 
   /** A level-0 chunk is no longer drawn: its points go, with the column's cover when it was its last. */

@@ -149,6 +149,8 @@ export function presentVoxelWorlds(ports: VoxelWorldPorts, send: (b: ChunkDrawBa
             // A structure stamp's change, or a shut door's, is one at the mip levels too (its stopping cells stop light there).
             const levels = stream.mips?.maxLevel ?? 0;
             props?.listen((cx, cy, cz, classes, mips) => {
+              // A structure's stamp landed or left: the ground it closes grows nothing, the ground it bares grows again.
+              if (classes) growing?.builtChanged(cx, cz);
               batcher.walkChanged(0, cx, cy, cz);
               if (classes || mips) for (let l = 1; l <= levels; l++) batcher.walkChanged(l, cx >> l, cy >> l, cz >> l);
             });
