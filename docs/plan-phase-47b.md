@@ -1578,7 +1578,13 @@ Each defect was reproduced or read from 47T's pictures first; the diagnostic pic
     came back 2 s later with cover**, one round each, so not resolved; a cover job was taking one worker in four
     while derives waited, and cover now asks for none then (e9d1269e): **not read again**.
   - Medium and high: unverified on target hardware.
-- **Gate:** see the end of this section.
+- **Gate:** before it, the generators (reference: 5 pages changed; typings and graph API: nothing; 6 s), `npm run
+  build` (25 s), `npm run lint` (96 s, uncached) green; the manual's links test red once (the reference's limits
+  pages are cut by size and `MAX_INSTANCES` moved to the next page: one guide link repointed), then green (1 s).
+  `tools/gate.sh check` once: GREEN in 265 s (build 26 s, lint 10 s, unit 204 s: 983 files passed; boot 5 passed,
+  25 s). No second call. The three new unit files take about 20 s together (10, 5 and 5 s); the runtime file grew
+  by about 6 s. Picture time 293 s (three takes of L25 and L26, two of the editor screen); the readings 1,279 s
+  (four headroom runs, one failed; two coverage rounds).
 - **Unverified:** anything in motion (wind, bending under an interactor, cover arriving round a walking camera,
   the thinning at the reach while moving); an exported game's cover; cover at night and under lamps; cover on a
   world of 16-cell chunks; the budget's thinning in a picture; the Scene view close up, round a structure and
