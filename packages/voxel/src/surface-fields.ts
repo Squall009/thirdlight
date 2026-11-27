@@ -80,8 +80,8 @@
  * result made from a chunk column drops it when a change's parts are among
  * these, in the column or one beside it.
  */
-import { VOXEL_SIZE_M } from './coords';
-import { DERIVED_PART, fillLevel, SHAPE_FULL, valueMaterial, valueRole, valueShape, valueWetness } from './record';
+import { cellInWorld, VOXEL_SIZE_M } from './coords';
+import { DERIVED_PART, fillLevel, SHAPE_FULL, valueMaterial, valueOf, valueRole, valueShape, valueWetness, type VoxelRecord } from './record';
 import { BODY_ROLE, roleLookup } from './role-traits';
 
 /** How far the two distance fields are searched, and their value where nothing lies within it (metres). */
@@ -750,5 +750,53 @@ export function surfaceCellsSource(cells: SurfaceCells): SurfaceSource {
       return i >= 0 && built[i] === 1;
     } }),
     top: () => oy + sy - 1,
+  };
+}
+
+/** What {@link streamerSurfaceSource} reads of a streamer: its chunks' size, which are loaded, and a cell's record. */
+export interface SurfaceStreamerView {
+  readonly grid: { readonly shift: number };
+  isResident(cx: number, cy: number, cz: number): boolean;
+  voxelAt(x: number, y: number, z: number, out: VoxelRecord): unknown;
+}
+
+/**
+ * A streamer's loaded cells as the per-point form reads them, for a point in
+ * the cell row `y`: a chunk not loaded is not known; outside `extent` (a
+ * grid's chunk box, inclusive; null: no bound) and outside the world is air.
+ * The open space over a surface is read as far up as chunks are loaded over
+ * the point's own.
+ */
+export function streamerSurfaceSource(s: SurfaceStreamerView, extent: { readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number] } | null, y: number): SurfaceSource {
+  const sh = s.grid.shift;
+  const cell: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+  // Reads run along columns: the last chunk asked is remembered.
+  let kx = 0;
+  let ky = 0;
+  let kz = 0;
+  let known = -1;
+  const state = (cx: number, cy: number, cz: number): number => {
+    if (known >= 0 && cx === kx && cy === ky && cz === kz) return known;
+    kx = cx;
+    ky = cy;
+    kz = cz;
+    const outside = extent !== null && (cx < extent.min[0] || cx > extent.max[0] || cy < extent.min[1] || cy > extent.max[1] || cz < extent.min[2] || cz > extent.max[2]);
+    return (known = outside ? 0 : s.isResident(cx, cy, cz) ? 1 : 2);
+  };
+  return {
+    cellM: VOXEL_SIZE_M,
+    value: (x, r, z) => {
+      if (!cellInWorld(x, r, z)) return 0;
+      const st = state(x >> sh, r >> sh, z >> sh);
+      if (st === 0) return 0;
+      if (st === 2) return SURFACE_UNKNOWN;
+      s.voxelAt(x, r, z, cell);
+      return valueOf(cell);
+    },
+    top: (x, z) => {
+      let cy = y >> sh;
+      while (cellInWorld(x, (cy + 1) << sh, z) && state(x >> sh, cy + 1, z >> sh) === 1) cy++;
+      return ((cy + 1) << sh) - 1;
+    },
   };
 }

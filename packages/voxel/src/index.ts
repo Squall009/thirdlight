@@ -270,6 +270,8 @@ export {
   surfaceTable,
   surfaceTop,
   surfaceWallRows,
+  streamerSurfaceSource,
+  type SurfaceStreamerView,
   type SurfaceCells,
   type SurfaceFieldColumns,
   type SurfaceFieldName,

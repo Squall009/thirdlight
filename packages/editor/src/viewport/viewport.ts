@@ -361,6 +361,7 @@ export class Viewport {
       },
       brushStroke: (entityId, stroke) => this.cb.onBrushStroke?.(entityId, stroke) ?? Promise.resolve(false),
       voxelCells: (world, box) => this.voxels.cells(world, box),
+      voxelSurface: (world, cell) => this.voxels.surface(world, cell),
       structure: {
         pick: (x, y) => {
           const r = new THREE.Raycaster();
@@ -1121,6 +1122,7 @@ export class Viewport {
    * - `listen`: the feed's voxel changes (the structure mode's counts and misfits); returns the unsubscribe;
    * - `waterLeaks`: where the water bodies leak (the backend's reports), marked in the view (an empty list: none);
    * - `splineMarks`: the cells splines' last writes left alone or could not keep, marked the same way;
+   * - `coverClear`: the boxes of the props ground cover keeps clear of, as the view last read them (null: none);
    * - `gasOverlay`: fog drawn by its density (the world mode's switch) or as a game draws it.
    */
   readonly voxelWorlds = {
@@ -1144,6 +1146,7 @@ export class Viewport {
       this.root.setAttribute('data-spline-marks', JSON.stringify(marks.map((m) => m.at)));
       this.requestRender();
     },
+    coverClear: (): Float32Array | null => this.voxels.coverClear(),
     gasOverlay: (on: boolean): void => {
       this.voxels.gasOverlay(on);
       // What the view draws fog as (tests and pictures read it).

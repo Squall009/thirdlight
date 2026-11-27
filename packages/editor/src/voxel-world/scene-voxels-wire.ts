@@ -2,7 +2,7 @@
  * The messages between the editor page and the worker that streams the
  * Scene view's voxel worlds (scene-voxels-worker.ts).
  */
-import type { ChunkDrawBatch, GridPlacement, PieceKitSource, ReliefRingSettings, SectionEdge, WorldLevelsMetres, WorldRingMetres } from '@thirdlight/voxel';
+import { surfacePoint, surfacePointOut, type ChunkDrawBatch, type GridPlacement, type PieceKitSource, type ReliefRingSettings, type SectionEdge, type SurfacePoint, type SurfaceSource, type WorldLevelsMetres, type WorldRingMetres } from '@thirdlight/voxel';
 import type { WorldChange } from './range-world';
 
 /** Page → worker. */
@@ -31,7 +31,9 @@ export type SceneVoxelsIn =
   /** What a ray (world metres) meets first within `maxM` in every world and its drawn grids, each grid in its own frame. */
   | { readonly t: 'pick'; readonly id: number; readonly origin: readonly [number, number, number]; readonly dir: readonly [number, number, number]; readonly maxM: number }
   /** The record values of a box of `world`'s own cells (both corners inclusive), as the view holds them now. */
-  | { readonly t: 'cells'; readonly id: number; readonly world: string; readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number] };
+  | { readonly t: 'cells'; readonly id: number; readonly world: string; readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number] }
+  /** The surface under a cell of `world`'s own lattice and its fields, the two distances with them, as the view holds the cells now. */
+  | { readonly t: 'surface'; readonly id: number; readonly world: string; readonly cell: readonly [number, number, number] };
 
 /** Worker → page. */
 export type SceneVoxelsOut =
@@ -45,7 +47,23 @@ export type SceneVoxelsOut =
   /** A pick's answer: the nearest stop (metres along the ray), its world and grid (0: the world grid), or none. */
   | { readonly t: 'picked'; readonly id: number; readonly hit: ScenePickHit | null }
   /** A box's record values, x outermost, then z, then y (`CELL_NOT_LOADED` where the view holds none); null: the world is not open. */
-  | { readonly t: 'cells'; readonly id: number; readonly values: Uint32Array | null };
+  | { readonly t: 'cells'; readonly id: number; readonly values: Uint32Array | null }
+  /** A surface read's answer (null: the world is not open). */
+  | { readonly t: 'surface'; readonly id: number; readonly read: SceneSurfaceRead | null };
+
+/**
+ * What lies under a cell: a surface with its fields (the ones a dressing
+ * rule reads, distances included), no surface within the per-point form's
+ * reach, or cells the view has not loaded (never a guess).
+ */
+export type SceneSurfaceRead = { readonly state: 'surface'; readonly point: SurfacePoint } | { readonly state: 'none' } | { readonly state: 'unloaded' };
+
+/** The surface under cell (x, y, z) of a world read through `src`, with its distances: the kernel's per-point form, nothing kept. */
+export function sceneSurfaceRead(src: SurfaceSource, cell: readonly [number, number, number]): SceneSurfaceRead {
+  const point = surfacePointOut();
+  const got = surfacePoint(src, cell[0], cell[1], cell[2], true, point);
+  return got === null ? { state: 'unloaded' } : got ? { state: 'surface', point } : { state: 'none' };
+}
 
 /** A cell the view has not loaded, in a `cells` answer (no record value is it: a value's reserved bits are never all set). */
 export const CELL_NOT_LOADED = 0xffffffff;

@@ -16,12 +16,11 @@
  *   its stamp: a stamped cell is closed (no ground under a house's floor, no
  *   sky under its roof) and counts as construction.
  */
-import { cellInWorld, STAMP_CLASS, SURFACE_NO_ROW, SURFACE_UNKNOWN, surfacePoint, surfacePointOut, surfaceRowUnder, valueOf, VOXEL_SIZE_M, type PropLightChannel, type SurfaceSource, type VoxelRecord, type VoxelStreamer } from '@thirdlight/voxel';
+import { cellInWorld, STAMP_CLASS, streamerSurfaceSource, SURFACE_NO_ROW, surfacePoint, surfacePointOut, surfaceRowUnder, VOXEL_SIZE_M, type PropLightChannel, type SurfaceSource, type VoxelStreamer } from '@thirdlight/voxel';
 
 import type { VoxelSurface } from './voxel-api';
 import type { VoxelGridHost } from './voxel-grid-host';
 
-const CELL: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
 const OUT = surfacePointOut();
 
 /** A chunk box (inclusive) a grid's cells lie in; null: no bound (the world grid). */
@@ -29,42 +28,14 @@ type Extent = { readonly min: readonly [number, number, number]; readonly max: r
 
 /**
  * A streamer's cells as the per-point form reads them, for a point in the
- * cell row `y`: not loaded is not known; outside the grid's chunks (and the
- * world) is air. `built`: the world's structure stamps.
+ * cell row `y` (`streamerSurfaceSource`); with `channel`, the world's
+ * structure stamps as `built`.
  */
 function sourceOf(s: VoxelStreamer, extent: Extent, y: number, channel: PropLightChannel | null): SurfaceSource {
+  const src = streamerSurfaceSource(s, extent, y);
+  if (channel === null) return src;
   const sh = s.grid.shift;
   const m = s.grid.mask;
-  // Reads run along columns: the last chunk asked is remembered.
-  let kx = 0;
-  let ky = 0;
-  let kz = 0;
-  let known = -1;
-  const state = (cx: number, cy: number, cz: number): number => {
-    if (known >= 0 && cx === kx && cy === ky && cz === kz) return known;
-    kx = cx;
-    ky = cy;
-    kz = cz;
-    const outside = extent !== null && (cx < extent.min[0] || cx > extent.max[0] || cy < extent.min[1] || cy > extent.max[1] || cz < extent.min[2] || cz > extent.max[2]);
-    return (known = outside ? 0 : s.isResident(cx, cy, cz) ? 1 : 2);
-  };
-  const src: SurfaceSource = {
-    cellM: VOXEL_SIZE_M,
-    value: (x, r, z) => {
-      if (!cellInWorld(x, r, z)) return 0;
-      const st = state(x >> sh, r >> sh, z >> sh);
-      if (st === 0) return 0;
-      if (st === 2) return SURFACE_UNKNOWN;
-      return valueOf(s.voxelAt(x, r, z, CELL));
-    },
-    top: (x, z) => {
-      // As far up as chunks are loaded over the point's own.
-      let cy = y >> sh;
-      while (cellInWorld(x, (cy + 1) << sh, z) && state(x >> sh, cy + 1, z >> sh) === 1) cy++;
-      return ((cy + 1) << sh) - 1;
-    },
-  };
-  if (channel === null) return src;
   return {
     ...src,
     built: (x, r, z) => {

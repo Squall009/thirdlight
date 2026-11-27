@@ -34,6 +34,10 @@
  *   seed, the drag its level, the release one flood stroke or one object
  *   made; the brush's cursor and trail are off.
  *
+ * - the **rules probe** (`voxel-rules-probe.ts`): armed with it, the pointer
+ *   reads the surface under it for the Rules rail and a click pins the
+ *   read; nothing is sent.
+ *
  * Tests read `data-voxel-brush`: the tool, the cell under the pointer, the
  * stroke in flight and the last one sent.
  *
@@ -51,6 +55,7 @@ import { BrushControl } from './brush-control';
 import { BrushCursor, tokenColour } from './brush-cursor';
 import type { ToolPress } from './tool-input';
 import { VoxelFillGesture, type VoxelFillArm, type VoxelFillCallbacks } from './voxel-fill-gesture';
+import { VoxelRulesProbe, type RulesProbeHost, type RulesProbeRead } from './voxel-rules-probe';
 
 /** What an edit mode arms the brush with. */
 export interface VoxelBrushArm {
@@ -75,6 +80,8 @@ export interface VoxelBrushArm {
   readonly density?: number;
   /** A fill has the tool in place of the brush: a press is a seed, the drag its level. */
   readonly fill?: VoxelFillArm;
+  /** The rules probe has the tool in place of the brush: the pointer reads the surface under it, a click pins the read. */
+  readonly probe?: boolean;
 }
 
 export interface VoxelBrushHost {
@@ -88,6 +95,8 @@ export interface VoxelBrushHost {
   place(entityId: string): GridPlacement | null;
   /** The record values of a box of a world's own cells as the view holds them (null: not known); absent: the view reads none. */
   cells?(world: string, box: CellBoxRead): Promise<Uint32Array | null> | null;
+  /** The surface under a cell of a world's own lattice with its fields, as the view holds its cells; absent: the view reads none. */
+  surface?: RulesProbeHost['surface'];
 }
 
 export interface VoxelBrushCallbacks {
@@ -101,6 +110,8 @@ export interface VoxelBrushCallbacks {
   send?: VoxelFillCallbacks['send'];
   depth?: VoxelFillCallbacks['depth'];
   made?: VoxelFillCallbacks['made'];
+  /** What the rules probe reads under the pointer (null: nothing); absent: the mode arms no probe. */
+  probe?(read: RulesProbeRead | null): void;
 }
 
 /** Where a lattice stands: its cell 0's corner and its turn about the vertical. */
@@ -113,6 +124,8 @@ type ToWorld = (x: number, y: number, z: number) => readonly [number, number, nu
 const TRAIL_LIFT_M = 0.06;
 /** Drawn after the scene, with the brush cursor. */
 const ORDER = 22;
+/** The rules probe's ring: a cell and a half across, so the cell read shows inside it. */
+const PROBE_RING_M = VOXEL_SIZE_M * 0.75;
 
 interface Stroke {
   readonly kind: VoxelBrushKind;
@@ -150,6 +163,7 @@ export class VoxelBrushTool {
   private stamp = '';
   private unstore: (() => void) | null = null;
   private readonly fill: VoxelFillGesture;
+  private readonly probe: VoxelRulesProbe;
 
   constructor(private readonly host: VoxelBrushHost, private readonly cb: VoxelBrushCallbacks) {
     this.fill = new VoxelFillGesture(host, () => ({
@@ -159,6 +173,7 @@ export class VoxelBrushTool {
       depth: (m) => cb.depth?.(m),
       made: (what, id) => cb.made?.(what, id),
     }));
+    this.probe = new VoxelRulesProbe(host, (read) => cb.probe?.(read));
     this.cursor = new BrushCursor(host.overlay, 'voxel-brush-cursor');
     this.control = new BrushControl({ canvas: host.canvas(), surfaceAt: () => this.hoverPoint(), ctrlChanged: () => this.redraw() });
     const line = (): THREE.LineBasicMaterial => new THREE.LineBasicMaterial({ color: tokenColour('--brush'), depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 });
@@ -184,7 +199,9 @@ export class VoxelBrushTool {
   /** Arm the brush (null: off; a stroke in flight is dropped). */
   arm(a: VoxelBrushArm | null): void {
     const was = this.arming;
-    if (a?.kind !== was?.kind || a?.grid !== was?.grid || a?.world !== was?.world || a?.navigate !== was?.navigate || a?.fill?.kind !== was?.fill?.kind) this.cancel();
+    if (a?.kind !== was?.kind || a?.grid !== was?.grid || a?.world !== was?.world || a?.navigate !== was?.navigate || a?.fill?.kind !== was?.fill?.kind || a?.probe !== was?.probe) this.cancel();
+    // A read stays while the Rules rail is shown (pinned, the pointer may be on the column), and goes with it.
+    if (a?.probe !== true || a.world !== was?.world) this.probe.reset();
     // A refused flood's marks stay while the fill tools are in hand, and go with them.
     if (a?.fill === undefined || a.navigate || a.world !== was?.world) this.fill.reset();
     if (a?.store !== was?.store) {
@@ -193,8 +210,8 @@ export class VoxelBrushTool {
     }
     this.arming = a;
     const on = a !== null && !a.navigate;
-    // A fill has no brush: its keys and in-view drags are off.
-    const brush = on && a.fill === undefined;
+    // A fill and the rules probe have no brush: its keys and in-view drags are off.
+    const brush = on && a.fill === undefined && a.probe !== true;
     this.control.setStore(brush ? a.store : null, brush ? this.controlUses(a) : []);
     this.control.arm(brush);
     if (!on) this.hover = null;
@@ -214,7 +231,7 @@ export class VoxelBrushTool {
   // ---- input ---------------------------------------------------------------------------------
 
   key(e: KeyboardEvent): boolean {
-    if (!this.armed() || this.stroke !== null || this.arming?.fill !== undefined) return false;
+    if (!this.armed() || this.stroke !== null || this.arming?.fill !== undefined || this.arming?.probe === true) return false;
     return this.control.key(e);
   }
 
@@ -225,6 +242,11 @@ export class VoxelBrushTool {
     // A stroke starts on a cell of the armed grid under the pointer (a press elsewhere is the view's).
     const h = this.hover;
     if (h === null || !this.mine(a, h)) return null;
+    if (a.probe === true) {
+      this.probe.press(a.world, h);
+      this.redraw();
+      return 'consume';
+    }
     if (a.fill !== undefined) {
       const took = this.fill.press(a.fill, h, e);
       this.redraw();
@@ -286,6 +308,10 @@ export class VoxelBrushTool {
   /** Esc: an F drag's value put back, else the stroke in flight dropped (nothing is sent). */
   cancel(): boolean {
     if (this.control.cancel()) return true;
+    if (this.probe.cancel()) {
+      this.redraw();
+      return true;
+    }
     if (this.fill.cancel()) {
       this.redraw();
       return true;
@@ -399,6 +425,7 @@ export class VoxelBrushTool {
       this.hoverAtPx = [Math.round(x), Math.round(y)];
       const s = this.stroke;
       if (a !== null) this.fill.hover(hit !== null && this.mine(a, hit) ? hit : null);
+      if (a?.probe === true && !a.navigate) this.probe.hover(a.world, hit !== null && this.mine(a, hit) ? hit : null);
       if (s !== null && a !== null && hit !== null && this.mine(a, hit) && s.trail.add(dabCell(s.kind, hit.cell, hit.normal)) > 0) this.say();
       const next = this.pendingPointer;
       this.pendingPointer = null;
@@ -465,6 +492,11 @@ export class VoxelBrushTool {
       return;
     }
     this.fill.draw(null, null);
+    if (a.probe === true) {
+      this.box.visible = false;
+      this.drawProbe();
+      return;
+    }
     this.box.visible = over && a.shape === 'box';
     if (!over) {
       this.cursor.hide();
@@ -492,6 +524,14 @@ export class VoxelBrushTool {
       this.cursor.place({ centre: new THREE.Vector3(mid[0], h.normal[1] > 0 ? centre.y : mid[1], mid[2]), rx: radius, rz: radius, maskOrigin: [place.position[0], place.position[2]], fill });
     } else if (normal.lengthSq() > 0.5) this.cursor.place({ centre, rx: radius, rz: radius, normal: normal.normalize(), fill });
     else this.cursor.hide();
+  }
+
+  /** The rules probe's mark: a small ring on the ground where the read stands (filled while it follows the pointer, a plain ring once pinned). */
+  private drawProbe(): void {
+    const r = this.probe.current();
+    if (r === null) return this.cursor.hide();
+    this.cursor.setLook({ falloff: 'constant', hardness: 1, strength: 1, mask: null, state: 'paint' });
+    this.cursor.place({ centre: new THREE.Vector3(r.at[0], r.at[1], r.at[2]), rx: PROBE_RING_M, rz: PROBE_RING_M, fill: !r.pinned });
   }
 
   /** The stroke's dabs as a line through their cells' middles (grid metres). */
@@ -524,7 +564,7 @@ export class VoxelBrushTool {
     }
     this.draw();
     const h = this.hover;
-    const mark = JSON.stringify({ kind: a.kind, navigate: a.navigate, world: a.world, grid: a.grid, shape: a.shape, across: brushCells(a.store.get().size), stroke: this.stroke === null ? null : { kind: this.stroke.kind, dabs: this.stroke.trail.cells.length }, hover: h === null ? null : { grid: h.grid, cell: h.cell, normal: h.normal, at: this.hoverAtPx, mine: this.mine(a, h) }, cursor: this.cursor.visible(), last: this.last, ...(a.fill !== undefined ? { fill: this.fill.mark(a.fill) } : {}) });
+    const mark = JSON.stringify({ kind: a.kind, navigate: a.navigate, world: a.world, grid: a.grid, shape: a.shape, across: brushCells(a.store.get().size), stroke: this.stroke === null ? null : { kind: this.stroke.kind, dabs: this.stroke.trail.cells.length }, hover: h === null ? null : { grid: h.grid, cell: h.cell, normal: h.normal, at: this.hoverAtPx, mine: this.mine(a, h) }, cursor: this.cursor.visible(), last: this.last, ...(a.fill !== undefined ? { fill: this.fill.mark(a.fill) } : {}), ...(a.probe === true ? { probe: this.probe.current() } : {}) });
     if (mark !== this.stamp) {
       this.stamp = mark;
       root.setAttribute('data-voxel-brush', mark);

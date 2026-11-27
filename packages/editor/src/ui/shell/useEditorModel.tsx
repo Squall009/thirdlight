@@ -412,7 +412,7 @@ export function useEditorModel() {
   const structureTools = useStructureTools({ clientRef, viewportRef, materials, entities, sceneId: activeScene?.sceneId ?? null, setNotice, created: (id) => void (enterEditModeRef.current(id, 'structure') || setSelectedId(id)) });
 
   // The voxel brush (the world edit mode, a structure's hand edits) and its palette.
-  const voxelBrush = useVoxelBrush({ clientRef, viewportRef, materials });
+  const voxelBrush = useVoxelBrush({ clientRef, viewportRef, materials, dressings: content.dressings });
 
   const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo });
 

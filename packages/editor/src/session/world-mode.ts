@@ -3,8 +3,9 @@
  * arms (Sculpt: Add, Dig, Smooth, Flatten; Paint: a material and a wetness
  * through the noise mask, or with a gas picked the fog brush: paint at a
  * density, erase, smooth; Fill: fog to a level, a drain, a water body;
- * Splines: a road, a path or a river started), what each writes, and the
- * material palettes as tiles (a base material heading its variants).
+ * Splines: a road, a path or a river started; Rules: the probe that reads
+ * the surface under the pointer), what each writes, and the material
+ * palettes as tiles (a base material heading its variants).
  *
  * Pure.
  */
@@ -15,7 +16,7 @@ import type { PaletteLayer } from './layer-palette';
 import { addRoleOf, type VoxelBrushKind, type VoxelBrushVoxel, type VoxelPaletteEntry } from './voxel-brush';
 import { fogDensity, splineStartVoxels, type SplineStartKind, type SplineStartVoxels, type VoxelFillKind } from './voxel-fill';
 
-export type WorldRail = 'sculpt' | 'paint' | 'fill' | 'spline';
+export type WorldRail = 'sculpt' | 'paint' | 'fill' | 'spline' | 'rules';
 export type SculptKind = Extract<VoxelBrushKind, 'add' | 'dig' | 'smooth' | 'flatten'>;
 export type FogKind = Extract<VoxelBrushKind, 'fog' | 'fog-erase' | 'fog-smooth'>;
 export type FillKind = Exclude<VoxelFillKind, 'spline'>;
@@ -81,8 +82,11 @@ export const SPLINE_TOOLS = [
   { id: 'river', label: 'River', glyph: 'drop', key: 'V', hint: 'Drag on the ground from the river\'s source along its first stretch; it is made as a spline and handed to its handles.' },
 ] as const;
 
+/** The Rules rail's one tool: the probe. */
+export const RULES_TOOLS = [{ id: 'read', label: 'Read', glyph: 'info', key: 'I', hint: 'Move over the ground to read what grows there and why not; click to hold the read where it is (Esc lets go).' }] as const;
+
 /** The settings each rail's brush uses (the panel's rows, the keys); a fill and a spline have no brush. */
-export const WORLD_BRUSH_USES: Readonly<Record<WorldRail, readonly BrushUse[]>> = Object.freeze({ sculpt: ['size', 'spacing', 'invert'], paint: ['size', 'spacing', 'mask'], fill: [], spline: [] });
+export const WORLD_BRUSH_USES: Readonly<Record<WorldRail, readonly BrushUse[]>> = Object.freeze({ sculpt: ['size', 'spacing', 'invert'], paint: ['size', 'spacing', 'mask'], fill: [], spline: [], rules: [] });
 /** The fog brush's settings: its size and spacing, and Ctrl swapping paint and erase. */
 export const FOG_BRUSH_USES: readonly BrushUse[] = Object.freeze(['size', 'spacing', 'invert']);
 
@@ -109,6 +113,8 @@ export interface WorldBrushArming {
   /** A fog paint's density (the fog brush). */
   readonly density?: number;
   /** A fill has the tool in place of the brush (the Fill rail, the spline entry). */
+  /** The rules probe has the tool in place of the brush (the Rules rail): the pointer reads, nothing is written. */
+  readonly probe?: boolean;
   readonly fill?: { readonly kind: VoxelFillKind; readonly material: number | null; readonly depthM: number; readonly reachM: number; readonly fadeM: number; readonly sceneId: string | null; readonly spline?: SplineStartVoxels | null };
 }
 
@@ -133,10 +139,12 @@ export function paintsFog(s: WorldBrushState, palettes: Pick<WorldPalettes, 'pai
  * a gas picked, the fog brush (the gas, dry, at the density; a hard rim but
  * for Smooth). Fill: fog (the picked gas), a drain or a water body (the
  * picked liquid) at the depth, reach and fade set. Splines: a road or path
- * of the picked ground material, a river of the picked liquid. `sceneId`:
+ * of the picked ground material, a river of the picked liquid. Rules: the
+ * probe, which writes nothing. `sceneId`:
  * the scene a made object goes into.
  */
 export function worldBrushArming(rail: WorldRail, s: WorldBrushState, palettes: WorldPalettes, sceneId: string | null = null): WorldBrushArming {
+  if (rail === 'rules') return { kind: 'paint', shape: s.shape, soft: false, voxel: null, uses: WORLD_BRUSH_USES.rules, probe: true };
   if (rail === 'fill' || rail === 'spline') {
     const gas = pickedEntry(palettes.gas, s.gas);
     const liquid = pickedEntry(palettes.liquid, s.liquid);

@@ -190,6 +190,8 @@ export interface ViewportToolsHost {
   structure: Pick<StructureToolHost, 'pick' | 'place' | 'preview'>;
   /** A box of a voxel world's own cells as the view holds them (what a fog stroke reads before it names its cells). */
   voxelCells: NonNullable<VoxelBrushHost['cells']>;
+  /** The surface under a cell of a world's own lattice with its fields, as the view's worker holds its cells. */
+  voxelSurface: NonNullable<VoxelBrushHost['surface']>;
   brush: Omit<InstanceBrushDeps, 'refused'>;
   brushStroke(entityId: string, stroke: InstanceStroke): Promise<boolean>;
 }
@@ -244,7 +246,7 @@ export class ViewportTools {
       },
     );
     this.voxelBrush = new VoxelBrushTool(
-      { overlay: host.overlay, camera: host.camera, canvas: () => host.canvas(), requestRender: () => host.requestRender(), pick: host.structure.pick, place: (id) => host.structure.place(id), cells: (w, box) => host.voxelCells(w, box) },
+      { overlay: host.overlay, camera: host.camera, canvas: () => host.canvas(), requestRender: () => host.requestRender(), pick: host.structure.pick, place: (id) => host.structure.place(id), cells: (w, box) => host.voxelCells(w, box), surface: (w, cell) => host.voxelSurface(w, cell) },
       {
         stroke: (w, c) => this.voxelBrushCb?.stroke(w, c) ?? off(),
         refused: (m) => this.voxelBrushCb?.refused(m),
@@ -252,6 +254,7 @@ export class ViewportTools {
         send: (op, args) => this.voxelBrushCb?.send?.(op, args) ?? Promise.resolve({ ok: false, code: 'no_sender', message: 'the mode sends no fill' }),
         depth: (m) => this.voxelBrushCb?.depth?.(m),
         made: (what, id) => this.voxelBrushCb?.made?.(what, id),
+        probe: (read) => this.voxelBrushCb?.probe?.(read),
       },
     );
     // The voxel brush before the structure tool: a structure's hand edits arm both, the structure tool in Navigate.

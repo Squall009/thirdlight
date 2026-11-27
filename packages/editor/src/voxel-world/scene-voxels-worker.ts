@@ -30,10 +30,10 @@
  * view runs no structure stamps, so a rule's distance to construction reads
  * the world grid's own cells only.
  */
-import { ChunkCoverStream, ChunkDrawBatcher, chunkDrawBatchTransfer, chunkKey, streamerWalkSource, VOXEL_SIZE_M, walkRay, walkWithGrids, worldPieceTable, worldStreamer, type ChunkCoord, type GridPlacement, type PieceKitSource, type VoxelStreamer, type WalkSource } from '@thirdlight/voxel';
+import { ChunkCoverStream, ChunkDrawBatcher, chunkDrawBatchTransfer, chunkKey, streamerSurfaceSource, streamerWalkSource, VOXEL_SIZE_M, walkRay, walkWithGrids, worldPieceTable, worldStreamer, type ChunkCoord, type GridPlacement, type PieceKitSource, type VoxelStreamer, type WalkSource } from '@thirdlight/voxel';
 import { RangeWorld, type WorldChange } from './range-world';
 import { SceneGridStream } from './scene-voxels-grids';
-import { CELL_NOT_LOADED, type SceneVoxelsIn, type SceneVoxelsOut } from './scene-voxels-wire';
+import { CELL_NOT_LOADED, sceneSurfaceRead, type SceneSurfaceRead, type SceneVoxelsIn, type SceneVoxelsOut } from './scene-voxels-wire';
 
 interface Streamed {
   readonly name: string;
@@ -238,6 +238,12 @@ function cells(m: Extract<SceneVoxelsIn, { t: 'cells' }>): Uint32Array | null {
   return out;
 }
 
+/** The surface under a cell of a world's own lattice, from the cells the streamer holds (null: the world is not open here). */
+function surface(m: Extract<SceneVoxelsIn, { t: 'surface' }>): SceneSurfaceRead | null {
+  const streamer = worlds.get(m.world)?.streamer ?? null;
+  return streamer === null ? null : sceneSurfaceRead(streamerSurfaceSource(streamer, null, m.cell[1]), m.cell);
+}
+
 scope.onmessage = (e) => {
   const m = e.data;
   switch (m.t) {
@@ -282,6 +288,9 @@ scope.onmessage = (e) => {
       post({ t: 'cells', id: m.id, values }, values === null ? [] : [values.buffer]);
       break;
     }
+    case 'surface':
+      post({ t: 'surface', id: m.id, read: surface(m) });
+      break;
     case 'changed': {
       const w = worlds.get(m.world);
       if (w === undefined) break;

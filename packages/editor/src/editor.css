@@ -988,6 +988,14 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-material-layers__table thead th { text-align: center; }
 .tl-material-layers__table td { padding: 1px 2px; }
 .tl-material-layers__table .tl-input--num { width: 4.5em; }
+/* The world editor's Rules rail: the species at the cursor and the surface's fields. */
+.tl-world-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.tl-world-rules__species { color: var(--muted); }
+.tl-world-rules__species.is-growing { color: var(--text); }
+.tl-world-rules__fields { margin: 0; display: grid; gap: 1px; }
+.tl-world-rules__field { display: flex; justify-content: space-between; gap: 8px; }
+.tl-world-rules__field dt { color: var(--muted); }
+.tl-world-rules__field dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
 /* The Dressing card of a voxel material: its species entries, a range's three fields in a row, a set's ticks. */
 .tl-dressing { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 4px; }
 .tl-dressing__species { border-left: 2px solid var(--border); margin: 4px 0; padding-left: 6px; }

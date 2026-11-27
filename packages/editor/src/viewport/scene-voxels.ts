@@ -61,7 +61,7 @@ import { pageKitPieces, readVoxelKits, type KitRoute, type ProjectVoxelKits } fr
 import * as THREE from 'three';
 import { textureSlotSetKey, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import type { ProjectedEntity } from '../session/projection';
-import type { ScenePickHit, SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-wire';
+import type { ScenePickHit, SceneSurfaceRead, SceneVoxelsIn, SceneVoxelsOut } from '../voxel-world/scene-voxels-wire';
 import { WaterLeakMarkers, type WaterLeakMark } from './water-leaks';
 
 /** Where the editor reads a project's voxel worlds: the backend's route of a world and the headers it needs. */
@@ -178,6 +178,7 @@ export class SceneVoxels {
   private readonly picks = new Map<number, (hit: ScenePickHit | null) => void>();
   private pickSeq = 0;
   private readonly cellReads = new Map<number, (values: Uint32Array | null) => void>();
+  private readonly surfaceReads = new Map<number, (read: SceneSurfaceRead | null) => void>();
   /** Structure draws moved to their objects (a move, a turn, a drag's frame) and the ms it took in all (diagnostics). */
   private readonly moved = { count: 0, ms: 0, lastMs: 0 };
 
@@ -392,6 +393,9 @@ export class SceneVoxels {
       } else if (m.t === 'cells') {
         this.cellReads.get(m.id)?.(m.values);
         this.cellReads.delete(m.id);
+      } else if (m.t === 'surface') {
+        this.surfaceReads.get(m.id)?.(m.read);
+        this.surfaceReads.delete(m.id);
       } else if (m.t === 'state') {
         this.states.set(m.world, m);
         this.problems.delete(m.world);
@@ -557,6 +561,23 @@ export class SceneVoxels {
     return answer;
   }
 
+  /**
+   * The surface under a cell of a world's own lattice and its fields (the ones a dressing rule reads, distances
+   * included), as the view's worker holds the cells now (null: the world is not open; null at once with no worker).
+   */
+  surface(world: string, cell: readonly [number, number, number]): Promise<SceneSurfaceRead | null> | null {
+    if (this.worker === null) return null;
+    const id = ++this.pickSeq;
+    const answer = new Promise<SceneSurfaceRead | null>((ok) => this.surfaceReads.set(id, ok));
+    this.post({ t: 'surface', id, world, cell });
+    return answer;
+  }
+
+  /** The boxes of the props ground cover keeps clear of, as last told to the worker (world metres, six floats a prop; null: none). */
+  coverClear(): Float32Array | null {
+    return this.clearBoxes;
+  }
+
   /** A world's route as the backend answers it now (its manifest, its grids' files, places, last regenerate reports and hand-edit counts); null: no source or not read. */
   async worldInfo(world: string): Promise<Record<string, unknown> | null> {
     const source = this.host.source;
@@ -655,6 +676,8 @@ export class SceneVoxels {
     this.picks.clear();
     for (const answer of this.cellReads.values()) answer(null);
     this.cellReads.clear();
+    for (const answer of this.surfaceReads.values()) answer(null);
+    this.surfaceReads.clear();
     this.worker?.terminate();
     this.worker = null;
     this.draws.dispose();

@@ -8,7 +8,8 @@
  * construction for Add, those and the gases for Paint, the gases and the
  * liquids for the Fill rail. A fill's commands (a `flood` stroke, a water
  * body or a spline made by `createEntity`) go the same way, their answers
- * read for the leaks a refused flood names.
+ * read for the leaks a refused flood names. The Rules rail's probe writes
+ * nothing: what it reads under the pointer is kept here for its column.
  *
  * The editor never writes voxels itself: the view draws a stroke when the
  * change feed brings its chunks.
@@ -16,13 +17,14 @@
  * Browser-only (React).
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { MaterialDef } from '@thirdlight/project-model';
+import type { DressingDef, MaterialDef } from '@thirdlight/project-model';
 import type { FloodLeakPlace } from '../../session/envelope';
 import { resolvedVoxelParts } from '@thirdlight/project-model/voxel-materials';
 
 import { GAS_PALETTE_USES, LIQUID_PALETTE_USES, PAINT_PALETTE_USES, voxelPalette, type VoxelPaletteEntry } from '../../session/voxel-brush';
 import type { WorldPalettes } from '../../session/world-mode';
 import type { VoxelBrushArm, VoxelBrushCallbacks } from '../../viewport/voxel-brush-tool';
+import type { RulesProbeRead } from '../../viewport/voxel-rules-probe';
 import type { ClientRef, ViewportRef } from './commands';
 
 /** What a mode hears of its fills: the depth a gesture ended at, an object made. */
@@ -37,16 +39,23 @@ export interface VoxelBrushTools {
   readonly palettes: WorldPalettes;
   /** Show fog in the Scene view by its density (the overlay) or as a game draws it. */
   gasOverlay(on: boolean): void;
+  /** What the Rules rail's probe reads under the pointer, or where it was pinned (null: nothing). */
+  readonly probe: RulesProbeRead | null;
+  /** The project's dressings (what the Rules rail answers from). */
+  readonly dressings: readonly DressingDef[];
+  /** The boxes of the props ground cover keeps clear of, as the view last read them (null: none). */
+  coverClear(): Float32Array | null;
   /** What the stroke in flight holds, live (null: none). */
   readonly readout: string | null;
   /** Why the last stroke was not applied (null: none since the last one applied). */
   readonly refusal: string | null;
 }
 
-export function useVoxelBrush(deps: { clientRef: ClientRef; viewportRef: ViewportRef; materials: readonly MaterialDef[] }): VoxelBrushTools {
+export function useVoxelBrush(deps: { clientRef: ClientRef; viewportRef: ViewportRef; materials: readonly MaterialDef[]; dressings: readonly DressingDef[] }): VoxelBrushTools {
   const { clientRef, viewportRef } = deps;
   const [readout, setReadout] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [probe, setProbe] = useState<RulesProbeRead | null>(null);
   const palettes = useMemo<WorldPalettes>(() => {
     const parts = resolvedVoxelParts(deps.materials);
     return { solid: voxelPalette(deps.materials, parts), paint: voxelPalette(deps.materials, parts, PAINT_PALETTE_USES), gas: voxelPalette(deps.materials, parts, GAS_PALETTE_USES), liquid: voxelPalette(deps.materials, parts, LIQUID_PALETTE_USES) };
@@ -87,6 +96,7 @@ export function useVoxelBrush(deps: { clientRef: ClientRef; viewportRef: Viewpor
     },
     depth: (m) => handlers.current.depth?.(m),
     made: (what, id) => handlers.current.made?.(what, id),
+    probe: (read) => setProbe(read),
   }), [clientRef]);
 
   const arm = useCallback((a: VoxelBrushArm | null, on: VoxelFillHandlers = {}): void => {
@@ -96,11 +106,15 @@ export function useVoxelBrush(deps: { clientRef: ClientRef; viewportRef: Viewpor
     if (a === null) {
       setReadout(null);
       setRefusal(null);
+      setProbe(null);
     }
     v.voxelWorlds.brushTool(a, a === null ? null : callbacks);
   }, [viewportRef, callbacks]);
 
   const gasOverlay = useCallback((on: boolean): void => viewportRef.current?.voxelWorlds.gasOverlay(on), [viewportRef]);
 
-  return useMemo(() => ({ arm, gasOverlay, palette, palettes, readout, refusal }), [arm, gasOverlay, palette, palettes, readout, refusal]);
+  const coverClear = useCallback((): Float32Array | null => viewportRef.current?.voxelWorlds.coverClear() ?? null, [viewportRef]);
+  const { dressings } = deps;
+
+  return useMemo(() => ({ arm, gasOverlay, palette, palettes, readout, refusal, probe, dressings, coverClear }), [arm, gasOverlay, palette, palettes, readout, refusal, probe, dressings, coverClear]);
 }

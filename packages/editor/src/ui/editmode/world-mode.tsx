@@ -17,6 +17,11 @@
  *   makes a water body at the click so the lake follows later ground edits.
  * - **Splines**: starts a road, a path or a river as a spline object whose
  *   voxels section is preset, and hands it to the spline's own handles.
+ * - **Rules**: what grows at the cursor and why not. The pointer reads the
+ *   surface under it (its fields, from the view's worker); the column lists
+ *   each species of that material's dressing with "grows" or the condition
+ *   that fails and the value read, and the fields as numbers. It writes
+ *   nothing; the rules are edited on the material's Dressing card.
  *
  * It extends what the editors share and builds no tool of its own: the
  * voxel brush tool on the Scene view (`viewport/voxel-brush-tool.ts`, the
@@ -39,9 +44,11 @@ import { brushStore, type BrushStore } from '../../session/brush';
 import type { ProjectedEntity } from '../../session/projection';
 import { FOG_BRUSH, FOG_BRUSH_BOUNDS, VOXEL_BRUSH, VOXEL_BRUSH_BOUNDS, type VoxelPaletteEntry } from '../../session/voxel-brush';
 import { FILL_LEVEL_STEP_M, floodReachBoundM } from '../../session/voxel-fill';
-import { densityPercent, FILL_TOOLS, FOG_TOOLS, gasOverlayShown, PAINT_TOOLS, paintsFog, paletteTiles, pickedEntry, SCULPT_TOOLS, SPLINE_TOOLS, starterMedium, WORLD_BRUSH_START, worldBrushArming, type FillKind, type FogKind, type SculptKind, type WorldBrushState, type WorldRail } from '../../session/world-mode';
+import { rulesAt } from '../../session/world-rules';
+import { densityPercent, FILL_TOOLS, FOG_TOOLS, gasOverlayShown, PAINT_TOOLS, paintsFog, paletteTiles, pickedEntry, RULES_TOOLS, SCULPT_TOOLS, SPLINE_TOOLS, starterMedium, WORLD_BRUSH_START, worldBrushArming, type FillKind, type FogKind, type SculptKind, type WorldBrushState, type WorldRail } from '../../session/world-mode';
 import { SliderField } from '../brush/SliderField';
 import { useBrush } from '../brush/useBrush';
+import { MODEL_KINDS, useEntryNames } from '../catalog/RefPicker';
 import { freeVoxelId } from '../material/MaterialVoxelSection';
 import { LayerPalette } from '../palette/LayerPalette';
 import { brushPanels } from './brush-panels';
@@ -310,7 +317,73 @@ function SplineColumn(view: SceneModeView): JSX.Element {
   );
 }
 
-const COLUMNS: Readonly<Record<string, (v: SceneModeView) => JSX.Element>> = { sculpt: SculptColumn, paint: PaintColumn, fill: FillColumn, spline: SplineColumn };
+const RULES_HINT = RULES_TOOLS[0].hint;
+
+/** What grows at the cursor and why not, and the surface's fields there. Reads only: the rules are the material's Dressing card's. */
+function RulesColumn(view: SceneModeView): JSX.Element {
+  const { world } = useWorldBrush(view, 'rules');
+  useWorldStatus(view, 'Rules', RULES_HINT, world, { brush: false });
+  const b = view.host.voxelBrush;
+  const probe = b.probe;
+  const read = probe?.read ?? null;
+  const materials = view.host.palette.materials;
+  const answer = useMemo(
+    () => (probe === null || read === null || read.state !== 'surface' ? null : rulesAt({ materials, dressings: b.dressings, point: read.point, x: probe.at[0], z: probe.at[2], clear: b.coverClear() })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `read` is the probe's own answer; the boxes are read when it changes
+    [probe, read, materials, b.dressings],
+  );
+  const names = useEntryNames(answer?.species.map((s) => s.model) ?? [], MODEL_KINDS);
+  return (
+    <div className="tl-world-mode" aria-label="world rules" data-rules-probe={probe === null ? '' : JSON.stringify({ at: probe.at, pinned: probe.pinned, state: read?.state ?? 'unread', grows: answer?.species.map((s) => (s.grows ? 1 : 0)) ?? [] })}>
+      <Section title="Tool">
+        <ToolGrid tools={RULES_TOOLS} active="read" onPick={() => undefined} aria="world rules tool" cols={3} disabled={world === null} />
+      </Section>
+      <Section title="Here" aside={<span className="tl-sec__note">{probe === null ? '' : probe.pinned ? 'held' : 'under the pointer'}</span>}>
+        {probe === null ? (
+          <p className="tl-hint">{RULES_HINT}</p>
+        ) : (
+          <p className="tl-hint">
+            ({probe.at[0].toFixed(2)}, {probe.at[1].toFixed(2)}, {probe.at[2].toFixed(2)}) m{probe.pinned ? ': held; click elsewhere to move it, Esc to let go.' : ': click to hold it.'}
+          </p>
+        )}
+        {probe !== null && read === null && <p className="tl-hint">The view could not read the ground here.</p>}
+        {read?.state === 'unloaded' && <p className="tl-hint">The ground here is not loaded in the view yet: wait for it to settle, or move closer.</p>}
+        {read?.state === 'none' && <p className="tl-hint">No surface here (inside a building's own cells, or open air).</p>}
+      </Section>
+      {answer !== null && (
+        <>
+          <Section title="What grows here" aside={<span className="tl-sec__note">{answer.dressing === null ? answer.material.name : `${answer.material.name} · ${answer.dressing.name}`}</span>}>
+            {answer.note !== null && <p className="tl-hint">{answer.note}</p>}
+            <ul className="tl-world-rules" aria-label="species at the cursor">
+              {answer.species.map((s) => (
+                <li key={s.index} className={`tl-world-rules__species${s.grows ? ' is-growing' : ''}`} data-grows={s.grows ? '1' : '0'} data-why={s.why ?? ''}>
+                  <b>
+                    {s.grows ? '✓' : '✗'} {s.index + 1}. {names.get(s.model) ?? s.model}
+                  </b>{' '}
+                  {s.text}
+                </li>
+              ))}
+            </ul>
+            {answer.dressing !== null && <p className="tl-hint">The rules are edited on the material's Dressing card (Project → {answer.material.name} → Voxel use → Dressing). Cover is drawn within about 40 m of the camera.</p>}
+          </Section>
+          <Section title="The ground here">
+            <dl className="tl-world-rules__fields" aria-label="surface fields at the cursor">
+              {answer.fields.map((f) => (
+                <div key={f.name} className="tl-world-rules__field">
+                  <dt>{f.label}</dt>
+                  <dd>{f.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="tl-hint">These are the numbers a species' conditions are checked against at this point.</p>
+          </Section>
+        </>
+      )}
+    </div>
+  );
+}
+
+const COLUMNS: Readonly<Record<string, (v: SceneModeView) => JSX.Element>> = { sculpt: SculptColumn, paint: PaintColumn, fill: FillColumn, spline: SplineColumn, rules: RulesColumn };
 
 export const worldMode: SceneEditModeKind = {
   scope: 'scene',
@@ -335,6 +408,7 @@ export const worldMode: SceneEditModeKind = {
     { id: 'paint', label: 'Paint', glyph: 'paint', hint: 'Paint a material and a wetness on the ground; with a gas picked, paint, erase and smooth fog.', navigate: WHAT_NAVIGATE },
     { id: 'fill', label: 'Fill', glyph: 'fill', hint: 'Fill a hollow with fog to a level, drain it, or make a water body in a basin.', navigate: WHAT_NAVIGATE },
     { id: 'spline', label: 'Splines', glyph: 'ramp', hint: 'Start a road, a path or a river as a spline that writes voxels.', navigate: WHAT_NAVIGATE },
+    { id: 'rules', label: 'Rules', glyph: 'rules', hint: 'Read what grows at a point of the ground and why not: the conditions at the cursor.', navigate: WHAT_NAVIGATE },
   ],
   tools: ['voxel-brush'],
   column: (view) => {
