@@ -75,7 +75,7 @@ import {
   type ShippedVoxelWorld,
   WORLD_RULES,
 } from '@thirdlight/voxel';
-import { readKtx2Layout, readRuntimeContentSync, textureSlotSetKey, voxelSurfaceTextures, type MaterialVoxel, type VoxelKit, type VoxelKitMesh } from '@thirdlight/project-model';
+import { coverPointAt, readKtx2Layout, readRuntimeContentSync, textureSlotSetKey, voxelCoverOfCells, voxelCoverTable, voxelSurfaceTextures, type DressingDef, type MaterialDef, type MaterialVoxel, type VoxelKit, type VoxelKitMesh } from '@thirdlight/project-model';
 import { glbBytes, hexToBytes } from '@thirdlight/shared';
 import { importRead, RegionWorld, writeVoxelWorld } from '@thirdlight/workspace';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -84,6 +84,8 @@ import * as THREE from 'three';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { brushStore, resetBrushStores } from '../../../packages/editor/src/session/brush';
+import { materialWithDressing, noiseWith, rangeWith, withCondition, withSpecies, withSpeciesAdded, withSpeciesMoved, withSpeciesRemoved } from '../../../packages/editor/src/session/dressing-edits';
+import { STARTER_GROUNDS, starterGround } from '../../../packages/editor/src/session/world-mode';
 import { FOG_BRUSH, FOG_BRUSH_BOUNDS, surfaceHeightCells, VOXEL_BRUSH, VOXEL_BRUSH_BOUNDS } from '../../../packages/editor/src/session/voxel-brush';
 import { VoxelBrushTool, type VoxelBrushArm } from '../../../packages/editor/src/viewport/voxel-brush-tool';
 import { BackendClient } from '../../../packages/mcp-adapter/src/backend-client';
@@ -1665,5 +1667,118 @@ describe('voxel world routes', () => {
     expect(content.dressings).toEqual([meadow, sparse]);
     expect(content.materials!.find((m) => m['materialId'] === 'grass-dry')!['voxel']).toEqual({ id: 22, use: 'terrain', dressing: 'meadow-sparse' });
     expect(content.dependencies!.map((d) => d.assetId)).toContain(KIT_MODEL.assetId);
+  }, 120_000);
+
+  it("the Basic Kit's starter cover in a project: the kit added, a grass ground made the way the world mode makes it, its Meadow growing on that material's cells, the Dressing card's edits as commands, and an export shipping the dressing with its plants", async () => {
+    const query = async (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => (await command({ op, projectId: PROJECT, args })).json;
+    const send = async (op: string, args: Record<string, unknown>): Promise<{ status: number; json: Record<string, unknown> }> => command({ op, projectId: PROJECT, expectedRevision: (await query('queryProject'))['revision'] as number, requestId: `req-${randomBytes(16).toString('hex')}`, args });
+    const game = async (): Promise<{ dressings: DressingDef[]; materials: MaterialDef[] }> => (await query('queryGameConfig', { omit: ['dialogues'] })) as never;
+    const codeOf = (r: { json: Record<string, unknown> }): string | undefined => (r.json['error'] as { code?: string } | undefined)?.code ?? (r.json['code'] as string | undefined);
+    const PLANTS = ['basic-flower', 'basic-grass', 'basic-pebbles', 'basic-reed'];
+
+    // The kit, as Create → Basic Kit adds it.
+    const added = await fetch(`${base()}/api/v1/projects/${PROJECT}/packs/basic-kit`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: '{}' });
+    expect(added.status, JSON.stringify(await added.clone().json()).slice(0, 600)).toBe(200);
+    const before = await game();
+    expect(before.dressings.map((d) => d.dressingId)).toEqual(expect.arrayContaining(['basic-gravel', 'basic-meadow', 'basic-shore']));
+    // It brought no voxel material: nothing names its dressings yet, so nothing grows.
+    expect(voxelCoverTable(before).dressings.map((d) => d.dressingId).filter((id) => id.startsWith('basic-'))).toEqual([]);
+
+    // "Make a grass material": the world mode's starter ground, with the project's next free voxel id.
+    const taken = new Set(before.materials.flatMap((m) => (m.voxel !== undefined ? [m.voxel.id] : [])));
+    let free = 1;
+    while (taken.has(free)) free++;
+    const grass = starterGround(STARTER_GROUNDS[0], 'starter-grass', free, before.dressings) as unknown as MaterialDef;
+    expect((await send('setMaterial', { material: grass })).status).toBe(200);
+    const now = await game();
+    expect(now.materials.find((m) => m.materialId === 'starter-grass')!.voxel).toEqual({ id: free, use: 'terrain', dressing: 'basic-meadow' });
+    const table = voxelCoverTable(now);
+    const meadowAt = table.dressings.findIndex((d) => d.dressingId === 'basic-meadow');
+    expect(meadowAt).toBeGreaterThanOrEqual(0);
+    expect(table.materials).toContainEqual([free, meadowAt]);
+
+    // Ground of that material, 24 m a side, a pond one cell deep in a corner: the Meadow's grass on the dry part, its
+    // reeds in the water and nowhere else. No species names a material id: each grows on the material naming the dressing.
+    const side = 48;
+    const ground = recordValue(free, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
+    const water = recordValue(900, VOXEL_ROLE.liquid, SHAPE_FULL, 0);
+    const pond = (x: number, z: number): boolean => x >= 30 && x < 42 && z >= 30 && z < 42;
+    const values = new Uint32Array(side * 8 * side);
+    for (let x = 0; x < side; x++) for (let z = 0; z < side; z++) for (let y = 0; y < 8; y++) values[(x * side + z) * 8 + y] = y < 3 ? ground : y === 3 ? (pond(x, z) ? water : ground) : 0;
+    const cells = { sx: side, sy: 8, sz: side, ox: 0, oy: 0, oz: 0, cellM: VOXEL_SIZE_M, values };
+    const grown = voxelCoverOfCells(cells, [4, 4, 20, 20], table);
+    const meadow = grown.sets.filter((x) => x.dressing === 'basic-meadow');
+    const stored = now.dressings.find((d) => d.dressingId === 'basic-meadow')!;
+    const modelsGrown = new Map(meadow.map((x) => [stored.species[x.species]!.model, 0]));
+    for (const set of meadow) {
+      const model = stored.species[set.species]!.model;
+      modelsGrown.set(model, modelsGrown.get(model)! + set.points.count);
+      for (let i = 0; i < set.points.count; i++) {
+        const at = coverPointAt(set.points, i);
+        const px = Math.floor(at.x / VOXEL_SIZE_M);
+        const pz = Math.floor(at.z / VOXEL_SIZE_M);
+        expect(pond(px, pz), `${model} at cell ${px}, ${pz}`).toBe(model === 'basic-reed');
+      }
+    }
+    expect(modelsGrown.get('basic-grass')!).toBeGreaterThan(1000);
+    expect(modelsGrown.get('basic-reed')!).toBeGreaterThan(3);
+    // A ground of another material grows none of it.
+    const other = new Uint32Array(values.map((v) => (v === ground ? recordValue(901, VOXEL_ROLE.terrain, SHAPE_FULL, 0) : v)));
+    expect(voxelCoverOfCells({ ...cells, values: other }, [4, 4, 20, 20], table).sets.filter((x) => x.dressing === 'basic-meadow')).toEqual([]);
+
+    // The Dressing card's edits, each one `setDressing` of the whole record and one undo step.
+    const read = async (): Promise<DressingDef> => (await game()).dressings.find((d) => d.dressingId === 'basic-meadow')!;
+    const edits: [what: string, next: (d: DressingDef) => DressingDef, check: (d: DressingDef) => void][] = [
+      ['density', (d) => withSpecies(d, 0, { density: 3 }), (d) => expect(d.species[0]!.density).toBe(3)],
+      ['a condition', (d) => withCondition(d, 0, 'slope', rangeWith(d.species[0]!.conditions?.slope, { max: 25 })), (d) => expect(d.species[0]!.conditions!.slope).toEqual({ max: 25, fade: 10 })],
+      ['noise', (d) => withCondition(d, 0, 'noise', noiseWith(undefined, { min: 0.4, fade: 0.1 })), (d) => expect(d.species[0]!.conditions!.noise).toEqual({ min: 0.4, fade: 0.1, scale: 8 })],
+      ['a species added', (d) => withSpeciesAdded(d, 'basic-pebbles'), (d) => expect(d.species.map((s) => s.model)).toEqual(['basic-grass', 'basic-flower', 'basic-flower', 'basic-reed', 'basic-pebbles'])],
+      ['reordered', (d) => withSpeciesMoved(d, 4, 0)!, (d) => expect(d.species.map((s) => s.model)).toEqual(['basic-pebbles', 'basic-grass', 'basic-flower', 'basic-flower', 'basic-reed'])],
+      ['removed', (d) => withSpeciesRemoved(d, 0), (d) => expect(d.species.map((s) => s.model)).toEqual(['basic-grass', 'basic-flower', 'basic-flower', 'basic-reed'])],
+      ['large', (d) => withSpecies(d, 3, { class: 'large' }), (d) => expect(d.species[3]!.class).toBe('large')],
+    ];
+    for (const [what, next, check] of edits) {
+      const r = await send('setDressing', { dressing: next(await read()) });
+      expect(r.status, `${what}: ${JSON.stringify(r.json).slice(0, 300)}`).toBe(200);
+      check(await read());
+    }
+    // Seven edits, seven undo steps back to the kit's record.
+    for (let i = 0; i < edits.length; i++) expect((await step()).status).toBe(200);
+    expect(await read()).toEqual(stored);
+    // An edit that changes nothing is refused, not stored as a step.
+    expect(codeOf(await send('setDressing', { dressing: stored }))).toBe('no_change');
+
+    // A variant with a dressing of its own (the card's pick on an instance), and cleared again: it grows its parent's.
+    const dry: MaterialDef = { materialId: 'starter-grass-dry', name: 'Dry grass', shader: 'standard', params: {}, textures: {}, instanceOf: 'starter-grass', voxel: { id: free + 400 } };
+    expect((await send('setMaterial', { material: dry })).status).toBe(200);
+    expect(voxelCoverTable(await game()).materials).toContainEqual([free + 400, voxelCoverTable(await game()).dressings.findIndex((d) => d.dressingId === 'basic-meadow')]);
+    expect((await send('setMaterial', { material: materialWithDressing(dry, 'basic-gravel') })).status).toBe(200);
+    const variant = voxelCoverTable(await game());
+    expect(variant.materials).toContainEqual([free + 400, variant.dressings.findIndex((d) => d.dressingId === 'basic-gravel')]);
+    expect((await send('setMaterial', { material: materialWithDressing(materialWithDressing(dry, 'basic-gravel'), undefined) })).status).toBe(200);
+    expect((await game()).materials.find((m) => m.materialId === 'starter-grass-dry')!.voxel).toEqual({ id: free + 400 });
+
+    // An export ships the Meadow (named by the grass), not Shore or Gravel (named by nothing), and the Meadow's plants
+    // with the material they wear. (A build ships a voxel material when the project holds a voxel world, whose cells
+    // may be of it: the tests above made this project's worlds.)
+    const r = await fetch(`${base()}/api/v1/admin/projects/${PROJECT}/export`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: '{}' });
+    const exported = (await r.json()) as Record<string, unknown>;
+    expect(r.status, JSON.stringify(exported).slice(0, 600)).toBe(200);
+    const out = join(root, 'exports', String(exported['outputDir']));
+    const content = readRuntimeContentSync(JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')), (path) => {
+      try {
+        return new Uint8Array(readFileSync(join(out, path)));
+      } catch {
+        return null;
+      }
+    }) as unknown as { dressings?: DressingDef[]; materials?: MaterialDef[]; assets?: Array<{ assetId: string; materials?: Record<string, string> }>; dependencies?: Array<{ assetId: string }> };
+    const shipped = content.dressings!.map((d) => d.dressingId).filter((id) => id.startsWith('basic-'));
+    expect(shipped).toEqual(['basic-meadow']);
+    expect(content.dressings!.find((d) => d.dressingId === 'basic-meadow')).toEqual(stored);
+    const deps = content.dependencies!.map((d) => d.assetId);
+    for (const id of ['basic-grass', 'basic-flower', 'basic-reed']) expect(deps, id).toContain(id);
+    expect(deps).not.toContain('basic-pebbles');
+    expect(PLANTS.length).toBe(4);
+    expect(content.materials!.map((m) => m.materialId)).toContain('basic-cover');
   }, 120_000);
 });

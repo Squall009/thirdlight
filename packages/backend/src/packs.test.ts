@@ -11,15 +11,23 @@
  *   origin at the bottom centre, transforms applied, whole cells, `_COL`,
  *   LOD0..2, trim UVs inside one row, no vertex colours), within their
  *   triangle budgets;
+ * - the starter cover plants are game-ready cover: three levels each inside
+ *   their triangle budgets (the Blender script's own, kept with the pack),
+ *   the pivot on the ground, no collision node, foliage data in COLOR_0 on
+ *   the plants and none on the stones, one small sRGB atlas (the starter
+ *   dressings' own rules: tools/voxel-bench/starter-cover.test.ts);
  * - `POST …/packs/basic-kit` adds it to a project as ordinary items (the
  *   assets published and inspected, the material, presets, block types and
- *   the kit) as one undo (and redo) step, the kit's references all resolve,
+ *   the kit, the cover's materials and the dressings) as one undo (and redo)
+ *   step, the kit's references all resolve, the dressings' models are the
+ *   project's assets wearing the cover's materials,
  *   a second add is refused, and the kit check (`GET …/kits/basic-kit/check`)
  *   finds its pieces and sheet to the spec.
  */
-import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
-import type { MaterialDef } from '@thirdlight/project-model';
+import type { DressingDef, MaterialDef } from '@thirdlight/project-model';
 import { kitProblems } from '@thirdlight/project-model/kits';
 import { kitPieceChecks, pieceFacts, trimSpecChecks, type KitCheckReport } from '@thirdlight/project-model/kit-checks';
 import { TRIM_STARTER_ROWS, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
@@ -48,7 +56,61 @@ describe('the Basic Kit pack', () => {
     const total = PACK.assets.reduce((n, a) => n + a.bytes, 0);
     // The kit's sheet and pieces download in at most 4 MB.
     expect(total).toBeLessThanOrEqual(4_000_000);
-    expect(PACK.commands.map((c) => c.op)).toEqual(['setMaterial', ...Array(6).fill('setGraph'), ...Array(7).fill('setBlockType'), 'setKit']);
+    expect(PACK.commands.map((c) => c.op)).toEqual(['setMaterial', ...Array(6).fill('setGraph'), ...Array(7).fill('setBlockType'), 'setKit', 'setMaterial', 'setMaterial', ...Array(3).fill('setDressing')]);
+  });
+
+  describe('the starter cover', () => {
+    const SOURCE = JSON.parse(readFileSync(join(REPO, 'packs', 'basic-kit', 'source', 'cover-plants.json'), 'utf8')) as { models: Record<string, { triangles: number[]; budget: number[]; bytes: number; digest: string; material: string }>; texture: { size: number[] } };
+    const PLANTS = ['basic-grass', 'basic-flower', 'basic-reed', 'basic-pebbles'] as const;
+    const COVER_MATERIALS = PACK.commands.filter((c) => c.op === 'setMaterial').map((c) => c.args['material'] as MaterialDef).filter((m) => m.materialId.startsWith('basic-cover'));
+
+    it.each(PLANTS)('%s is a game-ready cover model: three levels inside its budget, on the ground, no collider, the file the script made', (assetId) => {
+      const asset = PACK.assets.find((a) => a.assetId === assetId)!;
+      const made = SOURCE.models[assetId]!;
+      // The file in the pack is the one the Blender script wrote and reported.
+      expect([asset.bytes, asset.sha256]).toEqual([made.bytes, made.digest]);
+      const facts = pieceFacts(fileOf(assetId), assetId);
+      expect(facts.unreadable).toBeNull();
+      expect(facts.pieces).toEqual([assetId]);
+      expect(facts.lods).toEqual([0, 1, 2]);
+      expect(facts.triangles).toEqual(made.triangles);
+      facts.triangles.forEach((n, lod) => expect(n, `LOD${lod}`).toBeLessThanOrEqual(made.budget[lod]!));
+      // Each level well under the one before: a clump far off costs a handful of triangles.
+      expect(facts.triangles[0]).toBeLessThanOrEqual(48);
+      expect(facts.triangles[1]! * 2).toBeLessThan(facts.triangles[0]!);
+      expect(facts.triangles[2]).toBeLessThanOrEqual(7);
+      // Ground cover never collides; its nodes are not moved, turned or scaled.
+      expect(facts.collider).toBe(false);
+      expect(facts.moved).toEqual([]);
+      // The pivot on the ground in the clump's middle: nothing under it, the model round it, under 1.5 m tall.
+      const b = facts.bounds!;
+      expect(b.min[1]).toBeGreaterThanOrEqual(-0.001);
+      expect(b.min[1]).toBeLessThan(0.01);
+      expect(b.max[1]).toBeLessThan(1.5);
+      for (const axis of [0, 2]) {
+        expect(b.min[axis]!).toBeLessThan(0);
+        expect(b.max[axis]!).toBeGreaterThan(0);
+        expect(Math.max(-b.min[axis]!, b.max[axis]!)).toBeLessThan(0.35);
+      }
+      // One material a model, mapped to the kit's; UVs on every level; foliage data on the plants only.
+      const stone = assetId === 'basic-pebbles';
+      expect(facts.surfaces.map((x) => [x.material, x.uvMissing, x.colour])).toEqual([[stone ? 'stone' : 'cover', false, !stone]]);
+      expect(asset.materials).toEqual(stone ? { stone: 'basic-cover-stone' } : { cover: 'basic-cover' });
+      // No image in the file: the kit's material brings the one atlas.
+      expect(new TextDecoder().decode(fileOf(assetId).subarray(0, 4096))).not.toContain('"images"');
+    });
+
+    it('has one small colour atlas, compressed, read by both of its materials', () => {
+      const k = readKtx2(fileOf('basic-cover-albedo'))!;
+      expect([k.width, k.height]).toEqual(SOURCE.texture.size);
+      expect([k.width, k.height]).toEqual([128, 128]);
+      expect(k.levels.length).toBe(8);
+      expect(k.transfer).toBe(KTX2_TRANSFER_SRGB);
+      expect(PACK.assets.find((a) => a.assetId === 'basic-cover-albedo')!.bytes).toBeLessThan(16_000);
+      expect(COVER_MATERIALS.map((m) => [m.materialId, m.shader, m.textures])).toEqual([['basic-cover', 'foliage', { map: 'basic-cover-albedo' }], ['basic-cover-stone', 'standard', { map: 'basic-cover-albedo' }]]);
+      // The four models together are a few kilobytes.
+      expect(PLANTS.reduce((n, id) => n + PACK.assets.find((a) => a.assetId === id)!.bytes, 0)).toBeLessThan(40_000);
+    });
   });
 
   it('has a trim sheet made to the spec', async () => {
@@ -103,7 +165,8 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     expect((listed.json as { packs: { packId: string }[] }).packs.map((p) => p.packId)).toContain('basic-kit');
     const r = await post(`/api/v1/projects/${P}/packs/basic-kit`, { origin: { kind: 'mcp', clientId: 'packs-test' } });
     expect(r.status, JSON.stringify(r.json).slice(0, 600)).toBe(200);
-    expect(r.json['added'].length).toBe(PACK.assets.length + 2 + PACK.commands.length);
+    // Every asset published, every command run, and a material mapping a model.
+    expect(r.json['added'].length).toBe(PACK.assets.length + PACK.assets.filter((a) => a.materials !== undefined).length + PACK.commands.length);
     const q = await post(`/api/v1/projects/${P}/commands`, { op: 'queryProject', projectId: P, args: {} });
     const content = await api(`${tb.authUrl}/api/v1/projects/${P}/content/assets`, { method: 'GET', token: tb.authToken, origin: null });
     const assets = (content.json as { assets?: { assetId: string; materials?: Record<string, string> }[]; entries?: { assetId: string }[] });
@@ -117,10 +180,22 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     expect(c['blockTypes'].length).toBe(7);
     expect(c['assets'].find((a: { assetId: string }) => a.assetId === 'basic-door').materials).toEqual({ trim: 'basic-trim' });
     expect(kitProblems(c as never)).toEqual([]);
+    // The starter cover: the dressings as the pack holds them, their models the project's own assets wearing the cover's materials.
+    expect(c['dressings'].map((d: { dressingId: string }) => d.dressingId)).toEqual(['basic-gravel', 'basic-meadow', 'basic-shore']);
+    for (const d of c['dressings'] as DressingDef[]) for (const model of d.species.map((x) => x.model)) expect(c['assets'].find((a: { assetId: string }) => a.assetId === model)?.kind, model).toBe('model');
+    expect(c['assets'].find((a: { assetId: string }) => a.assetId === 'basic-grass').materials).toEqual({ cover: 'basic-cover' });
+    expect(c['assets'].find((a: { assetId: string }) => a.assetId === 'basic-pebbles').materials).toEqual({ stone: 'basic-cover-stone' });
+    expect(c['materials'].filter((m: MaterialDef) => m.materialId.startsWith('basic-cover')).map((m: MaterialDef) => m.textures['map'])).toEqual(['basic-cover-albedo', 'basic-cover-albedo']);
+    // The kit brings no voxel material: a project's voxel ids are its own.
+    expect(c['materials'].filter((m: MaterialDef) => m.voxel !== undefined)).toEqual([]);
     // The whole pack is one undo step, and one redo.
     const kitsNow = (): string[] => {
       const read = tb.backend._test.service.readCapturedV3(P);
       return read.ok ? ((read.read.content as unknown as { kits?: { kitId: string }[] }).kits ?? []).map((k) => k.kitId) : [];
+    };
+    const dressingsNow = (): string[] => {
+      const read = tb.backend._test.service.readCapturedV3(P);
+      return read.ok ? ((read.read.content as unknown as { dressings?: { dressingId: string }[] }).dressings ?? []).map((d) => d.dressingId) : [];
     };
     const assetsNow = (): string[] => {
       const read = tb.backend._test.service.readCapturedV3(P);
@@ -135,9 +210,11 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     expect(undone).toBe(r.json['revision'] + r.json['added'].length);
     expect(kitsNow()).toEqual([]);
     expect(assetsNow().filter((id) => id.startsWith('basic-'))).toEqual([]);
+    expect(dressingsNow()).toEqual([]);
     await step('redo', undone, 'b');
     expect(kitsNow()).toEqual(['basic-kit']);
     expect(assetsNow()).toContain('basic-door');
+    expect(dressingsNow()).toEqual(['basic-gravel', 'basic-meadow', 'basic-shore']);
     const again = await post(`/api/v1/projects/${P}/packs/basic-kit`);
     expect(again.status).toBe(409);
     expect(again.json['error'].code).toBe('pack_present');

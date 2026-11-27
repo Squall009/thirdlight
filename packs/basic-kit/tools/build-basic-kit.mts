@@ -13,20 +13,26 @@
  * KTX2 files and `source/layout.json` are kept in the repository, the PNGs
  * are not), (2) builds the door and window GLBs (render levels LOD0–2 and a
  * `_COL` collision mesh each, UV'd in strip space against the spec's rows),
- * and (3) writes `pack.json`. Re-running it gives the same bytes.
+ * (3) takes the starter cover plants from the Blender output of
+ * `cover-plants.py` when its folder is given (`--cover <dir>`: the four
+ * models are copied, their one colour atlas encoded to KTX2, the script's
+ * manifest kept as `source/cover-plants.json`), and (4) writes `pack.json`,
+ * with the cover's two materials and the three starter dressings (Meadow,
+ * Shore, Gravel) that name the plants. Re-running it gives the same bytes.
  *
  * Run (from the repository root):
  *   npx esbuild packs/basic-kit/tools/build-basic-kit.mts --bundle --platform=node \
  *     --format=esm --external:ktx2-encoder --outfile=node_modules/.cache/tl-basic-kit.mjs \
- *     && node node_modules/.cache/tl-basic-kit.mjs [--sheet <dir>]
+ *     && node node_modules/.cache/tl-basic-kit.mjs [--sheet <dir>] [--cover <dir>]
+ * The plants first: `bpipe packs/basic-kit/tools/cover-plants.py --out <dir>`.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { inflateSync } from 'node:zlib';
 
 import * as ktx2 from 'ktx2-encoder';
-import { ARCHITECTURE_PRESET_KIND, type BlockType, type GraphData, type KitDef, type MaterialDef } from '@thirdlight/project-model';
+import { ARCHITECTURE_PRESET_KIND, FOLIAGE_NEAR_METRES, type BlockType, type DressingDef, type GraphData, type KitDef, type MaterialDef } from '@thirdlight/project-model';
 import { decodePngRgba } from '@thirdlight/project-model/png';
 import { trimRowOf, trimRowV, trimSheetFromLayout, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
 
@@ -47,6 +53,16 @@ export const IDS = {
   orm: 'basic-trim-orm',
   door: 'basic-door',
   window: 'basic-window',
+  cover: 'basic-cover',
+  coverStone: 'basic-cover-stone',
+  coverAlbedo: 'basic-cover-albedo',
+  grass: 'basic-grass',
+  flower: 'basic-flower',
+  reed: 'basic-reed',
+  pebbles: 'basic-pebbles',
+  meadow: 'basic-meadow',
+  shore: 'basic-shore',
+  gravel: 'basic-gravel',
 } as const;
 
 /* ---------------------------------------------------------- textures --- */
@@ -436,11 +452,106 @@ const BLOCKS: BlockType[] = [
   { blockId: 'basic-edge-wall', name: 'Edge wall', variants: [{ color: '#ffffff' }], shape: 'full', placement: 'edge' },
 ].map((b) => ({ ...b, materials: { '*': IDS.trim } }) as BlockType);
 
+
+/* ------------------------------------------------------------- cover --- */
+
+/** The starter cover plants (cover-plants.py's output): four models of three levels each, one colour atlas. */
+const COVER_ATLAS = { png: 'cover_albedo.png', file: 'textures/basic-cover-albedo.ktx2', name: 'Basic cover: colour' } as const;
+const COVER_MODELS = [
+  { assetId: IDS.grass, file: 'models/basic-grass.glb', name: 'Grass clump (Basic Kit)', materials: { cover: IDS.cover } },
+  { assetId: IDS.flower, file: 'models/basic-flower.glb', name: 'Flowers (Basic Kit)', materials: { cover: IDS.cover } },
+  { assetId: IDS.reed, file: 'models/basic-reed.glb', name: 'Reeds (Basic Kit)', materials: { cover: IDS.cover } },
+  { assetId: IDS.pebbles, file: 'models/basic-pebbles.glb', name: 'Pebbles (Basic Kit)', materials: { stone: IDS.coverStone } },
+] as const;
+
+async function takeCover(dir: string): Promise<void> {
+  mkdirSync(join(ASSETS, 'models'), { recursive: true });
+  mkdirSync(join(ASSETS, 'textures'), { recursive: true });
+  for (const m of COVER_MODELS) copyFileSync(join(dir, m.file.slice('models/'.length)), join(ASSETS, m.file));
+  const r = decodePngRgba(new Uint8Array(readFileSync(join(dir, COVER_ATLAS.png))), { maxPixels: 4096 * 4096, inflate: (d, max) => new Uint8Array(inflateSync(d, { maxOutputLength: max })) });
+  if (!r.ok) throw new Error(`${COVER_ATLAS.png}: ${r.message}`);
+  const { width, height, rgba } = r.png;
+  // Colour in sRGB: ETC1S, the engine's colour encoding (the atlas's columns are whole blocks wide).
+  const out = await ktx2.encodeToKTX2(new Uint8Array(0), { imageDecoder: async () => ({ width, height, data: rgba }), isUASTC: false, generateMipmap: true, isKTX2File: true, isNormalMap: false, isPerceptual: true, isSetKTX2SRGBTransferFunc: true, qualityLevel: 128, enableDebug: false });
+  writeFileSync(join(ASSETS, COVER_ATLAS.file), out);
+  console.log(`  ${COVER_ATLAS.file}: ${width}×${height}, ${out.byteLength} B`);
+  // What the script made, as it reported it (triangles a level, budgets, bounds): the source of the asset report.
+  const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as { texture: Record<string, unknown> };
+  writeFileSync(join(ROOT, 'source', 'cover-plants.json'), `${JSON.stringify({ ...manifest, texture: { ...manifest.texture, ktx2: { file: COVER_ATLAS.file, bytes: out.byteLength, encoding: 'ETC1S, sRGB, mipmapped' } } }, null, 1)}\n`);
+}
+
+/**
+ * The plants' materials: the foliage shader for the three that sway (the
+ * colour is the atlas's; a leaf's roughness, a little light through it, wind
+ * near the camera only) and a standard one for the stones. Both read the one
+ * atlas.
+ */
+function coverMaterials(): MaterialDef[] {
+  return [
+    { materialId: IDS.cover, name: 'Basic cover plants', shader: 'foliage', params: { color: '#ffffff', roughness: 0.7, metalness: 0, subsurface: 0.3, windDistance: FOLIAGE_NEAR_METRES }, textures: { map: IDS.coverAlbedo } },
+    { materialId: IDS.coverStone, name: 'Basic cover stones', shader: 'standard', params: { color: '#ffffff', roughness: 0.85, metalness: 0 }, textures: { map: IDS.coverAlbedo } },
+  ];
+}
+
+/**
+ * The starter dressings. A species grows on the materials that name its
+ * dressing, so none lists a material id (a kit cannot know a project's
+ * voxel ids): the conditions are the ones a surface answers by itself.
+ * - **Meadow** (for a grass ground): grass under open sky on dry ground;
+ *   flowers in soft patches and along the edge of another material (a
+ *   path's verge), not at a wall's foot; reeds where water stands shallow.
+ * - **Shore** (for a bank of sand or mud): reeds in the shallows, pebbles
+ *   in patches at the waterline, thin grass on the dry part.
+ * - **Gravel** (for a road or a yard): pebbles in patches, grass tufts
+ *   creeping in at its edge.
+ * A water depth range has no fade: a faded lower end would put reeds on the
+ * dry bank.
+ */
+function coverDressings(): DressingDef[] {
+  const dry = { waterDepth: { max: 0 } };
+  const shallows = { waterDepth: { min: 0.05, max: 0.7 } };
+  return [
+    {
+      dressingFormat: 1,
+      dressingId: IDS.meadow,
+      name: 'Meadow',
+      species: [
+        { model: IDS.grass, class: 'cover', density: 7, scale: [0.75, 1.3], align: 0.3, conditions: { slope: { max: 40, fade: 10 }, sky: true, ...dry } },
+        { model: IDS.flower, class: 'cover', density: 1.2, spacing: 0.35, scale: [0.8, 1.2], seed: 3, conditions: { slope: { max: 30, fade: 5 }, sky: true, ...dry, construction: { min: 2 }, noise: { min: 0.62, fade: 0.08, scale: 9, seed: 4 } } },
+        { model: IDS.flower, class: 'cover', density: 2, spacing: 0.35, scale: [0.8, 1.2], seed: 5, conditions: { sky: true, ...dry, materialEdge: { max: 1.5, fade: 0.5 }, construction: { min: 2 } } },
+        { model: IDS.reed, class: 'cover', density: 3, spacing: 0.3, scale: [0.75, 1.25], seed: 7, conditions: shallows },
+      ],
+    },
+    {
+      dressingFormat: 1,
+      dressingId: IDS.shore,
+      name: 'Shore',
+      species: [
+        { model: IDS.reed, class: 'cover', density: 4, spacing: 0.25, scale: [0.75, 1.3], conditions: shallows },
+        { model: IDS.pebbles, class: 'cover', density: 1.5, scale: [0.6, 1.4], seed: 2, conditions: { waterDepth: { max: 0.1 }, noise: { min: 0.45, fade: 0.15, scale: 4, seed: 9 } } },
+        { model: IDS.grass, class: 'cover', density: 1.5, scale: [0.6, 1], seed: 4, conditions: { sky: true, ...dry, noise: { min: 0.55, fade: 0.1, scale: 6, seed: 11 } } },
+      ],
+    },
+    {
+      dressingFormat: 1,
+      dressingId: IDS.gravel,
+      name: 'Gravel',
+      species: [
+        { model: IDS.pebbles, class: 'cover', density: 3, scale: [0.5, 1.4], conditions: { waterDepth: { max: 0.3 }, noise: { min: 0.3, fade: 0.2, scale: 5, seed: 6 } } },
+        { model: IDS.grass, class: 'cover', density: 2, scale: [0.5, 0.9], seed: 8, conditions: { sky: true, ...dry, materialEdge: { max: 0.75, fade: 0.25 } } },
+      ],
+    },
+  ];
+}
+
 async function main(): Promise<void> {
   const sheetAt = process.argv.indexOf('--sheet');
   if (sheetAt >= 0) await encodeMaps(resolve(process.argv[sheetAt + 1] ?? '.'));
+  const coverAt = process.argv.indexOf('--cover');
+  if (coverAt >= 0) await takeCover(resolve(process.argv[coverAt + 1] ?? '.'));
   SPEC = readSheet();
   for (const m of MAPS) if (!existsSync(join(ASSETS, m.file))) throw new Error(`${m.file} is missing: run with --sheet <dir of the Texture Designer's PNGs>`);
+  for (const f of [COVER_ATLAS.file, ...COVER_MODELS.map((m) => m.file)]) if (!existsSync(join(ASSETS, f))) throw new Error(`${f} is missing: run with --cover <dir of cover-plants.py's output>`);
   mkdirSync(join(ASSETS, 'models'), { recursive: true });
   const pieces = [
     { assetId: IDS.door, model: door(), file: 'models/basic-door.glb', name: 'Door (Basic Kit)' },
@@ -452,7 +563,7 @@ async function main(): Promise<void> {
   const kit: KitDef = {
     kitId: IDS.kit,
     name: 'Basic Kit',
-    description: 'The engine’s neutral prototype kit: a trim sheet made to the trim sheet spec, room and rail presets on it, block types wearing it, a placeholder door and window. Change the copies freely; swap the trim material for a sheet of your own made to the same spec.',
+    description: 'The engine’s neutral prototype kit: a trim sheet made to the trim sheet spec, room and rail presets on it, block types wearing it, a placeholder door and window, and starter ground cover for voxel worlds (a grass clump, flowers, reeds and pebbles, with the dressings Meadow, Shore and Gravel that grow them). Change the copies freely; swap the trim material for a sheet of your own made to the same spec.',
     trimMaterial: IDS.trim,
     presets: PRESETS.map((p) => p.graphId),
     blockTypes: BLOCKS.map((b) => b.blockId),
@@ -472,12 +583,16 @@ async function main(): Promise<void> {
     assets: [
       ...MAPS.map((m) => ({ assetId: m.assetId, kind: 'texture', displayName: m.name, ...file(m.file) })),
       ...pieces.map((p) => ({ assetId: p.assetId, kind: 'model', displayName: p.name, ...file(p.file), materials: { trim: IDS.trim } })),
+      { assetId: IDS.coverAlbedo, kind: 'texture', displayName: COVER_ATLAS.name, ...file(COVER_ATLAS.file) },
+      ...COVER_MODELS.map((m) => ({ assetId: m.assetId, kind: 'model', displayName: m.name, ...file(m.file), materials: m.materials })),
     ],
     commands: [
       { op: 'setMaterial', args: { material } },
       ...PRESETS.map((p) => ({ op: 'setGraph', args: { graph: { graphId: p.graphId, kind: ARCHITECTURE_PRESET_KIND, name: p.name, graph: presetGraph(p.base, p.values) } } })),
       ...BLOCKS.map((b) => ({ op: 'setBlockType', args: { block: b } })),
       { op: 'setKit', args: { kit } },
+      ...coverMaterials().map((m) => ({ op: 'setMaterial', args: { material: m } })),
+      ...coverDressings().map((dressing) => ({ op: 'setDressing', args: { dressing } })),
     ],
   };
   writeFileSync(join(ROOT, 'pack.json'), JSON.stringify(pack, null, 2) + '\n');

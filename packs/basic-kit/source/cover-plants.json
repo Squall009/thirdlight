@@ -1,0 +1,119 @@
+{
+ "name": "Basic Kit cover plants",
+ "seed": 7,
+ "models": {
+  "basic-grass": {
+   "file": "basic-grass.glb",
+   "bytes": 7800,
+   "digest": "8e8190917d434cf4d6d95b203645127048b240f4dc0004aa59929cca1c546b77",
+   "triangles": [
+    42,
+    15,
+    3
+   ],
+   "budget": [
+    48,
+    16,
+    4
+   ],
+   "halfExtentAndHeight": [
+    0.278,
+    0.232,
+    0.376
+   ],
+   "material": "cover",
+   "collision": "none"
+  },
+  "basic-flower": {
+   "file": "basic-flower.glb",
+   "bytes": 7076,
+   "digest": "dc626e355635ec9f8e4830b8363e99e9149683a139d33b6e204deb54ae301378",
+   "triangles": [
+    39,
+    14,
+    5
+   ],
+   "budget": [
+    40,
+    14,
+    5
+   ],
+   "halfExtentAndHeight": [
+    0.175,
+    0.172,
+    0.365
+   ],
+   "material": "cover",
+   "collision": "none"
+  },
+  "basic-reed": {
+   "file": "basic-reed.glb",
+   "bytes": 7612,
+   "digest": "5e7ab384138a8fa6d115bdd75e2703bfe4936a4dc2c1028109f4802eac060d72",
+   "triangles": [
+    42,
+    16,
+    5
+   ],
+   "budget": [
+    44,
+    18,
+    6
+   ],
+   "halfExtentAndHeight": [
+    0.258,
+    0.159,
+    1.247
+   ],
+   "material": "cover",
+   "collision": "none"
+  },
+  "basic-pebbles": {
+   "file": "basic-pebbles.glb",
+   "bytes": 9364,
+   "digest": "cf6182b80b75fdee54d9ad3fb0c42d3afe43d45b4a3dd761b697b5291fb45fd4",
+   "triangles": [
+    45,
+    12,
+    7
+   ],
+   "budget": [
+    48,
+    14,
+    7
+   ],
+   "halfExtentAndHeight": [
+    0.224,
+    0.168,
+    0.075
+   ],
+   "material": "stone",
+   "collision": "none"
+  }
+ },
+ "texture": {
+  "file": "cover_albedo.png",
+  "size": [
+   128,
+   128
+  ],
+  "bytes": 15097,
+  "digest": "a70adab7d726963f13008eb8938712b84ccfd638ae72495adfa0eeeb6756edd6",
+  "columns": [
+   "head",
+   "reed",
+   "stem",
+   "green0",
+   "green1",
+   "dry",
+   "petal",
+   "stone"
+  ],
+  "maps": "albedo only (no alpha, no normal, no ORM)",
+  "ktx2": {
+   "file": "textures/basic-cover-albedo.ktx2",
+   "bytes": 4234,
+   "encoding": "ETC1S, sRGB, mipmapped"
+  }
+ }
+}

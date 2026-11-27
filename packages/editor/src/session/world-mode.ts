@@ -173,6 +173,30 @@ export function starterMedium(use: 'gas' | 'liquid', materialId: string, voxelId
   return { materialId, name: use === 'gas' ? 'Mist' : 'Water', shader: 'standard', params: { color: colour }, textures: {}, voxel: { id: voxelId, use, ...(use === 'gas' ? { gas: { color: colour } } : {}) } };
 }
 
+/**
+ * The ground materials the mode offers to make: plain terrain materials that
+ * name the Basic Kit's starter dressings (the kit brings the plants and the
+ * dressings; it cannot bring a voxel material, whose id is the project's
+ * own). `dressing` is the kit's id for it.
+ */
+export const STARTER_GROUNDS = Object.freeze([
+  Object.freeze({ id: 'grass', name: 'Grass', colour: '#6f8f45', dressing: 'basic-meadow', grows: 'grass, flowers in patches and along a path\'s verge, reeds where water stands shallow' }),
+  Object.freeze({ id: 'shore', name: 'Shore', colour: '#b3a57c', dressing: 'basic-shore', grows: 'reeds in the shallows, pebbles at the waterline, thin grass on the dry bank' }),
+  Object.freeze({ id: 'gravel', name: 'Gravel', colour: '#8d8a82', dressing: 'basic-gravel', grows: 'pebbles, and grass tufts at its edge' }),
+] as const);
+export type StarterGround = (typeof STARTER_GROUNDS)[number];
+
+/** A starter ground as a material record: terrain, its plain colour, naming its dressing when the project holds it (else nothing grows on it yet). */
+export function starterGround(g: StarterGround, materialId: string, voxelId: number, dressings: readonly { readonly dressingId: string }[]): Record<string, unknown> {
+  const has = dressings.some((d) => d.dressingId === g.dressing);
+  return { materialId, name: g.name, shader: 'standard', params: { color: g.colour }, textures: {}, voxel: { id: voxelId, use: 'terrain', ...(has ? { dressing: g.dressing } : {}) } };
+}
+
+/** Which starter grounds can still be made: each with whether the project holds its dressing (the Basic Kit was added) and whether a material already names it. */
+export function starterGroundsOffered(materials: readonly { readonly voxel?: { readonly dressing?: string } }[], dressings: readonly { readonly dressingId: string }[]): { readonly ground: StarterGround; readonly dressing: boolean; readonly made: boolean }[] {
+  return STARTER_GROUNDS.map((ground) => ({ ground, dressing: dressings.some((d) => d.dressingId === ground.dressing), made: materials.some((m) => m.voxel?.dressing === ground.dressing) }));
+}
+
 /** A use's heading over the materials that have no variants. */
 const USE_HEADINGS: Readonly<Record<string, string>> = Object.freeze({ terrain: 'Ground', construction: 'Construction', liquid: 'Liquids', gas: 'Gases' });
 

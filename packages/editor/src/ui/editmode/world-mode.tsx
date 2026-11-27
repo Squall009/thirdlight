@@ -45,7 +45,7 @@ import type { ProjectedEntity } from '../../session/projection';
 import { FOG_BRUSH, FOG_BRUSH_BOUNDS, VOXEL_BRUSH, VOXEL_BRUSH_BOUNDS, type VoxelPaletteEntry } from '../../session/voxel-brush';
 import { FILL_LEVEL_STEP_M, floodReachBoundM } from '../../session/voxel-fill';
 import { rulesAt } from '../../session/world-rules';
-import { densityPercent, FILL_TOOLS, FOG_TOOLS, gasOverlayShown, PAINT_TOOLS, paintsFog, paletteTiles, pickedEntry, RULES_TOOLS, SCULPT_TOOLS, SPLINE_TOOLS, starterMedium, WORLD_BRUSH_START, worldBrushArming, type FillKind, type FogKind, type SculptKind, type WorldBrushState, type WorldRail } from '../../session/world-mode';
+import { densityPercent, FILL_TOOLS, FOG_TOOLS, gasOverlayShown, PAINT_TOOLS, paintsFog, paletteTiles, pickedEntry, RULES_TOOLS, SCULPT_TOOLS, SPLINE_TOOLS, STARTER_GROUNDS, starterGround, starterGroundsOffered, starterMedium, WORLD_BRUSH_START, worldBrushArming, type FillKind, type FogKind, type SculptKind, type StarterGround, type WorldBrushState, type WorldRail } from '../../session/world-mode';
 import { SliderField } from '../brush/SliderField';
 import { useBrush } from '../brush/useBrush';
 import { MODEL_KINDS, useEntryNames } from '../catalog/RefPicker';
@@ -83,6 +83,8 @@ const SHAPES: readonly { id: BrushShape; label: string; hint: string }[] = [
   { id: 'box', label: 'Box', hint: 'Whole cells in a cube' },
   { id: 'cylinder', label: 'Cylinder', hint: 'A disc as tall as it is wide' },
 ];
+
+const STARTER_DRESSINGS: ReadonlySet<string> = new Set(STARTER_GROUNDS.map((g) => g.dressing));
 
 const WHAT_NAVIGATE = 'A drag orbits; the ground is changed only with a tool.';
 const NO_WORLD = 'No voxel world in the open scenes: add a voxel world object first.';
@@ -153,7 +155,7 @@ function ShapeSection({ state, set, rim }: { state: WorldBrushState; set: (p: Pa
 }
 
 /** A material palette: the picked tile is what the tool writes. `empty`: what to do when the project has no such material. */
-function MaterialPalette({ view, palette, picked, onPick, title, aria = 'voxel materials', empty = <p className="tl-hint">{NO_MATERIAL}</p> }: { view: SceneModeView; palette: readonly VoxelPaletteEntry[]; picked: VoxelPaletteEntry | null; onPick: (id: number | null) => void; title: string; aria?: string; empty?: JSX.Element }): JSX.Element {
+function MaterialPalette({ view, palette, picked, onPick, title, aria = 'voxel materials', empty = <MakeGround view={view} empty /> }: { view: SceneModeView; palette: readonly VoxelPaletteEntry[]; picked: VoxelPaletteEntry | null; onPick: (id: number | null) => void; title: string; aria?: string; empty?: JSX.Element }): JSX.Element {
   return (
     <Section title={title} aside={<span className="tl-sec__note">{picked === null ? '' : `${picked.name} · ${picked.id}`}</span>}>
       {palette.length === 0 ? empty : <LayerPalette layers={paletteTiles(palette)} active={picked === null ? null : palette.indexOf(picked)} onPick={(i) => onPick(palette[i]?.id ?? null)} thumbnails={view.host.palette.thumbnails} keys aria={aria} />}
@@ -182,6 +184,40 @@ function MakeMedium({ view, use }: { view: SceneModeView; use: 'gas' | 'liquid' 
       <button type="button" className="tl-btn" aria-label={use === 'gas' ? 'make a mist material' : 'make a water material'} onClick={() => void make()}>
         {use === 'gas' ? 'Make a mist material' : 'Make a water material'}
       </button>
+      {problem !== null && <p className="tl-prop__error" role="alert">{problem}</p>}
+    </div>
+  );
+}
+
+const NO_KIT = 'The plants and the dressings Meadow, Shore and Gravel come with the Basic Kit (Create → Basic Kit); a ground made before it is added grows nothing until its material names a dressing.';
+
+/**
+ * The starter grounds: a button a ground material that can be made (plain
+ * terrain materials naming the Basic Kit's dressings; the engine ships no
+ * voxel material, whose id is the project's own). `empty`: shown in place of
+ * an empty palette, where it offers the grass alone.
+ */
+function MakeGround({ view, empty }: { view: SceneModeView; empty?: boolean }): JSX.Element {
+  const host = view.host.palette;
+  const dressings = view.host.voxelBrush.dressings;
+  const [problem, setProblem] = useState<string | null>(null);
+  const offered = starterGroundsOffered(host.materials, dressings).filter((o) => (empty === true ? o.ground.id === 'grass' : o.dressing && !o.made));
+  const kit = dressings.some((d) => STARTER_DRESSINGS.has(d.dressingId));
+  const make = async (g: StarterGround): Promise<void> => {
+    const id = freeVoxelId(host.materials);
+    if (id === null) return setProblem('Every voxel material id of the project is taken.');
+    const ok = await host.run(`${g.name} material`, 'setMaterial', { material: starterGround(g, await host.newMaterialId(g.name), id, dressings) });
+    setProblem(ok ? null : 'The material was refused (the reason is in the notice).');
+  };
+  return (
+    <div className="tl-world-mode__make">
+      {empty === true && <p className="tl-hint">{NO_MATERIAL}</p>}
+      {offered.map((o) => (
+        <button key={o.ground.id} type="button" className="tl-btn" aria-label={`make a ${o.ground.name.toLowerCase()} material`} title={o.dressing ? `A plain ${o.ground.name.toLowerCase()} ground that grows ${o.ground.grows} (the dressing ${o.ground.dressing}).` : `A plain ${o.ground.name.toLowerCase()} ground.`} onClick={() => void make(o.ground)}>
+          Make a {o.ground.name.toLowerCase()} material
+        </button>
+      ))}
+      {!kit && <p className="tl-hint">{NO_KIT}</p>}
       {problem !== null && <p className="tl-prop__error" role="alert">{problem}</p>}
     </div>
   );
@@ -319,6 +355,19 @@ function SplineColumn(view: SceneModeView): JSX.Element {
 
 const RULES_HINT = RULES_TOOLS[0].hint;
 
+/** The starter grounds on the Rules rail, while there is one to make or the kit is missing. */
+function MakeGroundSection({ view }: { view: SceneModeView }): JSX.Element | null {
+  const dressings = view.host.voxelBrush.dressings;
+  const kit = dressings.some((d) => STARTER_DRESSINGS.has(d.dressingId));
+  const left = starterGroundsOffered(view.host.palette.materials, dressings).some((o) => o.dressing && !o.made);
+  if (kit && !left) return null;
+  return (
+    <Section title="Starter ground">
+      <MakeGround view={view} />
+    </Section>
+  );
+}
+
 /** What grows at the cursor and why not, and the surface's fields there. Reads only: the rules are the material's Dressing card's. */
 function RulesColumn(view: SceneModeView): JSX.Element {
   const { world } = useWorldBrush(view, 'rules');
@@ -350,6 +399,7 @@ function RulesColumn(view: SceneModeView): JSX.Element {
         {read?.state === 'unloaded' && <p className="tl-hint">The ground here is not loaded in the view yet: wait for it to settle, or move closer.</p>}
         {read?.state === 'none' && <p className="tl-hint">No surface here (inside a building's own cells, or open air).</p>}
       </Section>
+      <MakeGroundSection view={view} />
       {answer !== null && (
         <>
           <Section title="What grows here" aside={<span className="tl-sec__note">{answer.dressing === null ? answer.material.name : `${answer.material.name} · ${answer.dressing.name}`}</span>}>

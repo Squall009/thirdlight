@@ -2,7 +2,7 @@
   "format": 1,
   "packId": "basic-kit",
   "name": "Basic Kit",
-  "description": "The engine’s neutral prototype kit: a trim sheet made to the trim sheet spec, room and rail presets on it, block types wearing it, a placeholder door and window. Change the copies freely; swap the trim material for a sheet of your own made to the same spec.",
+  "description": "The engine’s neutral prototype kit: a trim sheet made to the trim sheet spec, room and rail presets on it, block types wearing it, a placeholder door and window, and starter ground cover for voxel worlds (a grass clump, flowers, reeds and pebbles, with the dressings Meadow, Shore and Gravel that grow them). Change the copies freely; swap the trim material for a sheet of your own made to the same spec.",
   "source": {
     "designer": "art-factory Texture Designer",
     "sheet": "thirdlight/basic_kit_trim@4",
@@ -55,6 +55,58 @@
       "bytes": 12968,
       "materials": {
         "trim": "basic-trim"
+      }
+    },
+    {
+      "assetId": "basic-cover-albedo",
+      "kind": "texture",
+      "displayName": "Basic cover: colour",
+      "file": "textures/basic-cover-albedo.ktx2",
+      "sha256": "5666531534a49ddef451dc4ff4391bd36f3e4d892313767016720a421be5ba9e",
+      "bytes": 4234
+    },
+    {
+      "assetId": "basic-grass",
+      "kind": "model",
+      "displayName": "Grass clump (Basic Kit)",
+      "file": "models/basic-grass.glb",
+      "sha256": "8e8190917d434cf4d6d95b203645127048b240f4dc0004aa59929cca1c546b77",
+      "bytes": 7800,
+      "materials": {
+        "cover": "basic-cover"
+      }
+    },
+    {
+      "assetId": "basic-flower",
+      "kind": "model",
+      "displayName": "Flowers (Basic Kit)",
+      "file": "models/basic-flower.glb",
+      "sha256": "dc626e355635ec9f8e4830b8363e99e9149683a139d33b6e204deb54ae301378",
+      "bytes": 7076,
+      "materials": {
+        "cover": "basic-cover"
+      }
+    },
+    {
+      "assetId": "basic-reed",
+      "kind": "model",
+      "displayName": "Reeds (Basic Kit)",
+      "file": "models/basic-reed.glb",
+      "sha256": "5e7ab384138a8fa6d115bdd75e2703bfe4936a4dc2c1028109f4802eac060d72",
+      "bytes": 7612,
+      "materials": {
+        "cover": "basic-cover"
+      }
+    },
+    {
+      "assetId": "basic-pebbles",
+      "kind": "model",
+      "displayName": "Pebbles (Basic Kit)",
+      "file": "models/basic-pebbles.glb",
+      "sha256": "cf6182b80b75fdee54d9ad3fb0c42d3afe43d45b4a3dd761b697b5291fb45fd4",
+      "bytes": 9364,
+      "materials": {
+        "stone": "basic-cover-stone"
       }
     }
   ],
@@ -496,7 +548,7 @@
         "kit": {
           "kitId": "basic-kit",
           "name": "Basic Kit",
-          "description": "The engine’s neutral prototype kit: a trim sheet made to the trim sheet spec, room and rail presets on it, block types wearing it, a placeholder door and window. Change the copies freely; swap the trim material for a sheet of your own made to the same spec.",
+          "description": "The engine’s neutral prototype kit: a trim sheet made to the trim sheet spec, room and rail presets on it, block types wearing it, a placeholder door and window, and starter ground cover for voxel worlds (a grass clump, flowers, reeds and pebbles, with the dressings Meadow, Shore and Gravel that grow them). Change the copies freely; swap the trim material for a sheet of your own made to the same spec.",
           "trimMaterial": "basic-trim",
           "presets": [
             "basic-room",
@@ -529,6 +581,270 @@
               }
             ]
           }
+        }
+      }
+    },
+    {
+      "op": "setMaterial",
+      "args": {
+        "material": {
+          "materialId": "basic-cover",
+          "name": "Basic cover plants",
+          "shader": "foliage",
+          "params": {
+            "color": "#ffffff",
+            "roughness": 0.7,
+            "metalness": 0,
+            "subsurface": 0.3,
+            "windDistance": 40
+          },
+          "textures": {
+            "map": "basic-cover-albedo"
+          }
+        }
+      }
+    },
+    {
+      "op": "setMaterial",
+      "args": {
+        "material": {
+          "materialId": "basic-cover-stone",
+          "name": "Basic cover stones",
+          "shader": "standard",
+          "params": {
+            "color": "#ffffff",
+            "roughness": 0.85,
+            "metalness": 0
+          },
+          "textures": {
+            "map": "basic-cover-albedo"
+          }
+        }
+      }
+    },
+    {
+      "op": "setDressing",
+      "args": {
+        "dressing": {
+          "dressingFormat": 1,
+          "dressingId": "basic-meadow",
+          "name": "Meadow",
+          "species": [
+            {
+              "model": "basic-grass",
+              "class": "cover",
+              "density": 7,
+              "scale": [
+                0.75,
+                1.3
+              ],
+              "align": 0.3,
+              "conditions": {
+                "slope": {
+                  "max": 40,
+                  "fade": 10
+                },
+                "sky": true,
+                "waterDepth": {
+                  "max": 0
+                }
+              }
+            },
+            {
+              "model": "basic-flower",
+              "class": "cover",
+              "density": 1.2,
+              "spacing": 0.35,
+              "scale": [
+                0.8,
+                1.2
+              ],
+              "seed": 3,
+              "conditions": {
+                "slope": {
+                  "max": 30,
+                  "fade": 5
+                },
+                "sky": true,
+                "waterDepth": {
+                  "max": 0
+                },
+                "construction": {
+                  "min": 2
+                },
+                "noise": {
+                  "min": 0.62,
+                  "fade": 0.08,
+                  "scale": 9,
+                  "seed": 4
+                }
+              }
+            },
+            {
+              "model": "basic-flower",
+              "class": "cover",
+              "density": 2,
+              "spacing": 0.35,
+              "scale": [
+                0.8,
+                1.2
+              ],
+              "seed": 5,
+              "conditions": {
+                "sky": true,
+                "waterDepth": {
+                  "max": 0
+                },
+                "materialEdge": {
+                  "max": 1.5,
+                  "fade": 0.5
+                },
+                "construction": {
+                  "min": 2
+                }
+              }
+            },
+            {
+              "model": "basic-reed",
+              "class": "cover",
+              "density": 3,
+              "spacing": 0.3,
+              "scale": [
+                0.75,
+                1.25
+              ],
+              "seed": 7,
+              "conditions": {
+                "waterDepth": {
+                  "min": 0.05,
+                  "max": 0.7
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "setDressing",
+      "args": {
+        "dressing": {
+          "dressingFormat": 1,
+          "dressingId": "basic-shore",
+          "name": "Shore",
+          "species": [
+            {
+              "model": "basic-reed",
+              "class": "cover",
+              "density": 4,
+              "spacing": 0.25,
+              "scale": [
+                0.75,
+                1.3
+              ],
+              "conditions": {
+                "waterDepth": {
+                  "min": 0.05,
+                  "max": 0.7
+                }
+              }
+            },
+            {
+              "model": "basic-pebbles",
+              "class": "cover",
+              "density": 1.5,
+              "scale": [
+                0.6,
+                1.4
+              ],
+              "seed": 2,
+              "conditions": {
+                "waterDepth": {
+                  "max": 0.1
+                },
+                "noise": {
+                  "min": 0.45,
+                  "fade": 0.15,
+                  "scale": 4,
+                  "seed": 9
+                }
+              }
+            },
+            {
+              "model": "basic-grass",
+              "class": "cover",
+              "density": 1.5,
+              "scale": [
+                0.6,
+                1
+              ],
+              "seed": 4,
+              "conditions": {
+                "sky": true,
+                "waterDepth": {
+                  "max": 0
+                },
+                "noise": {
+                  "min": 0.55,
+                  "fade": 0.1,
+                  "scale": 6,
+                  "seed": 11
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "setDressing",
+      "args": {
+        "dressing": {
+          "dressingFormat": 1,
+          "dressingId": "basic-gravel",
+          "name": "Gravel",
+          "species": [
+            {
+              "model": "basic-pebbles",
+              "class": "cover",
+              "density": 3,
+              "scale": [
+                0.5,
+                1.4
+              ],
+              "conditions": {
+                "waterDepth": {
+                  "max": 0.3
+                },
+                "noise": {
+                  "min": 0.3,
+                  "fade": 0.2,
+                  "scale": 5,
+                  "seed": 6
+                }
+              }
+            },
+            {
+              "model": "basic-grass",
+              "class": "cover",
+              "density": 2,
+              "scale": [
+                0.5,
+                0.9
+              ],
+              "seed": 8,
+              "conditions": {
+                "sky": true,
+                "waterDepth": {
+                  "max": 0
+                },
+                "materialEdge": {
+                  "max": 0.75,
+                  "fade": 0.25
+                }
+              }
+            }
+          ]
         }
       }
     }

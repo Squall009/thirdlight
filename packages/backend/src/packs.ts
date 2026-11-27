@@ -1,14 +1,15 @@
 /**
  * Engine content packs: directories under `<engineRoot>/packs/<id>` holding a
  * `pack.json` and the asset files it lists (the Basic Kit: a trim sheet,
- * presets, block types, door and window pieces, and the kit naming them).
+ * presets, block types, door and window pieces, the kit naming them, and
+ * starter ground cover: four plant models and the dressings that grow them).
  *
  * Adding a pack to a project makes its items ordinary project items through
  * the one mutation path: each asset file is held and inspected as an upload
  * is, then published through the same step as an upload (a model's images
  * become texture assets; `publishAsset`, into the pack's folder of the game
  * folder); the pack's own commands follow (`setMaterial`, `setGraph`,
- * `setBlockType`, `setKit`), then the models' material mappings
+ * `setBlockType`, `setKit`, `setDressing`), then the models' material mappings
  * (`setAssetOptions`), which name the pack's materials.
  * Every command is an ordinary one on the change feed; together they are one
  * history step (`groupHistory`), so one undo takes the whole pack out again.
@@ -156,6 +157,7 @@ function packIds(pack: Pack): { list: string; key: string; id: string }[] {
     setGraph: ['graphs', 'graph', 'graphId'],
     setBlockType: ['blockTypes', 'block', 'blockId'],
     setKit: ['kits', 'kit', 'kitId'],
+    setDressing: ['dressings', 'dressing', 'dressingId'],
   };
   for (const c of pack.commands) {
     const k = kinds[c.op];

@@ -7,7 +7,9 @@ import type { DressingDef, DressingSpecies, MaterialDef } from '@thirdlight/proj
 import { DRESSING_CONDITIONS, dressingNoise, dressingRule, dressingShare, dressingWhyNot, surfacePointOut, VOXEL_ROLE, type DressingConditions, type SurfacePoint } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 
-import { RULES_TOOLS, WORLD_BRUSH_START, worldBrushArming } from './world-mode';
+import { validateMaterialVoxel } from '@thirdlight/project-model/voxel-materials';
+
+import { RULES_TOOLS, STARTER_GROUNDS, starterGround, starterGroundsOffered, WORLD_BRUSH_START, worldBrushArming } from './world-mode';
 import { ruleFieldRows, rulesAt } from './world-rules';
 
 const GRASS: MaterialDef = { materialId: 'grass', name: 'Grass', shader: 'standard', params: {}, textures: {}, voxel: { id: 3, use: 'terrain', dressing: 'meadow' } };
@@ -148,5 +150,34 @@ describe('the Rules rail: what it arms', () => {
     // The other rails arm no probe.
     for (const rail of ['sculpt', 'paint', 'fill', 'spline'] as const) expect(worldBrushArming(rail, WORLD_BRUSH_START, palettes).probe).toBeUndefined();
     expect(RULES_TOOLS.map((t) => t.key)).toEqual(['I']);
+  });
+});
+
+describe('the starter grounds the mode offers to make', () => {
+  const KIT = [{ dressingId: 'basic-gravel' }, { dressingId: 'basic-meadow' }, { dressingId: 'basic-shore' }];
+
+  it('are plain terrain materials the project model takes, each naming its Basic Kit dressing when the project holds it', () => {
+    expect(STARTER_GROUNDS.map((g) => [g.name, g.dressing])).toEqual([['Grass', 'basic-meadow'], ['Shore', 'basic-shore'], ['Gravel', 'basic-gravel']]);
+    for (const g of STARTER_GROUNDS) {
+      const m = starterGround(g, `mat-${g.id}`, 12, KIT) as { name: string; shader: string; params: { color: string }; voxel: Record<string, unknown> };
+      const errors: unknown[] = [];
+      validateMaterialVoxel(m.voxel, '/voxel', errors as never, false);
+      expect(errors, g.id).toEqual([]);
+      expect(m).toMatchObject({ materialId: `mat-${g.id}`, name: g.name, shader: 'standard', params: { color: g.colour }, voxel: { id: 12, use: 'terrain', dressing: g.dressing } });
+      // Without the kit the ground is still made, and names nothing the project lacks (the command would refuse it).
+      expect((starterGround(g, 'm', 12, []) as { voxel: Record<string, unknown> }).voxel).toEqual({ id: 12, use: 'terrain' });
+    }
+  });
+
+  it('are offered until a material names their dressing, and say whether the kit is there', () => {
+    const none = starterGroundsOffered([], []);
+    expect(none.map((o) => [o.ground.id, o.dressing, o.made])).toEqual([['grass', false, false], ['shore', false, false], ['gravel', false, false]]);
+    const grass = starterGround(STARTER_GROUNDS[0], 'grass', 3, KIT) as { voxel: { dressing?: string } };
+    expect(starterGroundsOffered([grass, ROAD], KIT).map((o) => [o.ground.id, o.dressing, o.made])).toEqual([['grass', true, true], ['shore', true, false], ['gravel', true, false]]);
+    // What the made grass grows is the kit's Meadow: the Rules rail answers from it.
+    const meadow: DressingDef = { dressingFormat: 1, dressingId: 'basic-meadow', name: 'Meadow', species: [cover('basic-grass', { sky: true, waterDepth: { max: 0 } }, 7)] };
+    const a = rulesAt({ materials: [{ ...(grass as unknown as MaterialDef), name: 'Grass' }], dressings: [meadow], point: ground(), x: 1, z: 1 });
+    expect(a.dressing).toEqual({ dressingId: 'basic-meadow', name: 'Meadow' });
+    expect(a.species[0]).toMatchObject({ model: 'basic-grass', grows: true, share: 1 });
   });
 });
