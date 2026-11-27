@@ -20,6 +20,9 @@ export const PICTURE_RUNS = Object.freeze({
   day: Object.freeze(['--props', '2', '--rooms', 'off']),
   // The many-lamps scene: 128 lights of every kind and the glowing strips.
   lamps: Object.freeze(['--lamps', '128']),
+  // The bench cover (bench-cover.ts: a meadow, a painted road, a pond's reed shore), placed for its cameras alone:
+  // the other runs' pictures keep the bare ground they have had from phase to phase.
+  cover: Object.freeze([] as string[]),
 });
 export type PictureRun = keyof typeof PICTURE_RUNS;
 
@@ -73,6 +76,8 @@ export const PICTURES: readonly PictureEntry[] = Object.freeze([
   world('L22', 'ref-150m', 'day', 'Reference house at 150 m', 'the same house at 150 m: its shape and colour kept as the levels coarsen'),
   world('L23', 'fog-bank', 'day', 'A fog bank in a hollow', 'a dug hollow filled with mist by day, from 17 m off: the bank reads as a volume (thin at its edge on the hollow\'s sides, thick over its middle), no hard box edges, no cards, no banding by cell rows'),
   world('L24', 'fog-inside', 'day', 'The fog bank from inside', 'the same bank from 1.7 m over the hollow\'s floor, looking up at its rim: houses and sky through mist that thins toward the top of the picture (a ray leaves the bank sooner there), no clear patches and no seam where the bank\'s surface is'),
+  world('L25', 'cover-meadow', 'cover', 'A meadow', 'grass clumps over three empty lots at noon, a gravel road across them: the cover stands on the ground (nothing floating or buried), none on the road, flowers along its verge and pebbles on its shoulder, none under the houses, lit like the ground it stands on, thinning away with distance without a hard edge or chunk-shaped patches'),
+  world('L26', 'cover-reeds', 'cover', 'Reeds at a shore', 'a pond from 8.5 m off at noon: reeds standing in its shallow water inside the stone rim, none in the open water of its middle or on dry ground, grass on the lot up to the rim'),
   screen('E1', 'editor', 'The editor with a scene', 'the default editor: Scene and Game tabs, Hierarchy, Inspector, Project dock, a house selected with its gizmo, panels not overlapping'),
   screen('E2', 'structure', 'Structure mode', 'a two-storey house with a door and a window, the Shape tool\'s corner and edge handles on it, the mode\'s panel and Done button'),
   screen('E3', 'water', 'A water body', 'a lake filling a dug hollow, selected: its level handle, the Inspector\'s water state, the water surface drawn'),

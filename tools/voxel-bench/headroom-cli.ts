@@ -54,6 +54,10 @@
  *                        and taken out after, the camera orbiting the hollow 10 m out and 7 m up, looking down into it
  *                        (the bank in view all the way round); `--query '&voxelGas=off'` is the same run with the
  *                        gas not drawn
+ *   --meadow             the camera orbits the town's three empty lots (the bench cover's meadow: 16 m out, 4 m up),
+ *                        with or without the cover; `--cover`: the bench cover (bench-cover.ts: a meadow, a painted
+ *                        road, a pond's reed shore) placed before Play and taken out after. `--meadow` alone against
+ *                        `--meadow --cover` is what the cover costs at one camera
  *   --viewport WxH       (default 1280x720)   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/headroom/<quality>-<tag>.json)
  *
  * How to (staging running, the 8 km world in it, nothing else on the GPU):
@@ -81,8 +85,9 @@ import type { GpuMeasurement } from '@thirdlight/game-host';
 import { gpuMeasureOnPage, gpuMeasureSummary, measureGpuOnPage } from '../perf/gpu-measure-page';
 import { spanMeans, type SpanFrame } from './travel';
 import { FarSettle, frameCap, frameWindow, misses, searchLimit, spread, type FrameWindow, type LimitResult } from './headroom';
+import { placeBenchCover } from './bench-cover';
 import { placeBenchFog } from './bench-fog';
-import { BENCH_GLOW_MATERIALS, FOG_HOLLOW } from './lighting-cameras';
+import { BENCH_COVER, BENCH_GLOW_MATERIALS, FOG_HOLLOW } from './lighting-cameras';
 import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, parseLampsOption, placeManyLamps } from './many-lamps';
 import { benchProps, parsePropsOption, placeBenchProps } from './bench-props';
 import { BENCH_SMOKE_EFFECT, particleEntities, placeBenchParticles, smokePlaces } from './bench-particles';
@@ -144,9 +149,12 @@ const PROPS = parsePropsOption(process.argv);
 const PARTICLES = Number(arg('particles', '0'));
 /** `--fog`: the bench fog placed, and the orbit round its hollow. */
 const FOG = process.argv.includes('--fog');
-const ORBIT_ID = `${ORBIT_R === 12 && ORBIT_W === 0.15 ? 'headroom-orbit' : `headroom-orbit-${ORBIT_R}-${String(ORBIT_W).replace('.', 'p')}`}${LAMPS === 0 ? '' : `-lamps${LAMPS}`}${FOG ? '-fog' : ''}`;
+/** `--meadow`: the orbit over the bench cover's meadow; `--cover`: the bench cover placed. */
+const MEADOW = process.argv.includes('--meadow');
+const COVER = process.argv.includes('--cover');
+const ORBIT_ID = `${ORBIT_R === 12 && ORBIT_W === 0.15 ? 'headroom-orbit' : `headroom-orbit-${ORBIT_R}-${String(ORBIT_W).replace('.', 'p')}`}${LAMPS === 0 ? '' : `-lamps${LAMPS}`}${FOG ? '-fog' : ''}${MEADOW ? '-meadow' : ''}`;
 /** The orbit's middle (x, z), its eye's height at no pitch, its pitch and its distance: the town square's, or round the fog's hollow. */
-const ORBIT_AT = FOG ? { x: FOG_HOLLOW.seed[0], z: FOG_HOLLOW.seed[2], y: 7 - Math.sin(0.64) * 12.5, pitch: 0.64, d: 12.5 } : { x: 0, z: 0, y: 20, pitch: 0.03, d: ORBIT_R };
+const ORBIT_AT = FOG ? { x: FOG_HOLLOW.seed[0], z: FOG_HOLLOW.seed[2], y: 7 - Math.sin(0.64) * 12.5, pitch: 0.64, d: 12.5 } : MEADOW ? { x: (BENCH_COVER.road.x0 + BENCH_COVER.road.x1) / 2, z: -4, y: 4 - Math.sin(0.25) * 16, pitch: 0.25, d: 16 } : { x: 0, z: 0, y: 20, pitch: 0.03, d: ORBIT_R };
 const ORBIT = `
 ${ML?.head ?? ''}
 const quat = (yaw: number, pitch: number) => { const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(-pitch / 2), sp = Math.sin(-pitch / 2); return [cy * sp, sy * cp, -sy * sp, cy * cp]; };
@@ -253,10 +261,13 @@ async function main(): Promise<void> {
   const unprop = PROPS === 0 ? null : await placeBenchProps(benchProps(PROPS), join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT), command as (op: string, args: Record<string, unknown>) => Promise<void>, sceneEntities, !process.argv.includes('--props-unlit'));
   const unparticle = PARTICLES > 0 ? await placeBenchParticles(particleEntities(BENCH_SMOKE_EFFECT, smokePlaces(PARTICLES), 'smoke'), command as (op: string, args: Record<string, unknown>) => Promise<void>, sceneEntities) : null;
   await orbitCamera();
+  const raw = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => (await api('commands', { op, projectId: PROJECT, ...(op === 'editVoxels' ? {} : { expectedRevision: await revision() }), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'voxel-bench-headroom' }, args })).json;
+  // The bench cover: its strokes are the project's newest undo steps but the fog's.
+  const cover = !COVER ? null : await placeBenchCover({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw, assets: async () => ((await api('commands', { op: 'queryAssets', projectId: PROJECT, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>, projectDir: join(homedir(), 'thirdlight-staging-p45', 'projects', PROJECT) }, WORLD);
   // The bench fog, placed last and taken out first (its strokes are then the project's newest undo steps).
-  const fog = !FOG ? null : await placeBenchFog({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw: async (op, args) => (await api('commands', { op, projectId: PROJECT, ...(op === 'editVoxels' ? {} : { expectedRevision: await revision() }), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'voxel-bench-headroom' }, args })).json }, WORLD);
+  const fog = !FOG ? null : await placeBenchFog({ command: command as (op: string, args: Record<string, unknown>) => Promise<void>, raw }, WORLD);
   const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });
-  const out: Record<string, unknown> = { bench: 'headroom', lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, props: PROPS, propsUnlit: process.argv.includes('--props-unlit'), particles: PARTICLES, fog: fog?.facts ?? null, quality: QUALITY, renderer: 'webgpu', viewport: VIEWPORT, tierScale: TIER_SCALE, cap: CAP, window: WINDOW_S, world: WORLD, start: host(), rounds: [] as unknown[] };
+  const out: Record<string, unknown> = { bench: 'headroom', lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, props: PROPS, propsUnlit: process.argv.includes('--props-unlit'), particles: PARTICLES, fog: fog?.facts ?? null, meadow: MEADOW, cover: cover?.facts ?? null, quality: QUALITY, renderer: 'webgpu', viewport: VIEWPORT, tierScale: TIER_SCALE, cap: CAP, window: WINDOW_S, world: WORLD, start: host(), rounds: [] as unknown[] };
   const browser = await launchGpuBrowser({ vsync: true });
   const T0 = Date.now();
   try {
@@ -375,6 +386,9 @@ async function main(): Promise<void> {
       r['volume'] = await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay?: { light?: { volume?(): unknown } } }).__tlVoxelPlay?.light?.volume?.() ?? null);
       // The frame profile over the window just recorded (the last frames each thread keeps): each thread's CPU a frame.
       const profile = await canvas.evaluate(() => (window as unknown as { __tlProfiler?: { read(): unknown } }).__tlProfiler?.read() ?? null);
+      // The ground cover as the page's cover path holds it, and what the view drew of it (the profiler's own count: three's counters do not count indirect draws).
+      r['cover'] = await canvas.evaluate(() => (window as unknown as { __tlVoxelPlay?: { cover?(): unknown } }).__tlVoxelPlay?.cover?.() ?? null);
+      r['coverRows'] = (profile as { counters?: { coverRows?: unknown } } | null)?.counters?.coverRows ?? null;
       if (profile !== null) {
         r['profile'] = profileSummary(profile as ProfileReport);
         // Each span's own ms a frame over the same window (what a category's ms is made of).
@@ -427,6 +441,7 @@ async function main(): Promise<void> {
   } finally {
     await browser.close().catch(() => undefined);
     await fog?.undo().catch((e: unknown) => console.error(`bench fog not taken out: ${String(e)}`));
+    await cover?.undo().catch((e: unknown) => console.error(`bench cover not taken out: ${String(e)}`));
     await unplace?.().catch((e: unknown) => console.error(`many lamps not taken out: ${String(e)}`));
     await unprop?.().catch((e: unknown) => console.error(`bench props not taken out: ${String(e)}`));
     await unparticle?.().catch((e: unknown) => console.error(`bench particles not taken out: ${String(e)}`));

@@ -42,7 +42,7 @@ function pointSet(n: number, cx: number, cz: number, y = 4.5): CoverPointSet {
   return { x0: cx * SIDE, z0: cz * SIDE, w: SIDE, d: SIDE, low: y, high: y, count: n, data };
 }
 
-const set = (dressing: string, species: number, rule: ScatterRule, points: CoverPointSet): ChunkCoverWire['sets'] => [{ dressing, species, rule, points }] as unknown as ChunkCoverWire['sets'];
+const set = (dressing: string, species: number, rule: ScatterRule, points: CoverPointSet): NonNullable<ChunkCoverWire['sets']> => [{ dressing, species, rule, points }] as unknown as NonNullable<ChunkCoverWire['sets']>;
 const wire = (cx: number, cz: number, ...sets: NonNullable<ChunkCoverWire['sets']>[]): ChunkCoverWire => ({ cx, cz, ...(sets.length > 0 ? { sets: sets.flat() } : {}) });
 
 function view(x: number, z: number): CullView {
@@ -124,7 +124,7 @@ describe('voxel ground cover through the point-set cover path', () => {
     const want = new Float32Array(COPY_ROW_FLOATS);
     const has = (row: Float32Array): boolean => grassRows.some((r) => r.every((v, k) => v === row[k]));
     for (const [points, n] of [[a, 300], [b, 120]] as const) for (const i of [0, 1, n - 1]) {
-      writeCoverPointRow(points, i, { ...GRASS, id: grassId }, want, 0);
+      writeCoverPointRow(points, i, GRASS, want, 0);
       expect(has(want), `point ${i}`).toBe(true);
     }
     // In the grid's own metres: the world grid's cell 0 lies at the world's origin.

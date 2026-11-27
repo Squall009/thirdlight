@@ -776,7 +776,7 @@ function voxelLightHooks(draws: VoxelWorldDraws, adapter: () => SceneAdapter | n
   };
 }
 
-/** The test hook on a game page with voxel worlds: what is drawn, each edit's way to the screen, the kit meshes' states, relief drawn flat or moved, the far field shown or hidden, and the GPU headroom meter's knobs (voxel-meter.ts). */
+/** The test hook on a game page with voxel worlds: what is drawn, the ground cover as the cover path holds it, each edit's way to the screen, the kit meshes' states, relief drawn flat or moved, the far field shown or hidden, and the GPU headroom meter's knobs (voxel-meter.ts). */
 const VOXEL_PLAY_HOOK = '__tlVoxelPlay';
 
 /** The build's voxel kits (the catalog's `voxelKits` block) and where their GLBs' verified bytes come from. */
@@ -863,7 +863,7 @@ function pageVoxelWorlds(voxels: NonNullable<GamePageOptions['voxels']>, adapter
     },
     meter: () => true,
   });
-  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws), skyHeight: (world: string, x: number, z: number) => draws.sky(world)?.heightAt(x, z) ?? null, skyColumns: (world: string) => draws.sky(world)?.count ?? 0, shadowDraws: () => staticShadowDraws(adapter()), sun: () => draws.sunStats(), setSunOff: (off: boolean) => draws.setSunOff(off), sunProbe: (p: number[]) => draws.sunProbe(p), growGrids: () => draws.growGrids(), rooms: () => rooms.state(), light: voxelLightHooks(draws, adapter, materials as readonly VoxelLookRecord[]) };
+  (globalThis as Record<string, unknown>)[VOXEL_PLAY_HOOK] = { stats: () => draws.stats(), edits: () => [...draws.edits], kits: () => kitMeshes.states(), setRelief: (s: { displace: boolean }) => draws.setRelief(s), showFar: (on: boolean) => draws.showFar(on), checkFarFeedback: () => draws.checkFarFeedback(), farSolidAt: (world: string, x: number, y: number, z: number) => draws.farSolidAt(world, x, y, z), meter: voxelMeter(draws, adapter), walk: walkHooks(draws), skyHeight: (world: string, x: number, z: number) => draws.sky(world)?.heightAt(x, z) ?? null, skyColumns: (world: string) => draws.sky(world)?.count ?? 0, shadowDraws: () => staticShadowDraws(adapter()), sun: () => draws.sunStats(), setSunOff: (off: boolean) => draws.setSunOff(off), sunProbe: (p: number[]) => draws.sunProbe(p), growGrids: () => draws.growGrids(), rooms: () => rooms.state(), light: voxelLightHooks(draws, adapter, materials as readonly VoxelLookRecord[]), cover: () => adapter()?.cover?.()?.diagnostics() ?? null };
   return {
     draws,
     kitMeshes,

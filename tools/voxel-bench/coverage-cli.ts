@@ -43,6 +43,8 @@
  *   --query Q    more of the editor page's query (Play) or the export's (`&farFeedback=off`)
  *   --lamps N    the many-lamps scene's lamps (many-lamps.ts: 32, 128 or 512) in the project for the run (in the export
  *                with `--export`), taken out after; its glowing patches are not painted (a flight would measure the paint as edits)
+ *   --cover      the bench cover (bench-cover.ts) in the project for the run: its dressing on the world's grass, so
+ *                ground cover is made wherever level 0 is drawn (after a stop, and at the flight's start)
  *   --tag NAME   --out FILE (default ~/.cache/thirdlight-voxel-bench/coverage/<where>-<quality>-<speed>-<altitude>-<tag>.json)
  *
  * How to (nothing else on the GPU; `<capped>` = the scope below):
@@ -72,6 +74,8 @@ import { benchApi, farGround, fineGround, flightSource, PROBE_COUNTERS, publishC
 import { FarSettle, frameCap } from './headroom';
 import { addProbeBody, bodySamples, exportDebug, installRecorder, openPlay, readProfileSpikes, rayAndBody, removeProbeBody, stopWall, takeRecorded, type ObsSample, type Recorded, type SpikeReading } from './travel-page';
 import { manyLampsCounts, manyLampsScene, parseLampsOption, placeManyLamps } from './many-lamps';
+import { placeBenchCover } from './bench-cover';
+import { commandEnvelope } from '../../tests/support/commands';
 import { bottomDarkShare, dropOutcomes, firstAfter, flightFrames, judgeFall, longGaps, settleAfter, spanMeans, spikeCauses, type CountSample, type SpanFrame } from './travel';
 
 function arg(name: string, fallback: string): string {
@@ -582,6 +586,10 @@ function simSummary(rec: FlightRecord): Record<string, unknown> | null {
 }
 
 /** Prepares the project for a run (the key sky, the camera's flight, the probe character) and gives back what puts it back. */
+/** `--cover`: the bench cover (bench-cover.ts) in the project for the run; what it wrote (null: not placed). */
+const COVER = process.argv.includes('--cover');
+let benchCover: Record<string, unknown> | null = null;
+
 async function prepare(b: BenchApi, path: CoveragePath, stopAt: number): Promise<() => Promise<void>> {
   const sceneFile = join(PROJECT_DIR, 'scenes', 'scene-main.json');
   const scene = JSON.parse(readFileSync(sceneFile, 'utf8')).scene as { environment: Record<string, unknown> & { sky?: Record<string, unknown> }; entities: Array<{ id: string; name: string; components: Record<string, { behaviorId?: string }> }> };
@@ -595,7 +603,11 @@ async function prepare(b: BenchApi, path: CoveragePath, stopAt: number): Promise
   // The probe character where the camera starts: the world streams round it there anyway.
   await addProbeBody(b, PROJECT_DIR, [WAYPOINTS[0]![0], ground[0]! + PROBE.dropAboveM, WAYPOINTS[0]![1]]);
   const unplace = SCENE === null ? null : await placeManyLamps(SCENE, (op, args) => b.command(op, args), () => JSON.parse(readFileSync(sceneFile, 'utf8')).scene.entities as Array<{ id: string; name: string }>);
+  // `--cover`: the bench cover (its dressing on the world's grass grows cover wherever the flight stops or slows).
+  const cover = !COVER ? null : await placeBenchCover({ command: (op, args) => b.command(op, args), raw: async (op, args) => (await b.api('commands', commandEnvelope(op, PROJECT, op === 'editVoxels' ? undefined : await b.revision(), args, 'voxel-bench-coverage'))).json, assets: async () => ((await b.api('commands', { op: 'queryAssets', projectId: PROJECT, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>, projectDir: PROJECT_DIR }, WORLD);
+  benchCover = cover?.facts ?? null;
   return async () => {
+    await cover?.undo().catch((e: unknown) => console.error(`bench cover not taken out: ${String(e)}`));
     await unplace?.().catch((e: unknown) => console.error(`many lamps not taken out: ${String(e)}`));
     await b.command('setEnvironment', { sceneId: 'scene-main', environment: look }).catch((e: unknown) => console.error(`look not put back: ${String(e)}`));
     await removeProbeBody(b, PROJECT_DIR).catch((e: unknown) => console.error(`probe character not taken out: ${String(e)}`));
@@ -622,7 +634,7 @@ async function exportProject(path: CoveragePath, stopAt: number, made: MadeExpor
 
 async function run(path: CoveragePath, stopAt: number): Promise<Record<string, unknown>> {
   const host = () => ({ at: new Date().toISOString(), uptimeDays: Number((uptime() / 86400).toFixed(2)), load: loadavg().map((x) => Number(x.toFixed(2))) });
-  const out: Record<string, unknown> = { bench: 'coverage', lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, where: WHERE, quality: QUALITY, speed: SPEED, altitude: ALTITUDE, renderer: 'webgpu', viewport: VIEWPORT, cap: CAP.fps, km: path.total / 1000, flightS: stopAt / SPEED, start: host() };
+  const out: Record<string, unknown> = { bench: 'coverage', cover: benchCover, lamps: SCENE === null ? 0 : { size: LAMPS, counts: manyLampsCounts(SCENE) }, where: WHERE, quality: QUALITY, speed: SPEED, altitude: ALTITUDE, renderer: 'webgpu', viewport: VIEWPORT, cap: CAP.fps, km: path.total / 1000, flightS: stopAt / SPEED, start: host() };
   console.log(`coverage: ${WHERE}, ${QUALITY}, ${SPEED} m/s, ${ALTITUDE}: ${(stopAt / 1000).toFixed(2)} km in ${(stopAt / SPEED).toFixed(1)} s; ground ${Math.min(...path.ground)}–${Math.max(...path.ground)} m`);
   const b = WHERE === 'play' ? bench() : null;
   const restore = b === null ? null : await prepare(b, path, stopAt);

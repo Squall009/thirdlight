@@ -105,6 +105,7 @@ import { settleAfter, type CountSample } from './travel';
 import { manyLampsBehaviour, manyLampsCounts, manyLampsScene, MANY_LAMPS_COMMANDS, parseLampsOption, placeManyLamps } from './many-lamps';
 import { dayBehaviour, DAY_ARC_DEG, DAY_COMMANDS, DAY_SPEEDS } from './day-cycle';
 import { crackGlowMask, placeholderPng, withAlpha } from './texture-sets';
+import { placeBenchCover } from './bench-cover';
 import { placeBenchFog } from './bench-fog';
 import { benchProps, parsePropsOption, placeBenchProps, PROP_READINGS, volumeBoxLight } from './bench-props';
 import { L_ROOM_COMMAND, parseRoomsOption, placeBenchRooms, roomsBehaviour } from './bench-rooms';
@@ -408,6 +409,22 @@ async function gasFacts(game: PlayGame): Promise<Record<string, unknown>> {
   return gas === null ? {} : { gas, benchFog };
 }
 
+/** What the bench cover wrote (null: not placed). */
+let benchCover: Record<string, unknown> | null = null;
+
+/** With the bench cover placed: the ground cover as the page's cover path holds it at this camera (species, column sets, points, rows of the table) and the profiler's count of what the view drew, with what the bench wrote. */
+async function coverFacts(game: PlayGame): Promise<Record<string, unknown>> {
+  if (benchCover === null) return {};
+  const cover = await game.frame.evaluate(() => (window as unknown as { __tlVoxelPlay?: { cover?(): unknown } }).__tlVoxelPlay?.cover?.() ?? null).catch(() => null);
+  const drawn = await game.frame.evaluate(() => (window as unknown as { __tlProfiler?: { read(): { counters?: { coverRows?: unknown } } } }).__tlProfiler?.read().counters?.coverRows ?? null).catch(() => null);
+  return { cover, coverRows: drawn, benchCover };
+}
+
+/** What the bench's fog and cover drew at this camera, where either is placed. */
+async function benchDataFacts(game: PlayGame): Promise<Record<string, unknown>> {
+  return { ...(await gasFacts(game)), ...(await coverFacts(game)) };
+}
+
 async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<void>> {
   // The project's content lists its presets by id; setting the list replaces it, so a project with presets of its own is refused.
   const content = JSON.parse(readFileSync(join(PROJECT_DIR, 'content.json'), 'utf8')) as { content: { environment?: { presets?: unknown[] } } };
@@ -439,12 +456,17 @@ async function prepare(b: ReturnType<typeof benchApi>): Promise<() => Promise<vo
   const camEntity = sceneEntities().find((e) => e.name === 'Perf far camera') as { id: string; components?: { virtualCamera?: Record<string, unknown> } } | undefined;
   const camWas = camEntity?.components?.virtualCamera ?? null;
   if (O.autoExposure && camEntity !== undefined && camWas !== null) await b.command('setComponent', { entityId: camEntity.id, component: 'virtualCamera', value: { ...camWas, autoExposure: true } });
+  // The bench cover (the cover cameras' bench data): its strokes are the project's newest undo steps but the fog's.
+  const raw = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => (await b.api('commands', commandEnvelope(op, O.project, op === 'editVoxels' ? undefined : await b.revision(), args, 'voxel-bench-light-shots'))).json;
+  const cover = !ONLY.some((n) => n.startsWith('cover-')) ? null : await placeBenchCover({ command: (op, args) => b.command(op, args), raw, assets: async () => ((await b.api('commands', { op: 'queryAssets', projectId: O.project, args: { limit: 100 } })).json['assets'] ?? []) as Array<{ assetId: string; sourcePath?: string }>, projectDir: PROJECT_DIR }, O.world);
+  benchCover = cover?.facts ?? null;
   // The fog bank (the fog cameras' bench data), placed last and taken out first: its strokes are then the project's
   // newest undo steps when it is taken out.
   const fog = !ONLY.some((n) => n.startsWith('fog-')) ? null : await placeBenchFog({ command: (op, args) => b.command(op, args), raw: async (op, args) => (await b.api('commands', commandEnvelope(op, O.project, op === 'editVoxels' ? undefined : await b.revision(), args, 'voxel-bench-light-shots'))).json }, O.world);
   benchFog = fog?.facts ?? null;
   return async () => {
     await fog?.undo().catch((err: unknown) => console.error(`bench fog not taken out: ${String(err)}`));
+    await cover?.undo().catch((err: unknown) => console.error(`bench cover not taken out: ${String(err)}`));
     if (O.autoExposure && camEntity !== undefined && camWas !== null) await b.command('setComponent', { entityId: camEntity.id, component: 'virtualCamera', value: camWas }).catch((err: unknown) => console.error(`camera not set back: ${String(err)}`));
     for (const lamp of lamps) {
       const e = sceneEntities().find((x) => x.name === lamp.name);
@@ -835,7 +857,7 @@ async function main(): Promise<void> {
       const counters = (await game.observe().catch(() => null))?.counters ?? {};
       const region = Object.fromEntries(['known', 'enclosed', 'volume', 'sky', 'portals', 'id'].map((k) => [k, counters[`region_${k}`] ?? 0]));
       (out['shots'] as unknown[]).push({
-        ...(await gasFacts(game)),
+        ...(await benchDataFacts(game)),
         ...(cellsAt.length > 0 ? { cellsAt } : {}),
         ...(walkCheck !== null ? { walkCheck } : {}),
         region,

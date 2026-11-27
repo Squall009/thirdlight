@@ -16,7 +16,7 @@ import { dayPresets } from './day-cycle';
 /** The pictures' names, fixed (a later item compares files of the same name). */
 export const LIGHT_SHOT_NAMES = ['street-noon', 'room-window', 'cave', 'night-lamps', 'far-view'] as const;
 /** Checks beside the five, taken only when named (`--only`): a far lamp from two places, two cameras moved 1 m, the lit props' two readings (bench-props.ts). */
-export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m', 'props-cart', 'props-table', 'house-60m', 'house-above', 'lroom-above', 'town-100m', 'town-150m', 'town-250m', 'town-600m', 'town-2km', 'ref-30m', 'ref-60m', 'ref-100m', 'ref-150m', 'fog-bank', 'fog-inside'] as const;
+export const LIGHT_CHECK_NAMES = ['far-lamp-a', 'far-lamp-b', 'far-view-1m', 'street-noon-1m', 'street-noon-2m', 'room-window-2m', 'props-cart', 'props-table', 'house-60m', 'house-above', 'lroom-above', 'town-100m', 'town-150m', 'town-250m', 'town-600m', 'town-2km', 'ref-30m', 'ref-60m', 'ref-100m', 'ref-150m', 'fog-bank', 'fog-inside', 'cover-meadow', 'cover-reeds'] as const;
 /** The many-lamps scene's cameras (`--lamps N`, many-lamps.ts): a street with many lamps at night, a lamp-lit room, a high view over the lit town. */
 export const MANY_LAMP_SHOT_NAMES = ['lamps-street', 'lamps-room', 'lamps-high'] as const;
 export type LightShotName = (typeof LIGHT_SHOT_NAMES)[number] | (typeof LIGHT_CHECK_NAMES)[number] | (typeof MANY_LAMP_SHOT_NAMES)[number];
@@ -92,6 +92,17 @@ export const FOG_HOLLOW = Object.freeze({
   level: -0.5,
   reach: 10,
   fade: 1.5,
+});
+
+/**
+ * The bench cover's places (bench-cover.ts; metres): a gravel road 2 m wide painted across the town's three empty
+ * lots west of the room camera's house (lots (2, 6), (3, 6) and (3, 5): flat grass with no house, fence or pond), and
+ * the pond of lot (6, 4), whose bed is raised under a ring inside its rim (`open` … `radius`, cells from its middle)
+ * so the water there is one partly filled cell deep. Placed for the cover cameras and taken out after.
+ */
+export const BENCH_COVER = Object.freeze({
+  road: Object.freeze({ x0: -86, x1: -50, z0: -1, z1: 1 }),
+  pond: Object.freeze({ x: 1.75, z: -38.25, open: 4.5, radius: 8 }),
 });
 
 /**
@@ -248,6 +259,10 @@ export const LIGHT_CHECK_CAMERAS: readonly LightingCamera[] = Object.freeze([
   // toward the top of the picture a view ray leaves the bank sooner, so the mist thins upward.
   { name: 'fog-bank', command: 'shot29', eye: [-6.5, 6, 14], yaw: yawOf(-12, -13), pitch: Math.atan2(6.5, Math.hypot(12, 13)), preset: 'bench-noon', near: true, shows: 'at noon, a hollow in an empty lot filled with mist to just under its rim, from 17 m off and 6 m up: the bank\'s surface, where it meets the hollow\'s sides, the grass and houses round it' },
   { name: 'fog-inside', command: 'shot30', eye: [-18.5, -3.3, 1], yaw: yawOf(1, 0.2), pitch: -0.5, preset: 'bench-noon', near: true, shows: 'at noon, from inside the same bank, 1.7 m over the hollow\'s floor, looking up at its rim: the houses beyond and the sky through the mist, thinner toward the top of the picture' },
+  // The bench cover (BENCH_COVER) at noon: the meadow of the empty lots from their south-east corner, the painted road
+  // crossing it; and the pond's reed shore from 8.5 m off its middle and 2 m up.
+  { name: 'cover-meadow', command: 'shot31', eye: [-51, 2.4, 10], yaw: yawOf(-18, -18), pitch: 0.16, preset: 'bench-noon', near: true, shows: 'at noon, a meadow of grass clumps over three empty lots from 2.4 m up, a gravel road across it with flowers along its verge and pebbles on its shoulder, houses round it; the cover thins to nothing about 40 m off' },
+  { name: 'cover-reeds', command: 'shot32', eye: [8.25, 2, -32.75], yaw: yawOf(-6.5, -5.5), pitch: 0.27, preset: 'bench-noon', near: true, shows: 'at noon, a pond from 8.5 m off: reeds standing in the shallow water inside its stone rim, open water in its middle, grass on the lot round it' },
   { name: 'props-table', command: 'shot16', eye: [0.5, 1.9, 3.5], yaw: yawOf(-3.9, -2.7), pitch: 0.3, preset: 'bench-noon', near: true, shows: 'at noon, the bench table under the room camera’s window wall and the floor under it' },
 ]);
 
