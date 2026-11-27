@@ -1,4 +1,4 @@
-# The world editor: sculpt, paint and fill a voxel world
+# The world editor: sculpt, paint, fill and read the rules of a voxel world
 
 The world editor is the edit mode of a voxel world's ground. It works on the
 live Scene view, in the same frame as every other editor (the header with
@@ -11,7 +11,9 @@ step of the project's undo (Ctrl+Z takes a stroke back, Ctrl+Shift+Z puts it
 back). A water body and a spline made here are one object each, made by the
 command that makes any object, and one undo step too.
 
-The rail has four parts: **Sculpt**, **Paint**, **Fill** and **Splines**.
+The rail has five parts: **Sculpt**, **Paint**, **Fill**, **Splines** and
+**Rules**. Fog has a page of its own ([Fog](fog.md)), and so has what grows
+on the ground ([Dressing](dressing.md)).
 
 ## Opening it
 
@@ -135,25 +137,9 @@ away and the fog stays where it was). Fill again, or drain it first.
 ## How fog looks
 
 Fog is drawn in the Scene view, in Play and in an exported game alike, in
-its material's **colour** and **full density** (the material's Voxel
-section; a gas that names neither is white at 0.5 a metre: two metres of it
-at full density hide about two thirds of what is behind).
-
-- **From outside** a bank is see-through by how much of it lies behind each
-  pixel: thin where it meets the ground at its edge, thick over its middle,
-  and the scene behind shows through accordingly. A fill's **Fade** makes
-  its top thin.
-- **From inside** the whole view is fogged: near things clearer than far
-  ones, and clearer upward, where the view leaves the bank sooner.
-- It is one flat colour: the sun, lamps and shadows do not light it, so a
-  pale fog stays pale at night and in a dark cave. It does not move.
-- It is drawn **near the camera only** (within the detail ring, about 45 m
-  on the low quality level, 64 m on medium). Farther away a bank is not
-  there.
-- **Fog standing free** (a blob painted in the open, not lying in a hollow)
-  looks as thick as the view behind it is far, and shows the cells it is
-  made of. Painted fog reads best in or against something: a hollow, a wall,
-  the ground. Smooth softens its edge a little.
+its material's colour and full density: see-through by how much of it lies
+behind each pixel, one flat colour, unlit, near the camera only. What that
+looks like from outside and inside, and its limits: [Fog](fog.md#how-fog-looks).
 
 **Fog in the view** (on the Fill panel, and on the Paint panel while a gas
 is picked) switches the Scene view between **As drawn** and **Density**: every
@@ -173,6 +159,64 @@ made as an object with those two points and its voxels section already set
 in the Scene view, and set its width, bed and shoulders in the Inspector. A
 click without a drag makes nothing.
 
+## Rules
+
+The Rules rail reads; it changes nothing. It answers "what grows here, and
+why not" for the plants a material's [dressing](dressing.md) grows.
+
+- **Read** (I): move the pointer over the ground. A small ring marks the
+  cell read. **Click** to hold the read where it is (so the pointer can go
+  to the column); click elsewhere to move it; Esc lets go.
+- **What grows here**: the material under the pointer and its dressing,
+  then every species of that dressing in order:
+  - ✓ **grows**, at its full density or at a share of it, with the
+    conditions that thin it there;
+  - ✗ **does not grow**, with the first condition that fails and the number
+    read against what the condition asks ("the slope here is 41°; it grows
+    where it is at most 35°"), or "a static prop stands here";
+  - a `large` species says it is stored and placed in a later phase.
+  A material that names no dressing says so.
+- **The ground here**: the numbers the conditions are checked against at
+  that point: material, role, slope, height, open sky or under cover,
+  wetness, water depth, the distance to another material and the distance
+  to construction (8 m means "none within 8 m"). Read a spot where a plant
+  should grow, and type what you see into the species' condition.
+- **Starter ground**: while the Basic Kit's dressings have no material yet,
+  buttons make a plain **grass**, **shore** or **gravel** material that
+  names the kit's Meadow, Shore or Gravel. Without the kit in the project
+  the panel says how to add it (Create → Basic Kit).
+
+The rules themselves are edited on the material's **Dressing card**
+(Project window → the material → Voxel use). The Scene view grows each
+change at once, here too. Cover is drawn within about 40 m of where the
+view looks.
+
+The answer is the engine's own: the same check that decides where plants
+are made. A script reads the same numbers with
+[`ctx.voxels.surfaceAt`](../guides/voxel-scripts.md#surfaces-surfaceat).
+
+## The same edits through the API
+
+Every tool sends an ordinary command, which an agent sends with
+`tl_command` ([Edits: `editVoxels`](voxel-worlds.md#edits-editvoxels) has
+every field). Positions are **cells of 0.5 m**; a brush's `size` is in
+cells, its `points` are x, y, z triples.
+
+| Tool | Command |
+|---|---|
+| Add | `{"v": 3, "grid": 0, "kind": "brush", "shape": "sphere", "size": [9, 9, 9], "points": [x, y, z, …], "mode": "add", "smooth": true, "voxel": {"material": 3, "role": 1, "wetness": 0}}` (role 1: ground) |
+| Dig | the same with `"mode": "dig"` and no `voxel` |
+| Smooth | `"mode": "smooth"`, no `voxel` |
+| Flatten | `"mode": "flatten", "height": h` (the plane's height in cells) |
+| Paint | `"mode": "paint", "smooth": false, "voxel": {"material": 3, "wetness": 2}` (no `role`: every cell keeps what it is) |
+| Fog fill, Drain | a `flood`: [Fog](fog.md#filling-a-hollow) |
+| Fog brush | a `set`, a `dig` or a `smooth` of named cells: [Fog](fog.md#painting-fog) |
+| Water | `createEntity` of an object with `waterBody: {world, level, material}` at the point |
+| Road, Path, River | `createEntity` of an object with a `spline` whose `voxels` section is set |
+
+Each is wrapped as `{"op": "editVoxels", "args": {"world": "<world>",
+"command": {…}}}`. One command is one undo step (`tl_command` `undo`).
+
 ## Limits to know
 
 - The ground changes at the release, not under the pointer while you drag.
@@ -185,4 +229,9 @@ click without a drag makes nothing.
 - A fog stroke changes the cells the view has loaded. Wait for the view to
   settle after a big edit before painting fog over the same place.
 - A world needs at least one voxel material for ground or construction
-  before Add and Paint can write (a material's **Voxel** section).
+  before Add and Paint can write. With none, the palette offers **Make a
+  grass material** (a plain green ground; it names the Basic Kit's Meadow
+  when the kit is in the project). Any material becomes one in its
+  **Voxel use** section.
+- The Rules rail reads the world's own ground. Over a structure it reads
+  nothing: a structure's floors grow nothing.

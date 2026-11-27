@@ -897,8 +897,13 @@ the same record dresses a prop and a wall, so there is one oak, not an
   (fog, smoke: the material of cells with the gas role).
 - **`voxel.gas`** (only with the use `gas`): `{color?, density?}`, the
   gas's colour (`"#rrggbb"`, lower case; white when left out) and its
-  **full density** per metre (0–8, 0.1 when left out): what a cell of
-  density 15 holds, a cell of density 5 a third of it.
+  **full density** per metre (0–8, 0.5 when left out): what a cell of
+  density 15 holds, a cell of density 5 a third of it. Fog as a whole:
+  [Fog](fog.md).
+- **`voxel.dressing`**: the dressing whose plants grow on its surfaces
+  (grass, flowers, reeds, pebbles: [Dressing](dressing.md)). A dressing the
+  project lacks is refused (`dressing_missing`); a liquid or a gas names
+  none. An instance names its own, or grows its parent's.
 - **`voxel.kit`**: the voxel kit whose pieces its edges draw (a kit the
   project has: `kit_missing` otherwise, and deleting a kit a material names
   is refused). A liquid or a gas has no kit. A material without one draws plain
@@ -1030,14 +1035,19 @@ triangle).
 These come later; worlds made now keep working when they arrive:
 
 - **Kits**: a kit page in the editor (slots assigned by drag and drop; for
-  now through `setVoxelKit`); the fringe where buildings meet the ground and
-  ground scatter come with the terrain tools.
+  now through `setVoxelKit`); the fringe pieces where buildings meet the
+  ground.
   How to make a kit today: [Make a voxel kit and a material set](../guides/voxel-kits.md).
 - **Materials**: texture sets in the material Inspector (set over the API),
   and the physical section in the Inspector (profiles are set over the API).
 - **Lighting**: the far field's bounce light, and what reads the light
   coverage props stamp; culling and navigation over voxels.
-- **Structures** that move (a ship, a moving building), fill tools for fog
-  and water in the world editor, and more MCP voxel tools.
+- **Structures** that move (a ship, a moving building), and more MCP voxel
+  tools.
+- **Plants**: trees, bushes and rocks placed by rule (a dressing's `large`
+  species are stored and not placed yet), and ground cover farther than
+  40 m from the camera.
+- **Fog**: lit, drifting fog and fog seen from far away
+  ([Fog](fog.md#limits-of-the-plain-look)).
 - **Converters** from terrain and block layers, and `ctx.grid` over voxels
   ([migration note](migration.md#voxel-worlds-beside-block-layers-and-terrain)).

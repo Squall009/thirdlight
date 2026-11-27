@@ -50,7 +50,9 @@ use and why.
 - [Which tool for which job](guides/which-tool.md)
 - Building worlds
   - [Voxel worlds: cells, the `voxelWorld` component, streaming and edits](features/voxel-worlds.md)
-  - [The world editor: sculpt, paint and fill a voxel world](features/world-editor.md)
+  - [The world editor: sculpt, paint, fill and read the rules of a voxel world](features/world-editor.md)
+  - [Dressing: what grows on a voxel material](features/dressing.md)
+  - [Fog: gas voxels](features/fog.md)
   - [Level editors: terrain, blocks, vertex paint, decals and their keys](guides/level-editors.md)
   - [Build a level with block layers](guides/block-layers.md)
   - [The block editor: modes, palette, block types](guides/block-editor.md)

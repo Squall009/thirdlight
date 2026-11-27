@@ -44,7 +44,9 @@ The pages, and the Deployment sections each took:
 | [game-modes.md](game-modes.md) | Game modes | done |
 | [dialogue.md](dialogue.md) | Dialogue | done |
 | [voxel-worlds.md](voxel-worlds.md) | — (new: voxel worlds, the `voxelWorld` component, streaming and its budget, the Scene view, `editVoxels`, one undo for scene and voxels, what is not built yet) | growing |
-| [world-editor.md](world-editor.md) | — (new: the world edit mode on a voxel world: Sculpt with add, dig, smooth and flatten, Paint with the material palette, wetness and the noise mask) | growing |
+| [world-editor.md](world-editor.md) | — (new: the world edit mode on a voxel world: Sculpt, Paint, the fog brush, Fill, Splines, the Rules rail, and each tool's command) | growing |
+| [dressing.md](dressing.md) | — (new: dressings: what grows on a voxel material, the species and the ten conditions, recipes, variants, the Dressing card, the Basic Kit's starter cover, limits) | growing |
+| [fog.md](fog.md) | — (new: fog as gas voxels: the gas material, filling and painting in the editor and over the API, the plain look and its limits) | growing |
 | [migration.md](migration.md) | Migration notes | done |
 
 Deployment keeps running the server: requirements, starting, the service,

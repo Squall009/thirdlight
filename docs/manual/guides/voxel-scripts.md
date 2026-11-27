@@ -284,8 +284,11 @@ if (s !== null && s.water !== null && s.water.depth > 1.2) startSwimming();
 if (s !== null && s.slope > 40) slide();
 ```
 
-These are the fields a material's dressing rules are decided on, by the same
-arithmetic: what a script reads here is what a rule reads.
+These are the fields a material's [dressing](../features/dressing.md) rules
+are decided on, by the same arithmetic: what a script reads here is what a
+rule reads. In the editor, the world editor's
+[Rules rail](../features/world-editor.md#rules) shows the same numbers at
+the pointer.
 
 ## Materials: `materialAt`, `materialOf`
 

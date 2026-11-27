@@ -457,7 +457,9 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     Wall, Half block, Ramp, Stairs, Floor slab and Edge wall (`basic-…`,
     stand-ins wearing the sheet), and a placeholder door and window
     (`basic-door`, `basic-window`: three render levels and a collision mesh
-    each) in its door and window slots. Its files go into
+    each) in its door and window slots. For voxel worlds it also brings
+    starter ground cover: four small plant models and the dressings Meadow,
+    Shore and Gravel ([Dressing](dressing.md)). Its files go into
     `assets/basic-kit/`. The items are the project's own copies — change
     them freely, or point the kit at a sheet of your own made to the same
     spec. It is added once: a project that already has one of its items is
