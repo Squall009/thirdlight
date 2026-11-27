@@ -143,9 +143,13 @@ what each sits on: `docs/architecture/voxel-engine.md` §6):
 - **Lighting revisited as a whole** (owner, 2026-11-27): after it has been used in a real scene and seen in motion.
   Until then the lighting pictures are a baseline, not a defect list: specks (D808's kind, the one fault the owner
   sees in many shots), blotchy indirect light, dark rooms, the cave's slow settle (D852) and the rest wait here.
+- **Wall-top fill becomes how roofs work** (owner, 2026-11-27; closes D829): the kit's `wallTopFill` option and
+  47a's per-building override are removed from the kit format, the record, the editor and the docs, and the roof
+  mesher keeps one path: a roof's slab always closes down onto the wall under it, for every roof material, in a
+  kit or not. No stepped-top variant remains.
 - From 47b (2026-11-26), not built: the level-0 derive carries light stop, walkers and collision apart from "drawn
   as a body", so a role can differ per column (47p's plan needs it for the `prop` row); the role check also scans
-  `tools/voxel-bench`; a roof kit with wall-top fill for the bench town, or the owner's word on that default (D829);
+  `tools/voxel-bench`;
   why Play in the editor takes about 95 s to settle on the town (D835); a script that declares more than 32 debug
   commands gets an error, not a log line.
 - From 47b.2: the reference generator keeps a page's name when it splits one by size (a rename broke 13 manual

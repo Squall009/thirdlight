@@ -48,6 +48,7 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | 2026-11-26 | Draw rings, LOD stages and fades are a phase of their own after 51, tuned on the demo scene's assets. Until then: props turn to voxels where the bricks begin, ground cover ends at the detail ring. | `roadmap.md` |
 | 2026-11-26 | The order sticks through 48 and the merge to main, the priority; nothing more is inserted before it; what comes up is noted for after the merge. The demo's scenes and rules wait for the merged version (its assets are made ahead). | `roadmap.md` |
 | 2026-11-27 | The picture set is a baseline for deviation: what did not change from the previous set is left alone until the owner says something is wrong; the reader reports changes, not opinions of scenes it does not know. Lighting is revisited as a whole after the merge, once used in a real scene and seen in motion. Of 47b's pictures the owner's own findings: specks in many shots, and fog cubes that do not thin toward their edges (51's fog pass). | `pictures.md`, `roadmap.md` |
+| 2026-11-27 | Wall-top fill is not an option: a roof always closes down onto the wall under it (the stepped-top choice of 2026-11-06 is withdrawn). `wallTopFill` is removed everywhere and the roof geometry keeps one path. Done after the merge. | `roadmap.md` (noted for after the merge), D829 |
 
 ## Dropped, superseded or deferred (do not rebuild without the owner's word)
 
@@ -69,6 +70,7 @@ owner-requirement sections and `owner-defaults.md` (defaults the owner let stand
 | Retiring the level 1–2 mesh rings | not yet: they stay for worlds baked to 2 m | 2026-11-13 (46d-c) |
 | The surface cache on voxel surfaces (charts, face hashes, chart worker) and the hybrid of cache near, volume far | removed in 46e.9 after the A/B; the hybrid with the cache's texels near not measured | 2026-11-16 |
 | A compute build of the clustered light lists | not in scope (the CPU build is 0.2–1.6 ms; the Iris Xe is GPU-bound) | 2026-11-16 |
+| The kit's `wallTopFill` option and stepped gable tops under a roof | withdrawn by the owner; fill becomes the one path, removed after the merge | 2026-11-27 |
 | Baking the light volume to disk | a possible later item; needs a format entry | 2026-11-16 |
 
 ## Format proposals waiting for the owner's note
