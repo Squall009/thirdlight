@@ -69,7 +69,9 @@ describe('manifest-v5: every optional block', () => {
     const world = { world: 'hills', worldId: 'ab'.repeat(16), edge: 32 as const, layout: 'column' as const, footprint: 512 as const, revision: 3, files: [{ name: 'r.0.0.vxr', digest: 'c'.repeat(64), byteLength: 900 }, { name: 'r.-1.0.vxr', digest: 'd'.repeat(64), byteLength: 800 }] };
     // A voxel kit (its game data as authored; a kit's record in canonical form).
     const kit = { kitFormat: 1 as const, voxelKitId: 'log', name: 'Log', version: 2, materialType: 'wood', slots: { 'edge-out-top': { meshes: [{ mesh: { assetId: 'asset-1', digest: 'c'.repeat(64) } }], gameData: { hits: 2 } } }, gameData: { sound: 'wood' } };
-    const v5 = capture(v5Of(v4Input, { voxelWorlds: [world], voxelKits: [kit], voxelTextures: { normal: 'slots-n', albedo: 'slots-a' } }));
+    // A dressing a shipped voxel material names (its record in canonical form, the large species with it).
+    const dressing = { dressingFormat: 1 as const, dressingId: 'meadow', name: 'Meadow', species: [{ model: 'asset-1', class: 'cover' as const, density: 4, conditions: { sky: true } }, { model: 'asset-1', class: 'large' as const, density: 0.01, spacing: 8 }] };
+    const v5 = capture(v5Of(v4Input, { voxelWorlds: [world], voxelKits: [kit], dressings: [dressing], voxelTextures: { normal: 'slots-n', albedo: 'slots-a' } }));
     expect(Object.keys(v5.manifest)).toEqual([...MANIFEST_KEYS_V5]);
     expect(v5.manifest['start']).toEqual(['scene-a']);
     expect(validateManifestV5(JSON.parse(new TextDecoder().decode(v5.bytes))).ok).toBe(true);
@@ -89,6 +91,7 @@ describe('manifest-v5: every optional block', () => {
     // The world reads back with its files in name order.
     expect(b['voxelWorlds']).toEqual([{ ...world, files: [world.files[1], world.files[0]] }]);
     expect(b['voxelKits']).toEqual([kit]);
+    expect(b['dressings']).toEqual([dressing]);
     // The voxel surfaces' arrays by map, in the maps' order.
     expect(Object.entries(b['voxelTextures'] as Record<string, string>)).toEqual([['albedo', 'slots-a'], ['normal', 'slots-n']]);
     // What the simulation reads of each asset, and the names scripts load by.

@@ -735,7 +735,7 @@ const MATERIAL_BASES: J[] = [
   // A decal material drawing a trim sheet's cell (no texture slots of its own).
   [{ materialId: 'mat-a', name: 'Decal', shader: 'decal', params: {}, textures: {}, decal: { sheet: 'mat-t', cell: 'sign' } }],
   // A material with the material model's parts: physics, game data and a voxel use with its texture sets.
-  [{ materialId: 'mat-v', name: 'Oak', shader: 'standard', params: {}, textures: {}, physical: { profile: 'wood', density: 650, friction: 0.55, restitution: 0.2, flowRate: 0 }, gameData: { footstep: 'wood' }, voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, blendMetres: 0.1, surfaces: { wall: { albedo: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedo: 'tex-f' }, ceiling: { orm: 'tex-c' } } } }],
+  [{ materialId: 'mat-v', name: 'Oak', shader: 'standard', params: {}, textures: {}, physical: { profile: 'wood', density: 650, friction: 0.55, restitution: 0.2, flowRate: 0 }, gameData: { footstep: 'wood' }, voxel: { id: 12, use: 'construction', kit: 'log', tileMetres: 4, heightDepth: 0.03, blendMetres: 0.1, surfaces: { wall: { albedo: 'tex-a', normal: 'tex-n', orm: 'tex-o' }, floor: { albedo: 'tex-f' }, ceiling: { orm: 'tex-c' } }, dressing: 'meadow' } }],
   // A gas material with its plain look.
   [{ materialId: 'mat-g', name: 'Mist', shader: 'standard', params: {}, textures: {}, voxel: { id: 13, use: 'gas', gas: { color: '#c8d2dc', density: 0.25 } } }],
   // A layered material naming its layers for the palette.
@@ -946,6 +946,8 @@ function runAllProbes(): void {
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
   probe('blockStamps[1]', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'room', name: 'Room', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]], edgePalette: [{ block: 'wall' }], edges: [[2, 0, 0, 0, 0]] }], '', block('blockStamps'), 'blockStamps:');
   probe('voxelKits', contentErrors, contentDoc({ voxelKits: [{ kitFormat: 1, voxelKitId: 'log', name: 'Log', version: 1, materialType: 'wood', materials: [3], slots: { 'edge-out-top': { meshes: [{ mesh: { assetId: 'logs', digest: 'a'.repeat(64) }, rotation: 5 }] } }, jitter: 1.5, trimLayout: 'detail-draft', wallTopFill: true, gameData: { hits: 2 } }] }), '/voxelKits', block('voxelKits'), 'voxelKits:');
+  // A dressing: a large species, whose spacing runs to the scatter rules' bound (a cover species' ends at the fields' reach).
+  probe('dressings', contentErrors, contentDoc({ dressings: [{ dressingFormat: 1, dressingId: 'meadow', name: 'Meadow', species: [{ model: 'grass-tuft', class: 'large', density: 2, spacing: 0.5, scale: [0.8, 1.2], yaw: 180, align: 0.5, seed: 3, conditions: { slope: { max: 30 } } }] }] }), '/dressings', block('dressings'), 'dressings:');
   probe('kits', contentErrors, contentDoc({ kits: [{ kitId: 'town', name: 'Town', description: 'Plaster and timber', thumbnail: 'town-pic', trimMaterial: 'town-trim', presets: ['house'], blockTypes: ['wall'], pieces: { door: [{ assetId: 'doors', piece: 'Door_A', weight: 2 }] } }] }), '/kits', block('kits'), 'kits:');
   // UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
@@ -1098,8 +1100,9 @@ describe('descriptor registry', () => {
     // definition, its world and grid — about 5.2 KB; a voxel portal — open, and what it stops while shut — about 2 KB;
     // a water body — its level and its handle, liquid and reach — about 1.6 KB; a spline's voxels — kind, material,
     // bed, shoulders, clear — about 1.5 KB; a voxel material's gas use and its look — colour, full density — about
-    // 0.6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(390_200);
+    // 0.6 KB; a project's dressings — species, their placement and conditions — and a voxel material's dressing,
+    // about 4.1 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(394_400);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

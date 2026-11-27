@@ -45,8 +45,9 @@ is refused whole), unknown fields at every level are refused, and later steps on
   An empty block is left out canonically.
 - `gameData?`: any JSON nested at most 32 deep (`game-data.ts`, the kit format's rule), object keys sorted, never
   read by the engine.
-- `voxel?` `{id, use, kit?, tileMetres?, heightDepth?, blendMetres?, surfaces?, gas?}`, in that order (`blendMetres?`
-  added by 46d.11, owner note below; `gas?` and the use `gas` by 47b.2, G3, owner note below):
+- `voxel?` `{id, use, kit?, tileMetres?, heightDepth?, blendMetres?, surfaces?, gas?, dressing?}`, in that order
+  (`blendMetres?` added by 46d.11, owner note below; `gas?` and the use `gas` by 47b.2, G3, owner note below;
+  `dressing?` by 47b.8, G5, owner note below):
   - `id` 1–4,095 (the voxel value's 12 material bits; 0 is air), **unique in the project** (`voxel_id_taken`);
     every world of the project shares the ids.
   - `use` `construction` | `terrain` | `liquid` | `gas` (required on a material; an instance may leave it to its
@@ -73,10 +74,79 @@ is refused whole), unknown fields at every level are refused, and later steps on
     §3.7 *Derived data 34 → 35*) is one more mesh of its draw in `color`, unlit, a pixel's opacity 1 − exp(−`density`
     × the cells' density × the metres of gas behind it along the view ray); from inside a bank one screen-wide layer
     of the same colour and rule (`three-adapter/voxel-gas-draw.ts`; `voxel-engine.md` §3 *Gas*).
+  - `dressing` a dressing id the project has (`dressing_missing`; deleting that dressing is refused the same way):
+    the dressing asset whose species grow on the material's surfaces (below, *The dressing asset*). Absent:
+    nothing grows. Never with `liquid` or `gas` (they have no surface). Inherited along an instance chain as the
+    kit is: a voxel variant that names another dressing grows the same ground sparser, denser or with other
+    plants where it is painted (the owner's "density by material variations"); one that names none grows its
+    parent's. An instance cannot name "none" over a parent that names one: such ground is a material of its own.
 - `content.materialProfiles?`: `[{profileId, name, density?, friction?, restitution?, flowRate?, gameData?}]` by
   `profileId`. Engine profiles are constants (`ENGINE_MATERIAL_PROFILES`: earth, glass, lava, metal, stone, water,
   wood); a project profile with one of their ids overrides it field by field (game data whole), one with a new id
   adds one. A material naming a profile neither has is refused (`reference_missing`).
+
+**The dressing asset, format 1 (47b.8, G5)** (`content.dressings`, project-model `dressing.ts`; a project resource
+of kind `dressing`, each its own file `<name>.dressing.json`, `assets/dressings/` by default; set and deleted by
+`setDressing {dressing}` and `deleteDressing {dressingId}`). A dressing is `{dressingFormat, dressingId, name,
+species}`, in that order: `dressingFormat` 1 (`DRESSING_FORMAT`; any other is refused whole, a newer one as
+`dressing_format_unsupported`), its id, its name (1–128 characters) and **`species`, an ordered list of species
+entries** (it may be empty). Unknown fields are refused at every level. A species entry is, in canonical order:
+- `model`: a model asset id (the model placed). Not checked against the project's assets: deleting an asset is
+  never refused for it, and a model the project lacks grows nothing.
+- `class`: `cover` | `large`. **Cover** (grass, flowers, reeds, pebbles) is made near the camera from the voxels
+  and never stored. **Large** (trees, bushes, boulders) is stored, round-tripped and shipped, and **placed by no
+  engine code** until 47p.
+- `density`: candidates per m², 0.0001–100 (each kept where its conditions hold fully).
+- `spacing?`: metres kept between the entry's copies, 0–8 for a cover entry (a chunk's cover is made from the
+  chunk and the chunks beside it, whose fields reach 8 m past a point), 0–100 for a large one. Absent: 0.
+- `scale?`: `[min, max]`, a random uniform scale between them, 0.01–100. Absent: `[1, 1]`.
+- `yaw?`: a random turn about up, 0 to this many degrees, 0–360. Absent: 360.
+- `align?`: 0 upright to 1 along the ground's normal. Absent: 0.
+- `seed?`: a whole number; with the entry's place in the list it picks its jitter, sizes and turns. Absent: 0.
+- `conditions?`: where it grows. **Exactly these ten** (`DRESSING_CONDITIONS`), each left out meaning any, read
+  from the surface fields of the surface a candidate stands on (format spec §3.7; `voxel-engine.md` §6 row 1):
+  - `material`: a set of voxel material ids, 1–4,095 (the surface cell's is one of them);
+  - `role`: a set of role names a surface can have (`terrain`, `wall`, `floor`, `roof`, `foundation`, `stair`,
+    `pillar`);
+  - `slope`: a range in degrees, 0–90;
+  - `height`: a range in metres, in the grid's own frame;
+  - `sky`: `true` (under open sky only) or `false` (under cover only);
+  - `wetness`: a range, 0–7 (the cell's wetness);
+  - `waterDepth`: a range in metres of liquid standing on the surface (0: dry; `{max: 0}` is dry ground only);
+  - `materialEdge`: a range in metres to the nearest surface of another material, 0–8;
+  - `construction`: a range in metres to the nearest built cell (a block role, or a structure's stamp), 0–8.
+    Both distances are the surface fields', searched 8 m out: 8 also means "none nearer";
+  - `noise`: a range, 0–1, over value noise across the ground, with the noise's own `scale` (metres between its
+    bumps, 0.01–100,000; required) and `seed?` (a whole number; absent 0).
+  **A range** is `{min?, max?, fade?}` (the engine's rule range, `@thirdlight/shared` `FadeRange`): 1 inside
+  `[min, max]`, an absent end open, falling to 0 over `fade` past an end (absent or 0: a hard edge). **A species
+  grows at the product of its conditions** as a share of its density (`@thirdlight/voxel` `dressing-rules.ts`,
+  `dressingShare`; `dressingWhyNot` names the first condition, in the order above, whose value is 0).
+Canonical form: fields in the orders above, defaults left out (a 0 spacing, `[1, 1]`, 360, 0, a 0 seed, an empty
+range, an empty `conditions`), the two sets ascending, **the species in the order given** (an entry's place is
+part of its seed: moving an entry moves its plants). The placement fields (`density` … `seed`) are a scatter
+rule's own, with its bounds (`SCATTER_LIMITS`), so the rule scatter core places an entry as it places any ground
+cover rule. **Nothing else is stored**: no per-plant list, no painted density (the two reserved record bits stay
+unspent), no hand-added or erased plants.
+
+**Rule plants keep clear of props.** A cover point inside a hand-placed prop's box across the ground, from 0.5 m
+under its foot to its top, is not grown. The box is the prop's shape as the light stamps read it (its collider,
+else its model's bounds; `propBounds`), handed to the cover source as plain numbers: nothing is stored on the
+prop or the dressing for it.
+
+**What a build ships (47b.8).** The catalog's `dressings` block: the dressings the shipped (resolved) materials
+name, each as authored; their species' models (cover and large) are assets of the build and dependencies of the
+project-wide blocks. A dressing nothing names ships nothing.
+
+**Owner note (47b.8, G5, 2026-11-26):** approved with plan 47b (§4): "`voxel.dressing` on the material record, and
+the dressing asset (format 1). A material names one dressing asset. The asset is its own file: an ordered list of
+species entries, each a model, a class (cover or large), density, spacing, scale and yaw ranges, alignment, a seed
+and conditions. 47b places the cover class; the large class is stored and placed by 47p. Project schema bump with
+an upgrade step that adds nothing." Defaults chosen, owner to confirm (plan 47b §8 "47b.8"): the schema bump is a
+**recorded step of schema 8** named `dressing` (how every change since 8 was made; it changes no document, and a
+project's `upgrades` list gains the name on its next open); the record's own `dressingFormat`, `dressingId` and
+`name`; scale as `[min, max]` and yaw as 0 to a number of degrees, the scatter rule's forms; a range with a `fade`;
+each condition's form above.
 
 **Owner note (47b.2, G3, 2026-11-26):** approved with plan 47b (§4): "Voxel material use `gas`: a fourth use beside
 construction, terrain and liquid, with two fields for the plain look: colour and full density (per metre). 51 adds

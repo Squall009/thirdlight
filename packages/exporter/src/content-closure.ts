@@ -24,7 +24,7 @@
 import { deepFreeze, sha256Hex } from '@thirdlight/shared';
 import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import { dialogueForRuntime, instancePaintBlobs, vertexPaintBlobs, type DialogueDocument, type DialogueSettings, type DialogueSpeaker, type InstancePaint, type VertexPaintComponent } from '@thirdlight/project-model';
-import { boundVoxelKits, type GameMode, type ShippedVoxelWorld, type VoxelKit } from '@thirdlight/project-model';
+import { boundVoxelKits, type DressingDef, type GameMode, type ShippedVoxelWorld, type VoxelKit } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { architectureCopies, architectureGraphsOf, architectureLayerFurnishing, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
@@ -36,7 +36,7 @@ import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 import { closureDecalPages, hasDecalMaterials, withDecalPages, type ClosureDecalPageArrays } from './closure-decal-pages';
-import { shippedMaterials } from './closure-materials';
+import { shippedDressingsBlock, shippedMaterials } from './closure-materials';
 import { closureSlotArrays, readWhole, voxelTexturesBlock, withVoxelArrays, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
 import { blockDataPacker, type GzipPort } from './block-chunk-data';
 import { overviewsIn, terrainOverviewPacker } from './terrain-overview-data';
@@ -1217,7 +1217,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries(), ...blockData.filter((a) => !buffers.has(a.digest)).map((a) => [a.digest, a.bytes.length] as const), ...brickBuffers].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
       start: input.startScenes ?? [],
       dependencies: sharedDependencies,
-      ...(input.voxelWorlds !== undefined && input.voxelWorlds.length > 0 ? { voxelWorlds: input.voxelWorlds } : {}), ...(content['voxelKits'] !== undefined ? { voxelKits: boundVoxelKits(content['voxelKits'] as VoxelKit[], allMaterials ?? []) } : {}), ...voxelTexturesBlock(slotArrays),
+      ...(input.voxelWorlds !== undefined && input.voxelWorlds.length > 0 ? { voxelWorlds: input.voxelWorlds } : {}), ...(content['voxelKits'] !== undefined ? { voxelKits: boundVoxelKits(content['voxelKits'] as VoxelKit[], allMaterials ?? []) } : {}), ...voxelTexturesBlock(slotArrays), ...shippedDressingsBlock(content['dressings'] as DressingDef[] | undefined, usedMaterialsOf() ?? []),
       media,
       moduleIds,
       enginePins: M3_ENGINE_PINS,

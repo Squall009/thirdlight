@@ -262,6 +262,7 @@ export {
   surfaceFieldsFed,
   surfaceFieldsOf,
   surfaceFieldsTransfer,
+  surfaceNormal,
   surfacePoint,
   surfacePointOut,
   surfaceRows,
@@ -277,6 +278,7 @@ export {
   type SurfaceSource,
   type SurfaceTable,
 } from './surface-fields';
+export { clearedByProp, DRESSING_CLEAR_FLOATS, DRESSING_CLEAR_UNDER_M, DRESSING_CONDITIONS, DRESSING_ROLE_NAMES, dressingConditionAt, dressingNoise, dressingRule, dressingShare, dressingWhyNot, propClearances, type DressingConditionName, type DressingConditions, type DressingNoise, type DressingRule, type DressingWhyNot } from './dressing-rules';
 export { decodeStoredChunk, surfaceFieldsCells, surfaceFieldsInputOf, surfaceFieldsOfColumn, surfaceFieldsPad, type SurfaceFieldsChunk, type SurfaceFieldsInput } from './surface-fields-job';
 export { COLLISION_ALONE_PART, CollisionDerives, type CollisionDeriveHost, type CollisionEvent } from './stream-collision';
 export { DEFAULT_STREAM_READS, FocusMotion, motionDistance2, readOrder, STREAM_PREFETCH_SECONDS, STREAM_STOPPED_MS, STREAM_WIDEN_AFTER_MS, type WantedChunk } from './stream-reads';

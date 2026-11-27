@@ -480,6 +480,8 @@ export type ValidatedOpArgs =
   | { op: 'setMaterialProfile'; args: { profile: import('@thirdlight/project-model').MaterialProfile } }
   | { op: 'deleteMaterialProfile'; args: { profileId: string } }
   | { op: 'deleteVoxelKit'; args: { voxelKitId: string } }
+  | { op: 'setDressing'; args: { dressing: import('@thirdlight/project-model').DressingDef } }
+  | { op: 'deleteDressing'; args: { dressingId: string } }
   | { op: 'setUiDocument'; args: { document: import('@thirdlight/project-model').UiDocument } }
   | { op: 'deleteUiDocument'; args: { uiDocumentId: string } }
   | { op: 'setUiTheme'; args: { theme: import('@thirdlight/project-model').UiTheme } }
@@ -628,6 +630,8 @@ const RECORD_OP_ARGS: Readonly<Record<string, readonly [string, string | null]>>
   deleteKit: ['kitId', null],
   setVoxelKit: ['kit', 'kitFormat, voxelKitId, name, version, materialType, slots, materials?, jitter?, trimLayout?, sheetLayout?, damage?, wallTopFill?, gameData?'],
   deleteVoxelKit: ['voxelKitId', null],
+  setDressing: ['dressing', 'dressingFormat, dressingId, name, species'],
+  deleteDressing: ['dressingId', null],
   setMaterialProfile: ['profile', 'profileId, name, density?, friction?, restitution?, flowRate?, gameData?'],
   deleteMaterialProfile: ['profileId', null],
 };
@@ -873,8 +877,8 @@ export function validateOpArgs(
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setKit':
-    case 'deleteKit': case 'setVoxelKit': case 'deleteVoxelKit': case 'setMaterialProfile': case 'deleteMaterialProfile': {
-      // One record set {kit | profile}, or deleted by its id (the records' values are the model's; here the shapes).
+    case 'deleteKit': case 'setVoxelKit': case 'deleteVoxelKit': case 'setDressing': case 'deleteDressing': case 'setMaterialProfile': case 'deleteMaterialProfile': {
+      // One record set {kit | dressing | profile}, or deleted by its id (the records' values are the model's; here the shapes).
       const [key, shape] = RECORD_OP_ARGS[op]!, set = shape !== null;
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };

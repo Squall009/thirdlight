@@ -219,6 +219,7 @@ export const RESOURCE_CREATING_OPS: readonly string[] = [
   'setEffect',
   'setKit',
   'setVoxelKit',
+  'setDressing',
   'setScriptLibrary',
   'setUiDocument',
   'setUiTheme',

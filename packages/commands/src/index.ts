@@ -194,6 +194,7 @@ export type {
   SetEffectChange,
   SetKitChange,
   SetVoxelKitChange,
+  SetDressingChange,
   SetMaterialProfileChange,
   SetEffectInverse,
   SetScriptLibraryChange,
@@ -257,6 +258,7 @@ export type {
 export { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, withLayerData } from './block-ops';
 export { kitsOf } from './kit-ops';
 export { voxelKitsOf } from './voxel-kit-ops';
+export { dressingsOf } from './dressing-ops';
 export { writeSceneFootprints, type FootprintChunks } from './footprint-ops';
 export type { BlockChunkSwap, BlockLayerPatch, BlockRegionSwap } from './block-patch';
 export { instanceFloatsOf, planInstanceStroke, validatePaintInstancesArgs, type PaintInstancesArgs, type PreparedInstanceStroke } from './instance-stroke-ops';

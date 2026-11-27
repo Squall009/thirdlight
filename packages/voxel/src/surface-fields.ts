@@ -398,6 +398,24 @@ function firstRing(d2: number): number {
 }
 
 /**
+ * The ground's unit normal at the surface at box row `row` of column (x, z),
+ * into `out` (x, y, z): from the two gradients its slope is the angle of
+ * (the same sides left out), so a copy leaned along it leans as steeply as
+ * the slope field says.
+ */
+export function surfaceNormal(t: SurfaceTable, x: number, z: number, row: number, out: number[] | Float64Array): void {
+  const { sz, cellM } = t.cells;
+  const h = heightOf(t, x * sz + z, row);
+  const wall = surfaceWallRows(cellM);
+  const gx = gradient(h, sideHeight(t, x - 1, z, row, wall), sideHeight(t, x + 1, z, row, wall), cellM);
+  const gz = gradient(h, sideHeight(t, x, z - 1, row, wall), sideHeight(t, x, z + 1, row, wall), cellM);
+  const len = Math.hypot(gx, 1, gz);
+  out[0] = -gx / len;
+  out[1] = 1 / len;
+  out[2] = -gz / len;
+}
+
+/**
  * The fields of the surface at box row `row` of column (x, z) of a table's
  * box, into `out`. `distances`: also the two distance fields (the search of
  * the columns round it; NaN without).

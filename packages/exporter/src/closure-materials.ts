@@ -9,7 +9,7 @@
  * build will hold without making one (the editor's decal atlas reads the
  * decal pages the build will plan from these).
  */
-import { architectureGraphsOf, architectureStylesOf, captureContentViewV3, decalSheetsOf, graphForRuntime, loadableAssetIds, loadableResourceIds, materialsInUse, resolveMaterialInstances, withResolvedPhysics, type ArchitectureStyles, type MaterialProfile, type GraphDocument, type BlockType, type EffectDef, type MaterialDef, type PrefabDefinition, type TimelineAsset } from '@thirdlight/project-model';
+import { architectureGraphsOf, architectureStylesOf, captureContentViewV3, decalSheetsOf, graphForRuntime, loadableAssetIds, loadableResourceIds, materialsInUse, resolveMaterialInstances, withResolvedPhysics, type ArchitectureStyles, type DressingDef, type MaterialProfile, type GraphDocument, type BlockType, type EffectDef, type MaterialDef, type PrefabDefinition, type TimelineAsset } from '@thirdlight/project-model';
 
 export interface ShippedMaterialsInput {
   /** The content block. */
@@ -60,4 +60,14 @@ export function shippedMaterialsOfCapture(read: { readonly projectId: string; re
   const entities = read.scenes !== undefined ? read.scenes.flatMap((sc) => ((sc as { entities?: { components?: unknown }[] }).entities ?? [])) : ((read.scene as { entities?: { components?: unknown }[] } | null)?.entities ?? []);
   const graphs = architectureGraphsOf((read.content as { graphs?: GraphDocument[] } | null)?.graphs).map((g) => ({ graphId: g.graphId, kind: g.kind, name: g.name, graph: graphForRuntime(g.graph) }));
   return shippedMaterials({ content: read.content, entities, assets: view.normalized.assets, styles: () => architectureStylesOf(graphs) });
+}
+
+/**
+ * The dressings a build ships, as its catalog's `dressings` block: those the shipped (resolved) materials name in
+ * `voxel.dressing`, so a variant's own dressing ships and one nothing shipped names does not. Empty: no block.
+ */
+export function shippedDressingsBlock(dressings: readonly DressingDef[] | undefined, shipped: readonly MaterialDef[]): { dressings?: DressingDef[] } {
+  const named = new Set(shipped.flatMap((m) => (m.voxel?.dressing !== undefined ? [m.voxel.dressing] : [])));
+  const list = (dressings ?? []).filter((d) => named.has(d.dressingId));
+  return list.length > 0 ? { dressings: list } : {};
 }

@@ -72,15 +72,18 @@ export function decodeStoredChunk(g: ChunkGrid, cy: number, b: StoredChunk, deco
 
 /**
  * A job's cells as one box: the column's footprint and the ring round it,
- * over the rows of every chunk named.
+ * over the rows of every chunk named. `ring`: the cells kept round the
+ * footprint (the distance fields' reach by default; a consumer that reads
+ * fields at points past the footprint asks for more, up to the whole columns
+ * beside).
  */
-export function surfaceFieldsCells(input: SurfaceFieldsInput, decompress: (b: Uint8Array) => Uint8Array): SurfaceCells {
+export function surfaceFieldsCells(input: SurfaceFieldsInput, decompress: (b: Uint8Array) => Uint8Array, ring = surfaceFieldsPad(input.level)): SurfaceCells {
   if (!CHUNK_EDGES.includes(input.edge)) throw new RangeError(`surface fields job: chunk edge ${String(input.edge)}`);
   if (![input.level, input.cx, input.cz].every(Number.isInteger) || input.level < 0) throw new RangeError('surface fields job: its column is not integers');
   const g = chunkGrid(input.edge);
   const e = g.edge;
-  const pad = surfaceFieldsPad(input.level);
-  if (pad > e) throw new RangeError(`surface fields job: a reach of ${pad} cells past the columns beside (edge ${e})`);
+  const pad = ring;
+  if (!Number.isInteger(pad) || pad < 0 || pad > e) throw new RangeError(`surface fields job: a reach of ${pad} cells past the columns beside (edge ${e})`);
   let lo = Infinity;
   let hi = -Infinity;
   for (const c of input.chunks) {

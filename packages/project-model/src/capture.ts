@@ -31,6 +31,7 @@ import { effectAssetRefs, type EffectDef } from './effects';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type { CapturedAsset, CapturedContent, ContentCatalog, ImportRecipe, PropertyValue } from './types-v2';
 import type { ContentCatalogV3, SceneV3 } from './types-v3';
+import { dressingModels, namedDressings, type DressingDef } from './dressing';
 import { voxelKitImages, voxelKitMeshes, type VoxelKit } from './voxel-kit';
 
 function tag(errors: readonly ModelErrorV2[], document: 'scene' | 'content'): ModelErrorV2[] {
@@ -196,6 +197,10 @@ export function collectAssetRefsV3(
     }
   }
   for (const [assetId, version] of kitPins) setRef(assetId, version ?? undefined);
+  // The models the species of a dressing place, for the dressings a voxel material names (its own or its chain's):
+  // cover and large alike, so a stored large species ships with its dressing. A model the project lacks ships
+  // nothing and grows nothing.
+  for (const d of namedDressings(content as { materials?: MaterialDef[]; dressings?: DressingDef[] })) for (const id of dressingModels(d)) if (records.has(id)) setRef(id);
   // The textures a model's images were extracted into travel with the model.
   const extracted = new Map(content.assets.map((a) => [a.assetId, (a as { textures?: Record<string, string> }).textures]));
   for (const assetId of [...refs.keys()]) for (const id of Object.values(extracted.get(assetId) ?? {})) setRef(id);

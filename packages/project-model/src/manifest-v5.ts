@@ -73,6 +73,7 @@ import { isAssetLabel } from './content-assets';
 import type { GameplaySettings } from './types-v2';
 import { isDigest } from './content-helpers';
 import { canonicalShippedVoxelWorld, shippedVoxelWorldsProblem, type ShippedVoxelWorld } from '@thirdlight/voxel';
+import { canonicalDressings, validateDressings, type DressingDef } from './dressing';
 import { canonicalVoxelKits, validateVoxelKits, type VoxelKit } from './voxel-kit';
 import { VOXEL_TEXTURE_MAPS, type VoxelTextureMap } from './voxel-materials';
 import type { ModelErrorV2 } from './errors';
@@ -182,6 +183,8 @@ export const CATALOG_BLOCK_KEYS = [
   'voxelWorlds',
   // The voxel kits (each its record as authored, game data untouched): the world draws its cases with them.
   'voxelKits',
+  // The dressings the shipped voxel materials name (each its record as authored): the worlds' cover grows by them.
+  'dressings',
   // The voxel surfaces' texture arrays (a map's assembled array id each): the worlds draw the materials' texture sets from them.
   'voxelTextures',
 ] as const;
@@ -263,6 +266,8 @@ export type CaptureManifestV5Input = Omit<CaptureManifestV2Input, 'assets' | 'sc
   voxelWorlds?: readonly ShippedVoxelWorld[];
   /** The project's voxel kits (absent or empty: none). */
   voxelKits?: readonly VoxelKit[];
+  /** The dressings the shipped voxel materials name (absent or empty: none). */
+  dressings?: readonly DressingDef[];
   /** The voxel surfaces' texture arrays by map (`albedo`, `normal`, `orm`: shipped texture ids; absent or empty: none). */
   voxelTextures?: Readonly<Partial<Record<VoxelTextureMap, string>>>;
   /** SHA-256 (lowercase hex) of the files' bytes (default: project-model's portable one). */
@@ -397,6 +402,7 @@ export function captureManifestV5(input: CaptureManifestV5Input): CaptureManifes
   const shared = entriesOf(input.dependencies ?? []);
   if (shared.length > 0) blocks.dependencies = shared;
   if (input.voxelKits !== undefined && input.voxelKits.length > 0) blocks.voxelKits = canonicalVoxelKits(input.voxelKits);
+  if (input.dressings !== undefined && input.dressings.length > 0) blocks.dressings = canonicalDressings(input.dressings);
   const voxelTextures = Object.fromEntries(VOXEL_TEXTURE_MAPS.flatMap((m) => (input.voxelTextures?.[m] !== undefined ? [[m, input.voxelTextures[m]]] : [])));
   if (Object.keys(voxelTextures).length > 0) blocks.voxelTextures = voxelTextures;
   if (input.voxelWorlds !== undefined && input.voxelWorlds.length > 0) blocks.voxelWorlds = [...input.voxelWorlds].sort((a, b) => (a.world < b.world ? -1 : a.world > b.world ? 1 : 0)).map(canonicalShippedVoxelWorld);
@@ -606,7 +612,7 @@ export function catalogRootProblem(doc: unknown): string | null {
 }
 
 /** The blocks that are lists (their parts concatenate). */
-const LIST_BLOCKS: ReadonlySet<string> = new Set(['architectureStyles', 'tags', 'effects', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'collisionLayers', 'uiThemes', 'modes', 'timelines', 'eventCues', 'materials', 'materialFunctions', 'uiDocuments', 'buffers', 'media', 'behaviors', 'loadable', 'facts', 'dependencies', 'voxelWorlds', 'voxelKits']);
+const LIST_BLOCKS: ReadonlySet<string> = new Set(['architectureStyles', 'tags', 'effects', 'animators', 'prefabs', 'blockTypes', 'cellFields', 'collisionLayers', 'uiThemes', 'modes', 'timelines', 'eventCues', 'materials', 'materialFunctions', 'uiDocuments', 'buffers', 'media', 'behaviors', 'loadable', 'facts', 'dependencies', 'voxelWorlds', 'voxelKits', 'dressings']);
 
 /** Why a list of catalog entries is not one (null: it is): shape, ascending ids. */
 export function catalogEntriesProblem(v: unknown): string | null {
@@ -654,6 +660,11 @@ export function catalogBlockProblem(key: CatalogBlockKey, value: unknown, contex
       return shippedVoxelWorldsProblem(value);
     case 'voxelTextures':
       return voxelTexturesProblem(value);
+    case 'dressings': {
+      const errors: ModelErrorV2[] = [];
+      validateDressings(value, '/dressings', errors);
+      return errors.length === 0 ? null : `dressings: ${errors[0]!.message} (${errors[0]!.path ?? ''})`;
+    }
     case 'voxelKits': {
       const errors: ModelErrorV2[] = [];
       validateVoxelKits(value, '/voxelKits', errors);

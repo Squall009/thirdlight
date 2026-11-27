@@ -27,7 +27,8 @@ export interface ResourceKindDef {
   /**
    * Why a script never loads it by address or label (absent: a game resource it may):
    * `editor` — editor-side organisation, never shipped; `block` — shipped whole in its
-   * own catalog block, which its consumer reads (a voxel kit: the world draws with it).
+   * own catalog block, which its consumer reads (a voxel kit: the world draws with it; a
+   * dressing: the world's cover grows by it).
    */
   readonly unaddressed?: 'editor' | 'block';
 }
@@ -51,6 +52,7 @@ export const RESOURCE_KIND_TABLE: readonly ResourceKindDef[] = [
   { kind: 'envpreset', list: ENV_PRESETS_LIST, idKey: 'presetId', folder: 'environment' },
   { kind: 'kit', list: 'kits', idKey: 'kitId', folder: 'kits', unaddressed: 'editor' },
   { kind: 'voxelkit', list: 'voxelKits', idKey: 'voxelKitId', folder: 'voxel-kits', unaddressed: 'block' },
+  { kind: 'dressing', list: 'dressings', idKey: 'dressingId', folder: 'dressings', unaddressed: 'block' },
 ];
 
 const BY_KIND = new Map(RESOURCE_KIND_TABLE.map((k) => [k.kind, k]));

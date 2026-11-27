@@ -32,6 +32,7 @@ import { GRAPH_KINDS } from './graph-kinds';
 import { canonicalEffects, validateEffects } from './effects';
 import { canonicalBlockStamps, canonicalBlockTypes, canonicalCellFields, composeBlockContent, validateBlockStamps, validateBlockTypes, validateCellFields, type BlockContentView } from './block-layers';
 import { canonicalKits, validateKits, type KitDef } from './kits';
+import { canonicalDressings, validateDressings, type DressingDef } from './dressing';
 import { canonicalVoxelKits, validateVoxelKits, type VoxelKit } from './voxel-kit';
 import { canonicalModes, validateBehaviorGroups, validateModeReferences, validateModes } from './modes';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiReferences, validateUiThemes } from './ui-documents';
@@ -132,8 +133,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell' || k === 'loadable' || k === 'lightLayers' || k === 'kits' || k === 'voxelKits' || k === 'materialProfiles'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)', 'loadable (optional)', 'lightLayers (optional)', 'kits (optional)', 'voxelKits (optional)', 'materialProfiles (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell' || k === 'loadable' || k === 'lightLayers' || k === 'kits' || k === 'voxelKits' || k === 'dressings' || k === 'materialProfiles'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)', 'loadable (optional)', 'lightLayers (optional)', 'kits (optional)', 'voxelKits (optional)', 'dressings (optional)', 'materialProfiles (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -286,9 +287,11 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (version === 4 && doc['kits'] !== undefined && !same('kits')) validateKits(doc['kits'], '/kits', errors, trusted('kits'));
   // Voxel kits (v4): their shapes and format; what their cases and meshes name is the kit check's, never refused.
   if (version === 4 && doc['voxelKits'] !== undefined && !same('voxelKits')) validateVoxelKits(doc['voxelKits'], '/voxelKits', errors, trusted('voxelKits'));
+  // Dressings (v4): their shapes and format; the models their species name are not checked (a missing one grows nothing).
+  if (version === 4 && doc['dressings'] !== undefined && !same('dressings')) validateDressings(doc['dressings'], '/dressings', errors, trusted('dressings'));
   // The physical profiles (v4), and what the materials' physical, voxel and kit fields name.
   if (version === 4 && doc['materialProfiles'] !== undefined && !same('materialProfiles')) validateMaterialProfiles(doc['materialProfiles'], '/materialProfiles', errors);
-  if (version === 4 && errors.length === 0 && !same('materials', 'voxelKits', 'materialProfiles')) validateMaterialModelRules(doc, errors);
+  if (version === 4 && errors.length === 0 && !same('materials', 'voxelKits', 'materialProfiles', 'dressings')) validateMaterialModelRules(doc, errors);
   // The named collision layers (v4).
   if (version === 4 && doc['collisionLayers'] !== undefined && !same('collisionLayers')) validateCollisionLayers(doc['collisionLayers'], '/collisionLayers', errors);
   // The light layers' names (v4).
@@ -444,7 +447,7 @@ export function isNormalizedContent(c: unknown): boolean {
 }
 
 /** The lists whose records are each a project resource (a file of its own), capped one by one. */
-const RESOURCE_LISTS = ['assets', 'prefabs', 'behaviors', 'materials', 'animators', 'graphs', 'effects', 'scriptLibraries', 'uiDocuments', 'uiThemes', 'dialogues', 'timelines', 'kits', 'voxelKits'] as const;
+const RESOURCE_LISTS = ['assets', 'prefabs', 'behaviors', 'materials', 'animators', 'graphs', 'effects', 'scriptLibraries', 'uiDocuments', 'uiThemes', 'dialogues', 'timelines', 'kits', 'voxelKits', 'dressings'] as const;
 
 /** The environment's presets: a list inside `environment`, each preset its own file too. */
 function envPresetsOf(c: Record<string, unknown> | undefined): unknown {
@@ -557,6 +560,7 @@ const CANONICAL_KEYS: readonly CanonicalKey[] = [
   { key: 'blockStamps', canon: canonicalBlockStamps, present: nonEmpty },
   { key: 'kits', canon: canonicalKits, idOf: (k: KitDef) => k.kitId, present: nonEmpty },
   { key: 'voxelKits', canon: canonicalVoxelKits, idOf: (k: VoxelKit) => k.voxelKitId, present: nonEmpty },
+  { key: 'dressings', canon: canonicalDressings, idOf: (d: DressingDef) => d.dressingId, present: nonEmpty },
   { key: 'materialProfiles', canon: canonicalMaterialProfiles, present: nonEmpty },
   { key: 'uiDocuments', canon: canonicalUiDocuments, idOf: (d: { uiDocumentId: string }) => d.uiDocumentId, present: nonEmpty },
   { key: 'uiThemes', canon: canonicalUiThemes, idOf: (t: { uiThemeId: string }) => t.uiThemeId, present: nonEmpty },
@@ -718,7 +722,7 @@ export function arrayTextureIds(doc: { assets?: readonly unknown[] } | Record<st
  * graph, effect, environment, input, animator or bake list.
  */
 /**
- * The material model's rules over the whole block: voxel ids once, the kits and profiles materials name exist
+ * The material model's rules over the whole block: voxel ids once, the kits, dressings and profiles materials name exist
  * (`voxel-materials.ts`), with instances resolved (a variant's fields folded in).
  */
 function validateMaterialModelRules(doc: Record<string, unknown>, errors: ModelErrorV2[]): void {
@@ -727,7 +731,8 @@ function validateMaterialModelRules(doc: Record<string, unknown>, errors: ModelE
   const index = new Map(list.map((m, i) => [m.materialId, i]));
   const kits = new Set((Array.isArray(doc['voxelKits']) ? (doc['voxelKits'] as VoxelKit[]) : []).map((k) => k.voxelKitId));
   const profiles = new Set(materialProfilesOf(doc['materialProfiles'] as MaterialProfile[] | undefined).keys());
-  validateVoxelMaterialRules(resolveMaterialInstances(list), (id) => index.get(id) ?? -1, kits, profiles, errors);
+  const dressings = new Set((Array.isArray(doc['dressings']) ? (doc['dressings'] as DressingDef[]) : []).map((d) => d.dressingId));
+  validateVoxelMaterialRules(resolveMaterialInstances(list), (id) => index.get(id) ?? -1, kits, profiles, errors, dressings);
 }
 
 function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[], assetRules = true, previous?: { same: (...keys: string[]) => boolean; materials: ReadonlySet<unknown> | undefined }): void {

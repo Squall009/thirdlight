@@ -26,18 +26,13 @@
  * Pure and deterministic: the noise is a lattice hash with products and
  * `Math.floor` only, every other condition plain arithmetic.
  */
-import { isPlainObject, latticeHash4 } from '@thirdlight/shared';
+import { fadeRangeAt, isPlainObject, latticeHash4, type FadeRange } from '@thirdlight/shared';
 import type { ModelErrorV2 } from './errors';
 import type { CellMetaValue } from './block-layers';
 import { TERRAIN_LAYER_MAX } from './terrain-sizes';
 
-/** A condition's range: 1 within [min, max] (an absent end is open), fading to 0 over `fade` beyond each end. */
-export interface RuleRange {
-  min?: number;
-  max?: number;
-  /** How far past an end the condition fades out (the range's unit; absent or 0: a hard edge). */
-  fade?: number;
-}
+/** A condition's range (the shared definition: 1 within [min, max], fading to 0 over `fade` beyond each end). */
+export type RuleRange = FadeRange;
 
 export interface SurfaceRule {
   /** What the rule is called in the editor ("Rock on steep slopes"; absent: a summary of its conditions). Paints nothing. */
@@ -219,21 +214,8 @@ function sortLayers(layers: number[], weights: number[], n: number): void {
   }
 }
 
-/** `t` eased (smoothstep), clamped to [0, 1]. */
-function ease(t: number): number {
-  if (t <= 0) return 0;
-  if (t >= 1) return 1;
-  return t * t * (3 - 2 * t);
-}
-
 /** A range condition's value at `v` (see {@link RuleRange}). */
-export function ruleRangeAt(r: RuleRange, v: number): number {
-  const fade = r.fade ?? 0;
-  let k = 1;
-  if (r.min !== undefined && v < r.min) k = fade > 0 ? ease(1 - (r.min - v) / fade) : 0;
-  if (r.max !== undefined && v > r.max) k *= fade > 0 ? ease(1 - (v - r.max) / fade) : 0;
-  return k;
-}
+export const ruleRangeAt = fadeRangeAt;
 
 /** {@link latticeHash4} in [0, 1). */
 const hash01 = (ix: number, iy: number, iz: number, seed: number): number => latticeHash4(ix, iy, iz, seed) / 4294967296;

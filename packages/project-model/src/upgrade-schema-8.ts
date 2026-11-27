@@ -30,6 +30,10 @@
  * - `interactor` (recorded): the `foliageBend` component is renamed
  *   `interactor`, on objects, prefab parts and linked copies' overrides
  *   (`upgrade-interactor.ts`).
+ * - `dressing` (recorded): dressings became a resource kind and a voxel
+ *   material may name one (`voxel.dressing`). The step changes no document:
+ *   a project made before it has neither, and opens as it was. It is a step
+ *   so that a project's `upgrades` list says its files may hold them.
  */
 import { upgradeBloomExposure } from './upgrade-bloom-exposure';
 import { upgradeInteractor } from './upgrade-interactor';
@@ -53,6 +57,7 @@ export const SCHEMA_8_STEPS: readonly Schema8Step[] = [
   { name: 'light-counts', run: retireLightCounts, recorded: true },
   { name: 'bloom-exposure', run: upgradeBloomExposure, recorded: true },
   { name: 'interactor', run: upgradeInteractor, recorded: true },
+  { name: 'dressing', run: (content, scenes) => ({ content, scenes: [...scenes], changed: false, notes: [] }), recorded: true },
 ];
 
 /** The recorded steps' names: what a project made or upgraded by this build has had (a new project needs none of them). */

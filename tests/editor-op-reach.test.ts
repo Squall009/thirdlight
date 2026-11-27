@@ -30,6 +30,9 @@ const API_ONLY: Readonly<Record<string, string>> = {
   setVoxelKit:
     'voxel kits have no editor page yet: MCP, scripts and tools make them over the command route until the case catalogue and trim layout they follow are approved; an editor page then sends it',
   deleteVoxelKit: 'as setVoxelKit: no editor page for voxel kits yet',
+  setDressing:
+    'dressings have no editor card yet (the material\'s Dressing card sends it when it is built): MCP, scripts and tools make them over the command route',
+  deleteDressing: 'as setDressing: no editor card for dressings yet',
   setMaterialProfile:
     "physical profiles have no editor panel yet (the material inspector's voxel and physical section comes with the record drawn and read): MCP, scripts and tools set them over the command route",
   deleteMaterialProfile: 'as setMaterialProfile: no editor panel for physical profiles yet',

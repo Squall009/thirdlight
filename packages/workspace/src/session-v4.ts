@@ -1128,6 +1128,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         kits: JSON.parse(JSON.stringify((state.content as { kits?: unknown[] }).kits ?? [])) as unknown,
         // Voxel kits (a material type's detail pieces per case and section).
         voxelKits: JSON.parse(JSON.stringify((state.content as { voxelKits?: unknown[] }).voxelKits ?? [])) as unknown,
+        // Dressings (what grows on the voxel materials that name them).
+        dressings: JSON.parse(JSON.stringify((state.content as { dressings?: unknown[] }).dressings ?? [])) as unknown,
         // Shared script libraries (their files).
         scriptLibraries: JSON.parse(JSON.stringify((state.content as { scriptLibraries?: unknown[] }).scriptLibraries ?? [])) as unknown,
         // Project UI documents and themes.

@@ -353,6 +353,19 @@ export interface SetVoxelKitInverse {
   restore: import('@thirdlight/project-model').VoxelKit | null;
 }
 
+/** `setDressing`/`deleteDressing` change data: one dressing before and after (null = none). */
+export interface SetDressingChange {
+  type: 'setDressing';
+  dressingId: string;
+  previous: import('@thirdlight/project-model').DressingDef | null;
+  next: import('@thirdlight/project-model').DressingDef | null;
+}
+export interface SetDressingInverse {
+  kind: 'setDressing';
+  dressingId: string;
+  restore: import('@thirdlight/project-model').DressingDef | null;
+}
+
 /** `setMaterialProfile`/`deleteMaterialProfile` change data: one of the project's physical profiles before and after (null = none). */
 export interface SetMaterialProfileChange {
   type: 'setMaterialProfile';
@@ -825,6 +838,7 @@ export type ChangeData =
   | SetBlockStampChange
   | SetKitChange
   | SetVoxelKitChange
+  | SetDressingChange
   | SetMaterialProfileChange
   | SetUiChange
   | SetDialogueChange
@@ -884,6 +898,7 @@ export type ForwardChange =
   | SetBlockStampChange
   | SetKitChange
   | SetVoxelKitChange
+  | SetDressingChange
   | SetMaterialProfileChange
   | SetUiChange
   | SetDialogueChange
@@ -1099,6 +1114,7 @@ export type InverseSpec =
   | SetBlockStampInverse
   | SetKitInverse
   | SetVoxelKitInverse
+  | SetDressingInverse
   | SetMaterialProfileInverse
   | GraphEditInverse
   | SetGraphInverse

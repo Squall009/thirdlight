@@ -54,7 +54,8 @@ describe('interactor upgrade step', () => {
   it('runs once on an 8 that has not had it; the upgraded scene validates and its canonical form keeps the fields', () => {
     expect(RECORDED_SCHEMA_8_STEPS).toContain('interactor');
     const pending = pendingSchema8Steps(['bloom-exposure', 'light-counts', 'planes']);
-    expect(pending.map((s) => s.name)).toEqual(['interactor']);
+    // The steps recorded since ride along (they change nothing here).
+    expect(pending.map((s) => s.name)).toEqual(['interactor', 'dressing']);
     const r = upgradeToSchema8({}, [scene([{ id: 'hero-0001', components: { transform: T, foliageBend: { radius: 0.8, strength: 1.5, recovery: 2 } } }])], pending);
     expect(r.applied).toEqual(['interactor']);
     const v = validateSceneV4(r.scenes[0]);

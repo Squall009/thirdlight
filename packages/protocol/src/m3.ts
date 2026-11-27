@@ -117,6 +117,8 @@ export const CHANGE_TYPES = [
   'setKit',
   // Voxel kits.
   'setVoxelKit',
+  // Dressings.
+  'setDressing',
   // Physical profiles.
   'setMaterialProfile',
   'setUi',

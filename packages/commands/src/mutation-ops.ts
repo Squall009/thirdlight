@@ -84,6 +84,9 @@ export const V3_MUTATION_OPS = [
   // Voxel kits
   'setVoxelKit',
   'deleteVoxelKit',
+  // Dressings
+  'setDressing',
+  'deleteDressing',
   // Physical profiles
   'setMaterialProfile',
   'deleteMaterialProfile',

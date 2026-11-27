@@ -13,7 +13,7 @@ import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIO
 import { MAX_TRANSITION_FADE } from './blocks';
 import { MAX_COLLISION_LAYERS } from './components';
 import { LIGHT_LAYER_COUNT, MAX_LIGHT_LAYER_NAME } from './light-layers';
-import { FAR_ERROR_PIXELS_RANGE, FAR_FIELD_MODES, RELIEF_STEPS } from '@thirdlight/voxel';
+import { DRESSING_ROLE_NAMES, FAR_ERROR_PIXELS_RANGE, FAR_FIELD_MODES, RELIEF_STEPS } from '@thirdlight/voxel';
 import { RESOURCE_KIND_TABLE } from './loadable';
 import { ADDRESS_MAX_LENGTH, ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_ENUM_VALUES, MAX_DECLARATION_BYTES, MAX_PREFAB_ENTITIES, PREFAB_V4_COMPONENTS } from './content';
 import {
@@ -36,6 +36,7 @@ import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
 import { KIT_LIMITS, KIT_STANDARD_SLOTS } from './kits';
 import { VOXEL_KIT_FORMAT, VOXEL_KIT_LIMITS } from './voxel-kit';
+import { DRESSING_CLASSES, DRESSING_FORMAT, DRESSING_LIMITS } from './dressing';
 import { ENGINE_MATERIAL_PROFILES, PHYSICAL_DEFAULTS, PHYSICAL_LIMITS } from './material-profiles';
 import { VOXEL_MATERIAL_LIMITS, VOXEL_MATERIAL_USES, VOXEL_SURFACES, VOXEL_TEXTURE_MAPS } from './voxel-materials';
 import { GAME_DATA_DEPTH_MAX } from './game-data';
@@ -368,6 +369,7 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
       color('color', 'Colour', `The gas's colour (absent: ${VOXEL_MATERIAL_LIMITS.gasColorDefault}).`, { default: VOXEL_MATERIAL_LIMITS.gasColorDefault, omitDefault: true }),
       num('density', 'Full density', `Density per metre of a cell at full density, shape 15 (absent: ${VOXEL_MATERIAL_LIMITS.gasDensityDefault}); a cell of density d holds d/15 of it.`, { min: 0, max: VOXEL_MATERIAL_LIMITS.gasDensityMax, step: 0.01 }),
     ], { when: when('use', 'gas') }),
+    str('dressing', 'Dressing', 'The dressing whose species grow on its surfaces (a dressingId; absent: nothing grows; never with liquid or gas). A variant that names another one grows the same ground sparser, denser or with other plants.', ID),
   ]),
 ]);
 
@@ -656,6 +658,29 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       json('gameData', 'Game data', `The game's own data for the kit (break, sound, physics defaults …): JSON nested at most ${VOXEL_KIT_LIMITS.gameDataDepth} deep, shipped as it is, never read by the engine.`),
     ]), { default: [] }),
     ops: ['setVoxelKit', 'deleteVoxelKit'],
+  },
+  {
+    key: 'dressings',
+    label: 'Dressings',
+    tooltip: 'What grows on voxel materials: a dressing is an ordered list of species entries (a model, a class, a density, how its copies are spaced, sized, turned and leaned, a seed and the conditions where it grows). A voxel material names one (voxel.dressing); a material instance names another to vary the density or the plants. The cover class is made near the camera from the voxels and never stored; the large class is kept and placed by no engine code yet.',
+    required: false,
+    value: list('dressings', 'Dressings', 'The project\'s dressings (each its own file).', obj('*', 'Dressing', 'A dressing.', [
+      int('dressingFormat', 'Format', `The dressing record's format (${DRESSING_FORMAT}); a newer one is refused.`, { required: true, min: DRESSING_FORMAT, max: DRESSING_FORMAT, default: DRESSING_FORMAT, readOnly: true }),
+      str('dressingId', 'Id', 'The stable dressing id.', { ...ID, required: true }),
+      str('name', 'Name', 'Shown in the project window.', { ...NAME, required: true }),
+      list('species', 'Species', 'The species entries, in order (an entry\'s place in the list is part of its seed: moving it moves its plants).', obj('*', 'Species', 'One species entry.', [
+        str('model', 'Model', 'The model asset placed.', { ...ID, required: true }),
+        enm('class', 'Class', 'cover: grass, flowers, reeds, pebbles, made near the camera from the voxels and never stored. large: trees, bushes, boulders; stored, and placed by no engine code yet.', DRESSING_CLASSES, { required: true, default: 'cover' }),
+        num('density', 'Density', 'Candidates per m² (each kept where its conditions hold fully).', { required: true, min: DRESSING_LIMITS.density.min, max: DRESSING_LIMITS.density.max, step: 0.1, default: 1 }),
+        num('spacing', 'Spacing', `Metres kept between the entry's copies (absent: 0; a cover species at most ${DRESSING_LIMITS.coverSpacingMax}, a large one ${DRESSING_LIMITS.spacingMax}).`, { min: 0, max: DRESSING_LIMITS.spacingMax, step: 0.1, unit: 'm' }),
+        json('scale', 'Scale', `[min, max]: a random uniform scale between them (${DRESSING_LIMITS.scale.min}-${DRESSING_LIMITS.scale.max}; absent [1, 1]).`, { shape: '[number, number]' }),
+        num('yaw', 'Yaw', 'A random turn about up, 0 to this many degrees (absent: 360).', { min: 0, max: 360, step: 1, unit: 'deg' }),
+        num('align', 'Align', '0 upright, 1 along the ground\'s normal (absent: 0).', { min: 0, max: 1, step: 0.05 }),
+        int('seed', 'Seed', 'Picks the entry\'s jitter, sizes and turns, with its place in the list (absent: 0).'),
+        json('conditions', 'Conditions', `Where it grows, each left out meaning any: {material?: [voxel ids], role?: [${DRESSING_ROLE_NAMES.join(' | ')}], slope?: range in degrees (0-${DRESSING_LIMITS.slopeMax}), height?: range in metres, sky?: true (open sky only) | false (under cover only), wetness?: range 0-${DRESSING_LIMITS.wetnessMax}, waterDepth?: range in metres of liquid standing on the surface (0: dry), materialEdge?: range in metres to the nearest surface of another material, construction?: range in metres to the nearest built cell (both distances 0-${DRESSING_LIMITS.distanceMax}: ${DRESSING_LIMITS.distanceMax} also means none nearer), noise?: range 0-1 over value noise with {scale (metres, ${DRESSING_LIMITS.noiseScaleMin}-${DRESSING_LIMITS.noiseScaleMax}), seed?}}. A range is {min?, max?, fade?}: 1 inside, fading to 0 over fade past an end; a species grows at the product of its conditions as a share of its density.`, { shape: 'DressingConditions' }),
+      ]), { required: true, default: [] }),
+    ]), { default: [] }),
+    ops: ['setDressing', 'deleteDressing'],
   },
   {
     key: 'materialProfiles',
