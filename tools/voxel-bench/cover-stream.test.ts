@@ -77,11 +77,14 @@ function rig(table: VoxelCoverTable = TABLE): {
   /** The cover wires of the batches since `from`. */
   wires(from: number): ChunkCoverWire[];
   resident: Set<string>;
+  /** What stands on the world besides its voxels (a structure's stamp), as the stream asks it a chunk at a time. */
+  stamps: { built: ((cx: number, cy: number, cz: number) => Uint8Array | null) | null };
 } {
   const store = world();
   const listeners: Array<(e: StreamEvent) => void> = [];
   const resident = new Set<string>();
   const joins = { count: 0 };
+  const stamps: { built: ((cx: number, cy: number, cz: number) => Uint8Array | null) | null } = { built: null };
   const joined = (cx: number, cy: number, cz: number, cells: Uint16Array): JoinedDraw => {
     joins.count++;
     const n = grid.edge / SECTION;
@@ -111,6 +114,7 @@ function rig(table: VoxelCoverTable = TABLE): {
     stream: { grid, gridId: 0, tracker: new DirtyTracker(), on: (l) => void listeners.push(l as (e: StreamEvent) => void), isResident: (cx, cy, cz) => resident.has(`${cx},${cy},${cz}`), store, overlay: new VoxelOverlay(store, 'runtime') },
     pool,
     send: (w) => batcher.cover(w),
+    built: (cx, cy, cz) => stamps.built?.(cx, cy, cz) ?? null,
   });
   cover = made;
   made.setTable(table);
@@ -128,7 +132,7 @@ function rig(table: VoxelCoverTable = TABLE): {
   };
   for (let cx = 0; cx < 4; cx++) for (let cy = 0; cy < 2; cy++) for (let cz = 0; cz < 4; cz++) emit({ type: 'loaded', cx, cy, cz });
   for (let cx = 0; cx < 4; cx++) for (let cy = 0; cy < 2; cy++) for (let cz = 0; cz < 4; cz++) emit({ type: 'chunk', cx, cy, cz, shaderOnly: false, reliefOnly: false, parts: ALL_DERIVED_PARTS });
-  return { store, cover: made, batches, held, joins, emit, settle, wires: (from) => batches.slice(from).flatMap((b) => b.cover ?? []), resident };
+  return { store, cover: made, batches, held, joins, emit, settle, wires: (from) => batches.slice(from).flatMap((b) => b.cover ?? []), resident, stamps };
 }
 
 /** The cover of column (cx, cz) made in this thread from the store as it is (what a job answers for chunk rows 0 and 1). */
@@ -309,11 +313,23 @@ describe('ground cover as a voxel world streams', () => {
     r.cover.setTable(voxelCoverTable({ materials: MATERIALS as never, dressings: sparse }));
     await r.settle();
     expect(r.cover.stats().jobs - jobs).toBe(16);
+    // Two changes in a row, the second while the first one's job runs: that job's answer is of a table that is gone
+    // and is never sent; the columns end on what they held, so nothing is sent at all.
+    from = r.batches.length;
+    const dropped = r.cover.stats().dropped;
+    r.cover.setTable(TABLE);
+    await tick();
+    expect(r.cover.stats().live).toBeGreaterThan(0);
+    r.cover.setTable(table);
+    await r.settle();
+    expect(r.cover.stats().dropped).toBeGreaterThan(dropped);
+    expect(r.wires(from)).toEqual([]);
+    const jobsNow = r.cover.stats().jobs;
     // Nothing grows: every column lets its cover go, with no job.
     from = r.batches.length;
     r.cover.setTable(null);
     await r.settle();
-    expect(r.cover.stats().jobs - jobs).toBe(16);
+    expect(r.cover.stats().jobs).toBe(jobsNow);
     expect(r.held.size).toBe(0);
     expect(r.wires(from).length).toBe(16);
     expect(r.cover.stats().points).toBe(0);
@@ -350,6 +366,21 @@ describe('ground cover as a voxel world streams', () => {
     r.cover.setClear(second.slice());
     await r.settle();
     expect(r.cover.stats().jobs).toBe(jobs);
+    // A structure's stamp lands over a square of column (0, 0) (its floor, the row over the ground): told of it, the
+    // stream makes the column and the eight round it again, and nothing grows under the floor.
+    const floor = { x0: 20, x1: 28, z0: 20, z1: 28 };
+    const underFloor = (p: CoverPoint): boolean => inSquare(p, floor.x0, floor.x1, floor.z0, floor.z1, -0.02);
+    expect(species(r.held.get(key(0, 0)), 'meadow', GRASS_SPECIES).filter(underFloor).length).toBeGreaterThan(20);
+    r.stamps.built = (cx, cy, cz) => {
+      if (cx !== 0 || cy !== 0 || cz !== 0) return null;
+      const mask = new Uint8Array(grid.cellsPerChunk);
+      for (let x = floor.x0; x < floor.x1; x++) for (let z = floor.z0; z < floor.z1; z++) mask[(x * grid.edge + z) * grid.edge + topRow(r.store, x, z) + 1] = 1;
+      return mask;
+    };
+    r.cover.builtChanged(0, 0);
+    await r.settle();
+    expect(r.cover.stats().jobs - jobs).toBe(4);
+    expect(species(r.held.get(key(0, 0)), 'meadow', GRASS_SPECIES).filter(underFloor)).toEqual([]);
     r.cover.close();
   });
 
@@ -365,7 +396,8 @@ describe('ground cover as a voxel world streams', () => {
     const house = [3, 2] as const;
     const dust = (): CoverPoint[] => (r.held.get(key(...house)) ?? []).flatMap((s) => pointsOf(s)).filter(upper);
     expect(dust().length).toBeGreaterThan(0);
-    r.emit({ type: 'unloaded', cx: 3, cy: 1, cz: 2 });
+    // The upper chunk is no longer drawn at level 0 (the level choice took it; it stays resident): its points go with its draw.
+    r.emit({ type: 'levels', reason: 'swap', added: [], removed: [{ level: 0, nx: 3, ny: 1, nz: 2 }] });
     await r.settle();
     expect(dust()).toEqual([]);
     expect(r.held.get(key(...house))!.length).toBeGreaterThan(0);
