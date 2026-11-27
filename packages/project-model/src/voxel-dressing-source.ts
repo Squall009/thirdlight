@@ -55,6 +55,7 @@ import {
   valueRole,
   valueShape,
   type DressingRule,
+  type JobHandlers,
   type SurfaceCells,
   type SurfaceFieldsInput,
   type SurfacePoint,
@@ -339,4 +340,21 @@ export function voxelCoverPoints(input: VoxelCoverInput, decompress: (b: Uint8Ar
 /** The buffers of a cover job's answer, to hand it over from a worker. */
 export function voxelCoverTransfer(out: VoxelCoverOutput): ArrayBuffer[] {
   return out.sets.map((s) => s.points.data.buffer as ArrayBuffer);
+}
+
+/** The cover job's kind in a worker pool. */
+export const VOXEL_COVER_JOB = 'voxel-cover';
+
+/**
+ * The cover job as a worker entry serves it, beside the stream jobs (the
+ * voxel package's handlers know nothing of dressings, so an entry adds
+ * these to them).
+ */
+export function voxelCoverJobHandlers(opts: { readonly decompress: (b: Uint8Array) => Uint8Array }): JobHandlers {
+  return {
+    [VOXEL_COVER_JOB]: (input) => {
+      const output = voxelCoverPoints(input as VoxelCoverInput, opts.decompress);
+      return { output, transfer: voxelCoverTransfer(output) };
+    },
+  };
 }

@@ -1,0 +1,439 @@
+/**
+ * A chunk's ground cover from the voxel source, on one made world held in a
+ * real chunk store: a rolling meadow with a road, a pond, a dry-grass
+ * variant, a hill with a wet cave and a two-storey house. The cover job is
+ * run from the store's chunks as a worker is sent them: its points stand
+ * only where their species grows, a cave's floor and an upper storey get
+ * their own answer, neighbouring chunks agree with one bake over them all,
+ * an edit elsewhere leaves a chunk's bytes alone, props are kept clear, and
+ * a real worker gives the bytes this thread gives. A browser build of a
+ * worker that serves the job passes the export scan.
+ */
+import { rmSync } from 'node:fs';
+import { join } from 'node:path';
+
+import * as esbuild from 'esbuild';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  chunkGrid,
+  createDenseChunk,
+  createWorldStore,
+  localIndex,
+  propClearances,
+  recordValue,
+  SHAPE_FULL,
+  surfaceFieldsInputOf,
+  valueMaterial,
+  valueRole,
+  valueShape,
+  valueWetness,
+  VOXEL_ROLE,
+  WorkerPool,
+  type PaletteStore,
+  type PropShape,
+  type SurfaceCells,
+} from '@thirdlight/voxel';
+import { coverPointAt, VOXEL_COVER_JOB, voxelCoverOfCells, voxelCoverPoints, voxelCoverTable, type CoverPoint, type DressingDef, type VoxelCoverInput, type VoxelCoverOutput, type VoxelCoverSet } from '@thirdlight/project-model';
+
+import { scanExportFiles } from '../../packages/exporter/src/scan';
+import { bundleWorker, nodePoolWorker, REPO } from './stream-node';
+
+const grid = chunkGrid(32);
+const E = grid.edge;
+const M = 0.5;
+const R = VOXEL_ROLE;
+/** The world: four chunks a side, two rows of them. */
+const SIDE = 4 * E;
+const HIGH = 2 * E;
+
+const GRASS = 3;
+const DRY = 4;
+const STONE = 5;
+const ROAD = 6;
+const BOARDS = 7;
+const PLASTER = 8;
+const TILES = 9;
+const WATER = 20;
+
+/** A bowl three metres deep, its water standing 0.2 m over the bowl's rim on a ring of flat ground round it. */
+const POND = { x: 88, z: 20, r: 9, rim: 9, level: 9.4, shore: 12 };
+const HILL = { x0: 8, x1: 40, z0: 40, z1: 72, top: 40 };
+const CAVE = { x0: 14, x1: 34, z0: 46, z1: 66, floor: 8, roof: 16, wetTo: 24 };
+const HOUSE = { x0: 100, x1: 116, z0: 60, z1: 76, ground: 9, storey: 22, roof: 36 };
+
+/** An edit some tests make: a square of the dry meadow in chunk (3, 3) repaved as road. */
+const PAVED = { x0: 108, x1: 116, z0: 108, z1: 116 };
+
+/** The made world's cell at (x, y, z), `paved`: with the repaved square. */
+function cell(x: number, y: number, z: number, paved = false): number {
+  const ground = (material: number, shape = SHAPE_FULL, wetness = 0): number => recordValue(material, R.terrain, shape, wetness);
+  if (x >= HILL.x0 && x < HILL.x1 && z >= HILL.z0 && z < HILL.z1) {
+    if (y >= HILL.top) return 0;
+    const hollow = x >= CAVE.x0 && x < CAVE.x1 && z >= CAVE.z0 && z < CAVE.z1;
+    if (hollow && y > CAVE.floor && y < CAVE.roof) return 0;
+    return ground(STONE, SHAPE_FULL, hollow && y === CAVE.floor && x < CAVE.wetTo ? 4 : 0);
+  }
+  const inHouse = x >= HOUSE.x0 && x < HOUSE.x1 && z >= HOUSE.z0 && z < HOUSE.z1;
+  if (inHouse) {
+    if (y < HOUSE.ground) return ground(GRASS);
+    if (y === HOUSE.roof) return recordValue(TILES, R.roof, SHAPE_FULL, 0);
+    if (y > HOUSE.roof) return 0;
+    if (y === HOUSE.storey) return recordValue(BOARDS, R.floor, SHAPE_FULL, 0);
+    const wall = x === HOUSE.x0 || x === HOUSE.x1 - 1 || z === HOUSE.z0 || z === HOUSE.z1 - 1;
+    return wall ? recordValue(PLASTER, R.wall, SHAPE_FULL, 0) : 0;
+  }
+  const d = Math.hypot(x - POND.x, z - POND.z);
+  if (d < POND.shore) {
+    const bed = POND.rim - 6 * Math.max(0, 1 - d / POND.r);
+    const whole = Math.floor(bed + 1e-9);
+    if (y < whole) return ground(GRASS);
+    const part = Math.round((bed - whole) * SHAPE_FULL);
+    if (y === whole && part > 0) return ground(GRASS, part);
+    const top = Math.floor(POND.level);
+    return y < top ? recordValue(WATER, R.liquid, SHAPE_FULL, 0) : y === top ? recordValue(WATER, R.liquid, Math.round((POND.level - top) * SHAPE_FULL), 0) : 0;
+  }
+  // Flat round the house, rolling elsewhere.
+  const nearHouse = x >= HOUSE.x0 - 2 && x < HOUSE.x1 + 2 && z >= HOUSE.z0 - 2 && z < HOUSE.z1 + 2;
+  const h = nearHouse ? HOUSE.ground : 9 + 1.5 * Math.sin(x / 11) + 1.5 * Math.cos(z / 13);
+  const road = (x >= 70 && x < 76) || (paved && x >= PAVED.x0 && x < PAVED.x1 && z >= PAVED.z0 && z < PAVED.z1);
+  const material = road ? ROAD : z >= 96 ? DRY : GRASS;
+  const whole = Math.floor(h + 1e-9);
+  if (y < whole) return ground(material);
+  const part = Math.round((h - whole) * SHAPE_FULL);
+  return y === whole && part > 0 ? ground(material, part) : 0;
+}
+
+/** The world's chunk (cx, cy, cz) written into a store from the cell function. */
+function writeChunk(store: PaletteStore, cx: number, cy: number, cz: number, paved = false): void {
+  const d = createDenseChunk(grid);
+  for (let lx = 0; lx < E; lx++) for (let ly = 0; ly < E; ly++) for (let lz = 0; lz < E; lz++) {
+    const v = cell(cx * E + lx, cy * E + ly, cz * E + lz, paved);
+    const i = localIndex(grid, lx, ly, lz);
+    d.material[i] = valueMaterial(v);
+    d.role[i] = valueRole(v);
+    d.shape[i] = valueShape(v);
+    d.wetness[i] = valueWetness(v);
+  }
+  store.importChunk(cx, cy, cz, d);
+}
+
+function world(paved = false): PaletteStore {
+  const store = createWorldStore(grid);
+  for (let cx = 0; cx < 4; cx++) for (let cy = 0; cy < 2; cy++) for (let cz = 0; cz < 4; cz++) writeChunk(store, cx, cy, cz, paved);
+  return store;
+}
+
+/** The whole world as one box of cells (what one bake over every chunk reads). */
+function wholeBox(): SurfaceCells {
+  const values = new Uint32Array(SIDE * HIGH * SIDE);
+  for (let x = 0; x < SIDE; x++) for (let z = 0; z < SIDE; z++) for (let y = 0; y < HIGH; y++) values[(x * SIDE + z) * HIGH + y] = cell(x, y, z);
+  return { sx: SIDE, sy: HIGH, sz: SIDE, ox: 0, oy: 0, oz: 0, cellM: M, values, built: null };
+}
+
+const material = (materialId: string, voxel: Record<string, unknown>, instanceOf?: string): Record<string, unknown> => ({ materialId, name: materialId, shader: 'standard', params: {}, textures: {}, ...(instanceOf !== undefined ? { instanceOf } : {}), voxel });
+const MATERIALS = [
+  material('grass', { id: GRASS, use: 'terrain', dressing: 'meadow' }),
+  // A variant of the grass: the same ground, a sparser dressing.
+  material('grass-dry', { id: DRY, dressing: 'meadow-sparse' }, 'grass'),
+  material('stone', { id: STONE, use: 'terrain', dressing: 'cave' }),
+  material('road', { id: ROAD, use: 'terrain' }),
+  material('boards', { id: BOARDS, use: 'construction', dressing: 'dust' }),
+  material('plaster', { id: PLASTER, use: 'construction' }),
+  material('tiles', { id: TILES, use: 'construction' }),
+  material('water', { id: WATER, use: 'liquid' }),
+];
+const GRASS_SPECIES = 0;
+const OAK_SPECIES = 1;
+const REED_SPECIES = 2;
+const FLOWER_SPECIES = 3;
+const DRESSINGS: DressingDef[] = [
+  { dressingFormat: 1, dressingId: 'cave', name: 'Cave', species: [{ model: 'moss', class: 'cover', density: 3, conditions: { sky: false, wetness: { min: 2 } } }, { model: 'lichen', class: 'cover', density: 1, conditions: { sky: true } }] },
+  { dressingFormat: 1, dressingId: 'dust', name: 'Dust', species: [{ model: 'dust', class: 'cover', density: 2, conditions: { role: ['floor'], sky: false } }] },
+  {
+    dressingFormat: 1,
+    dressingId: 'meadow',
+    name: 'Meadow',
+    species: [
+      { model: 'grass', class: 'cover', density: 4, scale: [0.8, 1.2], conditions: { slope: { max: 40 }, sky: true, waterDepth: { max: 0 } } },
+      { model: 'oak', class: 'large', density: 0.02, spacing: 6, conditions: { sky: true } },
+      { model: 'reed', class: 'cover', density: 2, spacing: 0.4, conditions: { waterDepth: { min: 0.05, max: 0.5 } } },
+      { model: 'flower', class: 'cover', density: 1, spacing: 1, seed: 4, conditions: { sky: true, waterDepth: { max: 0 }, materialEdge: { max: 1.5 } } },
+    ],
+  },
+  { dressingFormat: 1, dressingId: 'meadow-sparse', name: 'Sparse meadow', species: [{ model: 'grass', class: 'cover', density: 1, conditions: { sky: true } }] },
+];
+const TABLE = voxelCoverTable({ materials: MATERIALS as never, dressings: DRESSINGS });
+
+const inputOf = (store: PaletteStore, cx: number, cz: number, extra: Partial<VoxelCoverInput> = {}): VoxelCoverInput => ({ fields: surfaceFieldsInputOf(store, cx, cz, 0, 1).input, table: TABLE, ...extra });
+const cover = (store: PaletteStore, cx: number, cz: number, extra: Partial<VoxelCoverInput> = {}): VoxelCoverOutput => voxelCoverPoints(inputOf(store, cx, cz, extra));
+const setOf = (out: VoxelCoverOutput, dressing: string, species: number): VoxelCoverSet | undefined => out.sets.find((s) => s.dressing === dressing && s.species === species);
+const pointsOf = (set: VoxelCoverSet | undefined): CoverPoint[] => (set === undefined ? [] : Array.from({ length: set.points.count }, (_, i) => coverPointAt(set.points, i)));
+const sameBytes = (a: ArrayBufferView, b: ArrayBufferView): boolean => a.byteLength === b.byteLength && Buffer.from(a.buffer, a.byteOffset, a.byteLength).equals(Buffer.from(b.buffer, b.byteOffset, b.byteLength));
+
+/** Two answers the same, byte for byte: the same species in the same order, the same rule, the same point bytes. */
+function expectSame(a: VoxelCoverOutput, b: VoxelCoverOutput, what: string): void {
+  expect(a.sets.map((s) => [s.dressing, s.species, JSON.stringify(s.rule), s.points.count, s.points.x0, s.points.z0, s.points.w, s.points.d, s.points.low, s.points.high]), what).toEqual(b.sets.map((s) => [s.dressing, s.species, JSON.stringify(s.rule), s.points.count, s.points.x0, s.points.z0, s.points.w, s.points.d, s.points.low, s.points.high]));
+  a.sets.forEach((s, i) => expect(sameBytes(s.points.data, b.sets[i]!.points.data), `${what}: ${s.dressing} ${s.species}`).toBe(true));
+}
+
+/** The surface cell a point stands on: its row from its height, its column from its place (a place is stored in steps of 4 mm, so a point on a column's line may read either side). */
+function surfaceCells(p: CoverPoint): number[] {
+  const row = Math.ceil(p.y / M - 1e-6) - 1;
+  const out: number[] = [];
+  for (const dx of [-0.005, 0, 0.005]) for (const dz of [-0.005, 0, 0.005]) out.push(cell(Math.floor((p.x + dx) / M), row, Math.floor((p.z + dz) / M)));
+  return out;
+}
+const onMaterial = (p: CoverPoint, id: number): boolean => surfaceCells(p).some((v) => valueMaterial(v) === id);
+
+let store: PaletteStore;
+let workerFile = '';
+let pool: WorkerPool;
+let jobId = 0;
+
+beforeAll(async () => {
+  store = world();
+  workerFile = await bundleWorker('stream-worker-node', join(REPO, 'dist', 'voxel-bench', `dressing-cover-worker-${process.pid}.mjs`));
+  pool = new WorkerPool({ size: 1, create: () => nodePoolWorker(workerFile), timeoutMs: 30_000, maxQueued: 64 });
+}, 120_000);
+
+afterAll(() => {
+  pool?.close();
+  if (workerFile !== '') rmSync(workerFile, { force: true });
+});
+
+describe('ground cover from the voxel source: who grows where', () => {
+  it('resolves each voxel material to its dressing through its instance chain', () => {
+    expect(TABLE.dressings.map((d) => d.dressingId)).toEqual(['cave', 'dust', 'meadow', 'meadow-sparse']);
+    expect(TABLE.materials).toEqual([[GRASS, 2], [DRY, 3], [STONE, 0], [BOARDS, 1]]);
+  });
+
+  it('stands every point on a surface of a material that names its species\' dressing: grass on the meadow, none on the road, the variant\'s sparser grass on the dry meadow', () => {
+    // Chunk (2, 0) holds the road strip and the pond; chunk (1, 3) the dry meadow.
+    const out = cover(store, 2, 0);
+    const grass = pointsOf(setOf(out, 'meadow', GRASS_SPECIES));
+    expect(grass.length).toBeGreaterThan(300);
+    for (const p of grass) {
+      expect(onMaterial(p, GRASS), `${p.x},${p.y},${p.z}`).toBe(true);
+      // Never in the road's columns (35 m to 38 m), with a step of slack at its edges.
+      expect(p.x > 35.01 && p.x < 37.99).toBe(false);
+    }
+    const dry = cover(store, 1, 3);
+    expect(dry.sets.map((s) => s.dressing)).toEqual(['meadow-sparse']);
+    const sparse = pointsOf(setOf(dry, 'meadow-sparse', 0));
+    for (const p of sparse) expect(onMaterial(p, DRY)).toBe(true);
+    // The variant grows a quarter of the density over a whole chunk of open ground: 256 against 1,024 candidates.
+    expect(sparse.length).toBe(256);
+    const meadow = pointsOf(setOf(cover(store, 0, 0), 'meadow', GRASS_SPECIES));
+    expect(meadow.length).toBeGreaterThan(900);
+    expect(sparse.length * 3).toBeLessThan(meadow.length);
+  });
+
+  it('grows reeds only in the pond\'s shallows and no grass under its water', () => {
+    const out = cover(store, 2, 0);
+    const reeds = pointsOf(setOf(out, 'meadow', REED_SPECIES));
+    expect(reeds.length).toBeGreaterThan(10);
+    for (const p of reeds) {
+      const d = Math.hypot(p.x / M - POND.x, p.z / M - POND.z);
+      // Depth 0.05–0.5 m: the bed at most a cell under the level, which is the bowl's last tenth and the flooded
+      // ring round it (a column of slack).
+      expect(d, `${p.x},${p.z}`).toBeGreaterThan(POND.r * 0.9 - 1.5);
+      expect(d).toBeLessThan(POND.shore + 1);
+      expect(p.y).toBeLessThan(POND.level * M);
+    }
+    // A spacing of 0.4 m between reeds.
+    let nearest = Infinity;
+    for (let i = 0; i < reeds.length; i++) for (let k = i + 1; k < reeds.length; k++) nearest = Math.min(nearest, Math.hypot(reeds[i]!.x - reeds[k]!.x, reeds[i]!.y - reeds[k]!.y, reeds[i]!.z - reeds[k]!.z));
+    expect(nearest).toBeGreaterThan(0.4 - 0.012);
+    // Some stand in the bowl and some on the flooded ring.
+    expect(reeds.some((p) => Math.hypot(p.x / M - POND.x, p.z / M - POND.z) < POND.r)).toBe(true);
+    expect(reeds.some((p) => Math.hypot(p.x / M - POND.x, p.z / M - POND.z) > POND.r + 1)).toBe(true);
+    for (const p of pointsOf(setOf(out, 'meadow', GRASS_SPECIES))) expect(Math.hypot(p.x / M - POND.x, p.z / M - POND.z)).toBeGreaterThan(POND.shore - 1.5);
+  });
+
+  it('grows flowers along the road\'s verge and the meadow\'s other edges, and nowhere out in the open', () => {
+    const flowers = pointsOf(setOf(cover(store, 2, 0), 'meadow', FLOWER_SPECIES));
+    expect(flowers.length).toBeGreaterThan(8);
+    // The road (35 m to 38 m) is the chunk's only other material: a flower's column centre is within 1.5 m of the
+    // road's nearest column centre, so the flower itself within 2 m of the road's edge. The pond's bed is grass too.
+    for (const p of flowers) expect(Math.min(Math.abs(p.x - 35), Math.abs(p.x - 38)), `${p.x},${p.z}`).toBeLessThan(2.01);
+    expect(flowers.some((p) => p.x < 35) && flowers.some((p) => p.x > 38)).toBe(true);
+  });
+
+  it('gives a cave\'s floor and the hill over it each their own answer: moss on the wet floor only, lichen on the open top only', () => {
+    // Chunk (0, 1) and (0, 2) hold the hill (the second only the cave's last two rows of columns); the cave's wet half is x under 24 cells.
+    for (const [cx, cz, least] of [[0, 1, 40], [0, 2, 5]] as const) {
+      const out = cover(store, cx, cz);
+      const moss = pointsOf(setOf(out, 'cave', 0));
+      const lichen = pointsOf(setOf(out, 'cave', 1));
+      expect(moss.length, `moss ${cx},${cz}`).toBeGreaterThan(least);
+      expect(lichen.length, `lichen ${cx},${cz}`).toBeGreaterThan(40);
+      for (const p of moss) {
+        expect(p.y).toBe((CAVE.floor + 1) * M);
+        expect(p.x / M >= CAVE.x0 - 0.01 && p.x / M <= CAVE.wetTo + 0.01 && p.z / M >= CAVE.z0 - 0.01 && p.z / M <= CAVE.z1 + 0.01, `${p.x},${p.z}`).toBe(true);
+      }
+      for (const p of lichen) expect(p.y).toBe(HILL.top * M);
+      // Over the wet floor both stand in one column: two surfaces, two answers.
+      expect(lichen.some((p) => p.x / M > CAVE.x0 && p.x / M < CAVE.wetTo && p.z / M > CAVE.z0 && p.z / M < CAVE.z1)).toBe(true);
+    }
+  });
+
+  it('gives an upper storey its own answer and grows no grass inside the house: dust on the boards under the roof, nothing on the ground floor or the roof', () => {
+    // The house stands in chunks (3, 1) and (3, 2).
+    for (const cz of [1, 2]) {
+      const out = cover(store, 3, cz);
+      const dust = pointsOf(setOf(out, 'dust', 0));
+      // The boards between the walls: 10 m² in the first chunk, 38 m² in the second, at two a square metre.
+      expect(dust.length).toBeGreaterThan(cz === 1 ? 10 : 50);
+      for (const p of dust) {
+        expect(p.y).toBe((HOUSE.storey + 1) * M);
+        expect(onMaterial(p, BOARDS)).toBe(true);
+      }
+      const inside = (p: CoverPoint): boolean => p.x / M > HOUSE.x0 + 0.02 && p.x / M < HOUSE.x1 - 0.02 && p.z / M > HOUSE.z0 + 0.02 && p.z / M < HOUSE.z1 - 0.02;
+      const grass = pointsOf(setOf(out, 'meadow', GRASS_SPECIES));
+      expect(grass.length).toBeGreaterThan(200);
+      // The ground floor under the storey is grass ground with no sky: none grows; nothing stands on the roof's tiles.
+      expect(grass.filter(inside)).toEqual([]);
+      for (const s of out.sets) for (const p of pointsOf(s)) expect(p.y).toBeLessThan(HOUSE.roof * M);
+    }
+  });
+
+  it('skips the large class: the oak is in the table as data and no chunk grows it', () => {
+    expect(TABLE.dressings[2]!.species[OAK_SPECIES]).toMatchObject({ model: 'oak', class: 'large' });
+    for (let cx = 0; cx < 4; cx++) for (let cz = 0; cz < 4; cz++) {
+      const out = cover(store, cx, cz);
+      expect(setOf(out, 'meadow', OAK_SPECIES), `${cx},${cz}`).toBeUndefined();
+      expect(out.sets.some((s) => s.rule.asset.assetId === 'oak')).toBe(false);
+    }
+  });
+
+  it('keeps clear of a hand-placed prop: no point in its box across the ground, and the same chunk without the prop grows there', () => {
+    // A cart 3 m by 2 m standing on the open meadow of chunk (0, 0), its box from the ground up.
+    const cart: PropShape = { inside: () => true, min: [-1.5, 0, -1], max: [1.5, 1.6, 1], position: [8, 4.2, 8], yaw: [1, 0], scale: 1 };
+    const inBox = (p: CoverPoint): boolean => p.x > 6.5 && p.x < 9.5 && p.z > 7 && p.z < 9;
+    const open = pointsOf(setOf(cover(store, 0, 0), 'meadow', GRASS_SPECIES));
+    const cleared = pointsOf(setOf(cover(store, 0, 0, { clear: propClearances([cart]) }), 'meadow', GRASS_SPECIES));
+    expect(open.filter(inBox).length).toBeGreaterThan(15);
+    expect(cleared.filter(inBox)).toEqual([]);
+    expect(cleared.length).toBe(open.length - open.filter(inBox).length);
+    // The same prop hung 6 m over the meadow clears nothing under it.
+    const hung = pointsOf(setOf(cover(store, 0, 0, { clear: propClearances([{ ...cart, position: [8, 12, 8] }]) }), 'meadow', GRASS_SPECIES));
+    expect(hung.length).toBe(open.length);
+  });
+});
+
+describe('ground cover from the voxel source: the same points whoever asks', () => {
+  it('is deterministic: the same chunk twice, and the same world built again, give the same bytes', () => {
+    const again = world();
+    for (const [cx, cz] of [[0, 1], [2, 0], [3, 2]] as const) {
+      const a = cover(store, cx, cz);
+      expect(a.sets.length).toBeGreaterThan(0);
+      expectSame(cover(store, cx, cz), a, `twice ${cx},${cz}`);
+      expectSame(cover(again, cx, cz), a, `again ${cx},${cz}`);
+    }
+  });
+
+  it('agrees across chunk borders with one bake over them all, whatever order the chunks are made in', () => {
+    // The four middle chunks one by one, forwards and backwards, against a single bake over their 32 m square from the whole world.
+    const order: [number, number][] = [[1, 1], [1, 2], [2, 1], [2, 2]];
+    const forwards = order.map(([cx, cz]) => cover(store, cx, cz));
+    const backwards = [...order].reverse().map(([cx, cz]) => cover(store, cx, cz)).reverse();
+    forwards.forEach((o, i) => expectSame(backwards[i]!, o, `order ${order[i]!.join(',')}`));
+    const whole = voxelCoverOfCells(wholeBox(), [16, 16, 48, 48], TABLE);
+    const kinds = new Set(forwards.flatMap((o) => o.sets.map((s) => `${s.dressing}/${s.species}`)));
+    expect([...kinds].sort()).toEqual(whole.sets.map((s) => `${s.dressing}/${s.species}`).sort());
+    expect(kinds.size).toBeGreaterThanOrEqual(3);
+    for (const w of whole.sets) {
+      const joined = forwards.flatMap((o) => pointsOf(setOf(o, w.dressing, w.species)));
+      const one = pointsOf(w);
+      expect(joined.length, `${w.dressing}/${w.species}`).toBe(one.length);
+      // Each point of the one bake has its twin among the chunks' (places are stored in steps of 4 and 8 mm).
+      const cellOf = (p: CoverPoint): string => `${Math.round(p.x * 10)},${Math.round(p.z * 10)}`;
+      const byCell = new Map<string, CoverPoint[]>();
+      for (const p of joined) byCell.set(cellOf(p), [...(byCell.get(cellOf(p)) ?? []), p]);
+      let unmatched = 0;
+      for (const p of one) {
+        let found = false;
+        for (let dx = -1; dx <= 1 && !found; dx++) for (let dz = -1; dz <= 1 && !found; dz++) {
+          found = (byCell.get(`${Math.round(p.x * 10) + dx},${Math.round(p.z * 10) + dz}`) ?? []).some((q) => Math.abs(q.x - p.x) < 0.012 && Math.abs(q.z - p.z) < 0.012 && q.y === p.y && q.threshold === p.threshold && q.yaw === p.yaw && q.scale === p.scale);
+        }
+        if (!found) unmatched++;
+      }
+      expect(unmatched, `${w.dressing}/${w.species}`).toBe(0);
+    }
+  });
+
+  it('gives each point to the chunk that holds its surface: the rows of a column part its points, the cave\'s floor below and the hilltop above', () => {
+    const all = cover(store, 0, 1);
+    const low = cover(store, 0, 1, { rows: [0, 0] });
+    const high = cover(store, 0, 1, { rows: [1, 1] });
+    for (const s of all.sets) {
+      const a = pointsOf(setOf(low, s.dressing, s.species));
+      const b = pointsOf(setOf(high, s.dressing, s.species));
+      expect(a.length + b.length, `${s.dressing}/${s.species}`).toBe(s.points.count);
+      // A surface's height is in its own row: the hilltop's cells are row 39, in the lower chunk, with its top face on the border.
+      for (const p of a) expect(Math.ceil(p.y / M) - 1).toBeLessThan(E);
+      for (const p of b) expect(Math.ceil(p.y / M) - 1).toBeGreaterThanOrEqual(E);
+    }
+    // The cave's moss is the lower chunk's, the lichen on the hill (surface row 39, above row 31) the upper one's.
+    expect(pointsOf(setOf(low, 'cave', 0)).length).toBe(pointsOf(setOf(all, 'cave', 0)).length);
+    expect(setOf(high, 'cave', 0)).toBeUndefined();
+    expect(pointsOf(setOf(high, 'cave', 1)).length).toBe(pointsOf(setOf(all, 'cave', 1)).length);
+    expect(setOf(low, 'cave', 1)).toBeUndefined();
+    // A kept set keeps its order (by threshold) and its bounds are its own points'.
+    const moss = setOf(low, 'cave', 0)!;
+    expect([moss.points.low, moss.points.high]).toEqual([(CAVE.floor + 1) * M, (CAVE.floor + 1) * M]);
+  });
+
+  it('leaves untouched chunks byte for byte after an edit elsewhere, and regrows only the edited ground', () => {
+    const edited = world();
+    for (const cy of [0, 1]) writeChunk(edited, 3, cy, 3, true);
+    // Chunks whose reach does not hold the repaved square, one of them its diagonal neighbour.
+    for (const [cx, cz] of [[0, 0], [1, 1], [2, 2], [3, 1], [1, 3]] as const) expectSame(cover(edited, cx, cz), cover(store, cx, cz), `untouched ${cx},${cz}`);
+    const before = pointsOf(setOf(cover(store, 3, 3), 'meadow-sparse', 0));
+    const after = pointsOf(setOf(cover(edited, 3, 3), 'meadow-sparse', 0));
+    const inSquare = (p: CoverPoint): boolean => p.x / M > PAVED.x0 + 0.02 && p.x / M < PAVED.x1 - 0.02 && p.z / M > PAVED.z0 + 0.02 && p.z / M < PAVED.z1 - 0.02;
+    expect(before.filter(inSquare).length).toBeGreaterThan(8);
+    expect(after.filter(inSquare)).toEqual([]);
+    // Outside the square every plant is where it was, with the threshold, turn and size it had.
+    const key = (p: CoverPoint): string => [p.x, p.y, p.z, p.threshold, p.yaw, p.scale].join(',');
+    const kept = new Set(after.map(key));
+    for (const p of before) if (!(p.x / M >= PAVED.x0 - 0.02 && p.x / M <= PAVED.x1 + 0.02 && p.z / M >= PAVED.z0 - 0.02 && p.z / M <= PAVED.z1 + 0.02)) expect(kept.has(key(p)), key(p)).toBe(true);
+    expect(after.length).toBeLessThan(before.length);
+  });
+});
+
+describe('ground cover from the voxel source: page and worker alike', () => {
+  it('gives the same bytes from a real worker as from the same job in this thread: the cave\'s, the pond\'s and the house\'s chunks, a row range and a prop', { timeout: 120_000 }, async () => {
+    const cart: PropShape = { inside: () => true, min: [-1.5, 0, -1], max: [1.5, 1.6, 1], position: [8, 4.2, 8], yaw: [1, 0], scale: 1 };
+    const cases: Array<[number, number, Partial<VoxelCoverInput>]> = [[0, 1, {}], [2, 0, {}], [3, 2, {}], [0, 1, { rows: [1, 1] }], [0, 0, { clear: propClearances([cart]) }]];
+    for (const [cx, cz, extra] of cases) {
+      const here = cover(store, cx, cz, extra);
+      expect(here.sets.length, `${cx},${cz}`).toBeGreaterThan(0);
+      // Sent as a pool job: the chunks' payloads handed over, the table and the boxes as plain data.
+      const { input: fields, transfer } = surfaceFieldsInputOf(store, cx, cz, 0, 1);
+      const input: VoxelCoverInput = { fields, table: TABLE, ...extra };
+      const o = await pool.submit<VoxelCoverOutput>({ id: ++jobId, kind: VOXEL_COVER_JOB, lane: 'edit', distance: 0, input, transfer });
+      expect(o.status, `${cx},${cz}`).toBe('done');
+      if (o.status !== 'done') continue;
+      expectSame(o.output, here, `worker ${cx},${cz} ${JSON.stringify(Object.keys(extra))}`);
+    }
+  });
+
+  it('a browser build of a worker that serves the cover job holds no Node built-in and passes the export scan', async () => {
+    const built = await esbuild.build({
+      stdin: { contents: "import { serveJobs } from '@thirdlight/voxel';\nimport { voxelCoverJobHandlers } from '@thirdlight/project-model';\nserveJobs(self, voxelCoverJobHandlers({ decompress: (b) => b }));\n", resolveDir: join(REPO, 'tools', 'voxel-bench'), loader: 'ts' },
+      bundle: true,
+      platform: 'browser',
+      format: 'esm',
+      target: 'es2022',
+      minify: true,
+      write: false,
+      logLevel: 'warning',
+    });
+    const bytes = built.outputFiles[0]!.contents;
+    const scan = scanExportFiles([{ name: 'voxel-cover-worker.js', bytes }], { authoringOrigin: '', previewOrigin: '', tokenValues: [] }, 'js/main.js', { version: '', integrity: null }, null);
+    expect(scan.hits).toEqual([]);
+    expect(scan.ok).toBe(true);
+    console.log(`[voxel cover] a worker serving the cover job alone: ${bytes.length} bytes minified`);
+  });
+});

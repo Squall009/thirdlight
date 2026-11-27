@@ -8,13 +8,19 @@
  * Two extra kinds exist for the pool's own tests and nothing else:
  * `test-sleep` (answers after `ms`, with its input) and `test-crash` (ends
  * the worker with an uncaught error).
+ *
+ * The cover job (project-model's: a chunk's ground cover points from its
+ * cells and its materials' dressings) is served beside the stream jobs, as
+ * a worker entry that makes cover serves it.
  */
 import { parentPort } from 'node:worker_threads';
+import { voxelCoverJobHandlers } from '@thirdlight/project-model';
 import { serveJobs, streamJobHandlers, type JobEndpoint } from '@thirdlight/voxel';
 import { decompress } from 'fzstd';
 
 const handlers = {
   ...streamJobHandlers({ decompress: (b) => decompress(b) }),
+  ...voxelCoverJobHandlers({ decompress: (b) => decompress(b) }),
   'test-sleep': async (input: unknown) => {
     const { ms, buf } = input as { ms: number; buf?: ArrayBuffer };
     await new Promise((r) => setTimeout(r, ms));
